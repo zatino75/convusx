@@ -1,1 +1,196 @@
-AI ORCHESTRA는 아래 모델/툴을 연결해 AI 채팅 / AI문서 / AI리서치 / AI코딩 / AI개발 / AI디자인 / AI이미지 / AI콘텐츠 / 데이터 분석 / 법률 검토 / 상품 개발 / 기업 재무정보 / 심층 연구를 수행하는 역할 기반 멀티-AI 워크스페이스를 만든다. 연결 대상 - OpenAI GPT-5.4 - Claude Sonnet 4.6 - Gemini 3.1 Pro - Perplexity Pro - Midjourney - Gemini Imagen 4 - Gemini Veo 3.1 - Runway Gen4 Turbo - Slides Creator [확정 핵심 구조 - 현 상태 반영] User │ Planner │ Execution Engine │ Adaptive Router │ Parallel Router / Provider Selection │ ├ OpenAI ├ Claude ├ Gemini ├ Perplexity │ Claims Engine │ Conflict Detector │ Judge │ Final Answer [현재 agent 전략 - 현 상태 반영] 중요 원칙 - 기본 상시 agent는 최소화 - 조건부 agent 호출 구조로 간다 - agent를 많이 만드는 것보다 routing intelligence / benchmark / scoreboard / selection policy가 우선 - 모델 다층화보다 provider 선택 지능과 verifier 조건 설계가 먼저다 1. OpenAI - 역할 - orchestration 중심 - reasoning / research 중심 - verifier / final synthesis / contract 정리 - final review 성격의 정리층 - 현재 운영 원칙 - 주력 축 - dialogue / reasoning / research primary 축 - final review / contract / decision 정리층 - 현재 모델 운영 - dialogue 기본: gpt-5.4 - reasoning 기본: gpt-5.4 - research 기본: gpt-5.4 - code 전용: gpt-5.3-codex - 중요 - reasoning / research에서 gpt-5.4-pro를 상시 기본으로 쓰지 않음 - pro는 조건부 승격만 허용 2. Claude - 역할 - code primary 비교축 - debugging / refactor / review 특화 - 향후 agent 후보 - code implementer - code reviewer - debug investigator - refactor architect - frontend ui guardian - 현재 판단 - router intelligence > score 반영 > optional call 정책 정리가 우선 - Claude agent 다층화는 dynamic router / optional policy 안정화 후 3. Gemini - 역할 - diff analyzer - long-context summarizer - multimodal ui analyzer - verifier / research 보조 - 현재 판단 - 설계상 유효 - runtime 보조축으로 사용 가능 - primary 핵심축으로 밀지 말고 scoreboard router 이후 확대 4. Perplexity - 역할 - research scout - fact-check - 최신 정보 확인 - 현재 판단 - research 축에서 유효 - 정식 adaptive routing 조건 정리 후 확대 [핵심 목표 - 현 상태 반영] - 대화 중심 / 구조화 지식 중심 / 정보 중심 / 결과물 중심 4가지를 동시에 만족 - ChatGPT 5.4 / Claude 4.6 / Gemini 3.1 Pro / Perplexity Pro 단독 사용보다 명확히 우수해야 함 - 단순 병렬 호출이 아니라 Planner + Execution + Adaptive Router + Claims / Conflicts / Decisions 기반 구조로 운영 - 단일 모델 vs 오케스트라 비교를 동일 테스트셋 / 동일 계약 / 동일 로깅 구조 기준으로 정량 증명 - 왜 이 답이 선택됐는지 구조적으로 추적 가능해야 함 - winner selection / evidence / conflict / verifier / final synthesis 분리 유지 - final answer는 user-facing text와 internal rationale를 분리 유지 [UI 설계 원칙 - 최우선 고정] - UI는 ChatGPT와 100% 동일하게 설계·운영 - 입력창 / 대화창 / 사이드바 포함해서 ChatGPT UX/UI와 최대한 동일하게 유지 - 단, 더 나은 개선안은 제안 가능 - 기본 원칙은 “ChatGPT와 최대한 동일” - 스타일은 구오케스트라 UI 자산을 많이 참고 - 특히 App / ChatView / Sidebar / Topbar / styles / projects / threads / dashboard를 적극 참고 - 다만 최상위 기준은 여전히 ChatGPT와 최대한 동일 [스레드 융합 / 지식 자산 요구] - 프로젝트 내 여러 스레드의 대화 / 결과물 / 결론 / 표 / 코드 / 리서치가 자동 상호 교환·융합되어야 함 - 유저가 “OOOO 스레드 참고” 같은 지시를 해도 자동 처리되어야 함 - 수동 지정 절대 불가 - 지식융합/자산 버튼 삭제 예정 - 장기적으로 thread-level memory / project-level structured memory 필요 - 향후 구조는 수동 참조 UI가 아니라 자동 스레드 융합 로직 기반이어야 함 [구조 검증용 통합 실행 계획 - 현 상태 반영] 우선 아래 4개 provider를 기준으로 단일 모델 대비 구조적 우수성을 scoreboard로 증명한다. - OpenAI GPT-5.4 계열 - Claude Sonnet 4.6 계열 - Gemini 3.1 Pro 계열 - Perplexity Pro 계열 기본 방향 - 기본 장착 모델에서 자동 계단식 승격 가능 구조 - 단, OpenAI는 현재 기본 5.4, code는 5.3-codex - OpenAI Pro는 상시 기본이 아니라 조건부 승격만 허용 [현재 실제 검증 초점 - 현 상태 반영] - dialogue - reasoning - research - code [Task별 라우팅 방향 - 현 상태 반영] 현재 방향은 고정 provider 선택이 아니라 task-aware provider/model routing 기반이다. 단, primary 정책은 아래 우선순위를 유지한다. - dialogue - OpenAI primary - Claude 비교축 가능 - reasoning - OpenAI primary - Claude / Gemini verifier 또는 optional - research - OpenAI primary - Gemini / Claude verifier 또는 optional - Perplexity는 research scout / fact-check 보조축 - code - OpenAI gpt-5.3-codex primary - Claude verifier / review / debug 축 - 최종 목적 - task-aware provider routing + adaptive scoring + claims/conflict 기반 selection - 단, OpenAI primary 정책은 유지 [구조 검증 원칙 - 현 상태 반영] - 모델 차이는 Adapter에서만 처리 - 나머지 orchestration 로직은 공통화 - Response Contract 단일화 - Claims / Conflicts / Decisions / Derived 구조 유지 - 단일 모델 vs 오케스트라 비교는 동일 테스트셋 / 동일 계약 / 동일 로깅 구조 기준 - benchmark 결과는 quality score만이 아니라 rubric / strength / provider chain / conflict / scoreboard / usage / cost까지 같이 봐야 함 - final answer는 user-facing text와 internal rationale를 분리해야 함
+지금부터 AI ORCHESTRA 다음 단계 작업을 이어간다.
+
+[프로젝트 최종 목표]
+AI ORCHESTRA는 아래 모델/툴을 연결해 AI 채팅 / AI문서 / AI리서치 / AI코딩 / AI개발 / AI디자인 / AI이미지 / AI콘텐츠 / 데이터 분석 / 법률 검토 / 상품 개발 / 기업 재무정보 / 심층 연구를 수행하는 역할 기반 멀티-AI 워크스페이스를 만든다.
+
+연결 대상
+- OpenAI GPT-5.4
+- Claude Sonnet 4.6
+- Gemini 3.1 Pro
+- Perplexity Pro
+- Midjourney
+- Gemini Imagen 4
+- Gemini Veo 3.1
+- Runway Gen4 Turbo
+- Slides Creator
+
+[확정 핵심 구조 - 현 상태 반영]
+User
+│
+Planner
+│
+Execution Engine
+│
+Adaptive Router
+│
+Parallel Router / Provider Selection
+│
+├ OpenAI
+├ Claude
+├ Gemini
+├ Perplexity
+│
+Claims Engine
+│
+Conflict Detector
+│
+Judge
+│
+Final Answer
+
+[현재 agent 전략 - 현 상태 반영]
+중요 원칙
+- 기본 상시 agent는 최소화
+- 조건부 agent 호출 구조로 간다
+- agent를 많이 만드는 것보다 routing intelligence / benchmark / scoreboard / selection policy가 우선
+- 모델 다층화보다 provider 선택 지능과 verifier 조건 설계가 먼저다
+
+1. OpenAI
+- 역할
+  - orchestration 중심
+  - reasoning / research 중심
+  - verifier / final synthesis / contract 정리
+  - final review 성격의 정리층
+- 현재 운영 원칙
+  - 주력 축
+  - dialogue / reasoning / research primary 축
+  - final review / contract / decision 정리층
+- 현재 모델 운영
+  - dialogue 기본: gpt-5.4
+  - reasoning 기본: gpt-5.4
+  - research 기본: gpt-5.4
+  - code 전용: gpt-5.3-codex
+- 중요
+  - reasoning / research에서 gpt-5.4-pro를 상시 기본으로 쓰지 않음
+  - pro는 조건부 승격만 허용
+
+2. Claude
+- 역할
+  - code primary 비교축
+  - debugging / refactor / review 특화
+- 향후 agent 후보
+  - code implementer
+  - code reviewer
+  - debug investigator
+  - refactor architect
+  - frontend ui guardian
+- 현재 판단
+  - router intelligence > score 반영 > optional call 정책 정리가 우선
+  - Claude agent 다층화는 dynamic router / optional policy 안정화 후
+
+3. Gemini
+- 역할
+  - diff analyzer
+  - long-context summarizer
+  - multimodal ui analyzer
+  - verifier / research 보조
+- 현재 판단
+  - 설계상 유효
+  - runtime 보조축으로 사용 가능
+  - primary 핵심축으로 밀지 말고 scoreboard router 이후 확대
+
+4. Perplexity
+- 역할
+  - research scout
+  - fact-check
+  - 최신 정보 확인
+- 현재 판단
+  - research 축에서 유효
+  - 정식 adaptive routing 조건 정리 후 확대
+
+[핵심 목표 - 현 상태 반영]
+- 대화 중심 / 구조화 지식 중심 / 정보 중심 / 결과물 중심 4가지를 동시에 만족
+- ChatGPT 5.4 / Claude 4.6 / Gemini 3.1 Pro / Perplexity Pro 단독 사용보다 명확히 우수해야 함
+- 단순 병렬 호출이 아니라 Planner + Execution + Adaptive Router + Claims / Conflicts / Decisions 기반 구조로 운영
+- 단일 모델 vs 오케스트라 비교를 동일 테스트셋 / 동일 계약 / 동일 로깅 구조 기준으로 정량 증명
+- 왜 이 답이 선택됐는지 구조적으로 추적 가능해야 함
+- winner selection / evidence / conflict / verifier / final synthesis 분리 유지
+- final answer는 user-facing text와 internal rationale를 분리 유지
+
+[UI 설계 원칙 - 최우선 고정]
+- UI는 ChatGPT와 100% 동일하게 설계·운영
+- 입력창 / 대화창 / 사이드바 포함해서 ChatGPT UX/UI와 최대한 동일하게 유지
+- 단, 더 나은 개선안은 제안 가능
+- 기본 원칙은 “ChatGPT와 최대한 동일”
+- 스타일은 구오케스트라 UI 자산을 많이 참고
+- 특히 App / ChatView / Sidebar / Topbar / styles / projects / threads / dashboard를 적극 참고
+- 다만 최상위 기준은 여전히 ChatGPT와 최대한 동일
+
+[스레드 융합 / 지식 자산 요구]
+- 프로젝트 내 여러 스레드의 대화 / 결과물 / 결론 / 표 / 코드 / 리서치가 자동 상호 교환·융합되어야 함
+- 유저가 “OOOO 스레드 참고” 같은 지시를 해도 자동 처리되어야 함
+- 수동 지정 절대 불가
+- 지식융합/자산 버튼 삭제 예정
+- 장기적으로 thread-level memory / project-level structured memory 필요
+- 향후 구조는 수동 참조 UI가 아니라 자동 스레드 융합 로직 기반이어야 함
+
+[구조 검증용 통합 실행 계획 - 현 상태 반영]
+우선 아래 4개 provider를 기준으로 단일 모델 대비 구조적 우수성을 scoreboard로 증명한다.
+- OpenAI GPT-5.4 계열
+- Claude Sonnet 4.6 계열
+- Gemini 3.1 Pro 계열
+- Perplexity Pro 계열
+
+기본 방향
+- 기본 장착 모델에서 자동 계단식 승격 가능 구조
+- 단, OpenAI는 현재 기본 5.4, code는 5.3-codex
+- OpenAI Pro는 상시 기본이 아니라 조건부 승격만 허용
+
+[현재 실제 검증 초점 - 현 상태 반영]
+- dialogue
+- reasoning
+- research
+- code
+
+[Task별 라우팅 방향 - 현 상태 반영]
+현재 방향은 고정 provider 선택이 아니라 task-aware provider/model routing 기반이다.
+단, primary 정책은 아래 우선순위를 유지한다.
+
+- dialogue
+  - OpenAI primary
+  - Claude 비교축 가능
+- reasoning
+  - OpenAI primary
+  - Claude / Gemini verifier 또는 optional
+- research
+  - OpenAI primary
+  - Gemini / Claude verifier 또는 optional
+  - Perplexity는 research scout / fact-check 보조축
+- code
+  - OpenAI gpt-5.3-codex primary
+  - Claude verifier / review / debug 축
+- 최종 목적
+  - task-aware provider routing + adaptive scoring + claims/conflict 기반 selection
+  - 단, OpenAI primary 정책은 유지
+
+[구조 검증 원칙 - 현 상태 반영]
+- 모델 차이는 Adapter에서만 처리
+- 나머지 orchestration 로직은 공통화
+- Response Contract 단일화
+- Claims / Conflicts / Decisions / Derived 구조 유지
+- 단일 모델 vs 오케스트라 비교는 동일 테스트셋 / 동일 계약 / 동일 로깅 구조 기준
+- benchmark 결과는 quality score만이 아니라 rubric / strength / provider chain / conflict / scoreboard / usage / cost까지 같이 봐야 함
+- final answer는 user-facing text와 internal rationale를 분리해야 함
+
+[개발 운영 원칙 - 절대 준수]
+1. PowerShell 7 기준
+2. 코드 제공은 항상 PowerShell 전체 덮어쓰기 스크립트 형태만
+3. TypeScript 코드 블록 직접 제시 금지
+4. 백업파일 / 스냅샷 / 임시복제본 생성 금지
+5. 설명 최소
+6. Write-Host 금지
+7. 테스트 / 검증은 별도 실행 블록으로 제공
+8. 파일 덮어쓰기/전체복붙 원칙
+   - Write-AtomicUtf8 사용 금지
+   - 부분 패치 절대 금지
+9. 수정 전 상태 체크
+   - 반드시 수정할 파일 경로와 파일명 먼저 제시
+   - 최근 파일 원문 체크 후 수정
+10. 포트 고정
+   - backend 8000
+   - front 5173
+11. 연결된 파일들을 한꺼번에 같이 수정
+12. 여러 수정 포인트를 먼저 체크한 뒤 한 번에 한꺼번에 수정
+13. 쓸데없는 파일 / 폴더 / 복사본 절대 만들지 말 것
+14. dist 폴더 만들지 말 것
+
