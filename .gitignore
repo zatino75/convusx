@@ -3,8 +3,11 @@ node_modules/
 .env.local
 
 _cleanup_report/
+benchmark/
+benchmark/results/
 benchmark-output.json
 benchmark-route-output.json
+
 gemini-models-all.json
 gemini-models-generateContent.json
 
