@@ -1,0 +1,908 @@
+{
+  "ok": true,
+  "mode": "quick",
+  "case_count": 1,
+  "single_runs": [
+    {
+      "case_id": "dialogue_basic_1",
+      "mode": "single_model_openai",
+      "label": "dialogue",
+      "raw_result": {
+        "planner_plan": {
+          "planner_version": "v2",
+          "task": "dialogue",
+          "mode": "single_model",
+          "goal": "브랜드 차별화 전략을 간단히 설명해 주세요.",
+          "input_text": "브랜드 차별화 전략을 간단히 설명해 주세요.",
+          "steps": [
+            {
+              "id": "step_1",
+              "type": "dialogue",
+              "title": "dialogue",
+              "goal": "dialogue",
+              "prompt": "브랜드 차별화 전략을 간단히 설명해 주세요.",
+              "candidates": [
+                {
+                  "provider": "openai"
+                }
+              ],
+              "candidate_runs": [
+                {
+                  "provider": "openai"
+                }
+              ],
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "브랜드 차별화 전략을 간단히 설명해 주세요."
+                }
+              ]
+            }
+          ],
+          "metadata": {
+            "source": "planner.ts"
+          }
+        },
+        "winner_provider": "openai",
+        "output": {
+          "answer_text": "브랜드 차별화 전략은 **“왜 고객이 우리를 선택해야 하는가”를 경쟁사와 다르게 설계하는 것**입니다. 핵심은 단순히 다르기보다, **고객에게 의미 있는 차이**를 만드는 데 있습니다.\n\n### 핵심 요소\n1. **타깃 고객 명확화**  \n   누구를 위한 브랜드인지 분명해야 합니다.  \n   예: “모든 사람”이 아니라 “시간이 부족한 30대 직장인”\n\n2. **경쟁사 대비 차별 포인트 정의**  \n   가격, 품질, 디자인, 서비스, 전문성, 브랜드 철학 등에서  \n   경쟁사와 다른 강점을 정합니다.\n\n3. **고객 가치로 번역**  \n   차별점은 기능이 아니라 **고객 혜택**으로 전달되어야 합니다.  \n   예: “AI 기능 탑재” → “업무 시간을 절반으로 줄여줌”\n\n4. **일관된 브랜드 경험 제공**  \n   광고 문구만 다르면 안 되고, 제품, 고객응대, 웹사이트, 패키지까지  \n   같은 메시지를 줘야 합니다.\n\n### 대표적인 차별화 방식\n- **가격 차별화**: 더 저렴하거나, 프리미엄 가격에 맞는 높은 가치 제공\n- **제품 차별화**: 성능, 품질, 디자인, 기술\n- **서비스 차별화**: 빠른 배송, 친절한 상담, 맞춤형 지원\n- **브랜드 이미지 차별화**: 감성, 철학, 라이프스타일 제안\n- **특정 고객군 집중**: 니치 시장 공략\n\n### 한 줄로 정리\n**브랜드 차별화 전략은 경쟁사와 다른 강점을 고객이 체감할 수 있는 가치로 만들고, 이를 일관되게 전달하는 전략입니다.**\n\n원하시면 제가 이어서  \n**“브랜드 차별화 전략 3단계 실무 프레임워크”**로도 정리해드릴게요."
+        },
+        "scoreboard": [
+          {
+            "provider": "openai",
+            "score": 2.4475000000000002,
+            "latency": 6325,
+            "ok": true,
+            "provider_conflicts": [],
+            "verifier_signal": "none",
+            "verifier_recommendation": null,
+            "primary_recommendation": null,
+            "score_breakdown": {
+              "router_rank": 1.08,
+              "success_score": 1,
+              "health_score": 1,
+              "recent_win_score": 0,
+              "latency_penalty": 0.6325,
+              "task_success_rate_bonus": 0,
+              "task_win_rate_bonus": 0,
+              "task_latency_bonus": 0,
+              "task_avg_score_bonus": 0,
+              "adaptive_task_bonus": 0,
+              "base_score": 2.4475000000000002,
+              "claim_density_bonus": 0,
+              "evidence_strength_bonus": 0,
+              "claims_bonus_total": 0,
+              "provider_conflict_penalty": 0,
+              "global_conflict_penalty": 0,
+              "verifier_agreement_bonus": 0,
+              "verifier_disagreement_penalty": 0,
+              "conflict_penalty": 0,
+              "final_score": 2.4475000000000002
+            }
+          }
+        ],
+        "provider_chain": [
+          "openai"
+        ],
+        "claims": [
+          {
+            "id": "openai_claim_0",
+            "provider": "openai",
+            "type": "fact",
+            "text": "브랜드 차별화 전략은 **“왜 고객이 우리를 선택해야 하는가”를 경쟁사와 다르게 설계하는 것**입니다"
+          },
+          {
+            "id": "openai_claim_1",
+            "provider": "openai",
+            "type": "fact",
+            "text": "핵심은 단순히 다르기보다, **고객에게 의미 있는 차이**를 만드는 데 있습니다"
+          },
+          {
+            "id": "openai_claim_2",
+            "provider": "openai",
+            "type": "fact",
+            "text": "### 핵심 요소"
+          },
+          {
+            "id": "openai_claim_3",
+            "provider": "openai",
+            "type": "numeric",
+            "text": "1"
+          },
+          {
+            "id": "openai_claim_4",
+            "provider": "openai",
+            "type": "fact",
+            "text": "**타깃 고객 명확화**"
+          },
+          {
+            "id": "openai_claim_5",
+            "provider": "openai",
+            "type": "fact",
+            "text": "누구를 위한 브랜드인지 분명해야 합니다"
+          },
+          {
+            "id": "openai_claim_6",
+            "provider": "openai",
+            "type": "numeric",
+            "text": "예: “모든 사람”이 아니라 “시간이 부족한 30대 직장인”"
+          },
+          {
+            "id": "openai_claim_7",
+            "provider": "openai",
+            "type": "numeric",
+            "text": "2"
+          },
+          {
+            "id": "openai_claim_8",
+            "provider": "openai",
+            "type": "fact",
+            "text": "**경쟁사 대비 차별 포인트 정의**"
+          },
+          {
+            "id": "openai_claim_9",
+            "provider": "openai",
+            "type": "fact",
+            "text": "가격, 품질, 디자인, 서비스, 전문성, 브랜드 철학 등에서"
+          },
+          {
+            "id": "openai_claim_10",
+            "provider": "openai",
+            "type": "fact",
+            "text": "경쟁사와 다른 강점을 정합니다"
+          },
+          {
+            "id": "openai_claim_11",
+            "provider": "openai",
+            "type": "numeric",
+            "text": "3"
+          },
+          {
+            "id": "openai_claim_12",
+            "provider": "openai",
+            "type": "fact",
+            "text": "**고객 가치로 번역**"
+          },
+          {
+            "id": "openai_claim_13",
+            "provider": "openai",
+            "type": "fact",
+            "text": "차별점은 기능이 아니라 **고객 혜택**으로 전달되어야 합니다"
+          },
+          {
+            "id": "openai_claim_14",
+            "provider": "openai",
+            "type": "fact",
+            "text": "예: “AI 기능 탑재” → “업무 시간을 절반으로 줄여줌”"
+          },
+          {
+            "id": "openai_claim_15",
+            "provider": "openai",
+            "type": "numeric",
+            "text": "4"
+          },
+          {
+            "id": "openai_claim_16",
+            "provider": "openai",
+            "type": "fact",
+            "text": "**일관된 브랜드 경험 제공**"
+          },
+          {
+            "id": "openai_claim_17",
+            "provider": "openai",
+            "type": "fact",
+            "text": "광고 문구만 다르면 안 되고, 제품, 고객응대, 웹사이트, 패키지까지"
+          },
+          {
+            "id": "openai_claim_18",
+            "provider": "openai",
+            "type": "fact",
+            "text": "같은 메시지를 줘야 합니다"
+          },
+          {
+            "id": "openai_claim_19",
+            "provider": "openai",
+            "type": "fact",
+            "text": "### 대표적인 차별화 방식"
+          },
+          {
+            "id": "openai_claim_20",
+            "provider": "openai",
+            "type": "fact",
+            "text": "- **가격 차별화**: 더 저렴하거나, 프리미엄 가격에 맞는 높은 가치 제공"
+          },
+          {
+            "id": "openai_claim_21",
+            "provider": "openai",
+            "type": "fact",
+            "text": "- **제품 차별화**: 성능, 품질, 디자인, 기술"
+          },
+          {
+            "id": "openai_claim_22",
+            "provider": "openai",
+            "type": "fact",
+            "text": "- **서비스 차별화**: 빠른 배송, 친절한 상담, 맞춤형 지원"
+          },
+          {
+            "id": "openai_claim_23",
+            "provider": "openai",
+            "type": "fact",
+            "text": "- **브랜드 이미지 차별화**: 감성, 철학, 라이프스타일 제안"
+          },
+          {
+            "id": "openai_claim_24",
+            "provider": "openai",
+            "type": "fact",
+            "text": "- **특정 고객군 집중**: 니치 시장 공략"
+          },
+          {
+            "id": "openai_claim_25",
+            "provider": "openai",
+            "type": "fact",
+            "text": "### 한 줄로 정리"
+          },
+          {
+            "id": "openai_claim_26",
+            "provider": "openai",
+            "type": "fact",
+            "text": "**브랜드 차별화 전략은 경쟁사와 다른 강점을 고객이 체감할 수 있는 가치로 만들고, 이를 일관되게 전달하는 전략입니다"
+          },
+          {
+            "id": "openai_claim_27",
+            "provider": "openai",
+            "type": "fact",
+            "text": "**"
+          },
+          {
+            "id": "openai_claim_28",
+            "provider": "openai",
+            "type": "fact",
+            "text": "원하시면 제가 이어서"
+          },
+          {
+            "id": "openai_claim_29",
+            "provider": "openai",
+            "type": "numeric",
+            "text": "**“브랜드 차별화 전략 3단계 실무 프레임워크”**로도 정리해드릴게요"
+          }
+        ],
+        "claim_density": {
+          "openai": 30
+        },
+        "evidence_strength": {
+          "openai": 0.3
+        },
+        "conflicts": [],
+        "conflict_count": 0,
+        "judge_trace": {
+          "evaluated_candidates": 1,
+          "providers": [
+            "openai"
+          ],
+          "winner": "openai",
+          "task": "dialogue"
+        },
+        "decision_log": {
+          "judge_rationale": "winner selected by openai-central adaptive routing, provider scoring, verifier-aware tie-break, claims/evidence weighting, conflict handling, and optional openai final review"
+        },
+        "router_decision": {
+          "task": "dialogue",
+          "mode": "single_model",
+          "benchmark_mode": true,
+          "selected_providers": [
+            "openai"
+          ],
+          "verifier_providers": [],
+          "optional_providers": [],
+          "parallel_width": 1,
+          "conflict_risk": "low",
+          "execution_strategy": "single_primary",
+          "primary_provider": "openai",
+          "final_reviewer": null,
+          "router_policy": "single_model_forced"
+        },
+        "verification_bundle": {
+          "providers": [],
+          "results": []
+        },
+        "final_review_bundle": null,
+        "judge_bundle": {
+          "provider_chain": [
+            "openai"
+          ],
+          "scoreboard": [
+            {
+              "provider": "openai",
+              "score": 2.4475000000000002,
+              "latency": 6325,
+              "ok": true,
+              "result": {
+                "provider": "openai",
+                "ok": true,
+                "answer_text": "브랜드 차별화 전략은 **“왜 고객이 우리를 선택해야 하는가”를 경쟁사와 다르게 설계하는 것**입니다. 핵심은 단순히 다르기보다, **고객에게 의미 있는 차이**를 만드는 데 있습니다.\n\n### 핵심 요소\n1. **타깃 고객 명확화**  \n   누구를 위한 브랜드인지 분명해야 합니다.  \n   예: “모든 사람”이 아니라 “시간이 부족한 30대 직장인”\n\n2. **경쟁사 대비 차별 포인트 정의**  \n   가격, 품질, 디자인, 서비스, 전문성, 브랜드 철학 등에서  \n   경쟁사와 다른 강점을 정합니다.\n\n3. **고객 가치로 번역**  \n   차별점은 기능이 아니라 **고객 혜택**으로 전달되어야 합니다.  \n   예: “AI 기능 탑재” → “업무 시간을 절반으로 줄여줌”\n\n4. **일관된 브랜드 경험 제공**  \n   광고 문구만 다르면 안 되고, 제품, 고객응대, 웹사이트, 패키지까지  \n   같은 메시지를 줘야 합니다.\n\n### 대표적인 차별화 방식\n- **가격 차별화**: 더 저렴하거나, 프리미엄 가격에 맞는 높은 가치 제공\n- **제품 차별화**: 성능, 품질, 디자인, 기술\n- **서비스 차별화**: 빠른 배송, 친절한 상담, 맞춤형 지원\n- **브랜드 이미지 차별화**: 감성, 철학, 라이프스타일 제안\n- **특정 고객군 집중**: 니치 시장 공략\n\n### 한 줄로 정리\n**브랜드 차별화 전략은 경쟁사와 다른 강점을 고객이 체감할 수 있는 가치로 만들고, 이를 일관되게 전달하는 전략입니다.**\n\n원하시면 제가 이어서  \n**“브랜드 차별화 전략 3단계 실무 프레임워크”**로도 정리해드릴게요.",
+                "error_code": null,
+                "text": "브랜드 차별화 전략은 **“왜 고객이 우리를 선택해야 하는가”를 경쟁사와 다르게 설계하는 것**입니다. 핵심은 단순히 다르기보다, **고객에게 의미 있는 차이**를 만드는 데 있습니다.\n\n### 핵심 요소\n1. **타깃 고객 명확화**  \n   누구를 위한 브랜드인지 분명해야 합니다.  \n   예: “모든 사람”이 아니라 “시간이 부족한 30대 직장인”\n\n2. **경쟁사 대비 차별 포인트 정의**  \n   가격, 품질, 디자인, 서비스, 전문성, 브랜드 철학 등에서  \n   경쟁사와 다른 강점을 정합니다.\n\n3. **고객 가치로 번역**  \n   차별점은 기능이 아니라 **고객 혜택**으로 전달되어야 합니다.  \n   예: “AI 기능 탑재” → “업무 시간을 절반으로 줄여줌”\n\n4. **일관된 브랜드 경험 제공**  \n   광고 문구만 다르면 안 되고, 제품, 고객응대, 웹사이트, 패키지까지  \n   같은 메시지를 줘야 합니다.\n\n### 대표적인 차별화 방식\n- **가격 차별화**: 더 저렴하거나, 프리미엄 가격에 맞는 높은 가치 제공\n- **제품 차별화**: 성능, 품질, 디자인, 기술\n- **서비스 차별화**: 빠른 배송, 친절한 상담, 맞춤형 지원\n- **브랜드 이미지 차별화**: 감성, 철학, 라이프스타일 제안\n- **특정 고객군 집중**: 니치 시장 공략\n\n### 한 줄로 정리\n**브랜드 차별화 전략은 경쟁사와 다른 강점을 고객이 체감할 수 있는 가치로 만들고, 이를 일관되게 전달하는 전략입니다.**\n\n원하시면 제가 이어서  \n**“브랜드 차별화 전략 3단계 실무 프레임워크”**로도 정리해드릴게요.",
+                "step_type": "dialogue",
+                "mode": "runtime_orchestra",
+                "adapter_used": "real",
+                "raw": {
+                  "provider": "openai",
+                  "model": "gpt-5.4",
+                  "answer": "브랜드 차별화 전략은 **“왜 고객이 우리를 선택해야 하는가”를 경쟁사와 다르게 설계하는 것**입니다. 핵심은 단순히 다르기보다, **고객에게 의미 있는 차이**를 만드는 데 있습니다.\n\n### 핵심 요소\n1. **타깃 고객 명확화**  \n   누구를 위한 브랜드인지 분명해야 합니다.  \n   예: “모든 사람”이 아니라 “시간이 부족한 30대 직장인”\n\n2. **경쟁사 대비 차별 포인트 정의**  \n   가격, 품질, 디자인, 서비스, 전문성, 브랜드 철학 등에서  \n   경쟁사와 다른 강점을 정합니다.\n\n3. **고객 가치로 번역**  \n   차별점은 기능이 아니라 **고객 혜택**으로 전달되어야 합니다.  \n   예: “AI 기능 탑재” → “업무 시간을 절반으로 줄여줌”\n\n4. **일관된 브랜드 경험 제공**  \n   광고 문구만 다르면 안 되고, 제품, 고객응대, 웹사이트, 패키지까지  \n   같은 메시지를 줘야 합니다.\n\n### 대표적인 차별화 방식\n- **가격 차별화**: 더 저렴하거나, 프리미엄 가격에 맞는 높은 가치 제공\n- **제품 차별화**: 성능, 품질, 디자인, 기술\n- **서비스 차별화**: 빠른 배송, 친절한 상담, 맞춤형 지원\n- **브랜드 이미지 차별화**: 감성, 철학, 라이프스타일 제안\n- **특정 고객군 집중**: 니치 시장 공략\n\n### 한 줄로 정리\n**브랜드 차별화 전략은 경쟁사와 다른 강점을 고객이 체감할 수 있는 가치로 만들고, 이를 일관되게 전달하는 전략입니다.**\n\n원하시면 제가 이어서  \n**“브랜드 차별화 전략 3단계 실무 프레임워크”**로도 정리해드릴게요.",
+                  "usage": {
+                    "input_tokens": 58,
+                    "input_tokens_details": {
+                      "cached_tokens": 0
+                    },
+                    "output_tokens": 447,
+                    "output_tokens_details": {
+                      "reasoning_tokens": 0
+                    },
+                    "total_tokens": 505
+                  },
+                  "attempts": []
+                }
+              },
+              "provider_conflicts": [],
+              "verifier_signal": "none",
+              "verifier_recommendation": null,
+              "primary_recommendation": null,
+              "score_breakdown": {
+                "router_rank": 1.08,
+                "success_score": 1,
+                "health_score": 1,
+                "recent_win_score": 0,
+                "latency_penalty": 0.6325,
+                "task_success_rate_bonus": 0,
+                "task_win_rate_bonus": 0,
+                "task_latency_bonus": 0,
+                "task_avg_score_bonus": 0,
+                "adaptive_task_bonus": 0,
+                "base_score": 2.4475000000000002,
+                "claim_density_bonus": 0,
+                "evidence_strength_bonus": 0,
+                "claims_bonus_total": 0,
+                "provider_conflict_penalty": 0,
+                "global_conflict_penalty": 0,
+                "verifier_agreement_bonus": 0,
+                "verifier_disagreement_penalty": 0,
+                "conflict_penalty": 0,
+                "final_score": 2.4475000000000002
+              }
+            }
+          ],
+          "winner_provider": "openai",
+          "judge_trace": {
+            "evaluated_candidates": 1,
+            "providers": [
+              "openai"
+            ],
+            "winner": "openai",
+            "task": "dialogue"
+          },
+          "decision_log": {
+            "judge_rationale": "winner selected by openai-central adaptive routing, provider scoring, verifier-aware tie-break, claims/evidence weighting, conflict handling, and optional openai final review"
+          },
+          "claims": [
+            {
+              "id": "openai_claim_0",
+              "provider": "openai",
+              "type": "fact",
+              "text": "브랜드 차별화 전략은 **“왜 고객이 우리를 선택해야 하는가”를 경쟁사와 다르게 설계하는 것**입니다"
+            },
+            {
+              "id": "openai_claim_1",
+              "provider": "openai",
+              "type": "fact",
+              "text": "핵심은 단순히 다르기보다, **고객에게 의미 있는 차이**를 만드는 데 있습니다"
+            },
+            {
+              "id": "openai_claim_2",
+              "provider": "openai",
+              "type": "fact",
+              "text": "### 핵심 요소"
+            },
+            {
+              "id": "openai_claim_3",
+              "provider": "openai",
+              "type": "numeric",
+              "text": "1"
+            },
+            {
+              "id": "openai_claim_4",
+              "provider": "openai",
+              "type": "fact",
+              "text": "**타깃 고객 명확화**"
+            },
+            {
+              "id": "openai_claim_5",
+              "provider": "openai",
+              "type": "fact",
+              "text": "누구를 위한 브랜드인지 분명해야 합니다"
+            },
+            {
+              "id": "openai_claim_6",
+              "provider": "openai",
+              "type": "numeric",
+              "text": "예: “모든 사람”이 아니라 “시간이 부족한 30대 직장인”"
+            },
+            {
+              "id": "openai_claim_7",
+              "provider": "openai",
+              "type": "numeric",
+              "text": "2"
+            },
+            {
+              "id": "openai_claim_8",
+              "provider": "openai",
+              "type": "fact",
+              "text": "**경쟁사 대비 차별 포인트 정의**"
+            },
+            {
+              "id": "openai_claim_9",
+              "provider": "openai",
+              "type": "fact",
+              "text": "가격, 품질, 디자인, 서비스, 전문성, 브랜드 철학 등에서"
+            },
+            {
+              "id": "openai_claim_10",
+              "provider": "openai",
+              "type": "fact",
+              "text": "경쟁사와 다른 강점을 정합니다"
+            },
+            {
+              "id": "openai_claim_11",
+              "provider": "openai",
+              "type": "numeric",
+              "text": "3"
+            },
+            {
+              "id": "openai_claim_12",
+              "provider": "openai",
+              "type": "fact",
+              "text": "**고객 가치로 번역**"
+            },
+            {
+              "id": "openai_claim_13",
+              "provider": "openai",
+              "type": "fact",
+              "text": "차별점은 기능이 아니라 **고객 혜택**으로 전달되어야 합니다"
+            },
+            {
+              "id": "openai_claim_14",
+              "provider": "openai",
+              "type": "fact",
+              "text": "예: “AI 기능 탑재” → “업무 시간을 절반으로 줄여줌”"
+            },
+            {
+              "id": "openai_claim_15",
+              "provider": "openai",
+              "type": "numeric",
+              "text": "4"
+            },
+            {
+              "id": "openai_claim_16",
+              "provider": "openai",
+              "type": "fact",
+              "text": "**일관된 브랜드 경험 제공**"
+            },
+            {
+              "id": "openai_claim_17",
+              "provider": "openai",
+              "type": "fact",
+              "text": "광고 문구만 다르면 안 되고, 제품, 고객응대, 웹사이트, 패키지까지"
+            },
+            {
+              "id": "openai_claim_18",
+              "provider": "openai",
+              "type": "fact",
+              "text": "같은 메시지를 줘야 합니다"
+            },
+            {
+              "id": "openai_claim_19",
+              "provider": "openai",
+              "type": "fact",
+              "text": "### 대표적인 차별화 방식"
+            },
+            {
+              "id": "openai_claim_20",
+              "provider": "openai",
+              "type": "fact",
+              "text": "- **가격 차별화**: 더 저렴하거나, 프리미엄 가격에 맞는 높은 가치 제공"
+            },
+            {
+              "id": "openai_claim_21",
+              "provider": "openai",
+              "type": "fact",
+              "text": "- **제품 차별화**: 성능, 품질, 디자인, 기술"
+            },
+            {
+              "id": "openai_claim_22",
+              "provider": "openai",
+              "type": "fact",
+              "text": "- **서비스 차별화**: 빠른 배송, 친절한 상담, 맞춤형 지원"
+            },
+            {
+              "id": "openai_claim_23",
+              "provider": "openai",
+              "type": "fact",
+              "text": "- **브랜드 이미지 차별화**: 감성, 철학, 라이프스타일 제안"
+            },
+            {
+              "id": "openai_claim_24",
+              "provider": "openai",
+              "type": "fact",
+              "text": "- **특정 고객군 집중**: 니치 시장 공략"
+            },
+            {
+              "id": "openai_claim_25",
+              "provider": "openai",
+              "type": "fact",
+              "text": "### 한 줄로 정리"
+            },
+            {
+              "id": "openai_claim_26",
+              "provider": "openai",
+              "type": "fact",
+              "text": "**브랜드 차별화 전략은 경쟁사와 다른 강점을 고객이 체감할 수 있는 가치로 만들고, 이를 일관되게 전달하는 전략입니다"
+            },
+            {
+              "id": "openai_claim_27",
+              "provider": "openai",
+              "type": "fact",
+              "text": "**"
+            },
+            {
+              "id": "openai_claim_28",
+              "provider": "openai",
+              "type": "fact",
+              "text": "원하시면 제가 이어서"
+            },
+            {
+              "id": "openai_claim_29",
+              "provider": "openai",
+              "type": "numeric",
+              "text": "**“브랜드 차별화 전략 3단계 실무 프레임워크”**로도 정리해드릴게요"
+            }
+          ],
+          "claim_density": {
+            "openai": 30
+          },
+          "evidence_strength": {
+            "openai": 0.3
+          },
+          "conflicts": [],
+          "conflict_count": 0,
+          "verification_bundle": {
+            "providers": [],
+            "results": []
+          }
+        },
+        "final_answer": {
+          "summary": "",
+          "synthesized_answer": "브랜드 차별화 전략은 **“왜 고객이 우리를 선택해야 하는가”를 경쟁사와 다르게 설계하는 것**입니다. 핵심은 단순히 다르기보다, **고객에게 의미 있는 차이**를 만드는 데 있습니다.\n\n### 핵심 요소\n1. **타깃 고객 명확화**  \n   누구를 위한 브랜드인지 분명해야 합니다.  \n   예: “모든 사람”이 아니라 “시간이 부족한 30대 직장인”\n\n2. **경쟁사 대비 차별 포인트 정의**  \n   가격, 품질, 디자인, 서비스, 전문성, 브랜드 철학 등에서  \n   경쟁사와 다른 강점을 정합니다.\n\n3. **고객 가치로 번역**  \n   차별점은 기능이 아니라 **고객 혜택**으로 전달되어야 합니다.  \n   예: “AI 기능 탑재” → “업무 시간을 절반으로 줄여줌”\n\n4. **일관된 브랜드 경험 제공**  \n   광고 문구만 다르면 안 되고, 제품, 고객응대, 웹사이트, 패키지까지  \n   같은 메시지를 줘야 합니다.\n\n### 대표적인 차별화 방식\n- **가격 차별화**: 더 저렴하거나, 프리미엄 가격에 맞는 높은 가치 제공\n- **제품 차별화**: 성능, 품질, 디자인, 기술\n- **서비스 차별화**: 빠른 배송, 친절한 상담, 맞춤형 지원\n- **브랜드 이미지 차별화**: 감성, 철학, 라이프스타일 제안\n- **특정 고객군 집중**: 니치 시장 공략\n\n### 한 줄로 정리\n**브랜드 차별화 전략은 경쟁사와 다른 강점을 고객이 체감할 수 있는 가치로 만들고, 이를 일관되게 전달하는 전략입니다.**\n\n원하시면 제가 이어서  \n**“브랜드 차별화 전략 3단계 실무 프레임워크”**로도 정리해드릴게요.",
+          "synthesis_notes": [
+            "Selected winner: openai",
+            "Provider ranking: openai(2.45)",
+            "preserved winner output without structural rewrite"
+          ],
+          "judge_trace": {
+            "evaluated_candidates": 1,
+            "providers": [
+              "openai"
+            ],
+            "winner": "openai",
+            "task": "dialogue"
+          },
+          "decision_log": {
+            "judge_rationale": "winner selected by openai-central adaptive routing, provider scoring, verifier-aware tie-break, claims/evidence weighting, conflict handling, and optional openai final review"
+          },
+          "decision_rationale": "winner selected by openai-central adaptive routing, provider scoring, verifier-aware tie-break, claims/evidence weighting, conflict handling, and optional openai final review",
+          "winner_snapshot": {
+            "provider": "openai",
+            "score": 2.4475000000000002
+          },
+          "runner_up_snapshot": null,
+          "scoreboard_summary": [
+            {
+              "provider": "openai",
+              "score": 2.4475000000000002,
+              "latency": 6325,
+              "ok": true,
+              "provider_conflicts": [],
+              "verifier_signal": "none",
+              "verifier_recommendation": null,
+              "primary_recommendation": null,
+              "score_breakdown": {
+                "router_rank": 1.08,
+                "success_score": 1,
+                "health_score": 1,
+                "recent_win_score": 0,
+                "latency_penalty": 0.6325,
+                "task_success_rate_bonus": 0,
+                "task_win_rate_bonus": 0,
+                "task_latency_bonus": 0,
+                "task_avg_score_bonus": 0,
+                "adaptive_task_bonus": 0,
+                "base_score": 2.4475000000000002,
+                "claim_density_bonus": 0,
+                "evidence_strength_bonus": 0,
+                "claims_bonus_total": 0,
+                "provider_conflict_penalty": 0,
+                "global_conflict_penalty": 0,
+                "verifier_agreement_bonus": 0,
+                "verifier_disagreement_penalty": 0,
+                "conflict_penalty": 0,
+                "final_score": 2.4475000000000002
+              }
+            }
+          ],
+          "provider_chain": [
+            "openai"
+          ],
+          "claims": [
+            {
+              "id": "openai_claim_0",
+              "provider": "openai",
+              "type": "fact",
+              "text": "브랜드 차별화 전략은 **“왜 고객이 우리를 선택해야 하는가”를 경쟁사와 다르게 설계하는 것**입니다"
+            },
+            {
+              "id": "openai_claim_1",
+              "provider": "openai",
+              "type": "fact",
+              "text": "핵심은 단순히 다르기보다, **고객에게 의미 있는 차이**를 만드는 데 있습니다"
+            },
+            {
+              "id": "openai_claim_2",
+              "provider": "openai",
+              "type": "fact",
+              "text": "### 핵심 요소"
+            },
+            {
+              "id": "openai_claim_3",
+              "provider": "openai",
+              "type": "numeric",
+              "text": "1"
+            },
+            {
+              "id": "openai_claim_4",
+              "provider": "openai",
+              "type": "fact",
+              "text": "**타깃 고객 명확화**"
+            },
+            {
+              "id": "openai_claim_5",
+              "provider": "openai",
+              "type": "fact",
+              "text": "누구를 위한 브랜드인지 분명해야 합니다"
+            },
+            {
+              "id": "openai_claim_6",
+              "provider": "openai",
+              "type": "numeric",
+              "text": "예: “모든 사람”이 아니라 “시간이 부족한 30대 직장인”"
+            },
+            {
+              "id": "openai_claim_7",
+              "provider": "openai",
+              "type": "numeric",
+              "text": "2"
+            },
+            {
+              "id": "openai_claim_8",
+              "provider": "openai",
+              "type": "fact",
+              "text": "**경쟁사 대비 차별 포인트 정의**"
+            },
+            {
+              "id": "openai_claim_9",
+              "provider": "openai",
+              "type": "fact",
+              "text": "가격, 품질, 디자인, 서비스, 전문성, 브랜드 철학 등에서"
+            },
+            {
+              "id": "openai_claim_10",
+              "provider": "openai",
+              "type": "fact",
+              "text": "경쟁사와 다른 강점을 정합니다"
+            },
+            {
+              "id": "openai_claim_11",
+              "provider": "openai",
+              "type": "numeric",
+              "text": "3"
+            },
+            {
+              "id": "openai_claim_12",
+              "provider": "openai",
+              "type": "fact",
+              "text": "**고객 가치로 번역**"
+            },
+            {
+              "id": "openai_claim_13",
+              "provider": "openai",
+              "type": "fact",
+              "text": "차별점은 기능이 아니라 **고객 혜택**으로 전달되어야 합니다"
+            },
+            {
+              "id": "openai_claim_14",
+              "provider": "openai",
+              "type": "fact",
+              "text": "예: “AI 기능 탑재” → “업무 시간을 절반으로 줄여줌”"
+            },
+            {
+              "id": "openai_claim_15",
+              "provider": "openai",
+              "type": "numeric",
+              "text": "4"
+            },
+            {
+              "id": "openai_claim_16",
+              "provider": "openai",
+              "type": "fact",
+              "text": "**일관된 브랜드 경험 제공**"
+            },
+            {
+              "id": "openai_claim_17",
+              "provider": "openai",
+              "type": "fact",
+              "text": "광고 문구만 다르면 안 되고, 제품, 고객응대, 웹사이트, 패키지까지"
+            },
+            {
+              "id": "openai_claim_18",
+              "provider": "openai",
+              "type": "fact",
+              "text": "같은 메시지를 줘야 합니다"
+            },
+            {
+              "id": "openai_claim_19",
+              "provider": "openai",
+              "type": "fact",
+              "text": "### 대표적인 차별화 방식"
+            },
+            {
+              "id": "openai_claim_20",
+              "provider": "openai",
+              "type": "fact",
+              "text": "- **가격 차별화**: 더 저렴하거나, 프리미엄 가격에 맞는 높은 가치 제공"
+            },
+            {
+              "id": "openai_claim_21",
+              "provider": "openai",
+              "type": "fact",
+              "text": "- **제품 차별화**: 성능, 품질, 디자인, 기술"
+            },
+            {
+              "id": "openai_claim_22",
+              "provider": "openai",
+              "type": "fact",
+              "text": "- **서비스 차별화**: 빠른 배송, 친절한 상담, 맞춤형 지원"
+            },
+            {
+              "id": "openai_claim_23",
+              "provider": "openai",
+              "type": "fact",
+              "text": "- **브랜드 이미지 차별화**: 감성, 철학, 라이프스타일 제안"
+            },
+            {
+              "id": "openai_claim_24",
+              "provider": "openai",
+              "type": "fact",
+              "text": "- **특정 고객군 집중**: 니치 시장 공략"
+            },
+            {
+              "id": "openai_claim_25",
+              "provider": "openai",
+              "type": "fact",
+              "text": "### 한 줄로 정리"
+            },
+            {
+              "id": "openai_claim_26",
+              "provider": "openai",
+              "type": "fact",
+              "text": "**브랜드 차별화 전략은 경쟁사와 다른 강점을 고객이 체감할 수 있는 가치로 만들고, 이를 일관되게 전달하는 전략입니다"
+            },
+            {
+              "id": "openai_claim_27",
+              "provider": "openai",
+              "type": "fact",
+              "text": "**"
+            },
+            {
+              "id": "openai_claim_28",
+              "provider": "openai",
+              "type": "fact",
+              "text": "원하시면 제가 이어서"
+            },
+            {
+              "id": "openai_claim_29",
+              "provider": "openai",
+              "type": "numeric",
+              "text": "**“브랜드 차별화 전략 3단계 실무 프레임워크”**로도 정리해드릴게요"
+            }
+          ],
+          "claim_density": {
+            "openai": 30
+          },
+          "evidence_strength": {
+            "openai": 0.3
+          },
+          "conflicts": [],
+          "conflict_count": 0,
+          "verification_bundle": {
+            "providers": [],
+            "results": []
+          },
+          "router_decision": {
+            "task": "dialogue",
+            "mode": "single_model",
+            "benchmark_mode": true,
+            "selected_providers": [
+              "openai"
+            ],
+            "verifier_providers": [],
+            "optional_providers": [],
+            "parallel_width": 1,
+            "conflict_risk": "low",
+            "execution_strategy": "single_primary",
+            "primary_provider": "openai",
+            "final_reviewer": null,
+            "router_policy": "single_model_forced"
+          }
+        }
+      },
+      "evaluation": {
+        "quality_score": 7.4,
+        "quality_reasons": [
+          "judge_trace_present",
+          "dialogue_substance",
+          "dialogue_useful_length",
+          "dialogue_practical_fit"
+        ],
+        "text_length": 800,
+        "detected_task": "dialogue",
+        "rubric_breakdown": {
+          "base_text_quality": 2,
+          "request_fit": 3,
+          "multi_provider_reasoning": 0,
+          "verifier_agreement": 0,
+          "claim_density": 0,
+          "evidence_strength": 0,
+          "conflict_resolution": 0,
+          "judge_quality": 2,
+          "consistency": 0,
+          "code_quality": 0,
+          "penalty": 0
+        },
+        "pairwise_hint": {
+          "reason": "better overall task fit",
+          "winner_reason": "had stronger task fit",
+          "loser_reason": "showed weaker task fit",
+          "rubric_breakdown": {
+            "base_text_quality": 2,
+            "request_fit": 3,
+            "multi_provider_reasoning": 0,
+            "verifier_agreement": 0,
+            "claim_density": 0,
+            "evidence_strength": 0,
+            "conflict_resolution": 0,
+            "judge_quality": 2,
+            "consistency": 0,
+            "code_quality": 0,
+            "penalty": 0
+          }
+        }
+      }
+    }
+  ],
+  "orchestra_runs": [],
+  "pairwise": [],
+  "provider_win_shift": {},
+  "task_improvement": {},
+  "summary": {
+    "orchestra_wins": 0,
+    "best_single_wins": 0,
+    "ties": 0
+  }
+}

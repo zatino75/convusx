@@ -1,5 +1,12 @@
 export type PlannerTaskType = "dialogue" | "reasoning" | "research" | "code"
 
+export type PlannerSignals = {
+  benchmark_mode: boolean
+  deep_analysis: boolean
+  deep_research: boolean
+  force_pro: boolean
+}
+
 export type PlannerStep = {
   id: string
   type: PlannerTaskType
@@ -18,12 +25,14 @@ export type PlannerPlan = {
   steps: PlannerStep[]
   metadata: {
     source: string
+    signals: PlannerSignals
   }
 }
 
 export type PlannerOutput = {
   task_type: PlannerTaskType
   execution_plan: string[]
+  signals: PlannerSignals
 }
 
 function normalize(text: string): string {
@@ -134,6 +143,47 @@ export function detectTaskType(input: string): PlannerTaskType {
   return "dialogue"
 }
 
+export function extractPlanningSignals(input: string): PlannerSignals {
+  const text = normalize(input)
+
+  const benchmarkMode = includesAny(text, [
+    "benchmark",
+    "벤치마크",
+    "비교 테스트",
+    "동일 테스트셋",
+    "정량 비교"
+  ])
+
+  const deepAnalysis = includesAny(text, [
+    "deep analysis",
+    "심층 분석",
+    "깊게 분석",
+    "정교하게 분석"
+  ])
+
+  const deepResearch = includesAny(text, [
+    "deep research",
+    "심층 리서치",
+    "깊게 리서치",
+    "심층 조사"
+  ])
+
+  const forcePro = includesAny(text, [
+    "force_pro",
+    "use_pro",
+    "pro로",
+    "pro 승격",
+    "gpt-5.4-pro"
+  ])
+
+  return {
+    benchmark_mode: benchmarkMode,
+    deep_analysis: deepAnalysis,
+    deep_research: deepResearch,
+    force_pro: forcePro
+  }
+}
+
 function defaultProviders(task: PlannerTaskType): string[] {
   if (task === "dialogue") return ["openai"]
   if (task === "reasoning") return ["openai", "claude"]
@@ -143,6 +193,7 @@ function defaultProviders(task: PlannerTaskType): string[] {
 
 export function buildPlan(input: string): PlannerOutput {
   const task = detectTaskType(input)
+  const signals = extractPlanningSignals(input)
 
   return {
     task_type: task,
@@ -151,7 +202,8 @@ export function buildPlan(input: string): PlannerOutput {
       "route:" + defaultProviders(task).join(","),
       "execute",
       "judge"
-    ]
+    ],
+    signals
   }
 }
 
@@ -162,9 +214,10 @@ export function buildPlannerPlan(params: {
   const inputText = String(params?.input_text ?? "").trim()
   const task = detectTaskType(inputText)
   const providers = defaultProviders(task)
+  const signals = extractPlanningSignals(inputText)
 
   return {
-    planner_version: "v3",
+    planner_version: "v4",
     task,
     mode: params?.mode ?? "runtime_orchestra",
     goal: inputText,
@@ -180,7 +233,8 @@ export function buildPlannerPlan(params: {
       }
     ],
     metadata: {
-      source: "planner.ts"
+      source: "planner.ts",
+      signals
     }
   }
 }

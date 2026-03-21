@@ -1,0 +1,6 @@
+{
+  "DeletedCount": 0,
+  "KeptCount": 38,
+  "DeletedReport": "_cleanup_report/phase2_deleted_candidates.csv",
+  "KeptReport": "_cleanup_report/phase2_kept_candidates.csv"
+}

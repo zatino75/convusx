@@ -257,7 +257,13 @@ function buildClaimsMap(candidates: JudgeCandidate[]) {
 }
 
 function buildConflictPenalty(provider: string, conflicts: any[]): number {
-  const related = conflicts.filter((c) => Array.isArray(c?.providers) && c.providers.includes(provider)).length
+  const normalized = String(provider ?? "").trim().toLowerCase()
+  const related = conflicts.filter((c) => {
+    const providerA = String(c?.provider_a ?? "").trim().toLowerCase()
+    const providerB = String(c?.provider_b ?? "").trim().toLowerCase()
+    return providerA === normalized || providerB === normalized
+  }).length
+
   if (related <= 0) return 1
   return clamp(1 - related * 0.15, 0.55, 1)
 }
@@ -325,6 +331,18 @@ function buildRationale(task: string, conflicts: any[]) {
   return base
 }
 
+function computeJudgeConfidence(scores: JudgeScoreRow[]): number {
+  if (!Array.isArray(scores) || scores.length === 0) return 0
+  if (scores.length === 1) return Number(scores[0].score.toFixed(4))
+
+  const first = Number(scores[0]?.score ?? 0)
+  const second = Number(scores[1]?.score ?? 0)
+  const margin = Math.max(0, first - second)
+
+  const confidence = first * 0.75 + Math.min(0.25, margin * 1.5)
+  return Number(Math.max(0, Math.min(1, confidence)).toFixed(4))
+}
+
 export async function judge(params: {
   candidates: JudgeCandidate[]
   task: string
@@ -363,6 +381,8 @@ export async function judge(params: {
           }
         ],
         judge_rationale: "single_candidate",
+        judge_confidence: 1,
+        conflict_count: conflicts.length,
         conflicts,
         claims: claimsMap
       }
@@ -384,6 +404,7 @@ export async function judge(params: {
   const winner = scored[0]
   const judgeScores = scored.map((row) => row.scored)
   const rationale = buildRationale(task, conflicts)
+  const judgeConfidence = computeJudgeConfidence(judgeScores)
 
   return {
     provider: winner.candidate.provider,
@@ -394,6 +415,8 @@ export async function judge(params: {
       judge_selected_provider: winner.candidate.provider,
       judge_scores: judgeScores,
       judge_rationale: rationale,
+      judge_confidence: judgeConfidence,
+      conflict_count: conflicts.length,
       conflicts,
       claims: claimsMap
     }

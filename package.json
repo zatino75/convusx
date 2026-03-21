@@ -4,9 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server/src/index.js",
+    "benchmark": "node dist/scripts/run-benchmark.js"
   },
   "devDependencies": {
+    "@types/node": "^24.3.0",
     "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.79.0",
+    "dotenv": "^17.3.1"
   }
 }
