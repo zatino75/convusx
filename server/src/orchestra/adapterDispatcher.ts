@@ -7,6 +7,8 @@ type DispatchInput = {
   input?: any
   message?: string
   messages?: Array<{ role?: string; content?: any }>
+  onToken?: (chunk: string, meta?: any) => void | Promise<void>
+  onEvent?: (event: any) => void | Promise<void>
 }
 
 type AdapterModule = Record<string, any>
@@ -307,7 +309,17 @@ function defaultTemperature(task: OrxTask): number {
   return 0.1
 }
 
-function defaultMaxTokens(task: OrxTask): number {
+function defaultMaxTokens(task: OrxTask, provider: string, input?: any): number {
+  const explicitModel = String(input?.model ?? "").trim().toLowerCase()
+
+  if (provider === "openai" && (task === "research" || task === "reasoning")) {
+    if (explicitModel === "gpt-5.4-pro") {
+      return task === "research" ? 1800 : 1600
+    }
+
+    return task === "research" ? 2200 : 1800
+  }
+
   if (task === "dialogue") return 1200
   if (task === "reasoning") return 2200
   if (task === "research") return 3000
@@ -315,11 +327,63 @@ function defaultMaxTokens(task: OrxTask): number {
   return 1400
 }
 
-function defaultTimeoutMs(task: OrxTask): number {
+function buildTimeoutMs(provider: string, task: OrxTask, input?: any): number {
+  const explicitModel = String(input?.model ?? "").trim().toLowerCase()
+
+  if (provider === "openai") {
+    if (explicitModel === "gpt-5.4-pro") {
+      if (task === "research") return 90000
+      if (task === "reasoning") return 80000
+      return 70000
+    }
+
+    if (task === "research") return 70000
+    if (task === "reasoning") return 65000
+    if (task === "code") return 60000
+    return 45000
+  }
+
+  if (provider === "gemini") {
+    if (task === "research") return 55000
+    if (task === "reasoning") return 50000
+    if (task === "code") return 50000
+    return 45000
+  }
+
+  if (provider === "claude") {
+    if (task === "research") return 70000
+    if (task === "reasoning") return 65000
+    if (task === "code") return 60000
+    return 45000
+  }
+
   if (task === "research") return 70000
   if (task === "code") return 60000
   if (task === "reasoning") return 60000
   return 45000
+}
+
+function buildMaxRetries(provider: string, task: OrxTask, input?: any): number {
+  const explicitModel = String(input?.model ?? "").trim().toLowerCase()
+
+  if (provider === "openai") {
+    if (explicitModel === "gpt-5.4-pro" && (task === "research" || task === "reasoning")) {
+      return 0
+    }
+
+    if (task === "research" || task === "reasoning") {
+      return 0
+    }
+
+    return 1
+  }
+
+  if (provider === "gemini") {
+    if (task === "research" || task === "reasoning") return 1
+    return 1
+  }
+
+  return 1
 }
 
 function buildTaskSystemPrompt(task: OrxTask, provider: string): string {
@@ -451,15 +515,15 @@ function buildPayload(input: DispatchInput) {
     max_tokens:
       typeof input?.input?.max_tokens === "number"
         ? input.input.max_tokens
-        : defaultMaxTokens(task),
+        : defaultMaxTokens(task, provider, input?.input),
     timeout_ms:
       typeof input?.input?.timeout_ms === "number"
         ? input.input.timeout_ms
-        : defaultTimeoutMs(task),
+        : buildTimeoutMs(provider, task, input?.input),
     max_retries:
       typeof input?.input?.max_retries === "number"
         ? input.input.max_retries
-        : 1,
+        : buildMaxRetries(provider, task, input?.input),
     metadata: {
       ...(input?.input?.metadata ?? {}),
       normalized_task: task
@@ -634,6 +698,7 @@ function normalizeUsage(result: any, payload: any, answerText: string, model: st
     rawUsage?.completion_tokens ??
     rawUsage?.completionTokens ??
     rawUsage?.outputTokenCount ??
+    rawUsage?.candidatesTokenCount ??
     estimateTokensFromText(answerText))
 
   const totalTokens =
@@ -662,6 +727,44 @@ function detectModel(result: any, payload: any): string | null {
   return null
 }
 
+async function emitAdapterEvent(
+  input: DispatchInput,
+  event: any
+) {
+  if (typeof input?.onEvent === "function") {
+    await input.onEvent(event)
+  }
+}
+
+async function emitAdapterToken(
+  input: DispatchInput,
+  chunk: string,
+  meta?: any
+) {
+  if (typeof input?.onToken === "function") {
+    await input.onToken(chunk, meta)
+  }
+}
+
+function buildStreamingPayload(input: DispatchInput, payload: any) {
+  return {
+    ...payload,
+    stream: Boolean(input?.onToken || input?.onEvent),
+    onToken: async (chunk: string, meta?: any) => {
+      await emitAdapterToken(input, chunk, meta)
+    },
+    onEvent: async (event: any) => {
+      await emitAdapterEvent(input, event)
+    }
+  }
+}
+
+function mergeStreamedText(result: any, streamedText: string) {
+  const existingText = responseText(result)
+  if (existingText.trim().length > 0) return existingText
+  return streamedText
+}
+
 export async function dispatchProvider(input: DispatchInput): Promise<any> {
   const provider = normalizeProvider(input?.provider)
   const resolvers = REGISTRY[provider] ?? []
@@ -683,14 +786,38 @@ export async function dispatchProvider(input: DispatchInput): Promise<any> {
 
     try {
       const startedAt = Date.now()
-      const result = await fn(payload)
+      let streamedText = ""
+
+      const streamingPayload = buildStreamingPayload(input, payload)
+      const result = await fn({
+        ...streamingPayload,
+        onToken: async (chunk: string, meta?: any) => {
+          const safeChunk = typeof chunk === "string" ? chunk : String(chunk ?? "")
+          if (safeChunk.length > 0) {
+            streamedText += safeChunk
+          }
+          await emitAdapterToken(input, safeChunk, meta)
+        },
+        onEvent: async (event: any) => {
+          await emitAdapterEvent(input, event)
+        }
+      })
       const endedAt = Date.now()
 
-      const answerText = responseText(result)
-      const ok = isSuccessfulResult(result)
+      const answerText = mergeStreamedText(result, streamedText)
+      const ok = isSuccessfulResult({
+        ...result,
+        answer_text: answerText,
+        text: answerText
+      })
       const errorCode = detectErrorCode(result) ?? (ok ? null : "insufficient_output")
       const model = detectModel(result, payload)
-      const usage = normalizeUsage(result, payload, answerText, model)
+      const usage = normalizeUsage(
+        result,
+        payload,
+        answerText,
+        model
+      )
 
       return {
         provider,
@@ -705,7 +832,11 @@ export async function dispatchProvider(input: DispatchInput): Promise<any> {
         model,
         latency_ms: endedAt - startedAt,
         usage,
-        raw: result
+        raw: result,
+        streaming_supported:
+          streamedText.length > 0 ||
+          Boolean(result?.streaming_supported) ||
+          Boolean(result?.meta?.streaming_supported)
       }
     } catch (error: any) {
       return buildFallbackResponse(
