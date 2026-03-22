@@ -6,7 +6,7 @@ function env(name: string): string {
 }
 
 function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms))
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function now() {
@@ -78,6 +78,10 @@ function extractText(data: any): string {
     }
   }
 
+  if (typeof data?.text === "string" && data.text.trim()) {
+    return data.text.trim()
+  }
+
   return ""
 }
 
@@ -120,6 +124,10 @@ function buildError(provider: ModelRequest["provider"], message: string, code?: 
     code,
     retriable
   }
+}
+
+function extractUsage(data: any) {
+  return data?.usageMetadata ?? undefined
 }
 
 async function callGemini(params: {
@@ -178,7 +186,7 @@ async function callGemini(params: {
 export const geminiAdapter: ModelAdapter = {
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const apiKey = env("GEMINI_API_KEY")
-    const model = req.model?.trim() || "gemini-3.0"
+    const model = req.model?.trim() || "gemini-3.1-pro-preview"
     const attempts: ModelAttempt[] = []
     const { system, conversation } = splitSystemAndMessages(req.messages)
 
@@ -207,7 +215,7 @@ export const geminiAdapter: ModelAdapter = {
         : {}),
       generationConfig: {
         temperature: req.temperature ?? 0,
-        maxOutputTokens: req.max_tokens ?? 1024
+        maxOutputTokens: req.max_tokens ?? 2048
       }
     }
 
@@ -226,6 +234,7 @@ export const geminiAdapter: ModelAdapter = {
         })
 
         const text = extractText(data)
+        const usage = extractUsage(data)
 
         if (!response.ok) {
           const apiError = extractApiError(data, response.status)
@@ -245,7 +254,7 @@ export const geminiAdapter: ModelAdapter = {
           })
 
           if (retriable && attemptNo < maxAttempts) {
-            await sleep(500)
+            await sleep(500 * attemptNo)
             continue
           }
 
@@ -254,7 +263,7 @@ export const geminiAdapter: ModelAdapter = {
             model,
             answer: "",
             attempts,
-            usage: data?.usageMetadata,
+            usage,
             error: buildError(
               req.provider,
               `[${model}] ${apiError.message}`,
@@ -265,6 +274,8 @@ export const geminiAdapter: ModelAdapter = {
         }
 
         if (!text) {
+          const retriable = attemptNo < maxAttempts
+
           attempts.push({
             provider: req.provider,
             model,
@@ -273,21 +284,27 @@ export const geminiAdapter: ModelAdapter = {
             error: "empty_response",
             attempt_no: attemptNo,
             outcome: "error",
-            retriable: false,
+            retriable,
             http_status: response.status,
             error_code: "empty_response"
           })
+
+          if (retriable) {
+            await sleep(400 * attemptNo)
+            continue
+          }
 
           return {
             provider: req.provider,
             model,
             answer: "",
             attempts,
-            usage: data?.usageMetadata,
+            usage,
             error: buildError(
               req.provider,
               `[${model}] empty_response`,
-              "empty_response"
+              "empty_response",
+              false
             )
           }
         }
@@ -308,7 +325,7 @@ export const geminiAdapter: ModelAdapter = {
           provider: req.provider,
           model,
           answer: text,
-          usage: data?.usageMetadata,
+          usage,
           attempts
         }
       } catch (wrapped: any) {
@@ -336,7 +353,7 @@ export const geminiAdapter: ModelAdapter = {
         })
 
         if (attemptNo < maxAttempts) {
-          await sleep(500)
+          await sleep(500 * attemptNo)
           continue
         }
 
