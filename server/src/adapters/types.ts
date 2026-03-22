@@ -3,37 +3,32 @@ export type ProviderName =
   | "claude"
   | "gemini"
   | "perplexity"
+  | string
 
+export type MessageRole =
+  | "system"
+  | "user"
+  | "assistant"
+  | string
 
-export type OrxTask =
-  | "dialogue"
-  | "reasoning"
-  | "research"
-  | "code"
-  | "evidence"
-
-export interface ModelRequest {
-  provider: ProviderName
-  model?: string
-  task: OrxTask
-  messages: Array<{
-    role: "system" | "user" | "assistant"
-    content: string
-  }>
-  temperature?: number
-  max_tokens?: number
-  stream?: boolean
-  metadata?: Record<string, any>
-  timeout_ms?: number
-  max_retries?: number
+export type ModelMessage = {
+  role: MessageRole
+  content: any
 }
 
-export interface ModelAttempt {
-  model: string
+export type ModelError = {
+  provider: ProviderName
+  message: string
+  code?: string
+  retriable?: boolean
+}
+
+export type ModelAttempt = {
+  provider: ProviderName
+  model?: string | null
   status: "success" | "error"
-  latency_ms: number
-  error: string | null
-  provider?: ProviderName
+  latency_ms?: number
+  error?: string | null
   attempt_no?: number
   outcome?: "success" | "error" | "timeout"
   retriable?: boolean
@@ -41,22 +36,50 @@ export interface ModelAttempt {
   error_code?: string
 }
 
-export interface ModelError {
-  provider: ProviderName
-  message: string
-  code?: string
-  retriable?: boolean
+export type ModelUsage = {
+  input_tokens?: number
+  output_tokens?: number
+  total_tokens?: number
+  prompt_tokens?: number
+  completion_tokens?: number
+  estimated_cost_usd?: number
+  [key: string]: any
 }
 
-export interface ModelResponse {
+export type ModelRequest = {
   provider: ProviderName
-  model: string
+  model?: string
+  task?: string
+  mode?: string
+  messages: ModelMessage[]
+  temperature?: number
+  max_tokens?: number
+  timeout_ms?: number
+  max_retries?: number
+  metadata?: Record<string, any>
+  thread_id?: string
+  project_id?: string
+  raw_input?: any
+  stream?: boolean
+  onToken?: (chunk: string, meta?: any) => void | Promise<void>
+  onEvent?: (event: any) => void | Promise<void>
+}
+
+export type ModelResponse = {
+  provider: ProviderName
+  model?: string | null
   answer: string
-  usage?: any
+  usage?: ModelUsage
   attempts: ModelAttempt[]
   error?: ModelError
+  raw?: any
+  output_text?: string
+  answer_text?: string
+  text?: string
+  streaming_supported?: boolean
+  [key: string]: any
 }
 
-export interface ModelAdapter {
+export type ModelAdapter = {
   generate(req: ModelRequest): Promise<ModelResponse>
 }
