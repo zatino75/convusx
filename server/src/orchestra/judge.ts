@@ -1,424 +1,323 @@
-import { extractClaims } from "./claims.js"
-import { detectConflicts } from "./conflicts.js"
-
 type JudgeCandidate = {
   provider: string
   answer_text: string
   raw?: any
 }
 
+type Conflict = {
+  type: string
+  severity: "low" | "medium" | "high"
+  provider_a: string
+  provider_b: string
+  summary: string
+  weight?: number
+}
+
 type JudgeScoreRow = {
   provider: string
   score: number
-  dimensions: {
-    directness: number
-    structure: number
-    decisiveness: number
-    task_fit: number
-    risk: number
-    reliability: number
-    claims_density: number
-    conflict_penalty: number
-  }
+  reasons: string[]
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value))
+function normalizeText(input: string) {
+  return String(input ?? "")
+    .replace(/\r\n/g, "\n")
+    .trim()
 }
 
-function normalizeTask(task: any): "dialogue" | "reasoning" | "research" | "code" {
-  const value = String(task ?? "").trim().toLowerCase()
+function splitSentences(input: string): string[] {
+  const text = normalizeText(input)
+  if (!text) return []
 
-  if (value.includes("code")) return "code"
-  if (value.includes("research")) return "research"
-  if (value.includes("reasoning")) return "reasoning"
-  return "dialogue"
+  return (text.match(/[^.!?\n]+[.!?\n]?/g) ?? [])
+    .map((part) => part.trim())
+    .filter(Boolean)
 }
 
-function normalizeText(value: any): string {
-  return String(value ?? "").replace(/\r\n/g, "\n").trim()
+function extractNumbers(input: string): number[] {
+  const matches = normalizeText(input).match(/-?\d+(?:\.\d+)?/g) ?? []
+  return matches
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
 }
 
-function includesAny(text: string, terms: string[]): boolean {
-  return terms.some((term) => text.includes(term))
+function unique<T>(values: T[]): T[] {
+  return [...new Set(values)]
 }
 
-function lineCount(text: string): number {
-  return text
-    .split("\n")
-    .map((x) => x.trim())
-    .filter(Boolean).length
+function estimateCoverage(answer: string): number {
+  const sentences = splitSentences(answer)
+  const lengthScore = Math.min(1, normalizeText(answer).length / 700)
+  const sentenceScore = Math.min(1, sentences.length / 8)
+  return Number(((lengthScore * 0.6) + (sentenceScore * 0.4)).toFixed(4))
 }
 
-function scoreDirectness(text: string): number {
-  const lower = text.toLowerCase()
-  let score = 0.5
-
-  if (text.length >= 80) score += 0.1
-  if (text.length >= 180) score += 0.1
-  if (!includesAny(lower, [
-    "understood",
-    "i can help",
-    "please provide",
-    "need more information",
-    "추가 정보",
-    "더 자세한 정보",
-    "원하시면"
-  ])) {
-    score += 0.2
-  }
-
-  if (includesAny(lower, ["recommend", "결론", "추천", "선택", "정리하면"])) {
-    score += 0.1
-  }
-
-  return clamp(score, 0, 1)
-}
-
-function scoreStructure(text: string): number {
-  let score = 0.35
-  const lines = lineCount(text)
-
-  if (lines >= 3) score += 0.2
-  if (lines >= 6) score += 0.15
-  if (includesAny(text, ["- ", "1.", "2.", "3.", "결론", "리스크", "장점", "단점"])) {
-    score += 0.2
-  }
-
-  return clamp(score, 0, 1)
-}
-
-function scoreDecisiveness(text: string, task: string): number {
-  const lower = text.toLowerCase()
-  let score = 0.3
-
-  if (includesAny(lower, [
-    "recommend",
-    "should",
-    "must",
-    "choose",
-    "final recommendation",
-    "결론",
-    "추천",
-    "선택",
-    "유리합니다",
-    "맞습니다"
-  ])) {
-    score += 0.4
-  }
-
-  if (task === "reasoning" || task === "research") {
-    if (includesAny(lower, ["trade-off", "risk", "alternative", "반면", "리스크", "대안"])) {
-      score += 0.2
-    }
-  }
-
-  if (includesAny(lower, ["maybe", "might", "case by case", "상황에 따라", "애매"])) {
-    score -= 0.15
-  }
-
-  return clamp(score, 0, 1)
-}
-
-function scoreTaskFit(text: string, task: string): number {
-  const lower = text.toLowerCase()
-
-  if (task === "dialogue") {
-    let score = 0.45
-    if (!includesAny(lower, ["placeholder", "insufficient output"])) score += 0.2
-    if (includesAny(lower, ["핵심", "요약", "추천"])) score += 0.1
-    return clamp(score, 0, 1)
-  }
-
-  if (task === "reasoning") {
-    let score = 0.35
-    if (includesAny(lower, ["because", "therefore", "trade-off", "이유", "따라서", "근거"])) score += 0.25
-    if (includesAny(lower, ["결론", "추천", "선택", "최종"])) score += 0.2
-    if (includesAny(lower, ["risk", "리스크", "반면", "대안"])) score += 0.15
-    return clamp(score, 0, 1)
-  }
-
-  if (task === "research") {
-    let score = 0.3
-    if (includesAny(lower, ["market", "competitor", "margin", "positioning", "시장", "경쟁", "마진", "포지셔닝"])) score += 0.25
-    if (includesAny(lower, ["recommend", "gtm", "추천", "진입", "우선순위"])) score += 0.2
-    if (includesAny(lower, ["compare", "comparison", "비교", "vs"])) score += 0.15
-    return clamp(score, 0, 1)
-  }
-
-  let score = 0.25
-  if (includesAny(lower, ["function", "class", "interface", "return", "const ", "let ", "```"])) score += 0.35
-  if (includesAny(lower, ["bug", "edge case", "refactor", "implementation", "구현", "예외", "검증"])) score += 0.2
-  return clamp(score, 0, 1)
-}
-
-function scoreRisk(text: string, task: string): number {
-  const lower = text.toLowerCase()
-  let score = 0.45
-
-  if (task === "research" || task === "reasoning" || task === "code") {
-    if (includesAny(lower, [
-      "risk",
-      "limitation",
-      "edge case",
-      "fallback",
-      "trade-off",
-      "리스크",
-      "한계",
-      "예외",
-      "주의",
-      "대안"
-    ])) {
-      score += 0.35
-    }
-  }
-
-  return clamp(score, 0, 1)
-}
-
-function scoreReliability(candidate: JudgeCandidate): number {
-  const ok = Boolean(candidate?.raw?.ok ?? true)
-  const errorCode = String(candidate?.raw?.error_code ?? "").trim()
-  const answer = normalizeText(candidate.answer_text)
+function estimateStructure(answer: string): number {
+  const text = normalizeText(answer)
+  const hasBullets = /(^|\n)\s*[-*]\s+/.test(text)
+  const hasNumbered = /(^|\n)\s*\d+\.\s+/.test(text)
+  const hasParagraphs = /\n\s*\n/.test(text)
+  const sentenceCount = splitSentences(text).length
 
   let score = 0.45
-  if (ok) score += 0.2
-  if (!errorCode) score += 0.15
-  if (answer.length >= 60) score += 0.1
-  if (candidate?.raw?.adapter_used === "real") score += 0.1
+  if (hasBullets) score += 0.2
+  if (hasNumbered) score += 0.15
+  if (hasParagraphs) score += 0.1
+  if (sentenceCount >= 4) score += 0.1
 
-  return clamp(score, 0, 1)
+  return Number(Math.min(1, score).toFixed(4))
 }
 
-function scoreClaimsDensity(claimCount: number, task: string): number {
-  if (task === "research") return clamp(claimCount / 10, 0, 1)
-  if (task === "reasoning") return clamp(claimCount / 8, 0, 1)
-  if (task === "code") return clamp(claimCount / 6, 0, 1)
-  return clamp(claimCount / 5, 0, 1)
+function estimateSpecificity(answer: string): number {
+  const text = normalizeText(answer)
+  const numbers = extractNumbers(text)
+  const hasQuoted = /"[^"]+"/.test(text)
+  const hasColon = /:\s/.test(text)
+  const longWords = unique(text.split(/\s+/).filter((word) => word.length >= 7)).length
+
+  let score = 0.4
+  score += Math.min(0.2, numbers.length * 0.04)
+  if (hasQuoted) score += 0.1
+  if (hasColon) score += 0.1
+  score += Math.min(0.2, longWords * 0.01)
+
+  return Number(Math.min(1, score).toFixed(4))
 }
 
-function weightForTask(task: "dialogue" | "reasoning" | "research" | "code") {
-  if (task === "dialogue") {
-    return {
-      directness: 0.24,
-      structure: 0.14,
-      decisiveness: 0.14,
-      task_fit: 0.18,
-      risk: 0.04,
-      reliability: 0.14,
-      claims_density: 0.08,
-      conflict_penalty: 0.04
+function detectConflictType(a: string, b: string): string | null {
+  const numsA = extractNumbers(a)
+  const numsB = extractNumbers(b)
+
+  if (numsA.length > 0 && numsB.length > 0) {
+    const aSet = unique(numsA.map((x) => x.toFixed(4)))
+    const bSet = unique(numsB.map((x) => x.toFixed(4)))
+    const overlap = aSet.some((x) => bSet.includes(x))
+    if (!overlap) return "numeric_conflict"
+  }
+
+  const textA = normalizeText(a)
+  const textB = normalizeText(b)
+
+  const feasibilityTerms = ["cannot", "impossible", "불가", "어렵다", "불가능"]
+  const positiveTerms = ["can", "possible", "가능", "할 수", "된다"]
+  const riskTerms = ["risk", "danger", "unsafe", "위험", "리스크"]
+  const safeTerms = ["safe", "low risk", "안전", "문제없", "낮은 리스크"]
+  const recommendTerms = ["recommend", "best", "추천", "최선", "우선"]
+  const rejectTerms = ["avoid", "not recommend", "비추천", "피해야", "권하지"]
+
+  const feasibilityFlip =
+    feasibilityTerms.some((term) => textA.includes(term)) &&
+    positiveTerms.some((term) => textB.includes(term))
+
+  const feasibilityFlipReverse =
+    feasibilityTerms.some((term) => textB.includes(term)) &&
+    positiveTerms.some((term) => textA.includes(term))
+
+  if (feasibilityFlip || feasibilityFlipReverse) return "feasibility_conflict"
+
+  const riskFlip =
+    riskTerms.some((term) => textA.includes(term)) &&
+    safeTerms.some((term) => textB.includes(term))
+
+  const riskFlipReverse =
+    riskTerms.some((term) => textB.includes(term)) &&
+    safeTerms.some((term) => textA.includes(term))
+
+  if (riskFlip || riskFlipReverse) return "risk_conflict"
+
+  const recFlip =
+    recommendTerms.some((term) => textA.includes(term)) &&
+    rejectTerms.some((term) => textB.includes(term))
+
+  const recFlipReverse =
+    recommendTerms.some((term) => textB.includes(term)) &&
+    rejectTerms.some((term) => textA.includes(term))
+
+  if (recFlip || recFlipReverse) return "recommendation_conflict"
+
+  if (textA && textB && textA !== textB) {
+    const firstA = splitSentences(textA)[0] ?? ""
+    const firstB = splitSentences(textB)[0] ?? ""
+    if (firstA && firstB && firstA !== firstB) return "direction_conflict"
+  }
+
+  return null
+}
+
+function createConflict(candidateA: JudgeCandidate, candidateB: JudgeCandidate): Conflict | null {
+  const type = detectConflictType(candidateA.answer_text, candidateB.answer_text)
+  if (!type) return null
+
+  const severity: Conflict["severity"] =
+    type === "numeric_conflict" || type === "feasibility_conflict" || type === "risk_conflict"
+      ? "high"
+      : type === "direction_conflict"
+        ? "medium"
+        : "low"
+
+  return {
+    type,
+    severity,
+    provider_a: candidateA.provider,
+    provider_b: candidateB.provider,
+    summary: `${candidateA.provider} vs ${candidateB.provider}: ${type}`,
+    weight:
+      type === "numeric_conflict" ? 1 :
+      type === "feasibility_conflict" ? 0.9 :
+      type === "risk_conflict" ? 0.85 :
+      type === "direction_conflict" ? 0.8 :
+      type === "recommendation_conflict" ? 0.6 :
+      0.5
+  }
+}
+
+function collectConflicts(candidates: JudgeCandidate[]): Conflict[] {
+  const out: Conflict[] = []
+
+  for (let i = 0; i < candidates.length; i += 1) {
+    for (let j = i + 1; j < candidates.length; j += 1) {
+      const conflict = createConflict(candidates[i], candidates[j])
+      if (conflict) out.push(conflict)
     }
   }
 
-  if (task === "reasoning") {
-    return {
-      directness: 0.12,
-      structure: 0.16,
-      decisiveness: 0.22,
-      task_fit: 0.18,
-      risk: 0.10,
-      reliability: 0.10,
-      claims_density: 0.08,
-      conflict_penalty: 0.04
+  return out
+}
+
+function scoreCandidate(candidate: JudgeCandidate, task: string, conflicts: Conflict[]): JudgeScoreRow {
+  const reasons: string[] = []
+  const coverage = estimateCoverage(candidate.answer_text)
+  const structure = estimateStructure(candidate.answer_text)
+  const specificity = estimateSpecificity(candidate.answer_text)
+
+  let score = 0.45
+  score += coverage * 0.22
+  score += structure * 0.16
+  score += specificity * 0.17
+
+  reasons.push(`coverage:${coverage.toFixed(2)}`)
+  reasons.push(`structure:${structure.toFixed(2)}`)
+  reasons.push(`specificity:${specificity.toFixed(2)}`)
+
+  const providerConflicts = conflicts.filter(
+    (conflict) => conflict.provider_a === candidate.provider || conflict.provider_b === candidate.provider
+  )
+
+  const highConflicts = providerConflicts.filter((conflict) => conflict.severity === "high").length
+  const mediumConflicts = providerConflicts.filter((conflict) => conflict.severity === "medium").length
+
+  score -= highConflicts * 0.05
+  score -= mediumConflicts * 0.025
+
+  if (highConflicts > 0) reasons.push(`high_conflicts:${highConflicts}`)
+  if (mediumConflicts > 0) reasons.push(`medium_conflicts:${mediumConflicts}`)
+
+  const normalizedTask = String(task ?? "").trim().toLowerCase()
+
+  if (normalizedTask === "code") {
+    const hasCodeFence = /```/.test(candidate.answer_text)
+    const hasPathLike = /[A-Za-z0-9_\-/\\]+\.[A-Za-z0-9]+/.test(candidate.answer_text)
+    if (hasCodeFence) {
+      score += 0.05
+      reasons.push("code_fence_bonus")
+    }
+    if (hasPathLike) {
+      score += 0.03
+      reasons.push("path_specific_bonus")
     }
   }
 
-  if (task === "research") {
-    return {
-      directness: 0.10,
-      structure: 0.18,
-      decisiveness: 0.14,
-      task_fit: 0.20,
-      risk: 0.10,
-      reliability: 0.12,
-      claims_density: 0.12,
-      conflict_penalty: 0.04
+  if (normalizedTask === "research" || normalizedTask === "reasoning") {
+    const hasComparativeTerms = /(because|therefore|however|근거|따라서|하지만|반면)/i.test(candidate.answer_text)
+    if (hasComparativeTerms) {
+      score += 0.04
+      reasons.push("reasoning_connector_bonus")
     }
   }
 
   return {
-    directness: 0.08,
-    structure: 0.12,
-    decisiveness: 0.12,
-    task_fit: 0.28,
-    risk: 0.12,
-    reliability: 0.16,
-    claims_density: 0.08,
-    conflict_penalty: 0.04
-  }
-}
-
-function buildClaimsMap(candidates: JudgeCandidate[]) {
-  return candidates.map((candidate) => ({
     provider: candidate.provider,
-    claims: extractClaims(candidate.answer_text)
-  }))
-}
-
-function buildConflictPenalty(provider: string, conflicts: any[]): number {
-  const normalized = String(provider ?? "").trim().toLowerCase()
-  const related = conflicts.filter((c) => {
-    const providerA = String(c?.provider_a ?? "").trim().toLowerCase()
-    const providerB = String(c?.provider_b ?? "").trim().toLowerCase()
-    return providerA === normalized || providerB === normalized
-  }).length
-
-  if (related <= 0) return 1
-  return clamp(1 - related * 0.15, 0.55, 1)
-}
-
-function scoreCandidate(
-  candidate: JudgeCandidate,
-  task: "dialogue" | "reasoning" | "research" | "code",
-  claimCount: number,
-  conflictPenalty: number
-): JudgeScoreRow {
-  const text = normalizeText(candidate.answer_text)
-  const weights = weightForTask(task)
-
-  const dimensions = {
-    directness: scoreDirectness(text),
-    structure: scoreStructure(text),
-    decisiveness: scoreDecisiveness(text, task),
-    task_fit: scoreTaskFit(text, task),
-    risk: scoreRisk(text, task),
-    reliability: scoreReliability(candidate),
-    claims_density: scoreClaimsDensity(claimCount, task),
-    conflict_penalty: conflictPenalty
+    score: Number(Math.max(0, Math.min(1, score)).toFixed(4)),
+    reasons
   }
-
-  const score =
-    dimensions.directness * weights.directness +
-    dimensions.structure * weights.structure +
-    dimensions.decisiveness * weights.decisiveness +
-    dimensions.task_fit * weights.task_fit +
-    dimensions.risk * weights.risk +
-    dimensions.reliability * weights.reliability +
-    dimensions.claims_density * weights.claims_density +
-    dimensions.conflict_penalty * weights.conflict_penalty
-
-  return {
-    provider: candidate.provider,
-    score: Number(score.toFixed(4)),
-    dimensions: {
-      directness: Number(dimensions.directness.toFixed(4)),
-      structure: Number(dimensions.structure.toFixed(4)),
-      decisiveness: Number(dimensions.decisiveness.toFixed(4)),
-      task_fit: Number(dimensions.task_fit.toFixed(4)),
-      risk: Number(dimensions.risk.toFixed(4)),
-      reliability: Number(dimensions.reliability.toFixed(4)),
-      claims_density: Number(dimensions.claims_density.toFixed(4)),
-      conflict_penalty: Number(dimensions.conflict_penalty.toFixed(4))
-    }
-  }
-}
-
-function buildRationale(task: string, conflicts: any[]) {
-  const base =
-    task === "code"
-      ? "task_fit_reliability_and_implementation_priority"
-      : task === "research"
-        ? "task_fit_structure_claims_and_reliability_priority"
-        : task === "reasoning"
-          ? "decisiveness_tradeoff_claims_and_reliability_priority"
-          : "directness_clarity_and_reliability_priority"
-
-  if (conflicts.length > 0) {
-    return base + "_with_detected_claim_conflicts"
-  }
-
-  return base
-}
-
-function computeJudgeConfidence(scores: JudgeScoreRow[]): number {
-  if (!Array.isArray(scores) || scores.length === 0) return 0
-  if (scores.length === 1) return Number(scores[0].score.toFixed(4))
-
-  const first = Number(scores[0]?.score ?? 0)
-  const second = Number(scores[1]?.score ?? 0)
-  const margin = Math.max(0, first - second)
-
-  const confidence = first * 0.75 + Math.min(0.25, margin * 1.5)
-  return Number(Math.max(0, Math.min(1, confidence)).toFixed(4))
 }
 
 export async function judge(params: {
   candidates: JudgeCandidate[]
-  task: string
+  task?: string
 }) {
-  const task = normalizeTask(params?.task)
   const candidates = Array.isArray(params?.candidates) ? params.candidates : []
+  const task = String(params?.task ?? "").trim().toLowerCase()
 
-  if (candidates.length === 0) return null
-
-  const claimsMap = buildClaimsMap(candidates)
-  const conflicts = detectConflicts(claimsMap)
-
-  if (candidates.length === 1) {
-    const only = candidates[0]
+  if (candidates.length === 0) {
     return {
-      provider: only.provider,
-      answer_text: only.answer_text,
-      raw: only.raw ?? null,
-      ok: true,
+      provider: null,
+      answer_text: "",
+      ok: false,
       meta: {
-        judge_selected_provider: only.provider,
-        judge_scores: [
-          {
-            provider: only.provider,
-            score: 1,
-            dimensions: {
-              directness: 1,
-              structure: 1,
-              decisiveness: 1,
-              task_fit: 1,
-              risk: 1,
-              reliability: 1,
-              claims_density: 1,
-              conflict_penalty: 1
-            }
-          }
-        ],
-        judge_rationale: "single_candidate",
-        judge_confidence: 1,
-        conflict_count: conflicts.length,
-        conflicts,
-        claims: claimsMap
+        judge_selected_provider: null,
+        judge_scores: [],
+        judge_rationale: "no_candidates",
+        judge_confidence: 0,
+        conflict_count: 0,
+        conflicts: [],
+        claims: []
       }
     }
   }
 
-  const scored = candidates
-    .map((candidate) => {
-      const providerClaims = claimsMap.find((x) => x.provider === candidate.provider)?.claims ?? []
-      const conflictPenalty = buildConflictPenalty(candidate.provider, conflicts)
-
-      return {
-        candidate,
-        scored: scoreCandidate(candidate, task, providerClaims.length, conflictPenalty)
+  if (candidates.length === 1) {
+    return {
+      ...candidates[0],
+      ok: true,
+      meta: {
+        judge_selected_provider: candidates[0].provider,
+        judge_scores: [
+          {
+            provider: candidates[0].provider,
+            score: 1,
+            reasons: ["single_candidate"]
+          }
+        ],
+        judge_rationale: "single_candidate",
+        judge_confidence: 1,
+        conflict_count: 0,
+        conflicts: [],
+        claims: []
       }
-    })
-    .sort((a, b) => b.scored.score - a.scored.score)
+    }
+  }
 
-  const winner = scored[0]
-  const judgeScores = scored.map((row) => row.scored)
-  const rationale = buildRationale(task, conflicts)
-  const judgeConfidence = computeJudgeConfidence(judgeScores)
+  const conflicts = collectConflicts(candidates)
+  const scores = candidates
+    .map((candidate) => scoreCandidate(candidate, task, conflicts))
+    .sort((a, b) => b.score - a.score)
+
+  const winner = scores[0]
+  const runnerUp = scores[1]
+  const confidence = Number(
+    Math.max(
+      0.51,
+      Math.min(
+        0.99,
+        0.6 + ((winner?.score ?? 0) - (runnerUp?.score ?? 0)) * 1.5
+      )
+    ).toFixed(4)
+  )
+
+  const selected = candidates.find((candidate) => candidate.provider === winner.provider) ?? candidates[0]
 
   return {
-    provider: winner.candidate.provider,
-    answer_text: winner.candidate.answer_text,
-    raw: winner.candidate.raw ?? null,
+    ...selected,
     ok: true,
     meta: {
-      judge_selected_provider: winner.candidate.provider,
-      judge_scores: judgeScores,
-      judge_rationale: rationale,
-      judge_confidence: judgeConfidence,
+      judge_selected_provider: selected.provider,
+      judge_scores: scores,
+      judge_rationale: `selected ${selected.provider} by composite scoring`,
+      judge_confidence: confidence,
       conflict_count: conflicts.length,
       conflicts,
-      claims: claimsMap
+      claims: []
     }
   }
 }
