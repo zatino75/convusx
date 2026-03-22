@@ -24,6 +24,15 @@ type DebugMeta = {
       bandit_score?: number;
     }
   >;
+  displayWinner?: {
+    provider?: string;
+    role?: string;
+  } | null;
+  displayLosers?: string[];
+  primaryRecovered?: boolean;
+  recoveryFromModel?: string | null;
+  recoveryToModel?: string | null;
+  timelineEvents?: any[];
 };
 
 type RecentSummary = {
@@ -84,11 +93,15 @@ export default function RequestStatusBar({ debugMeta, recentSummary }: Props) {
 
   const primary = debugMeta.selectedProviders[0] ?? null;
   const verifier = debugMeta.verifierProviders[0] ?? null;
+  const winner = debugMeta.displayWinner?.provider ?? debugMeta.winnerProvider;
+  const winnerRole = debugMeta.displayWinner?.role ?? "-";
   const selectedModels = Array.isArray(debugMeta.selectedModels) ? debugMeta.selectedModels : [];
   const primaryBanditScore =
     primary && debugMeta.banditScores
       ? Number(debugMeta.banditScores?.[primary]?.bandit_score ?? 0)
       : null;
+  const losers = Array.isArray(debugMeta.displayLosers) ? debugMeta.displayLosers : [];
+  const timelineEvents = Array.isArray(debugMeta.timelineEvents) ? debugMeta.timelineEvents : [];
 
   return (
     <div className="border-b border-white/10 bg-[#1b1b1b]">
@@ -98,7 +111,8 @@ export default function RequestStatusBar({ debugMeta, recentSummary }: Props) {
       >
         <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
-            {chip("최종", providerLabel(debugMeta.winnerProvider))}
+            {chip("최종", providerLabel(winner), "text-emerald-300")}
+            {chip("역할", winnerRole)}
             {chip("Primary", providerLabel(primary))}
             {chip("Verifier", providerLabel(verifier))}
             {chip("작업", debugMeta.routerTask ?? "-")}
@@ -126,7 +140,7 @@ export default function RequestStatusBar({ debugMeta, recentSummary }: Props) {
                 </span>
                 <span className="text-[#5f5f66]">→</span>
                 <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-300">
-                  Winner {providerLabel(debugMeta.winnerProvider)}
+                  Winner {providerLabel(winner)}
                 </span>
               </div>
 
@@ -144,8 +158,22 @@ export default function RequestStatusBar({ debugMeta, recentSummary }: Props) {
                 {chip("신뢰도", formatScore(debugMeta.judgeConfidence))}
                 {chip("토큰", String(debugMeta.requestTotalTokens ?? 0))}
                 {primaryBanditScore != null ? chip("Bandit", formatScore(primaryBanditScore), "text-cyan-300") : null}
+                {debugMeta.primaryRecovered ? chip("복구", `${debugMeta.recoveryFromModel ?? "-"} → ${debugMeta.recoveryToModel ?? "-"}`, "text-amber-300") : null}
               </div>
             </div>
+
+            {losers.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {losers.map((provider) => (
+                  <div
+                    key={provider}
+                    className="rounded-full border border-white/10 bg-[#212121] px-3 py-1.5 text-[11px] text-[#b4b4b4]"
+                  >
+                    loser · {providerLabel(provider)}
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             {selectedModels.length > 0 ? (
               <div className="flex flex-wrap gap-2">
@@ -157,6 +185,22 @@ export default function RequestStatusBar({ debugMeta, recentSummary }: Props) {
                     {providerLabel(row.provider)} · {row.model ?? "-"}
                   </div>
                 ))}
+              </div>
+            ) : null}
+
+            {timelineEvents.length > 0 ? (
+              <div className="rounded-2xl border border-white/10 bg-[#181818] p-3">
+                <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-[#8e8ea0]">Condensed timeline</div>
+                <div className="space-y-2">
+                  {timelineEvents.slice(-8).map((event, index) => (
+                    <div
+                      key={`${event?.type ?? "event"}_${index}`}
+                      className="rounded-xl border border-white/10 bg-[#212121] px-3 py-2 text-xs text-[#d7d7d7]"
+                    >
+                      {event?.type ?? "-"} · {providerLabel(event?.provider ?? null)} · {event?.role ?? "-"}
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : null}
 
