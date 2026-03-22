@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import type { Message, Thread } from "../../App";
+import type { Message, ProviderDraft, Thread } from "../../App";
 
 type Props = {
   activeThread?: Thread;
@@ -89,11 +89,84 @@ function MetaChip({
   );
 }
 
+function ProviderDraftPanel({
+  drafts,
+  winnerProvider,
+  loserProviders,
+  hiddenFailedProviders,
+  primaryRecovered,
+  recoveryFromModel,
+  recoveryToModel
+}: {
+  drafts: ProviderDraft[];
+  winnerProvider: string | null | undefined;
+  loserProviders: string[];
+  hiddenFailedProviders: string[];
+  primaryRecovered?: boolean;
+  recoveryFromModel?: string | null;
+  recoveryToModel?: string | null;
+}) {
+  if (!Array.isArray(drafts) || drafts.length === 0) return null;
+
+  const visibleDrafts = drafts.filter(
+    (draft) => !hiddenFailedProviders.includes(draft.provider)
+  );
+
+  if (visibleDrafts.length === 0) return null;
+
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="text-[10px] uppercase tracking-[0.16em] text-[#8e8ea0]">Live providers</div>
+
+      {visibleDrafts.map((draft) => {
+        const isWinner = draft.provider === winnerProvider;
+        const isLoser = loserProviders.includes(draft.provider);
+
+        return (
+          <div
+            key={draft.provider}
+            className={[
+              "rounded-2xl border px-3 py-3",
+              isWinner
+                ? "border-emerald-500/30 bg-emerald-500/10"
+                : isLoser
+                  ? "border-white/10 bg-[#141414] opacity-80"
+                  : "border-white/10 bg-[#181818]"
+            ].join(" ")}
+          >
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div className="text-xs font-medium text-white">{providerLabel(draft.provider)}</div>
+              <div className="flex items-center gap-2 text-[10px]">
+                {isWinner ? <span className="text-emerald-300">winner</span> : null}
+                {isLoser ? <span className="text-[#8e8ea0]">loser</span> : null}
+                {!isWinner && !isLoser ? <span className="text-[#8e8ea0]">streaming</span> : null}
+              </div>
+            </div>
+
+            {isWinner && primaryRecovered ? (
+              <div className="mb-2 text-[10px] text-amber-300">
+                recovered ({recoveryFromModel ?? "-"} → {recoveryToModel ?? "-"})
+              </div>
+            ) : null}
+
+            <div className="whitespace-pre-wrap break-words text-[13px] leading-6 text-[#d7d7d7]">
+              {draft.content || "..."}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function RequestMetaInline({ meta }: { meta: any }) {
   const primary = meta?.selectedProviders?.[0] ?? null;
   const verifier = meta?.verifierProviders?.[0] ?? null;
   const selectedModels = Array.isArray(meta?.selectedModels) ? meta.selectedModels : [];
-  const winner = meta?.winnerProvider ?? primary ?? null;
+  const winner = meta?.displayWinner?.provider ?? meta?.winnerProvider ?? primary ?? null;
+  const providerDrafts = Array.isArray(meta?.providerDrafts) ? meta.providerDrafts : [];
+  const loserProviders = Array.isArray(meta?.displayLosers) ? meta.displayLosers : [];
+  const hiddenFailedProviders = Array.isArray(meta?.hiddenFailedProviders) ? meta.hiddenFailedProviders : [];
 
   return (
     <div className="mt-3 space-y-3">
@@ -109,13 +182,19 @@ function RequestMetaInline({ meta }: { meta: any }) {
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2">
-          <MetaChip text={`Latency ${formatLatencyMs(meta?.latency)}`} />
-          <MetaChip text={`Cost ${formatUsd(meta?.cost)}`} />
-          <MetaChip text={`Confidence ${formatScore(meta?.confidence)}`} accent="border-emerald-500/20 bg-emerald-500/10 text-emerald-300" />
+          <MetaChip text={`Latency ${formatLatencyMs(meta?.requestLatencyMs ?? meta?.latency)}`} />
+          <MetaChip text={`Cost ${formatUsd(meta?.requestCostUsd ?? meta?.cost)}`} />
+          <MetaChip text={`Confidence ${formatScore(meta?.judgeConfidence ?? meta?.confidence)}`} accent="border-emerald-500/20 bg-emerald-500/10 text-emerald-300" />
           <MetaChip
-            text={meta?.fallback ? "Fallback 사용" : "Primary 유지"}
-            accent={meta?.fallback ? "border-amber-500/20 bg-amber-500/10 text-amber-300" : undefined}
+            text={meta?.fallbackUsed ?? meta?.fallback ? "Fallback 사용" : "Primary 유지"}
+            accent={meta?.fallbackUsed ?? meta?.fallback ? "border-amber-500/20 bg-amber-500/10 text-amber-300" : undefined}
           />
+          {meta?.primaryRecovered ? (
+            <MetaChip
+              text={`Recovered ${meta?.recoveryFromModel ?? "-"} → ${meta?.recoveryToModel ?? "-"}`}
+              accent="border-amber-500/20 bg-amber-500/10 text-amber-300"
+            />
+          ) : null}
           {meta?.banditScore != null ? (
             <MetaChip
               text={`Bandit ${Number(meta.banditScore).toFixed(2)}`}
@@ -137,6 +216,16 @@ function RequestMetaInline({ meta }: { meta: any }) {
           ))}
         </div>
       ) : null}
+
+      <ProviderDraftPanel
+        drafts={providerDrafts}
+        winnerProvider={winner}
+        loserProviders={loserProviders}
+        hiddenFailedProviders={hiddenFailedProviders}
+        primaryRecovered={Boolean(meta?.primaryRecovered)}
+        recoveryFromModel={meta?.recoveryFromModel ?? null}
+        recoveryToModel={meta?.recoveryToModel ?? null}
+      />
     </div>
   );
 }
@@ -160,19 +249,17 @@ function MessageBubble({ message }: { message: Message }) {
         </div>
 
         <div className="whitespace-pre-wrap break-words text-[15px] leading-7">
-          {isPending ? (
-            <span className="inline-flex items-center gap-2 text-[#b4b4b4]">
-              <span className="h-2 w-2 rounded-full bg-[#8e8ea0] animate-pulse" />
-              응답 생성 중...
-            </span>
-          ) : (
-            message.content
-          )}
+          {message.content || (isPending ? "응답 생성 중..." : "")}
         </div>
 
-        {!isPending && !isUser && message.requestMeta ? (
-          <RequestMetaInline meta={message.requestMeta} />
+        {isPending ? (
+          <div className="mt-3 inline-flex items-center gap-2 text-[12px] text-[#b4b4b4]">
+            <span className="h-2 w-2 rounded-full bg-[#8e8ea0] animate-pulse" />
+            실시간 생성 중...
+          </div>
         ) : null}
+
+        {!isUser && message.requestMeta ? <RequestMetaInline meta={message.requestMeta} /> : null}
 
         <div className="mt-3 text-right text-[11px] text-[#8e8ea0]">{formatTime(message.createdAt)}</div>
       </div>
@@ -204,8 +291,6 @@ export default function ChatView({
           {activeThread?.messages.map((message) => (
             <MessageBubble key={message.id} message={message} />
           ))}
-
-          {isSending ? null : null}
 
           {lastError ? (
             <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
