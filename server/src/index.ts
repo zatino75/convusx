@@ -117,8 +117,17 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     }
 
     // 🔥 추가 (핵심)
-    if (method === "POST" && path === "/api/chat/stream") {
-      await handlePostRoute(req, res, chatStreamRoute.handler)
+        if (method === "POST" && path === "/api/chat/stream") {
+      const body = await readJsonBody(req)
+
+      const reqLike = {
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        body
+      }
+
+      await chatStreamRoute.handler(reqLike, res)
       return
     }
 
@@ -166,3 +175,4 @@ const PORT = 8000
 server.listen(PORT, () => {
   console.log("AI ORCHESTRA running on http://localhost:" + PORT)
 })
+
