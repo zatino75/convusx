@@ -60,6 +60,18 @@ type DebugMeta = {
       bandit_score?: number;
     }
   >;
+  displayWinner?: {
+    provider?: string;
+    role?: string;
+  } | null;
+  displayLosers?: string[];
+  hiddenFailedProviders?: string[];
+  primaryRecovered?: boolean;
+  recoveryFromModel?: string | null;
+  recoveryToModel?: string | null;
+  providerStatusMap?: Record<string, any>;
+  providerStreamSummary?: Record<string, any>;
+  timelineEvents?: any[];
 };
 
 type Props = {
@@ -183,6 +195,17 @@ export default function OrchestrationPanel({
   const primaryProvider = debugMeta.selectedProviders?.[0] ?? null;
   const verifierProvider = debugMeta.verifierProviders?.[0] ?? null;
   const banditRows = buildBanditRows(debugMeta);
+  const displayWinner = debugMeta.displayWinner?.provider ?? debugMeta.winnerProvider ?? null;
+  const displayWinnerRole = debugMeta.displayWinner?.role ?? null;
+  const displayLosers = Array.isArray(debugMeta.displayLosers) ? debugMeta.displayLosers : [];
+  const providerStatusRows = Object.entries(debugMeta.providerStatusMap ?? {});
+  const failedRows = providerStatusRows.filter(([, row]) => row?.status === "failed");
+  const providerStreamRows = Object.values(debugMeta.providerStreamSummary ?? {}) as Array<{
+    provider?: string;
+    role?: string | null;
+    chunk_count?: number;
+    last_preview?: string;
+  }>;
 
   return (
     <aside className="hidden h-full w-[380px] shrink-0 border-l border-white/10 bg-[#171717] xl:flex xl:flex-col">
@@ -208,8 +231,8 @@ export default function OrchestrationPanel({
 
         <Card title="Current decision">
           <div className="grid grid-cols-2 gap-3">
-            <StatTile label="winner" value={providerLabel(debugMeta.winnerProvider)} />
-            <StatTile label="runner_up" value={providerLabel(debugMeta.runnerUpProvider)} />
+            <StatTile label="winner" value={providerLabel(displayWinner)} accent="text-emerald-300" />
+            <StatTile label="winner_role" value={displayWinnerRole ?? "-"} />
             <StatTile label="primary" value={providerLabel(primaryProvider)} />
             <StatTile label="verifier" value={providerLabel(verifierProvider)} />
             <StatTile label="task" value={debugMeta.routerTask ?? "-"} />
@@ -243,6 +266,7 @@ export default function OrchestrationPanel({
             )}
             {chip(`Parallel ${debugMeta.parallelWidth ?? "-"}`)}
             {chip(`Claims ${debugMeta.claimCount ?? 0}`)}
+            {debugMeta.primaryRecovered ? chip(`Recovered ${debugMeta.recoveryFromModel ?? "-"} → ${debugMeta.recoveryToModel ?? "-"}`, "border-amber-500/20 bg-amber-500/10 text-amber-300") : null}
           </div>
         </Card>
 
@@ -256,6 +280,7 @@ export default function OrchestrationPanel({
           <div className="mt-3 space-y-2 text-xs text-[#a8a8b3]">
             <div>selected: {debugMeta.selectedProviders.length > 0 ? debugMeta.selectedProviders.map(providerLabel).join(", ") : "-"}</div>
             <div>verifier: {debugMeta.verifierProviders.length > 0 ? debugMeta.verifierProviders.map(providerLabel).join(", ") : "-"}</div>
+            <div>losers: {displayLosers.length > 0 ? displayLosers.map(providerLabel).join(", ") : "-"}</div>
             <div>override: {debugMeta.selectionOverrideReason ?? "-"}</div>
             <div>risk: {debugMeta.conflictRisk ?? "-"}</div>
           </div>
@@ -315,6 +340,56 @@ export default function OrchestrationPanel({
               <div className="text-xs text-[#8e8ea0]">아직 실행 데이터가 없습니다.</div>
             )}
           </div>
+        </Card>
+
+        <Card title="Live stream summary" subtle>
+          {providerStreamRows.length > 0 ? (
+            <div className="space-y-2">
+              {providerStreamRows.map((row, index) => (
+                <div
+                  key={`${row.provider ?? "unknown"}_${index}`}
+                  className="rounded-xl border border-white/10 bg-[#1b1b1b] px-3 py-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-white">{providerLabel(row.provider)}</div>
+                    <div className="text-xs text-[#8e8ea0]">{row.role ?? "-"}</div>
+                  </div>
+                  <div className="mt-2 text-xs text-[#a8a8b3]">chunks: {formatNumber(row.chunk_count)}</div>
+                  <div className="mt-2 whitespace-pre-wrap break-words text-xs text-[#d7d7d7]">
+                    {row.last_preview || "-"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs text-[#8e8ea0]">실시간 draft 요약이 없습니다.</div>
+          )}
+        </Card>
+
+        <Card title="Failed providers" subtle>
+          {failedRows.length > 0 ? (
+            <div className="space-y-2">
+              {failedRows.map(([provider, row]) => (
+                <div
+                  key={provider}
+                  className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-white">{providerLabel(provider)}</div>
+                    <div className="text-xs text-red-300">{row?.error_code ?? "failed"}</div>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-[#f0c5c5]">
+                    <div>role: {row?.role ?? "-"}</div>
+                    <div>model: {row?.model ?? "-"}</div>
+                    <div>latency: {formatLatencyMs(row?.latency_ms)}</div>
+                    <div>cost: {formatUsd(row?.estimated_cost_usd)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs text-[#8e8ea0]">실패 provider가 없습니다.</div>
+          )}
         </Card>
 
         <Card title="Bandit scores">
