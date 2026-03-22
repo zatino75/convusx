@@ -6,12 +6,15 @@ export type ExecutionStrategy =
   | "single_primary"
   | "parallel_primary"
   | "parallel_primary_verifier"
+  | "parallel_primary_verifier_optional"
 
 export type AdaptiveRouteDecision = {
   task: AdaptiveTask
   benchmark_mode: boolean
   selected_providers: string[]
   verifier_providers: string[]
+  optional_providers: string[]
+  scout_providers: string[]
   fallback_providers: string[]
   parallel_providers: string[]
   execution_strategy: ExecutionStrategy
@@ -87,8 +90,34 @@ function rankProviders(task: AdaptiveTask) {
 
   if (task === "research") {
     ranked.sort((a, b) => {
-      const weightA = a.provider === "perplexity" ? 0.05 : a.provider === "openai" ? 0.04 : 0
-      const weightB = b.provider === "perplexity" ? 0.05 : b.provider === "openai" ? 0.04 : 0
+      const weightA =
+        a.provider === "openai" ? 0.07 :
+        a.provider === "claude" ? 0.04 :
+        a.provider === "perplexity" ? 0.035 :
+        a.provider === "gemini" ? 0.025 : 0
+
+      const weightB =
+        b.provider === "openai" ? 0.07 :
+        b.provider === "claude" ? 0.04 :
+        b.provider === "perplexity" ? 0.035 :
+        b.provider === "gemini" ? 0.025 : 0
+
+      return (b.bandit_score + weightB) - (a.bandit_score + weightA)
+    })
+  }
+
+  if (task === "reasoning") {
+    ranked.sort((a, b) => {
+      const weightA =
+        a.provider === "openai" ? 0.07 :
+        a.provider === "claude" ? 0.04 :
+        a.provider === "gemini" ? 0.02 : 0
+
+      const weightB =
+        b.provider === "openai" ? 0.07 :
+        b.provider === "claude" ? 0.04 :
+        b.provider === "gemini" ? 0.02 : 0
+
       return (b.bandit_score + weightB) - (a.bandit_score + weightA)
     })
   }
@@ -104,17 +133,6 @@ function shouldUsePro(task: AdaptiveTask, params: any): boolean {
     params?.benchmark_mode ||
     params?.deep_analysis ||
     params?.deep_research
-  )
-}
-
-function shouldWidenParallel(task: AdaptiveTask, params: any): boolean {
-  if (task !== "reasoning" && task !== "research") return false
-
-  return Boolean(
-    params?.benchmark_mode ||
-    params?.deep_analysis ||
-    params?.deep_research ||
-    params?.force_pro
   )
 }
 
@@ -139,26 +157,35 @@ function buildExecutionPolicy(task: AdaptiveTask, params: any) {
 
   if (Boolean(params?.benchmark_mode)) {
     return {
-      max_parallel: 3,
+      max_parallel: task === "research" ? 4 : 3,
       cost_gate_enabled: false,
-      max_total_estimated_cost_usd: 0.12,
+      max_total_estimated_cost_usd: task === "research" ? 0.14 : 0.12,
       prefer_fast_fallback: false
     }
   }
 
   if (Boolean(params?.deep_analysis || params?.deep_research || params?.force_pro)) {
     return {
+      max_parallel: task === "research" ? 4 : 3,
+      cost_gate_enabled: true,
+      max_total_estimated_cost_usd: task === "research" ? 0.1 : 0.09,
+      prefer_fast_fallback: false
+    }
+  }
+
+  if (task === "research") {
+    return {
       max_parallel: 3,
       cost_gate_enabled: true,
-      max_total_estimated_cost_usd: 0.09,
-      prefer_fast_fallback: false
+      max_total_estimated_cost_usd: 0.07,
+      prefer_fast_fallback: true
     }
   }
 
   return {
     max_parallel: 2,
     cost_gate_enabled: true,
-    max_total_estimated_cost_usd: task === "research" ? 0.07 : 0.06,
+    max_total_estimated_cost_usd: 0.06,
     prefer_fast_fallback: true
   }
 }
@@ -166,8 +193,10 @@ function buildExecutionPolicy(task: AdaptiveTask, params: any) {
 function chooseOpenAIPrimaryOverride(task: AdaptiveTask, params: any, ranked: any[]) {
   if (task === "dialogue") return true
   if (task === "code") return true
+  if (task === "reasoning") return true
+  if (task === "research") return true
 
-  if (Boolean(params?.benchmark_mode || params?.deep_analysis || params?.deep_research || params?.force_pro)) {
+  if (Boolean(params?.force_primary_provider) && String(params.force_primary_provider).trim().toLowerCase() !== "openai") {
     return false
   }
 
@@ -177,7 +206,19 @@ function chooseOpenAIPrimaryOverride(task: AdaptiveTask, params: any, ranked: an
   if (!openai || !best) return true
   if (best.provider === "openai") return true
 
-  return (best.bandit_score - openai.bandit_score) < 0.08
+  return (best.bandit_score - openai.bandit_score) < 0.15
+}
+
+function pickTopAvailable(ranked: any[], excluded: string[], preferredOrder: string[]) {
+  for (const provider of preferredOrder) {
+    const normalized = String(provider ?? "").trim().toLowerCase()
+    if (!normalized) continue
+    if (excluded.includes(normalized)) continue
+    if (ranked.some((row) => row.provider === normalized)) return normalized
+  }
+
+  const next = ranked.find((row) => !excluded.includes(row.provider))
+  return next?.provider ?? null
 }
 
 function fallbackOrder(ranked: any[], excluded: string[], preferFast: boolean): string[] {
@@ -198,43 +239,107 @@ function fallbackOrder(ranked: any[], excluded: string[], preferFast: boolean): 
   return uniqueProviders(ordered.map((x) => x.provider))
 }
 
+function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
+  const keepOpenAIPrimary = chooseOpenAIPrimaryOverride(task, params, ranked)
+  const bestProvider = ranked[0]?.provider ?? "openai"
+  const primaryProvider = keepOpenAIPrimary ? "openai" : bestProvider
+
+  const excludedBase = uniqueProviders([primaryProvider])
+
+  if (task === "dialogue") {
+    return {
+      selected_providers: [primaryProvider],
+      verifier_providers: [],
+      optional_providers: [],
+      scout_providers: []
+    }
+  }
+
+  if (task === "code") {
+    const verifier = pickTopAvailable(ranked, excludedBase, ["claude", "gemini", "perplexity"])
+    return {
+      selected_providers: [primaryProvider],
+      verifier_providers: verifier ? [verifier] : [],
+      optional_providers: [],
+      scout_providers: []
+    }
+  }
+
+  if (task === "reasoning") {
+    const verifier = pickTopAvailable(ranked, excludedBase, ["claude", "gemini", "perplexity"])
+    const optionalExcluded = uniqueProviders([...excludedBase, ...(verifier ? [verifier] : [])])
+
+    const allowOptional = Boolean(
+      params?.benchmark_mode ||
+      params?.deep_analysis ||
+      params?.deep_research ||
+      params?.force_pro
+    )
+
+    const optional = allowOptional
+      ? pickTopAvailable(ranked, optionalExcluded, ["gemini", "claude", "perplexity"])
+      : null
+
+    return {
+      selected_providers: [primaryProvider],
+      verifier_providers: verifier ? [verifier] : [],
+      optional_providers: optional ? [optional] : [],
+      scout_providers: []
+    }
+  }
+
+  const verifier = pickTopAvailable(ranked, excludedBase, ["claude", "gemini"])
+  const afterVerifier = uniqueProviders([...excludedBase, ...(verifier ? [verifier] : [])])
+
+  const scout = pickTopAvailable(ranked, afterVerifier, ["perplexity"])
+
+  const afterScout = uniqueProviders([...afterVerifier, ...(scout ? [scout] : [])])
+
+  const allowOptional =
+    Boolean(params?.benchmark_mode) ||
+    Boolean(params?.deep_analysis) ||
+    Boolean(params?.deep_research) ||
+    Boolean(params?.force_pro)
+
+  const optional = allowOptional
+    ? pickTopAvailable(ranked, afterScout, ["gemini", "claude"])
+    : null
+
+  return {
+    selected_providers: [primaryProvider],
+    verifier_providers: verifier ? [verifier] : [],
+    optional_providers: optional ? [optional] : [],
+    scout_providers: scout ? [scout] : []
+  }
+}
+
 export function resolveAdaptiveRoute(params: any): AdaptiveRouteDecision {
   const task = normalizeTask(params?.task)
   const ranked = rankProviders(task)
   const executionPolicy = buildExecutionPolicy(task, params)
 
-  const keepOpenAIPrimary = chooseOpenAIPrimaryOverride(task, params, ranked)
-  const bestProvider = ranked[0]?.provider ?? "openai"
-  const primaryProvider = keepOpenAIPrimary ? "openai" : bestProvider
+  const roles = chooseRoles(task, ranked, params)
 
-  const nonPrimary = ranked.filter((x) => x.provider !== primaryProvider).map((x) => x.provider)
-  const widenParallel = shouldWidenParallel(task, params)
+  const parallelProviders = uniqueProviders([
+    ...roles.selected_providers,
+    ...roles.verifier_providers,
+    ...roles.optional_providers,
+    ...roles.scout_providers
+  ]).slice(0, Math.max(1, Number(executionPolicy?.max_parallel ?? 2)))
 
-  let selectedProviders: string[] = [primaryProvider]
-  let verifierProviders: string[] = []
-
-  if (task === "dialogue") {
-    verifierProviders = []
-  } else if (task === "code") {
-    verifierProviders = ["claude"].filter((x) => x !== primaryProvider)
-  } else if (widenParallel) {
-    selectedProviders = uniqueProviders([primaryProvider, nonPrimary[0]])
-    verifierProviders = uniqueProviders([nonPrimary[1]])
-  } else {
-    verifierProviders = uniqueProviders([nonPrimary[0]])
-  }
-
-  const parallelProviders = uniqueProviders([...selectedProviders, ...verifierProviders]).slice(
-    0,
-    Math.max(1, Number(executionPolicy?.max_parallel ?? 2))
-  )
-
-  selectedProviders = selectedProviders.filter((x) => parallelProviders.includes(x))
-  verifierProviders = verifierProviders.filter((x) => parallelProviders.includes(x))
+  const selectedProviders = roles.selected_providers.filter((x) => parallelProviders.includes(x))
+  const verifierProviders = roles.verifier_providers.filter((x) => parallelProviders.includes(x))
+  const optionalProviders = roles.optional_providers.filter((x) => parallelProviders.includes(x))
+  const scoutProviders = roles.scout_providers.filter((x) => parallelProviders.includes(x))
 
   const fallbackProviders = fallbackOrder(
     ranked,
-    uniqueProviders([...selectedProviders, ...verifierProviders]),
+    uniqueProviders([
+      ...selectedProviders,
+      ...verifierProviders,
+      ...optionalProviders,
+      ...scoutProviders
+    ]),
     executionPolicy.prefer_fast_fallback
   )
 
@@ -268,23 +373,30 @@ export function resolveAdaptiveRoute(params: any): AdaptiveRouteDecision {
     return acc
   }, {})
 
+  const hasVerifier = verifierProviders.length > 0
+  const hasOptional = optionalProviders.length > 0 || scoutProviders.length > 0
+
   const executionStrategy: ExecutionStrategy =
     parallelProviders.length <= 1
       ? "single_primary"
-      : verifierProviders.length > 0
-        ? "parallel_primary_verifier"
-        : "parallel_primary"
+      : hasVerifier && hasOptional
+        ? "parallel_primary_verifier_optional"
+        : hasVerifier
+          ? "parallel_primary_verifier"
+          : "parallel_primary"
 
   return {
     task,
     benchmark_mode: Boolean(params?.benchmark_mode),
     selected_providers: selectedProviders,
     verifier_providers: verifierProviders,
+    optional_providers: optionalProviders,
+    scout_providers: scoutProviders,
     fallback_providers: fallbackProviders,
     parallel_providers: parallelProviders,
     execution_strategy: executionStrategy,
     parallel_width: parallelProviders.length,
-    router_policy: "openai_primary_light_bandit_router",
+    router_policy: "openai_primary_role_aware_bandit_router",
     provider_scores: providerScores,
     provider_costs: providerCosts,
     provider_latency: providerLatency,
