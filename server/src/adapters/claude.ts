@@ -107,15 +107,114 @@ async function callAnthropic(apiKey: string, payload: any) {
   return { response, data, latency }
 }
 
+async function streamAnthropic(params: {
+  apiKey: string
+  payload: any
+  onToken?: (chunk: string) => void | Promise<void>
+}) {
+  const start = now()
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": params.apiKey,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      ...params.payload,
+      stream: true
+    })
+  })
+
+  const latency = now() - start
+
+  if (!response.ok || !response.body) {
+    const data = await response.json().catch(async () => {
+      const text = await response.text().catch(() => "")
+      return { error: { type: "request_failed", message: text } }
+    })
+
+    return {
+      ok: false,
+      latency,
+      text: "",
+      data,
+      errorCode: typeof data?.error?.type === "string" ? data.error.type : "request_failed"
+    }
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+
+  let buffer = ""
+  let fullText = ""
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+
+    while (buffer.includes("\n\n")) {
+      const index = buffer.indexOf("\n\n")
+      const rawEvent = buffer.slice(0, index)
+      buffer = buffer.slice(index + 2)
+
+      const lines = rawEvent
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+
+      const eventLine = lines.find((line) => line.startsWith("event:"))
+      const dataLine = lines.find((line) => line.startsWith("data:"))
+
+      const eventType = eventLine ? eventLine.replace(/^event:\s*/, "") : ""
+      const jsonStr = dataLine ? dataLine.replace(/^data:\s*/, "") : ""
+
+      if (!jsonStr || jsonStr === "[DONE]") continue
+
+      try {
+        const parsed = JSON.parse(jsonStr)
+
+        if (eventType === "content_block_delta" || parsed?.type === "content_block_delta") {
+          const deltaText =
+            typeof parsed?.delta?.text === "string"
+              ? parsed.delta.text
+              : typeof parsed?.text === "string"
+                ? parsed.text
+                : ""
+
+          if (deltaText) {
+            fullText += deltaText
+            if (params.onToken) {
+              await params.onToken(deltaText)
+            }
+          }
+        }
+      } catch {
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    latency,
+    text: fullText,
+    data: {
+      usage: {}
+    },
+    errorCode: null
+  }
+}
+
 export const claudeAdapter: ModelAdapter = {
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const apiKey = env("ANTHROPIC_API_KEY")
-
-    // 🔥 핵심 수정
     const model = req.model?.trim() || "claude-sonnet-4-6"
-
     const attempts: ModelAttempt[] = []
     const { system, conversation } = splitSystemAndMessages(req.messages)
+    const onToken = typeof (req as any)?.onToken === "function" ? (req as any).onToken : undefined
 
     if (!apiKey) {
       return {
@@ -139,6 +238,46 @@ export const claudeAdapter: ModelAdapter = {
     }
 
     try {
+      if (onToken) {
+        const streamed = await streamAnthropic({
+          apiKey,
+          payload,
+          onToken
+        })
+
+        attempts.push({
+          provider: req.provider,
+          model,
+          status: streamed.ok && streamed.text ? "success" : "error",
+          latency_ms: streamed.latency,
+          error: streamed.errorCode,
+          attempt_no: 1,
+          http_status: streamed.ok ? 200 : 500,
+          error_code: streamed.errorCode ?? undefined,
+          retriable: streamed.errorCode ? isRetriableError(500, streamed.errorCode) : false
+        })
+
+        if (!streamed.ok || !streamed.text) {
+          return {
+            provider: req.provider,
+            model,
+            answer: "",
+            attempts,
+            usage: streamed?.data?.usage,
+            error: buildError(req.provider, "stream_request_failed", streamed.errorCode ?? "request_failed", true)
+          }
+        }
+
+        return {
+          provider: req.provider,
+          model,
+          answer: streamed.text,
+          usage: streamed?.data?.usage,
+          attempts,
+          streaming_supported: true
+        }
+      }
+
       const first = await callAnthropic(apiKey, payload)
       const code = typeof first.data?.error?.type === "string" ? first.data.error.type : undefined
       const retriable = isRetriableError(first.response.status, code)
@@ -231,4 +370,3 @@ export async function generate(req: ModelRequest): Promise<ModelResponse> {
 }
 
 export default claudeAdapter
-
