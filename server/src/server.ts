@@ -1,9 +1,21 @@
-import { createServer, IncomingMessage, ServerResponse } from "node:http"
+﻿import { createServer, IncomingMessage, ServerResponse } from "node:http"
 import { URL } from "node:url"
 
-import { chatRoute } from "./routes/chat.js"
+import { chatRoute, chatStreamRoute } from "./routes/chat.js"
 import { usageRoute, scoreboardRoute } from "./routes/usage.js"
 import { dashboardRoute } from "./routes/dashboard.js"
+
+import {
+  getProjectMemory,
+  getLatestProjectContext,
+  getProjectSourceAssets,
+  addProjectSourceAsset
+} from "./memory/projectMemory.js"
+
+import {
+  getThreadMemory,
+  getProjectThreadMemories
+} from "./memory/threadMemory.js"
 
 type RouteHandler = (req: { body?: any; query?: any }, res: { json: (payload: unknown) => void }) => unknown
 
@@ -17,7 +29,90 @@ const routes: RegisteredRoute[] = [
   { method: "POST", path: chatRoute.path, handler: chatRoute.handler as RouteHandler },
   { method: "GET", path: usageRoute.path, handler: usageRoute.handler as RouteHandler },
   { method: "GET", path: scoreboardRoute.path, handler: scoreboardRoute.handler as RouteHandler },
-  { method: "GET", path: dashboardRoute.path, handler: dashboardRoute.handler as RouteHandler }
+  { method: "GET", path: dashboardRoute.path, handler: dashboardRoute.handler as RouteHandler },
+
+  // ===== MEMORY API =====
+
+  {
+    method: "GET",
+    path: "/api/project-memory",
+    handler: ({ query }, res) => {
+      const projectId = String(query?.projectId ?? "")
+      res.json({
+        ok: true,
+        data: getProjectMemory(projectId)
+      })
+    }
+  },
+
+  {
+    method: "GET",
+    path: "/api/thread-memory",
+    handler: ({ query }, res) => {
+      const threadId = String(query?.threadId ?? "")
+      res.json({
+        ok: true,
+        data: getThreadMemory(threadId)
+      })
+    }
+  },
+
+  {
+    method: "GET",
+    path: "/api/project-thread-memories",
+    handler: ({ query }, res) => {
+      const projectId = String(query?.projectId ?? "")
+      res.json({
+        ok: true,
+        data: getProjectThreadMemories(projectId)
+      })
+    }
+  },
+
+  {
+    method: "GET",
+    path: "/api/project-sources",
+    handler: ({ query }, res) => {
+      const projectId = String(query?.projectId ?? "")
+      res.json({
+        ok: true,
+        data: getProjectSourceAssets(projectId)
+      })
+    }
+  },
+
+  {
+    method: "POST",
+    path: "/api/project-sources",
+    handler: ({ body }, res) => {
+      const projectId = String(body?.projectId ?? "")
+      const asset = body?.asset ?? null
+
+      if (!projectId || !asset) {
+        res.json({ ok: false, error: "invalid_input" })
+        return
+      }
+
+      addProjectSourceAsset(projectId, asset)
+
+      res.json({
+        ok: true
+      })
+    }
+  },
+
+  {
+    method: "GET",
+    path: "/api/retrieval-context",
+    handler: ({ query }, res) => {
+      const projectId = String(query?.projectId ?? "")
+
+      res.json({
+        ok: true,
+        data: getLatestProjectContext(projectId)
+      })
+    }
+  }
 ]
 
 function setCorsHeaders(res: ServerResponse) {
@@ -93,6 +188,26 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     return
   }
 
+  // SSE 스트리밍 전용 라우트
+  if (method === "POST" && pathname === chatStreamRoute.path) {
+    const body = await parseBody(req)
+    await chatStreamRoute.handler(
+      { body },
+      {
+        writeHead: (statusCode: number, headers: Record<string, string>) => {
+          res.writeHead(statusCode, headers)
+        },
+        write: (chunk: string) => {
+          res.write(chunk)
+        },
+        end: () => {
+          res.end()
+        }
+      }
+    )
+    return
+  }
+
   const route = findRoute(method, pathname)
 
   if (!route) {
@@ -108,10 +223,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
   try {
     await route.handler(
-      {
-        body,
-        query
-      },
+      { body, query },
       {
         json: (payload: unknown) => {
           sendJson(res, 200, payload)

@@ -3,6 +3,7 @@ import { extractDebugMeta } from "./api/chat";
 import ChatView from "./components/chat/ChatView";
 import HomeView from "./components/chat/HomeView";
 import AppShell from "./components/layout/AppShell";
+import OrchestrationPanel from "./components/ops/OrchestrationPanel";
 import Sidebar from "./components/layout/Sidebar";
 import Topbar from "./components/layout/Topbar";
 import {
@@ -338,6 +339,13 @@ export default function App() {
   const [debugMeta, setDebugMeta] = useState<DebugMeta>(createDefaultDebugMeta());
   const [sidebarView, setSidebarView] = useState<"default" | "search" | "images">("default");
   const [artifactContent, setArtifactContent] = useState<{ title: string; code: string; language: string } | null>(null);
+  const [composerOptions, setComposerOptions] = useState<{ force_pro?: boolean; deep_research?: boolean; task?: string } | null>(null);
+  const [dialog, setDialog] = useState<{
+    type: "rename-project" | "delete-project" | "rename-thread" | "delete-thread";
+    id: string;
+    currentTitle?: string;
+  } | null>(null);
+  const [dialogInput, setDialogInput] = useState("");
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -732,6 +740,7 @@ export default function App() {
     workspace.touchProject(target.projectId, timestamp);
 
     setDraft("");
+    setComposerOptions(null);
     setIsSending(true);
     setLastError(null);
     setDebugMeta(createDefaultDebugMeta());
@@ -743,7 +752,8 @@ export default function App() {
           message: trimmed,
           thread_id: target.threadId,
           project_id: target.projectId,
-          mode: "runtime_orchestra"
+          mode: "runtime_orchestra",
+          ...(composerOptions ?? {})
         },
         {
           onEvent: (event) => {
@@ -1088,6 +1098,84 @@ export default function App() {
 
   return (
     <>
+      {/* ─── Inline Dialog ─────────────────────────────────────── */}
+      {dialog && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)" }}
+          onClick={() => setDialog(null)}>
+          <div style={{ background: "var(--bg-surface, #fff)", borderRadius: 16, padding: 24, width: 400, maxWidth: "90vw", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}
+            onClick={e => e.stopPropagation()}>
+
+            {/* 이름 변경 다이얼로그 */}
+            {(dialog.type === "rename-project" || dialog.type === "rename-thread") && (
+              <>
+                <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text-main)", marginBottom: 16 }}>
+                  {dialog.type === "rename-project" ? "프로젝트 이름 변경" : "스레드 이름 변경"}
+                </div>
+                <input
+                  autoFocus
+                  value={dialogInput}
+                  onChange={e => setDialogInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") {
+                      if (dialog.type === "rename-project") workspace.renameProject(dialog.id, dialogInput);
+                      else workspace.renameThread(dialog.id, dialogInput);
+                      setDialog(null);
+                    }
+                    if (e.key === "Escape") setDialog(null);
+                  }}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)", fontSize: 14, color: "var(--text-main)", background: "var(--surface-1, #f9f9f9)", outline: "none", boxSizing: "border-box" as const }}
+                />
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+                  <button type="button" onClick={() => setDialog(null)}
+                    style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border)", background: "transparent", fontSize: 13, cursor: "pointer", color: "var(--text-main)" }}>
+                    취소
+                  </button>
+                  <button type="button"
+                    onClick={() => {
+                      if (!dialogInput.trim()) return;
+                      if (dialog.type === "rename-project") workspace.renameProject(dialog.id, dialogInput);
+                      else workspace.renameThread(dialog.id, dialogInput);
+                      setDialog(null);
+                    }}
+                    style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "var(--text-main)", color: "#fff", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+                    변경
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* 삭제 확인 다이얼로그 */}
+            {(dialog.type === "delete-project" || dialog.type === "delete-thread") && (
+              <>
+                <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text-main)", marginBottom: 8 }}>
+                  {dialog.type === "delete-project" ? "프로젝트 삭제" : "스레드 삭제"}
+                </div>
+                <div style={{ fontSize: 14, color: "var(--text-sub)", marginBottom: 20, lineHeight: 1.6 }}>
+                  <strong style={{ color: "var(--text-main)" }}>"{dialog.currentTitle}"</strong>을(를) 삭제합니다.
+                  {dialog.type === "delete-project" && <span> 프로젝트 내 모든 스레드도 함께 삭제됩니다.</span>}
+                  <br />이 작업은 되돌릴 수 없습니다.
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button type="button" onClick={() => setDialog(null)}
+                    style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border)", background: "transparent", fontSize: 13, cursor: "pointer", color: "var(--text-main)" }}>
+                    취소
+                  </button>
+                  <button type="button"
+                    onClick={() => {
+                      if (dialog.type === "delete-project") workspace.deleteProject(dialog.id);
+                      else workspace.deleteThread(dialog.id);
+                      setDialog(null);
+                    }}
+                    style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+                    삭제
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       <AppShell
         sidebar={
           <Sidebar
@@ -1105,10 +1193,24 @@ export default function App() {
             onNewChat={handleOpenGeneralHome}
             onCreateProject={handleCreateNamedProject}
             onCreateThreadInProject={handleCreateThreadInProject}
-            onRenameProject={workspace.renameProject}
-            onDeleteProject={workspace.deleteProject}
-            onRenameThread={workspace.renameThread}
-            onDeleteThread={workspace.deleteThread}
+            onRenameProject={(id) => {
+                const project = workspace.projectGroups.find(p => p.id === id);
+                setDialog({ type: "rename-project", id, currentTitle: project?.title ?? "" });
+                setDialogInput(project?.title ?? "");
+              }}
+            onDeleteProject={(id) => {
+                const project = workspace.projectGroups.find(p => p.id === id);
+                setDialog({ type: "delete-project", id, currentTitle: project?.title ?? "" });
+              }}
+            onRenameThread={(id) => {
+                const thread = workspace.threads.find(t => t.id === id);
+                setDialog({ type: "rename-thread", id, currentTitle: thread?.title ?? "" });
+                setDialogInput(thread?.title ?? "");
+              }}
+            onDeleteThread={(id) => {
+                const thread = workspace.threads.find(t => t.id === id);
+                setDialog({ type: "delete-thread", id, currentTitle: thread?.title ?? "" });
+              }}
             onMoveThread={workspace.moveThread}
             onToggleProjectMemory={handleToggleProjectMemory}
             onToggleThreadPinned={workspace.toggleThreadPinned}
@@ -1141,7 +1243,16 @@ export default function App() {
               <pre className="artifact-panel__code">{artifactContent.code}</pre>
             </div>
           </div>
-        ) : undefined}
+        ) : (mode === "thread-chat" ? (
+          <OrchestrationPanel
+            debugMeta={debugMeta}
+            usage={null}
+            scoreboard={null}
+            dashboard={null}
+            opsLoading={false}
+            opsError={null}
+          />
+        ) : undefined)}
         topbar={
           <Topbar
             mode={mode}
@@ -1169,10 +1280,17 @@ export default function App() {
               isSending={isSending}
               onOpenThread={handleOpenThread}
               onSubmitPrompt={(value) => void handleHomeSubmit(value)}
-              onRenameThread={handleRenameThreadFromHome}
+              onRenameThread={(id, _nextTitle) => {
+                const thread = workspace.threads.find(t => t.id === id);
+                setDialog({ type: "rename-thread", id, currentTitle: thread?.title ?? "" });
+                setDialogInput(thread?.title ?? "");
+              }}
               onMoveThread={handleMoveThreadFromHome}
               onRemoveFromProject={workspace.removeThreadFromProject}
-              onDeleteThread={workspace.deleteThread}
+              onDeleteThread={(id) => {
+                const thread = workspace.threads.find(t => t.id === id);
+                setDialog({ type: "delete-thread", id, currentTitle: thread?.title ?? "" });
+              }}
               projectGroups={workspace.projectGroups}
             />
           ) : (
@@ -1208,6 +1326,17 @@ export default function App() {
               }}
               onOpenArtifact={(title, code, language) => {
                 setArtifactContent({ title, code, language });
+              }}
+              composerMode={composerOptions ? (composerOptions.force_pro ? "deep-think" : composerOptions.task === "research" ? "web-search" : null) : null}
+              onClearComposerMode={() => setComposerOptions(null)}
+              onComposerAction={(action) => {
+                if (action === "deep-think") {
+                  setComposerOptions({ force_pro: true, deep_research: true });
+                } else if (action === "web-search") {
+                  setComposerOptions({ task: "research" });
+                } else {
+                  setComposerOptions(null);
+                }
               }}
               messageVersionMap={messageVersionMap}
               onSelectMessageVersion={handleSelectMessageVersion}

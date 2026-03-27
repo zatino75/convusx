@@ -7,8 +7,21 @@ export type ChatRequest = {
 
 type AnyRecord = Record<string, any>;
 
+export type ConflictTypeRecent = {
+  numeric?: number;
+  fact?: number;
+  risk?: number;
+  recommendation?: number;
+  comparison?: number;
+  implementation?: number;
+  context?: number;
+  other?: number;
+};
+
 export type UsageProviderNode = {
   provider?: string | null;
+  task?: string | null;
+
   calls?: number;
   success?: number;
   failure?: number;
@@ -20,30 +33,61 @@ export type UsageProviderNode = {
   estimated_cost_usd?: number;
   last_model?: string | null;
   last_called_at?: string | null;
+
   uses?: number;
   wins?: number;
+  task_uses?: number | null;
+  task_wins?: number | null;
+
   recent_uses?: number;
   recent_wins?: number;
+  task_recent_uses?: number | null;
+  task_recent_wins?: number | null;
+
   win_rate?: number;
+  blended_win_rate?: number;
+  task_win_rate?: number | null;
+  task_blended_win_rate?: number | null;
+  effective_win_rate?: number | null;
+
   recent_win_rate?: number;
+  task_recent_win_rate?: number | null;
+
   avg_latency?: number;
   avg_cost?: number;
+  task_avg_latency?: number | null;
+  task_avg_cost?: number | null;
+
   routing_score?: number;
   exploration_bonus?: number;
   freshness_bonus?: number;
+
+  conflict_penalty_recent?: number;
+  context_conflicts_recent?: number;
+  provider_conflicts_recent?: number;
+  conflict_penalty?: number;
+
+  conflict_type_recent?: ConflictTypeRecent | null;
+  type_penalty?: number | null;
+
   bandit_score?: number;
+  routing_floor?: number;
+
   last_used_at?: number;
+  last_conflict_at?: number;
 };
 
 export type UsageSummaryResponse = {
   ok: boolean;
   providers: UsageProviderNode[];
+  task_routing_scores?: Record<string, UsageProviderNode[]>;
 };
 
 export type ScoreboardResponse = {
   ok: boolean;
   scoreboard: Record<string, any>;
   routing_scores?: UsageProviderNode[];
+  task_routing_scores?: Record<string, UsageProviderNode[]>;
 };
 
 export type DashboardRecentBenchmark = {
@@ -72,24 +116,31 @@ export type DashboardResponse = {
   by_task: Record<string, any>;
   scoreboard: Record<string, any>;
   bandit: UsageProviderNode[];
+  task_bandit?: Record<string, UsageProviderNode[]>;
   recent: DashboardRecentBenchmark[];
 };
 
 export type ChatProviderUsage = {
   provider?: string | null;
+  role?: string | null;
   success?: boolean;
   latency_ms?: number;
   error_code?: string | null;
   model?: string | null;
   usage?: {
     estimated_cost_usd?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
   };
 };
 
 export type ChatOrchestrationMeta = {
   primary_provider?: string | null;
+  effective_primary_provider?: string | null;
   verifier_providers?: string[];
   optional_providers?: string[];
+  scout_providers?: string[];
   selected_providers?: string[];
   fallback_providers?: string[];
   parallel_providers?: string[];
@@ -100,9 +151,18 @@ export type ChatOrchestrationMeta = {
   }>;
   latency_ms?: number;
   estimated_cost_usd?: number;
+  raw_cost_usd?: number;
   fallback_used?: boolean;
   judge_confidence?: number;
   conflict_count?: number;
+  conflict_buckets?: {
+    total?: number;
+    context_conflicts?: number;
+    provider_conflicts?: number;
+    high?: number;
+    medium?: number;
+    low?: number;
+  };
   execution_policy?: {
     max_parallel?: number;
     cost_gate_enabled?: boolean;
@@ -110,7 +170,44 @@ export type ChatOrchestrationMeta = {
     prefer_fast_fallback?: boolean;
   };
   provider_usage?: ChatProviderUsage[];
+  provider_status_map?: Record<string, any>;
+  provider_stream_summary?: Record<string, any>;
   final_provider?: string | null;
+  parallel_width?: number | null;
+  router_policy?: string | null;
+  winner_reason?: {
+    provider?: string | null;
+    role?: string | null;
+    rationale?: string | null;
+    confidence?: number;
+    top_reasons?: string[];
+    context_conflicts?: number;
+    provider_conflicts?: number;
+  };
+  selection_trace?: {
+    selected_provider?: string | null;
+    selected_role?: string | null;
+    judge_rationale?: string | null;
+    judge_confidence?: number;
+    selected_score?: number;
+    selected_reasons?: string[];
+    conflict_buckets?: {
+      total?: number;
+      context_conflicts?: number;
+      provider_conflicts?: number;
+      high?: number;
+      medium?: number;
+      low?: number;
+    };
+  };
+  display_winner?: {
+    provider?: string | null;
+    role?: string | null;
+  };
+  display_losers?: string[];
+  primary_recovered?: boolean;
+  recovery_from_model?: string | null;
+  recovery_to_model?: string | null;
 };
 
 export type ChatBanditMeta = {
@@ -119,349 +216,215 @@ export type ChatBanditMeta = {
     routing_score?: number;
     exploration_bonus?: number;
     freshness_bonus?: number;
+    conflict_penalty_recent?: number;
+    context_conflicts_recent?: number;
+    provider_conflicts_recent?: number;
+    conflict_type_recent?: ConflictTypeRecent | null;
+    type_penalty?: number | null;
     bandit_score?: number;
   }>;
   selected_primary?: string | null;
   selected_verifier?: string | null;
 };
 
-export type ChatDerivedMeta = {
-  detected_task?: string | null;
-  execution_strategy?: string | null;
-  selected_providers?: string[];
-  verifier_providers?: string[];
-  fallback_providers?: string[];
-  parallel_providers?: string[];
-  winner?: string | null;
-  runner_up?: string | null;
-  conflict_count?: number;
-  executed_provider_count?: number;
-  latency_ms?: number;
-  estimated_cost_usd?: number;
-  fallback_used?: boolean;
-  judge_confidence?: number;
-};
-
 export type ChatResponse = {
   ok: boolean;
   answer?: {
     provider?: string | null;
+    role?: string | null;
     text?: string;
     ok?: boolean;
   };
   meta?: {
-    orchestration?: ChatOrchestrationMeta | null;
+    orchestration?: ChatOrchestrationMeta;
   };
-  orchestration?: ChatOrchestrationMeta | null;
-  bandit?: ChatBanditMeta | null;
-  derived?: ChatDerivedMeta;
+  orchestration?: ChatOrchestrationMeta;
+  bandit?: ChatBanditMeta;
+  derived?: AnyRecord;
   internal?: AnyRecord;
   result?: AnyRecord;
   error?: string;
 };
 
-async function readJson<T>(response: Response): Promise<T> {
-  const text = await response.text();
-  let json: AnyRecord | null = null;
+export type DebugMeta = {
+  winnerProvider: string | null;
+  routerTask: string | null;
+  selectedProviders: string[];
+  verifierProviders: string[];
+  executionStrategy: string | null;
+  parallelWidth: number | null;
+  conflictCount: number;
+  judgeConfidence?: number | null;
+  requestLatencyMs?: number | null;
+  requestCostUsd?: number | null;
+  displayWinner?: {
+    provider?: string;
+    role?: string;
+  } | null;
+  displayLosers?: string[];
+  primaryRecovered?: boolean;
+  recoveryFromModel?: string | null;
+  recoveryToModel?: string | null;
+  providerStatusMap?: Record<string, any>;
+  providerStreamSummary?: Record<string, any>;
+};
 
-  try {
-    json = text ? (JSON.parse(text) as AnyRecord) : {};
-  } catch {
-    json = { rawText: text };
-  }
-
-  if (!response.ok) {
-    const detail =
-      json?.error ??
-      json?.message ??
-      json?.detail ??
-      text ??
-      `HTTP ${response.status}`;
-
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
-  }
-
-  return (json ?? {}) as T;
+function asRecord(value: unknown): Record<string, any> {
+  return value && typeof value === "object" ? (value as Record<string, any>) : {};
 }
 
-export async function sendChat(input: ChatRequest) {
-  const response = await fetch("/api/chat", {
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item ?? "")).filter(Boolean) : [];
+}
+
+async function safeJson(response: Response) {
+  try {
+    return await response.json();
+  } catch {
+    return {};
+  }
+}
+
+export function extractDebugMeta(response: ChatResponse | null | undefined): DebugMeta {
+  const root = asRecord(response);
+  const orchestration =
+    asRecord(root.orchestration).final_provider !== undefined ||
+    asRecord(root.orchestration).latency_ms !== undefined
+      ? asRecord(root.orchestration)
+      : asRecord(asRecord(root.meta).orchestration);
+
+  const derived = asRecord(root.derived);
+  const internal = asRecord(root.internal);
+  const route = asRecord(internal.route);
+  const winnerReason = asRecord(orchestration.winner_reason);
+  const displayWinner = asRecord(orchestration.display_winner);
+
+  const selectedProviders = asStringArray(orchestration.selected_providers).length > 0
+    ? asStringArray(orchestration.selected_providers)
+    : asStringArray(route.selected_providers);
+
+  const verifierProviders = asStringArray(orchestration.verifier_providers).length > 0
+    ? asStringArray(orchestration.verifier_providers)
+    : asStringArray(route.verifier_providers);
+
+  return {
+    winnerProvider:
+      String(
+        displayWinner.provider ??
+        winnerReason.provider ??
+        orchestration.final_provider ??
+        derived.winner ??
+        response?.answer?.provider ??
+        ""
+      ).trim() || null,
+
+    routerTask:
+      String(
+        internal.task ??
+        derived.detected_task ??
+        route.task ??
+        ""
+      ).trim() || null,
+
+    selectedProviders,
+    verifierProviders,
+
+    executionStrategy:
+      String(
+        derived.execution_strategy ??
+        route.execution_strategy ??
+        ""
+      ).trim() || null,
+
+    parallelWidth:
+      Number.isFinite(Number(orchestration.parallel_width))
+        ? Number(orchestration.parallel_width)
+        : Number.isFinite(Number(route.parallel_width))
+          ? Number(route.parallel_width)
+          : Array.isArray(orchestration.parallel_providers)
+            ? orchestration.parallel_providers.length
+            : null,
+
+    conflictCount: Number(
+      orchestration.conflict_count ??
+      internal.conflict_count ??
+      derived.conflict_count ??
+      0
+    ),
+
+    judgeConfidence:
+      Number.isFinite(Number(orchestration.judge_confidence))
+        ? Number(orchestration.judge_confidence)
+        : Number.isFinite(Number(internal?.judge?.confidence))
+          ? Number(internal.judge.confidence)
+          : null,
+
+    requestLatencyMs:
+      Number.isFinite(Number(orchestration.latency_ms))
+        ? Number(orchestration.latency_ms)
+        : null,
+
+    requestCostUsd:
+      Number.isFinite(Number(orchestration.estimated_cost_usd))
+        ? Number(orchestration.estimated_cost_usd)
+        : null,
+
+    displayWinner:
+      displayWinner.provider || displayWinner.role
+        ? {
+            provider: displayWinner.provider ? String(displayWinner.provider) : undefined,
+            role: displayWinner.role ? String(displayWinner.role) : undefined
+          }
+        : null,
+
+    displayLosers: asStringArray(orchestration.display_losers),
+
+    primaryRecovered: Boolean(orchestration.primary_recovered),
+    recoveryFromModel:
+      String(orchestration.recovery_from_model ?? "").trim() || null,
+    recoveryToModel:
+      String(orchestration.recovery_to_model ?? "").trim() || null,
+
+    providerStatusMap: asRecord(orchestration.provider_status_map),
+    providerStreamSummary: asRecord(orchestration.provider_stream_summary)
+  };
+}
+
+export async function sendChat(input: ChatRequest): Promise<ChatResponse> {
+  const response = await fetch("http://localhost:8000/api/chat", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      mode: input.mode ?? "runtime_orchestra",
-      message: input.message,
-      prompt: input.message,
-      input: input.message,
-      query: input.message,
-      thread_id: input.thread_id,
-      project_id: input.project_id
-    })
+    body: JSON.stringify(input)
   });
 
-  return readJson<ChatResponse>(response);
-}
+  const payload = await safeJson(response);
 
-export async function fetchUsageSummary(signal?: AbortSignal) {
-  const response = await fetch("/api/usage", {
-    method: "GET",
-    signal
-  });
-
-  return readJson<UsageSummaryResponse>(response);
-}
-
-export async function fetchScoreboard(signal?: AbortSignal) {
-  const response = await fetch("/api/scoreboard", {
-    method: "GET",
-    signal
-  });
-
-  return readJson<ScoreboardResponse>(response);
-}
-
-export async function fetchDashboard(signal?: AbortSignal) {
-  const response = await fetch("/api/dashboard", {
-    method: "GET",
-    signal
-  });
-
-  return readJson<DashboardResponse>(response);
-}
-
-function pickFirstString(candidates: unknown[]): string {
-  for (const value of candidates) {
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
+  if (!response.ok) {
+    return {
+      ok: false,
+      error: String((payload as any)?.error ?? "request_failed")
+    };
   }
 
-  return "";
+  return payload as ChatResponse;
 }
 
-function safeJsonStringify(value: unknown): string {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return "";
-  }
+export async function fetchUsageSummary(): Promise<UsageSummaryResponse> {
+  const response = await fetch("http://localhost:8000/api/usage");
+  const payload = await safeJson(response);
+  return payload as UsageSummaryResponse;
 }
 
-function toArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .flatMap((item) => {
-        if (typeof item === "string") {
-          return [item];
-        }
-
-        if (item && typeof item === "object") {
-          const record = item as AnyRecord;
-          return [record.provider, record.name, record.model].filter(
-            (entry): entry is string => typeof entry === "string" && !!entry
-          );
-        }
-
-        return [];
-      })
-      .filter(Boolean);
-  }
-
-  if (typeof value === "string" && value.trim()) {
-    return value
-      .split(/[\s,>/-]+/)
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-  }
-
-  return [];
+export async function fetchScoreboard(): Promise<ScoreboardResponse> {
+  const response = await fetch("http://localhost:8000/api/scoreboard");
+  const payload = await safeJson(response);
+  return payload as ScoreboardResponse;
 }
 
-function requestLatencyFromUsageRows(rows: Array<AnyRecord>) {
-  if (!Array.isArray(rows) || rows.length === 0) return null;
-
-  const values = rows
-    .map((row) => Number(row?.latency_ms ?? 0))
-    .filter((value) => Number.isFinite(value) && value > 0);
-
-  if (values.length === 0) return null;
-  return Math.max(...values);
-}
-
-export function extractAssistantText(payload: AnyRecord): string {
-  const result = payload?.result ?? {};
-  const answer = payload?.answer ?? result?.final_answer ?? payload?.final_answer ?? {};
-  const finalAnswer = result?.final_answer ?? payload?.final_answer ?? answer ?? {};
-
-  const bestText = pickFirstString([
-    answer?.text,
-    answer?.answer_text,
-    finalAnswer?.text,
-    finalAnswer?.answer_text,
-    finalAnswer?.content,
-    finalAnswer?.summary,
-    result?.final?.answer_text,
-    result?.answer,
-    result?.content,
-    result?.text,
-    payload?.text,
-    payload?.message,
-    payload?.rawText
-  ]);
-
-  if (bestText) {
-    return bestText;
-  }
-
-  if (typeof answer === "string" && answer.trim()) {
-    return answer.trim();
-  }
-
-  const serialized = safeJsonStringify(answer);
-  if (serialized) {
-    return serialized;
-  }
-
-  return "";
-}
-
-export function extractDebugMeta(payload: AnyRecord) {
-  const result = payload?.result ?? {};
-  const internal = payload?.internal ?? result?.internal_rationale ?? {};
-  const route = internal?.route ?? result?.route ?? {};
-  const judge = internal?.judge ?? {};
-  const claims = Array.isArray(internal?.claims) ? internal.claims : [];
-  const conflicts = Array.isArray(internal?.conflicts) ? internal.conflicts : [];
-  const derived = payload?.derived ?? {};
-  const orchestration = payload?.orchestration ?? payload?.meta?.orchestration ?? {};
-  const bandit = payload?.bandit ?? internal?.bandit ?? {};
-  const providerUsage = Array.isArray(orchestration?.provider_usage) ? orchestration.provider_usage : [];
-
-  const providerChain = Array.from(
-    new Set(
-      [
-        ...toArray(derived?.provider_chain),
-        ...toArray(route?.provider_chain),
-        ...toArray(route?.selected_providers),
-        ...toArray(route?.verifier_providers),
-        ...toArray(orchestration?.executed_providers),
-        ...toArray(internal?.executed_providers),
-        ...toArray(result?.executed_providers)
-      ].filter(Boolean)
-    )
-  );
-
-  const winnerProvider =
-    pickFirstString([
-      payload?.answer?.provider,
-      orchestration?.final_provider,
-      result?.final_answer?.provider,
-      judge?.selected_provider,
-      derived?.winner
-    ]) || null;
-
-  const scoreRows = Array.isArray(judge?.scores) ? judge.scores : [];
-  const topScore = scoreRows.length > 0 && typeof scoreRows[0]?.score === "number" ? scoreRows[0].score : null;
-  const secondScore = scoreRows.length > 1 && typeof scoreRows[1]?.score === "number" ? scoreRows[1].score : null;
-
-  const conflictTypes = conflicts
-    .map((conflict: AnyRecord) => String(conflict?.type ?? "").trim())
-    .filter(Boolean);
-
-  const selectedProviders = Array.isArray(route?.selected_providers)
-    ? route.selected_providers.map((provider: unknown) => String(provider ?? "").trim()).filter(Boolean)
-    : [];
-
-  const verifierProviders = Array.isArray(route?.verifier_providers)
-    ? route.verifier_providers.map((provider: unknown) => String(provider ?? "").trim()).filter(Boolean)
-    : [];
-
-  const usageTotals = {
-    estimated_cost_usd: Number(orchestration?.estimated_cost_usd ?? 0)
-  };
-
-  return {
-    providerChain,
-    winnerProvider,
-    qualityScoreGain:
-      topScore !== null && secondScore !== null ? Number((topScore - secondScore).toFixed(2)) : null,
-    orchestraWins: null,
-    singleModelWins: null,
-    ties: null,
-    routerTask: route?.task ?? derived?.detected_task ?? null,
-    selectedProviders,
-    verifierProviders,
-    executionStrategy: route?.execution_strategy ?? derived?.execution_strategy ?? null,
-    parallelWidth:
-      typeof route?.parallel_width === "number"
-        ? route.parallel_width
-        : providerChain.length > 0
-          ? providerChain.length
-          : null,
-    conflictRisk: route?.conflict_risk ?? null,
-    claimCount: claims.reduce((sum: number, item: AnyRecord) => {
-      const innerClaims = Array.isArray(item?.claims) ? item.claims.length : 0;
-      return sum + (innerClaims > 0 ? innerClaims : 1);
-    }, 0),
-    conflictCount:
-      typeof derived?.conflict_count === "number"
-        ? derived.conflict_count
-        : Number(orchestration?.conflict_count ?? conflicts.length),
-    conflictTypes,
-    scoreboard: {
-      judge_scores: scoreRows,
-      usage_totals: usageTotals
-    },
-    raw: {
-      derived,
-      route,
-      judge,
-      claims,
-      conflicts,
-      orchestration,
-      bandit
-    },
-    selectedByFreshness: Boolean(route?.routing_reason?.selected_by_freshness),
-    selectionOverrideReason:
-      typeof route?.routing_reason?.selection_override_reason === "string"
-        ? route.routing_reason.selection_override_reason
-        : null,
-    runnerUpProvider: typeof derived?.runner_up === "string" ? derived.runner_up : null,
-    usageProviders: providerUsage,
-    usageTotals,
-    requestLatencyMs:
-      typeof orchestration?.latency_ms === "number"
-        ? orchestration.latency_ms
-        : requestLatencyFromUsageRows(providerUsage),
-    requestTotalTokens: 0,
-    requestCostUsd: Number(orchestration?.estimated_cost_usd ?? 0),
-    fallbackUsed: Boolean(orchestration?.fallback_used),
-    judgeConfidence: Number(orchestration?.judge_confidence ?? judge?.confidence ?? 0),
-    selectedModels: Array.isArray(orchestration?.selected_models) ? orchestration.selected_models : [],
-    banditScores: bandit?.provider_bandit ?? {}
-  };
-}
-
-export function extractUIState(payload: ChatResponse) {
-  const answer = payload?.answer ?? {};
-  const orchestration = payload?.orchestration ?? payload?.meta?.orchestration ?? {};
-  const bandit = payload?.bandit ?? {};
-  const derived = payload?.derived ?? {};
-
-  return {
-    text: String(answer?.text ?? ""),
-    provider: answer?.provider ?? orchestration?.final_provider ?? null,
-    latency: Number(orchestration?.latency_ms ?? derived?.latency_ms ?? 0),
-    cost: Number(orchestration?.estimated_cost_usd ?? derived?.estimated_cost_usd ?? 0),
-    fallback: Boolean(orchestration?.fallback_used ?? derived?.fallback_used),
-    confidence: Number(orchestration?.judge_confidence ?? derived?.judge_confidence ?? 0),
-    selected: Array.isArray(derived?.selected_providers) ? derived.selected_providers : [],
-    verifier: Array.isArray(derived?.verifier_providers) ? derived.verifier_providers : [],
-    selectedModels: Array.isArray(orchestration?.selected_models) ? orchestration.selected_models : [],
-    executedProviders: Array.isArray(orchestration?.executed_providers) ? orchestration.executed_providers : [],
-    banditScores: bandit?.provider_bandit ?? {},
-    finalProvider: derived?.winner ?? orchestration?.final_provider ?? null
-  };
+export async function fetchDashboard(): Promise<DashboardResponse> {
+  const response = await fetch("http://localhost:8000/api/dashboard");
+  const payload = await safeJson(response);
+  return payload as DashboardResponse;
 }

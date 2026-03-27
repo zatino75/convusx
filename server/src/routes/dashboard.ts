@@ -1,5 +1,5 @@
 import fs from "fs"
-import { readRoutingScores, readScoreboard } from "../orchestra/scoreboard.js"
+import { readRoutingScores, readScoreboard, readTaskRoutingScores } from "../orchestra/scoreboard.js"
 
 const BENCH_PATH = "server/data/benchmark.jsonl"
 
@@ -20,23 +20,69 @@ function safeNumber(value: any, fallback = 0) {
   return Number.isFinite(n) ? n : fallback
 }
 
+function normalizeProviderRow(row: any) {
+  return {
+    provider: row?.provider ?? null,
+    task: row?.task ?? null,
+
+    uses: safeNumber(row?.uses),
+    wins: safeNumber(row?.wins),
+    task_uses: safeNumber(row?.task_uses),
+    task_wins: safeNumber(row?.task_wins),
+
+    recent_uses: safeNumber(row?.recent_uses),
+    recent_wins: safeNumber(row?.recent_wins),
+    task_recent_uses: safeNumber(row?.task_recent_uses),
+    task_recent_wins: safeNumber(row?.task_recent_wins),
+
+    win_rate: safeNumber(row?.win_rate),
+    blended_win_rate: safeNumber(row?.blended_win_rate),
+    task_win_rate: row?.task_win_rate == null ? null : safeNumber(row?.task_win_rate),
+    task_blended_win_rate: row?.task_blended_win_rate == null ? null : safeNumber(row?.task_blended_win_rate),
+    effective_win_rate: safeNumber(row?.effective_win_rate),
+
+    recent_win_rate: safeNumber(row?.recent_win_rate),
+    task_recent_win_rate: row?.task_recent_win_rate == null ? null : safeNumber(row?.task_recent_win_rate),
+
+    avg_latency: safeNumber(row?.avg_latency),
+    avg_cost: safeNumber(row?.avg_cost),
+    task_avg_latency: row?.task_avg_latency == null ? null : safeNumber(row?.task_avg_latency),
+    task_avg_cost: row?.task_avg_cost == null ? null : safeNumber(row?.task_avg_cost),
+
+    routing_score: safeNumber(row?.routing_score),
+    exploration_bonus: safeNumber(row?.exploration_bonus),
+    freshness_bonus: safeNumber(row?.freshness_bonus),
+
+    conflict_penalty_recent: safeNumber(row?.conflict_penalty_recent),
+    context_conflicts_recent: safeNumber(row?.context_conflicts_recent),
+    provider_conflicts_recent: safeNumber(row?.provider_conflicts_recent),
+    conflict_penalty: safeNumber(row?.conflict_penalty),
+
+    bandit_score: safeNumber(row?.bandit_score),
+    routing_floor: safeNumber(row?.routing_floor),
+
+    last_used_at: safeNumber(row?.last_used_at),
+    last_conflict_at: safeNumber(row?.last_conflict_at)
+  }
+}
+
 function buildRecentSummary(records: any[]) {
   const total = records.length
 
   const avgLatency =
-    records.reduce((sum: number, row: any) => sum + safeNumber(row?.latency_ms), 0) / (total || 1)
+    records.reduce((sum, row) => sum + safeNumber(row?.latency_ms), 0) / (total || 1)
 
   const avgCost =
-    records.reduce((sum: number, row: any) => sum + safeNumber(row?.estimated_cost_usd), 0) / (total || 1)
+    records.reduce((sum, row) => sum + safeNumber(row?.estimated_cost_usd), 0) / (total || 1)
 
   const fallbackCount =
-    records.reduce((sum: number, row: any) => sum + (row?.fallback_used ? 1 : 0), 0)
+    records.reduce((sum, row) => sum + (row?.fallback_used ? 1 : 0), 0)
 
   const avgJudgeConfidence =
-    records.reduce((sum: number, row: any) => sum + safeNumber(row?.judge_confidence), 0) / (total || 1)
+    records.reduce((sum, row) => sum + safeNumber(row?.judge_confidence), 0) / (total || 1)
 
   const avgConflictCount =
-    records.reduce((sum: number, row: any) => sum + safeNumber(row?.conflict_count), 0) / (total || 1)
+    records.reduce((sum, row) => sum + safeNumber(row?.conflict_count), 0) / (total || 1)
 
   return {
     total_requests: total,
@@ -62,13 +108,13 @@ function buildTaskSummary(records: any[]) {
     const total = rows.length
 
     const avgLatency =
-      rows.reduce((sum: number, row: any) => sum + safeNumber(row?.latency_ms), 0) / (total || 1)
+      rows.reduce((sum, row) => sum + safeNumber(row?.latency_ms), 0) / (total || 1)
 
     const avgCost =
-      rows.reduce((sum: number, row: any) => sum + safeNumber(row?.estimated_cost_usd), 0) / (total || 1)
+      rows.reduce((sum, row) => sum + safeNumber(row?.estimated_cost_usd), 0) / (total || 1)
 
     const avgJudgeConfidence =
-      rows.reduce((sum: number, row: any) => sum + safeNumber(row?.judge_confidence), 0) / (total || 1)
+      rows.reduce((sum, row) => sum + safeNumber(row?.judge_confidence), 0) / (total || 1)
 
     acc[task] = {
       total_requests: total,
@@ -100,35 +146,30 @@ function buildRecentRecords(records: any[]) {
 }
 
 function buildBanditBoard() {
-  return readRoutingScores().map((row: any) => ({
-    provider: row?.provider ?? null,
-    wins: safeNumber(row?.wins),
-    uses: safeNumber(row?.uses),
-    recent_uses: safeNumber(row?.recent_uses),
-    recent_wins: safeNumber(row?.recent_wins),
-    win_rate: safeNumber(row?.win_rate),
-    recent_win_rate: safeNumber(row?.recent_win_rate),
-    avg_latency: safeNumber(row?.avg_latency),
-    avg_cost: safeNumber(row?.avg_cost),
-    routing_score: safeNumber(row?.routing_score),
-    exploration_bonus: safeNumber(row?.exploration_bonus),
-    freshness_bonus: safeNumber(row?.freshness_bonus),
-    bandit_score: safeNumber(row?.bandit_score),
-    last_used_at: safeNumber(row?.last_used_at)
-  }))
+  return readRoutingScores().map((row: any) => normalizeProviderRow(row))
+}
+
+function buildTaskBanditBoard() {
+  const byTask = readTaskRoutingScores()
+
+  return Object.keys(byTask).sort().reduce((acc: Record<string, any[]>, task) => {
+    acc[task] = Array.isArray(byTask?.[task])
+      ? byTask[task].map((row: any) => normalizeProviderRow(row))
+      : []
+    return acc
+  }, {})
 }
 
 export async function runDashboardRoute(_req: any, res: any) {
   const records = readJsonl(BENCH_PATH)
-  const scoreboard = readScoreboard()
-  const bandit = buildBanditBoard()
 
   return res.json({
     ok: true,
     stats: buildRecentSummary(records),
     by_task: buildTaskSummary(records),
-    scoreboard,
-    bandit,
+    scoreboard: readScoreboard(),
+    bandit: buildBanditBoard(),
+    task_bandit: buildTaskBanditBoard(),
     recent: buildRecentRecords(records)
   })
 }

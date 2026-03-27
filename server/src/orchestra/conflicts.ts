@@ -1,178 +1,164 @@
 import type { ExtractedClaim } from "./claims.js"
-
-export type CandidateClaims = {
-  provider: string
-  claims: ExtractedClaim[]
-}
+import { extractClaims } from "./claims.js"
 
 export type DetectedConflict = {
-  type: "recommendation_mismatch" | "risk_mismatch" | "comparison_mismatch" | "close_competition"
+  type: string
   severity: "low" | "medium" | "high"
   providers: string[]
-  claim_texts: string[]
-  note: string
+  summary: string
+  weight: number
 }
 
-function includesAny(text: string, terms: string[]): boolean {
-  return terms.some((term) => text.includes(term))
+function normalize(text: string) {
+  return String(text ?? "")
+    .toLowerCase()
+    .replace(/[^\w가-힣\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
 }
 
-function recommendationDirection(text: string): "positive" | "negative" | "neutral" {
-  const lower = String(text ?? "").toLowerCase()
+function textSimilarity(a: string, b: string): number {
+  const na = normalize(a)
+  const nb = normalize(b)
 
-  if (
-    includesAny(lower, [
-      "recommend",
-      "should",
-      "must",
-      "best",
-      "prefer",
-      "추천",
-      "선택",
-      "유리",
-      "적합",
-      "맞습니다"
-    ])
-  ) {
-    return "positive"
-  }
+  if (!na || !nb) return 0
 
-  if (
-    includesAny(lower, [
-      "avoid",
-      "not recommended",
-      "should not",
-      "do not",
-      "비추천",
-      "피해야",
-      "하지 말",
-      "불리",
-      "부적합"
-    ])
-  ) {
-    return "negative"
-  }
+  const setA = new Set(na.split(" ").filter(Boolean))
+  const setB = new Set(nb.split(" ").filter(Boolean))
 
-  return "neutral"
+  const intersection = [...setA].filter((x) => setB.has(x)).length
+  const union = new Set([...setA, ...setB]).size
+
+  return union === 0 ? 0 : intersection / union
 }
 
-function riskDirection(text: string): "high" | "low" | "neutral" {
-  const lower = String(text ?? "").toLowerCase()
+function numericConflict(a: ExtractedClaim, b: ExtractedClaim): number {
+  if (!a.numeric_values || !b.numeric_values) return 0
 
-  if (
-    includesAny(lower, [
-      "high risk",
-      "serious risk",
-      "major risk",
-      "critical",
-      "큰 리스크",
-      "치명적",
-      "위험",
-      "문제"
-    ])
-  ) {
-    return "high"
+  let maxRatio = 0
+
+  for (const x of a.numeric_values) {
+    for (const y of b.numeric_values) {
+      const diff = Math.abs(x - y)
+      const denom = Math.max(Math.abs(x), Math.abs(y), 1)
+      const ratio = diff / denom
+      if (ratio > maxRatio) maxRatio = ratio
+    }
   }
 
-  if (
-    includesAny(lower, [
-      "low risk",
-      "manageable",
-      "acceptable",
-      "minor risk",
-      "리스크 낮",
-      "관리 가능",
-      "감수 가능"
-    ])
-  ) {
-    return "low"
-  }
+  if (maxRatio < 0.15) return 0
+  return Math.min(1, maxRatio)
+}
 
-  return "neutral"
+function conditionConflict(a: ExtractedClaim, b: ExtractedClaim): number {
+  return a.has_condition !== b.has_condition ? 0.5 : 0
+}
+
+function severityFromScore(score: number): "low" | "medium" | "high" {
+  if (score >= 0.75) return "high"
+  if (score >= 0.45) return "medium"
+  return "low"
+}
+
+function buildConflictScore(a: ExtractedClaim, b: ExtractedClaim): number {
+  const similarity = textSimilarity(a.text, b.text)
+  if (similarity < 0.25) return 0
+
+  const numConflict = numericConflict(a, b)
+  const condConflict = conditionConflict(a, b)
+  const base = 1 - similarity
+  const confidenceWeight = ((a.confidence ?? 0.5) + (b.confidence ?? 0.5)) / 2
+
+  let score =
+    (base * 0.5) +
+    (numConflict * 0.3) +
+    (condConflict * 0.2)
+
+  score *= confidenceWeight
+
+  return Number(score.toFixed(3))
 }
 
 function pushConflict(
   out: DetectedConflict[],
-  type: DetectedConflict["type"],
-  severity: DetectedConflict["severity"],
+  type: string,
   providers: string[],
-  claimTexts: string[],
-  note: string
+  summary: string,
+  weight: number
 ) {
+  if (weight < 0.2) return
+
   out.push({
     type,
-    severity,
+    severity: severityFromScore(weight),
     providers,
-    claim_texts: claimTexts,
-    note
+    summary,
+    weight
   })
 }
 
-export function detectConflicts(candidates: CandidateClaims[]): DetectedConflict[] {
-  const out: DetectedConflict[] = []
+function compareClaimSets(
+  out: DetectedConflict[],
+  leftProvider: string,
+  leftClaims: ExtractedClaim[],
+  rightProvider: string,
+  rightClaims: ExtractedClaim[],
+  prefix: string
+) {
+  for (const a of leftClaims) {
+    for (const b of rightClaims) {
+      if (a.type !== b.type) continue
 
-  for (let i = 0; i < candidates.length; i += 1) {
-    for (let j = i + 1; j < candidates.length; j += 1) {
-      const left = candidates[i]
-      const right = candidates[j]
+      const score = buildConflictScore(a, b)
+      if (score < 0.2) continue
 
-      const leftRecommendations = left.claims.filter((c) => c.type === "recommendation")
-      const rightRecommendations = right.claims.filter((c) => c.type === "recommendation")
+      pushConflict(
+        out,
+        `${prefix}_${a.type}_conflict`,
+        [leftProvider, rightProvider],
+        `${leftProvider} vs ${rightProvider}: ${a.text.slice(0, 80)} <> ${b.text.slice(0, 80)}`,
+        score
+      )
+    }
+  }
+}
 
-      for (const a of leftRecommendations) {
-        for (const b of rightRecommendations) {
-          const dirA = recommendationDirection(a.text)
-          const dirB = recommendationDirection(b.text)
+export function detectConflicts(
+  providerClaims: { provider: string; claims: ExtractedClaim[] }[],
+  context: string
+): DetectedConflict[] {
+  const conflicts: DetectedConflict[] = []
 
-          if (dirA !== "neutral" && dirB !== "neutral" && dirA !== dirB) {
-            pushConflict(
-              out,
-              "recommendation_mismatch",
-              "high",
-              [left.provider, right.provider],
-              [a.text, b.text],
-              "recommendations_point_in_opposite_directions"
-            )
-          }
-        }
-      }
+  for (let i = 0; i < providerClaims.length; i += 1) {
+    for (let j = i + 1; j < providerClaims.length; j += 1) {
+      const left = providerClaims[i]
+      const right = providerClaims[j]
 
-      const leftRisks = left.claims.filter((c) => c.type === "risk")
-      const rightRisks = right.claims.filter((c) => c.type === "risk")
-
-      for (const a of leftRisks) {
-        for (const b of rightRisks) {
-          const dirA = riskDirection(a.text)
-          const dirB = riskDirection(b.text)
-
-          if (dirA !== "neutral" && dirB !== "neutral" && dirA !== dirB) {
-            pushConflict(
-              out,
-              "risk_mismatch",
-              "medium",
-              [left.provider, right.provider],
-              [a.text, b.text],
-              "risk_assessment_differs"
-            )
-          }
-        }
-      }
-
-      const leftComparisons = left.claims.filter((c) => c.type === "comparison")
-      const rightComparisons = right.claims.filter((c) => c.type === "comparison")
-
-      if (leftComparisons.length > 0 && rightComparisons.length > 0) {
-        pushConflict(
-          out,
-          "comparison_mismatch",
-          "low",
-          [left.provider, right.provider],
-          [leftComparisons[0].text, rightComparisons[0].text],
-          "comparison_framing_differs"
-        )
-      }
+      compareClaimSets(
+        conflicts,
+        left.provider,
+        left.claims,
+        right.provider,
+        right.claims,
+        "provider"
+      )
     }
   }
 
-  return out
+  const contextClaims = extractClaims(context)
+
+  if (contextClaims.length > 0) {
+    for (const row of providerClaims) {
+      compareClaimSets(
+        conflicts,
+        row.provider,
+        row.claims,
+        "context",
+        contextClaims,
+        "context"
+      )
+    }
+  }
+
+  return conflicts
 }

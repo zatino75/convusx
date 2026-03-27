@@ -404,9 +404,9 @@ type WorkspaceState = WorkspaceSnapshot & {
   createGeneralChat: () => string;
   createNamedProject: (title?: string) => string | null;
   createThreadInProject: (projectId: string) => string;
-  renameProject: (projectId: string) => void;
+  renameProject: (projectId: string, nextTitle: string) => void;
   deleteProject: (projectId: string) => void;
-  renameThread: (threadId: string) => void;
+  renameThread: (threadId: string, nextTitle: string) => void;
   deleteThread: (threadId: string) => void;
   moveThread: (threadId: string, nextProjectId: string) => void;
   removeThreadFromProject: (threadId: string) => void;
@@ -649,30 +649,21 @@ export function useWorkspaceState(): WorkspaceState {
     return nextThread.id;
   }
 
-  function renameProject(projectId: string) {
-    const target = projects.find((project) => project.id === projectId);
-    if (!target) return;
-
-    const nextTitle = window.prompt("프로젝트 이름 변경", target.title)?.trim();
-    if (!nextTitle || nextTitle === target.title) return;
+  function renameProject(projectId: string, nextTitle: string) {
+    const safeTitle = String(nextTitle ?? "").trim();
+    if (!safeTitle) return;
 
     const timestamp = nowIso();
     setProjects((current) =>
       current.map((project) =>
         project.id === projectId
-          ? { ...project, title: nextTitle, updatedAt: timestamp }
+          ? { ...project, title: safeTitle, updatedAt: timestamp }
           : project
       )
     );
   }
 
   function deleteProject(projectId: string) {
-    const target = projects.find((project) => project.id === projectId);
-    if (!target) return;
-
-    const confirmed = window.confirm(`프로젝트 "${target.title}"를 삭제하시겠습니까?`);
-    if (!confirmed) return;
-
     setProjects((current) => current.filter((project) => project.id !== projectId));
     setThreads((current) => current.filter((thread) => thread.projectId !== projectId));
 
@@ -682,34 +673,28 @@ export function useWorkspaceState(): WorkspaceState {
     }
   }
 
-  function renameThread(threadId: string) {
+  function renameThread(threadId: string, nextTitle: string) {
+    const safeTitle = String(nextTitle ?? "").trim();
+    if (!safeTitle) return;
+
     const target = threads.find((thread) => thread.id === threadId);
-    if (!target) return;
-
-    const nextTitle = window.prompt("스레드 이름 변경", target.title)?.trim();
-    if (!nextTitle || nextTitle === target.title) return;
-
     const timestamp = nowIso();
     updateThreadById(threadId, (thread) => ({
       ...thread,
-      title: nextTitle,
+      title: safeTitle,
       updatedAt: timestamp
     }));
-    touchProject(target.projectId, timestamp);
+    if (target) touchProject(target.projectId, timestamp);
   }
 
   function deleteThread(threadId: string) {
     const target = threads.find((thread) => thread.id === threadId);
-    if (!target) return;
-
-    const confirmed = window.confirm(`스레드 "${target.title}"를 삭제하시겠습니까?`);
-    if (!confirmed) return;
 
     setThreads((current) => current.filter((thread) => thread.id !== threadId));
-    touchProject(target.projectId);
+    if (target) touchProject(target.projectId);
 
     if (activeThreadId === threadId) {
-      setActiveProjectId(target.projectId);
+      setActiveProjectId(target?.projectId ?? GENERAL_PROJECT_ID);
       setActiveThreadId(null);
     }
   }

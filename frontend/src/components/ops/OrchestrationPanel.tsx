@@ -1,5 +1,4 @@
 ﻿import type { DashboardResponse, ScoreboardResponse, UsageSummaryResponse } from "../../api/chat";
-import ScoreboardCard from "./ScoreboardCard";
 
 type DebugMeta = {
   winnerProvider: string | null;
@@ -19,7 +18,6 @@ type DebugMeta = {
   recoveryToModel?: string | null;
   providerStatusMap?: Record<string, any>;
   providerStreamSummary?: Record<string, any>;
-  [key: string]: any;
 };
 
 type Props = {
@@ -31,241 +29,157 @@ type Props = {
   opsError: string | null;
 };
 
-function providerLabel(provider: string | null | undefined) {
-  const n = String(provider ?? "").trim().toLowerCase();
-  if (!n) return "-";
-  if (n === "openai") return "OpenAI";
-  if (n === "claude") return "Claude";
-  if (n === "gemini") return "Gemini";
-  if (n === "perplexity") return "Perplexity";
-  if (n === "memory") return "Memory";
-  return n;
+const PROVIDER_COLOR: Record<string, string> = {
+  openai: "#10a37f", claude: "#d97706", gemini: "#3b82f6", perplexity: "#8b5cf6"
+};
+const PROVIDER_LABEL: Record<string, string> = {
+  openai: "OpenAI", claude: "Claude", gemini: "Gemini", perplexity: "Perplexity"
+};
+const TASK_LABEL: Record<string, string> = {
+  dialogue: "대화", reasoning: "추론", research: "리서치", code: "코드"
+};
+
+function pLabel(p: string | null | undefined) {
+  const k = String(p ?? "").trim().toLowerCase();
+  return PROVIDER_LABEL[k] ?? k ?? "-";
+}
+function pColor(p: string | null | undefined) {
+  const k = String(p ?? "").trim().toLowerCase();
+  return PROVIDER_COLOR[k] ?? "var(--text-sub)";
 }
 
-function providerColor(provider: string | null | undefined) {
-  const n = String(provider ?? "").trim().toLowerCase();
-  if (n === "openai") return "#10a37f";
-  if (n === "claude") return "#c96442";
-  if (n === "gemini") return "#4285f4";
-  if (n === "perplexity") return "#8b5cf6";
-  if (n === "memory") return "#6366f1";
-  return "#8e8ea0";
-}
-
-function confidenceColor(v: number) {
-  if (v >= 0.85) return "#34d399";
-  if (v >= 0.65) return "#fbbf24";
-  return "#f87171";
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function ProviderBadge({ provider, role }: { provider: string; role?: string }) {
   return (
-    <section
-      style={{
-        borderRadius: 12,
-        border: "1px solid rgba(255,255,255,0.07)",
-        background: "rgba(255,255,255,0.03)",
-        padding: "12px 14px",
-        display: "grid",
-        gap: 8
-      }}
-    >
-      <div
-        style={{
-          fontSize: 10,
-          fontWeight: 600,
-          letterSpacing: "0.14em",
-          textTransform: "uppercase",
-          color: "#6b7280"
-        }}
-      >
-        {title}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function MetaRow({ label, value, accent }: { label: string; value: React.ReactNode; accent?: string }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 12 }}>
-      <span style={{ color: "#6b7280", flexShrink: 0 }}>{label}</span>
-      <span style={{ color: accent ?? "#d1d5db", fontWeight: 500, textAlign: "right", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function Badge({ text, color }: { text: string; color?: string }) {
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        padding: "1px 7px",
-        borderRadius: 999,
-        fontSize: 11,
-        fontWeight: 600,
-        background: `${color ?? "#6366f1"}22`,
-        color: color ?? "#818cf8",
-        border: `1px solid ${color ?? "#6366f1"}33`
-      }}
-    >
-      {text}
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 20, background: pColor(provider) + "18", color: pColor(provider), fontSize: 12, fontWeight: 600 }}>
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: pColor(provider), flexShrink: 0 }} />
+      {pLabel(provider)}
+      {role && <span style={{ opacity: 0.6, fontWeight: 400 }}> · {role}</span>}
     </span>
   );
 }
 
-function ProviderStatusRow({ label, status }: { label: string; status: any }) {
-  const isWinner = status?.status === "winner";
-  const isSurvived = status?.status === "survived";
-
+function ConfidenceBar({ value }: { value: number | null | undefined }) {
+  const pct = Math.round(Math.min(1, Math.max(0, Number(value ?? 0))) * 100);
+  const color = pct >= 80 ? "#10b981" : pct >= 60 ? "#f59e0b" : "#ef4444";
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-      <span
-        style={{
-          width: 7,
-          height: 7,
-          borderRadius: "50%",
-          flexShrink: 0,
-          background: isWinner ? "#34d399" : isSurvived ? "#fbbf24" : "#4b5563"
-        }}
-      />
-      <span style={{ color: isWinner ? "#d1fae5" : isSurvived ? "#fef3c7" : "#6b7280", fontWeight: isWinner ? 600 : 400 }}>
-        {providerLabel(label)}
-      </span>
-      <span style={{ color: "#4b5563", marginLeft: "auto", fontSize: 11 }}>
-        {status?.role ?? ""}
-        {status?.latency_ms ? ` · ${status.latency_ms}ms` : ""}
-      </span>
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ flex: 1, height: 5, borderRadius: 3, background: "var(--border)" }}>
+        <div style={{ width: pct + "%", height: "100%", borderRadius: 3, background: color, transition: "width 0.4s ease" }} />
+      </div>
+      <span style={{ fontSize: 12, fontWeight: 600, color, minWidth: 32, textAlign: "right" }}>{pct}%</span>
     </div>
   );
 }
 
-export default function OrchestrationPanel({
-  debugMeta,
-  usage,
-  scoreboard,
-  dashboard,
-  opsLoading,
-  opsError
-}: Props) {
-  const winner = debugMeta.displayWinner?.provider ?? debugMeta.winnerProvider ?? null;
-  const confidence = debugMeta.judgeConfidence;
-  const latency = debugMeta.requestLatencyMs;
-  const cost = debugMeta.requestCostUsd;
-  const conflicts = debugMeta.conflictCount ?? 0;
-  const task = debugMeta.routerTask;
-  const strategy = debugMeta.executionStrategy;
-  const reused = debugMeta.reused ?? (debugMeta as any).orchestration?.reused ?? false;
-  const reuseSource = debugMeta.reuse_source ?? (debugMeta as any).orchestration?.reuse_source ?? null;
-  const reuseScore = debugMeta.reuse_score ?? (debugMeta as any).orchestration?.reuse_score ?? null;
-  const threadFusion = debugMeta.thread_fusion_injected ?? (debugMeta as any).orchestration?.thread_fusion_injected ?? false;
-  const providerStatusMap = debugMeta.providerStatusMap ?? {};
-  const statusEntries = Object.entries(providerStatusMap);
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
+      <span style={{ fontSize: 12, color: "var(--text-sub)", flexShrink: 0 }}>{label}</span>
+      <div style={{ textAlign: "right" }}>{children}</div>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", color: "var(--text-soft)", textTransform: "uppercase" as const, marginBottom: 8 }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+export default function OrchestrationPanel({ debugMeta }: Props) {
+  const winner = debugMeta.displayWinner?.provider ?? debugMeta.winnerProvider;
+  const hasData = Boolean(winner || debugMeta.routerTask);
 
   return (
-    <aside
-      className="xl:flex xl:flex-col"
-      style={{
-        display: "none",
-        height: "100%",
-        width: 320,
-        flexShrink: 0,
-        borderLeft: "1px solid rgba(255,255,255,0.07)",
-        background: "#161616",
-        flexDirection: "column"
-      }}
-    >
-      <div
-        style={{
-          borderBottom: "1px solid rgba(255,255,255,0.07)",
-          padding: "14px 16px",
-          display: "flex",
-          alignItems: "center",
-          gap: 8
-        }}
-      >
-        <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e7eb" }}>운영 패널</span>
-        {reused ? <Badge text="REUSED" color="#6366f1" /> : null}
-        {threadFusion ? <Badge text="FUSION" color="#0ea5e9" /> : null}
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "var(--surface-1, #f9fafb)" }}>
+      <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)", display: "flex", alignItems: "center", gap: 6 }}>
+          <span>🎼</span> 오케스트레이션
+        </div>
       </div>
 
-      <div
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: "12px",
-          display: "grid",
-          gap: 10,
-          alignContent: "start"
-        }}
-      >
-        <Section title="Current Request">
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: providerColor(winner), flexShrink: 0 }} />
-            <span style={{ fontSize: 14, fontWeight: 700, color: providerColor(winner) }}>
-              {providerLabel(winner)}
-            </span>
-            {reused && reuseSource ? (
-              <Badge
-                text={reuseSource === "similar_query" ? "유사질문" : "past winner"}
-                color="#6366f1"
-              />
-            ) : null}
+      <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+        {!hasData ? (
+          <div style={{ textAlign: "center", padding: "40px 16px", color: "var(--text-soft)" }}>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>🎼</div>
+            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>대기 중</div>
+            <div style={{ fontSize: 12 }}>메시지를 보내면<br />오케스트레이션 결과가 표시됩니다</div>
           </div>
+        ) : (
+          <>
+            <Section title="이번 요청">
+              <Row label="Winner">
+                {winner ? <ProviderBadge provider={winner} /> : <span style={{ fontSize: 12, color: "var(--text-soft)" }}>-</span>}
+              </Row>
+              <Row label="Task">
+                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)" }}>
+                  {TASK_LABEL[debugMeta.routerTask ?? ""] ?? debugMeta.routerTask ?? "-"}
+                </span>
+              </Row>
+              {debugMeta.judgeConfidence != null && (
+                <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                  <div style={{ fontSize: 12, color: "var(--text-sub)", marginBottom: 6 }}>Judge 신뢰도</div>
+                  <ConfidenceBar value={debugMeta.judgeConfidence} />
+                </div>
+              )}
+              {debugMeta.executionStrategy && (
+                <Row label="전략">
+                  <span style={{ fontSize: 11, color: "var(--text-sub)", fontFamily: "monospace" }}>{debugMeta.executionStrategy}</span>
+                </Row>
+              )}
+              {(debugMeta.requestLatencyMs ?? 0) > 0 && (
+                <Row label="응답 시간">
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)" }}>{((debugMeta.requestLatencyMs ?? 0) / 1000).toFixed(1)}s</span>
+                </Row>
+              )}
+              {(debugMeta.requestCostUsd ?? 0) > 0 && (
+                <Row label="비용">
+                  <span style={{ fontSize: 12, color: "var(--text-sub)" }}>${((debugMeta.requestCostUsd ?? 0) * 1000).toFixed(3)}/1K</span>
+                </Row>
+              )}
+            </Section>
 
-          {task ? <MetaRow label="Task" value={task} /> : null}
-          {strategy ? <MetaRow label="Strategy" value={strategy} /> : null}
-          {confidence != null ? (
-            <MetaRow label="Confidence" value={`${(confidence * 100).toFixed(0)}%`} accent={confidenceColor(confidence)} />
-          ) : null}
-          <MetaRow
-            label="Conflicts"
-            value={conflicts > 0 ? `⚡ ${conflicts}` : "0"}
-            accent={conflicts > 0 ? "#f87171" : "#34d399"}
-          />
-          {latency != null ? <MetaRow label="Latency" value={`${latency}ms`} /> : null}
-          {cost != null && cost > 0 ? <MetaRow label="Cost" value={`$${cost.toFixed(6)}`} /> : null}
-          {reused && reuseScore != null ? (
-            <MetaRow label="Reuse Score" value={`${(reuseScore * 100).toFixed(0)}%`} accent="#818cf8" />
-          ) : null}
-        </Section>
+            {(debugMeta.selectedProviders.length > 0 || (debugMeta.verifierProviders?.length ?? 0) > 0) && (
+              <Section title="Provider 구성">
+                {debugMeta.selectedProviders.map(p => <div key={p} style={{ marginBottom: 4 }}><ProviderBadge provider={p} role="primary" /></div>)}
+                {(debugMeta.verifierProviders ?? []).map(p => <div key={p} style={{ marginBottom: 4 }}><ProviderBadge provider={p} role="verifier" /></div>)}
+              </Section>
+            )}
 
-        {statusEntries.length > 0 ? (
-          <Section title="Providers">
-            <div style={{ display: "grid", gap: 5 }}>
-              {statusEntries.map(([provider, status]) => (
-                <ProviderStatusRow key={provider} label={provider} status={status} />
-              ))}
-            </div>
-          </Section>
-        ) : null}
+            <Section title="검증">
+              <Row label="충돌">
+                <span style={{ fontSize: 12, fontWeight: 600, color: debugMeta.conflictCount > 0 ? "#f59e0b" : "#10b981" }}>
+                  {debugMeta.conflictCount > 0 ? debugMeta.conflictCount + "건 감지" : "없음 ✓"}
+                </span>
+              </Row>
+              {debugMeta.primaryRecovered && (
+                <Row label="복구"><span style={{ fontSize: 11, color: "#f59e0b" }}>Primary 복구됨</span></Row>
+              )}
+            </Section>
 
-        {threadFusion ? (
-          <Section title="Thread Fusion">
-            <div style={{ fontSize: 12, color: "#7dd3fc" }}>다른 스레드 컨텍스트 자동 주입됨</div>
-          </Section>
-        ) : null}
-
-        {!opsLoading && Array.isArray(dashboard?.bandit) && dashboard.bandit.length > 0 ? (
-          <Section title="Bandit Scoreboard">
-            <ScoreboardCard
-              providers={dashboard.bandit}
-              taskProvidersByTask={dashboard.task_bandit ?? {}}
-            />
-          </Section>
-        ) : opsLoading ? (
-          <Section title="Bandit Scoreboard">
-            <div style={{ fontSize: 12, color: "#4b5563" }}>로딩 중...</div>
-          </Section>
-        ) : null}
-
-        {opsError ? (
-          <div style={{ fontSize: 12, color: "#f87171", padding: "4px 0" }}>{opsError}</div>
-        ) : null}
+            {debugMeta.providerStreamSummary && Object.keys(debugMeta.providerStreamSummary).length > 0 && (
+              <Section title="응답 미리보기">
+                {Object.entries(debugMeta.providerStreamSummary).map(([provider, summary]: [string, any]) => (
+                  <div key={provider} style={{ marginBottom: 10, padding: 10, borderRadius: 8, border: "1px solid var(--border)", background: provider === winner ? pColor(provider) + "08" : "transparent" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                      <ProviderBadge provider={provider} />
+                      {provider === winner && <span style={{ fontSize: 10, color: "#10b981", fontWeight: 700 }}>✓ 선택됨</span>}
+                    </div>
+                    {summary?.preview_excerpt && (
+                      <div style={{ fontSize: 11, color: "var(--text-sub)", lineHeight: 1.5, overflow: "hidden" }}>
+                        {String(summary.preview_excerpt).slice(0, 120)}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </Section>
+            )}
+          </>
+        )}
       </div>
-    </aside>
+    </div>
   );
 }

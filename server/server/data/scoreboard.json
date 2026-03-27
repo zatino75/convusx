@@ -1,0 +1,38 @@
+{
+  "openai": {
+    "wins": 5,
+    "uses": 14,
+    "avg_latency": 79293.2143,
+    "avg_cost": 0.08949471,
+    "recent_uses": 5.6953,
+    "recent_wins": 3.6387,
+    "last_used_at": 1774140744
+  },
+  "claude": {
+    "wins": 7,
+    "uses": 14,
+    "avg_latency": 51845.7856,
+    "avg_cost": 0.01500886,
+    "recent_uses": 5.6953,
+    "recent_wins": 1.4661,
+    "last_used_at": 1774140744
+  },
+  "gemini": {
+    "wins": 2,
+    "uses": 14,
+    "avg_latency": 30274.7143,
+    "avg_cost": 0.00511768,
+    "recent_uses": 5.6953,
+    "recent_wins": 0.5905,
+    "last_used_at": 1774140744
+  },
+  "perplexity": {
+    "wins": 0,
+    "uses": 6,
+    "avg_latency": 17.8333,
+    "avg_cost": 0.000408,
+    "recent_uses": 1.0097,
+    "recent_wins": 0,
+    "last_used_at": 1774101071
+  }
+}

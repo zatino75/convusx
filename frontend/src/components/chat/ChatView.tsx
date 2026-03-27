@@ -33,6 +33,9 @@ type Props = {
   onDeleteMessage?: (messageId: string) => void;
   onRelatedQuestion?: (q: string) => void;
   onOpenArtifact?: (title: string, code: string, language: string) => void;
+  onComposerAction?: (action: "deep-think" | "web-search" | "upload") => void;
+  composerMode?: "deep-think" | "web-search" | null;
+  onClearComposerMode?: () => void;
   messageVersionMap?: Record<string, MessageVersionState>;
   onSelectMessageVersion?: (messageId: string, direction: "prev" | "next") => void;
   showScrollToBottom?: boolean;
@@ -529,6 +532,7 @@ function MessageBubble({
   onDeleteMessage?: (messageId: string) => void;
   onRelatedQuestion?: (q: string) => void;
   onOpenArtifact?: (title: string, code: string, language: string) => void;
+  onComposerAction?: (action: "deep-think" | "web-search" | "upload") => void;
 }) {
   const isUser = message.role === "user";
   const isPending = message.status === "pending";
@@ -831,7 +835,10 @@ function Composer({
   onDraftChange,
   onSend,
   onStopGenerating,
-  textareaRef
+  textareaRef,
+  onComposerAction,
+  composerMode,
+  onClearComposerMode
 }: {
   draft: string;
   isSending: boolean;
@@ -839,6 +846,9 @@ function Composer({
   onSend: () => void;
   onStopGenerating?: () => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
+  onComposerAction?: (action: ComposerMenuAction) => void;
+  composerMode?: "deep-think" | "web-search" | null;
+  onClearComposerMode?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRootRef = useRef<HTMLDivElement | null>(null);
@@ -885,18 +895,31 @@ function Composer({
   }
 
   function handleMenuAction(action: ComposerMenuAction) {
-    const placeholderByAction: Record<ComposerMenuAction, string> = {
-      upload: "[사진 및 파일 업로드 준비]",
-      "deep-think": "[심층리서치: GPT-5.4 Pro / Claude Opus 4.6]",
-      "web-search": "[웹검색: Gemini 3.1 Pro Preview]"
-    };
-
-    const nextValue = draft.trim() ? draft : placeholderByAction[action];
-    onDraftChange(nextValue);
+    onComposerAction?.(action);
+    setMenuOpen(false);
   }
 
   return (
     <div className="chat-composer">
+      {composerMode && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px 0" }}>
+          <span style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "3px 10px", borderRadius: 20,
+            background: composerMode === "deep-think" ? "rgba(99,102,241,0.1)" : "rgba(16,185,129,0.1)",
+            color: composerMode === "deep-think" ? "#6366f1" : "#10b981",
+            fontSize: 12, fontWeight: 600
+          }}>
+            {composerMode === "deep-think" ? "⚡ 심층리서치 (GPT-5.4 Pro + Claude Opus)" : "🔍 웹검색 (Perplexity Scout)"}
+            <button type="button" onClick={onClearComposerMode}
+              style={{ display: "flex", alignItems: "center", border: "none", background: "none", cursor: "pointer", padding: 0, color: "inherit", opacity: 0.7 }}>
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </span>
+        </div>
+      )}
       <div className="chat-composer__row">
         <div ref={menuRootRef} className="chat-composer__menu-anchor">
           <button
@@ -973,6 +996,9 @@ export default function ChatView({
   onDeleteMessage,
   onRelatedQuestion,
   onOpenArtifact,
+  onComposerAction,
+  composerMode,
+  onClearComposerMode,
   messageVersionMap = {},
   onSelectMessageVersion,
   showScrollToBottom = false,
@@ -1001,7 +1027,7 @@ export default function ChatView({
               />
             </div>
 
-            <div className="chat-footer-note">ChatGPT는 실수를 할 수 있습니다. 중요한 정보는 확인하십시오.</div>
+            <div className="chat-footer-note">AI Orchestra는 실수를 할 수 있습니다. 중요한 정보는 확인하십시오.</div>
           </div>
         </div>
       </div>
@@ -1084,10 +1110,13 @@ export default function ChatView({
             onDraftChange={onDraftChange}
             onSend={onSend}
             onStopGenerating={onStopGenerating}
+            onComposerAction={onComposerAction}
+            composerMode={composerMode}
+            onClearComposerMode={onClearComposerMode}
             textareaRef={textareaRef}
           />
 
-          <div className="chat-footer-note">ChatGPT는 실수를 할 수 있습니다. 중요한 정보는 확인하십시오.</div>
+          <div className="chat-footer-note">AI Orchestra는 실수를 할 수 있습니다. 중요한 정보는 확인하십시오.</div>
         </div>
       </div>
     </div>
