@@ -1,4 +1,4 @@
-import { decayRecentBanditSignals, readRoutingScores } from "./scoreboard.js"
+﻿import { decayRecentBanditSignals, readRoutingScores } from "./scoreboard.js"
 
 export type AdaptiveTask = "dialogue" | "reasoning" | "research" | "code"
 
@@ -48,18 +48,15 @@ export type AdaptiveRouteDecision = {
 
 function normalizeTask(task: any): AdaptiveTask {
   const value = String(task ?? "").trim().toLowerCase()
-
   if (value.includes("code")) return "code"
   if (value.includes("research")) return "research"
   if (value.includes("reasoning")) return "reasoning"
-
   return "dialogue"
 }
 
 function uniqueProviders(values: string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
-
   for (const value of values) {
     const normalized = String(value ?? "").trim().toLowerCase()
     if (!normalized) continue
@@ -67,57 +64,55 @@ function uniqueProviders(values: string[]): string[] {
     seen.add(normalized)
     out.push(normalized)
   }
-
   return out
 }
 
-function getRoutingRows() {
+function getRoutingRows(task: AdaptiveTask) {
   decayRecentBanditSignals()
-  return readRoutingScores()
+  return readRoutingScores(task)
 }
 
 function rankProviders(task: AdaptiveTask) {
-  const ranked = getRoutingRows()
+  const ranked = getRoutingRows(task)
     .filter((x) => ["openai", "claude", "gemini", "perplexity"].includes(x.provider))
 
   if (task === "code") {
+    // Claude primary 우선 — code 품질 최강
     ranked.sort((a, b) => {
-      const weightA = a.provider === "claude" ? 0.08 : a.provider === "openai" ? 0.05 : 0
-      const weightB = b.provider === "claude" ? 0.08 : b.provider === "openai" ? 0.05 : 0
+      const weightA = a.provider === "claude" ? 0.12 : a.provider === "openai" ? 0.04 : 0
+      const weightB = b.provider === "claude" ? 0.12 : b.provider === "openai" ? 0.04 : 0
       return (b.bandit_score + weightB) - (a.bandit_score + weightA)
     })
   }
 
   if (task === "research") {
+    // OpenAI synthesis primary, Perplexity scout 강조
     ranked.sort((a, b) => {
       const weightA =
         a.provider === "openai" ? 0.07 :
         a.provider === "claude" ? 0.04 :
         a.provider === "perplexity" ? 0.035 :
         a.provider === "gemini" ? 0.025 : 0
-
       const weightB =
         b.provider === "openai" ? 0.07 :
         b.provider === "claude" ? 0.04 :
         b.provider === "perplexity" ? 0.035 :
         b.provider === "gemini" ? 0.025 : 0
-
       return (b.bandit_score + weightB) - (a.bandit_score + weightA)
     })
   }
 
   if (task === "reasoning") {
+    // OpenAI primary, Claude verifier
     ranked.sort((a, b) => {
       const weightA =
         a.provider === "openai" ? 0.07 :
         a.provider === "claude" ? 0.04 :
         a.provider === "gemini" ? 0.02 : 0
-
       const weightB =
         b.provider === "openai" ? 0.07 :
         b.provider === "claude" ? 0.04 :
         b.provider === "gemini" ? 0.02 : 0
-
       return (b.bandit_score + weightB) - (a.bandit_score + weightA)
     })
   }
@@ -127,7 +122,6 @@ function rankProviders(task: AdaptiveTask) {
 
 function shouldUsePro(task: AdaptiveTask, params: any): boolean {
   if (task !== "reasoning" && task !== "research") return false
-
   return Boolean(
     params?.force_pro ||
     params?.benchmark_mode ||
@@ -190,23 +184,29 @@ function buildExecutionPolicy(task: AdaptiveTask, params: any) {
   }
 }
 
-function chooseOpenAIPrimaryOverride(task: AdaptiveTask, params: any, ranked: any[]) {
-  if (task === "dialogue") return true
-  if (task === "code") return true
-  if (task === "reasoning") return true
-  if (task === "research") return true
-
-  if (Boolean(params?.force_primary_provider) && String(params.force_primary_provider).trim().toLowerCase() !== "openai") {
-    return false
+/**
+ * task별 primary provider 결정
+ *
+ * dialogue  → OpenAI primary
+ * reasoning → OpenAI primary (Claude verifier)
+ * research  → OpenAI primary (Perplexity scout + Claude verifier)
+ * code      → Claude primary (OpenAI verifier) ← 핵심 변경
+ */
+function choosePrimaryProvider(task: AdaptiveTask, params: any, ranked: any[]): string {
+  // 명시적 override
+  if (Boolean(params?.force_primary_provider)) {
+    const forced = String(params.force_primary_provider).trim().toLowerCase()
+    if (forced && ranked.some((x) => x.provider === forced)) return forced
   }
 
-  const openai = ranked.find((x) => x.provider === "openai")
-  const best = ranked[0]
+  // code → Claude primary
+  if (task === "code") {
+    const claude = ranked.find((x) => x.provider === "claude")
+    if (claude) return "claude"
+  }
 
-  if (!openai || !best) return true
-  if (best.provider === "openai") return true
-
-  return (best.bandit_score - openai.bandit_score) < 0.15
+  // 나머지 모두 OpenAI primary
+  return "openai"
 }
 
 function pickTopAvailable(ranked: any[], excluded: string[], preferredOrder: string[]) {
@@ -216,36 +216,30 @@ function pickTopAvailable(ranked: any[], excluded: string[], preferredOrder: str
     if (excluded.includes(normalized)) continue
     if (ranked.some((row) => row.provider === normalized)) return normalized
   }
-
   const next = ranked.find((row) => !excluded.includes(row.provider))
   return next?.provider ?? null
 }
 
 function fallbackOrder(ranked: any[], excluded: string[], preferFast: boolean): string[] {
   const filtered = ranked.filter((x) => !excluded.includes(x.provider))
-
   const ordered = [...filtered].sort((a, b) => {
     if (preferFast) {
       if (a.avg_latency !== b.avg_latency) return a.avg_latency - b.avg_latency
       if (a.avg_cost !== b.avg_cost) return a.avg_cost - b.avg_cost
       return b.bandit_score - a.bandit_score
     }
-
     if (b.bandit_score !== a.bandit_score) return b.bandit_score - a.bandit_score
     if (a.avg_cost !== b.avg_cost) return a.avg_cost - b.avg_cost
     return a.avg_latency - b.avg_latency
   })
-
   return uniqueProviders(ordered.map((x) => x.provider))
 }
 
 function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
-  const keepOpenAIPrimary = chooseOpenAIPrimaryOverride(task, params, ranked)
-  const bestProvider = ranked[0]?.provider ?? "openai"
-  const primaryProvider = keepOpenAIPrimary ? "openai" : bestProvider
-
+  const primaryProvider = choosePrimaryProvider(task, params, ranked)
   const excludedBase = uniqueProviders([primaryProvider])
 
+  // dialogue: OpenAI single — 빠르고 간단하게
   if (task === "dialogue") {
     return {
       selected_providers: [primaryProvider],
@@ -255,16 +249,19 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
     }
   }
 
+  // code: Claude primary + OpenAI verifier
+  // Claude가 코드를 짜고 OpenAI가 동작/로직 검증
   if (task === "code") {
-    const verifier = pickTopAvailable(ranked, excludedBase, ["claude", "gemini", "perplexity"])
+    const verifier = pickTopAvailable(ranked, excludedBase, ["openai", "gemini"])
     return {
-      selected_providers: [primaryProvider],
-      verifier_providers: verifier ? [verifier] : [],
+      selected_providers: [primaryProvider],   // claude
+      verifier_providers: verifier ? [verifier] : [],  // openai
       optional_providers: [],
       scout_providers: []
     }
   }
 
+  // reasoning: OpenAI primary + Claude verifier (논리 검증)
   if (task === "reasoning") {
     const verifier = pickTopAvailable(ranked, excludedBase, ["claude", "gemini", "perplexity"])
     const optionalExcluded = uniqueProviders([...excludedBase, ...(verifier ? [verifier] : [])])
@@ -277,23 +274,24 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
     )
 
     const optional = allowOptional
-      ? pickTopAvailable(ranked, optionalExcluded, ["gemini", "claude", "perplexity"])
+      ? pickTopAvailable(ranked, optionalExcluded, ["gemini", "perplexity"])
       : null
 
     return {
-      selected_providers: [primaryProvider],
-      verifier_providers: verifier ? [verifier] : [],
+      selected_providers: [primaryProvider],   // openai
+      verifier_providers: verifier ? [verifier] : [],  // claude
       optional_providers: optional ? [optional] : [],
       scout_providers: []
     }
   }
 
-  const verifier = pickTopAvailable(ranked, excludedBase, ["claude", "gemini"])
-  const afterVerifier = uniqueProviders([...excludedBase, ...(verifier ? [verifier] : [])])
+  // research: OpenAI primary + Perplexity scout (상시) + Claude verifier
+  // Perplexity가 최신 정보 수집 → OpenAI가 synthesis → Claude가 fact-check
+  const scout = "perplexity"  // research에서 Perplexity는 상시 first-wave
+  const afterScout = uniqueProviders([...excludedBase, scout])
 
-  const scout = pickTopAvailable(ranked, afterVerifier, ["perplexity"])
-
-  const afterScout = uniqueProviders([...afterVerifier, ...(scout ? [scout] : [])])
+  const verifier = pickTopAvailable(ranked, afterScout, ["claude", "gemini"])
+  const afterVerifier = uniqueProviders([...afterScout, ...(verifier ? [verifier] : [])])
 
   const allowOptional =
     Boolean(params?.benchmark_mode) ||
@@ -302,14 +300,14 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
     Boolean(params?.force_pro)
 
   const optional = allowOptional
-    ? pickTopAvailable(ranked, afterScout, ["gemini", "claude"])
+    ? pickTopAvailable(ranked, afterVerifier, ["gemini", "claude"])
     : null
 
   return {
-    selected_providers: [primaryProvider],
-    verifier_providers: verifier ? [verifier] : [],
+    selected_providers: [primaryProvider],         // openai
+    verifier_providers: verifier ? [verifier] : [],  // claude
     optional_providers: optional ? [optional] : [],
-    scout_providers: scout ? [scout] : []
+    scout_providers: [scout]                        // perplexity (항상)
   }
 }
 
@@ -317,7 +315,6 @@ export function resolveAdaptiveRoute(params: any): AdaptiveRouteDecision {
   const task = normalizeTask(params?.task)
   const ranked = rankProviders(task)
   const executionPolicy = buildExecutionPolicy(task, params)
-
   const roles = chooseRoles(task, ranked, params)
 
   const parallelProviders = uniqueProviders([
@@ -385,6 +382,13 @@ export function resolveAdaptiveRoute(params: any): AdaptiveRouteDecision {
           ? "parallel_primary_verifier"
           : "parallel_primary"
 
+  // router_policy: task별 primary를 반영한 이름
+  const policyName =
+    task === "code" ? "claude_primary_openai_verifier_code_router" :
+    task === "research" ? "openai_primary_perplexity_scout_research_router" :
+    task === "reasoning" ? "openai_primary_claude_verifier_reasoning_router" :
+    "openai_primary_dialogue_router"
+
   return {
     task,
     benchmark_mode: Boolean(params?.benchmark_mode),
@@ -396,7 +400,7 @@ export function resolveAdaptiveRoute(params: any): AdaptiveRouteDecision {
     parallel_providers: parallelProviders,
     execution_strategy: executionStrategy,
     parallel_width: parallelProviders.length,
-    router_policy: "openai_primary_role_aware_bandit_router",
+    router_policy: policyName,
     provider_scores: providerScores,
     provider_costs: providerCosts,
     provider_latency: providerLatency,

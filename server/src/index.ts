@@ -1,4 +1,4 @@
-import dotenv from "dotenv"
+﻿import dotenv from "dotenv"
 dotenv.config()
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
@@ -16,12 +16,25 @@ import { dashboardRoute } from "./routes/dashboard.js"
 
 type RouteHandler = (req: any, res: any) => any | Promise<any>
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
+}
+
 function setJson(res: ServerResponse, statusCode: number) {
   res.statusCode = statusCode
   res.setHeader("Content-Type", "application/json; charset=utf-8")
-  res.setHeader("Access-Control-Allow-Origin", "*")
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization")
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+  for (const [k, v] of Object.entries(CORS_HEADERS)) res.setHeader(k, v)
+}
+
+function setSse(res: ServerResponse) {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    ...CORS_HEADERS
+  })
 }
 
 function endJson(res: ServerResponse, statusCode: number, body: unknown) {
@@ -41,6 +54,29 @@ function createExpressLikeResponse(res: ServerResponse) {
       }
       res.end(JSON.stringify(body))
       return this
+    }
+  }
+}
+
+function createSseResponse(res: ServerResponse) {
+  let headersWritten = false
+
+  return {
+    writeHead(_statusCode: number, _headers: Record<string, string>) {
+      if (!headersWritten) {
+        headersWritten = true
+        setSse(res)
+      }
+    },
+    write(chunk: string) {
+      if (!headersWritten) {
+        headersWritten = true
+        setSse(res)
+      }
+      res.write(chunk)
+    },
+    end() {
+      res.end()
     }
   }
 }
@@ -87,7 +123,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   const path = normalizePath(req.url)
 
   if (method === "OPTIONS") {
-    setJson(res, 204)
+    res.writeHead(204, CORS_HEADERS)
     res.end()
     return
   }
@@ -110,14 +146,12 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   }
 
   try {
-    // 🔥 기존
     if (method === "POST" && path === "/api/chat") {
       await handlePostRoute(req, res, chatRoute.handler)
       return
     }
 
-    // 🔥 추가 (핵심)
-        if (method === "POST" && path === "/api/chat/stream") {
+    if (method === "POST" && path === "/api/chat/stream") {
       const body = await readJsonBody(req)
 
       const reqLike = {
@@ -127,7 +161,8 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         body
       }
 
-      await chatStreamRoute.handler(reqLike, res)
+      const resLike = createSseResponse(res)
+      await chatStreamRoute.handler(reqLike, resLike)
       return
     }
 
@@ -175,4 +210,3 @@ const PORT = 8000
 server.listen(PORT, () => {
   console.log("AI ORCHESTRA running on http://localhost:" + PORT)
 })
-

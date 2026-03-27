@@ -1,29 +1,26 @@
-import type { ReactNode } from "react";
+﻿import type { ReactNode } from "react";
 
 type Props = {
   sidebar: ReactNode;
   topbar: ReactNode;
-  statusBar: ReactNode;
   main: ReactNode;
-  rightPanel?: ReactNode;
+  artifact?: ReactNode;
 };
 
-export default function AppShell({ sidebar, topbar, statusBar, main, rightPanel }: Props) {
+export default function AppShell({ sidebar, topbar, main, artifact }: Props) {
   return (
-    <div className="h-screen w-screen overflow-hidden bg-[#212121] text-[#ececec]">
-      <div className="flex h-full w-full">
-        {sidebar}
+    <div className={"app-shell" + (artifact ? " app-shell--with-artifact" : "")}>
+      <aside className="app-shell__sidebar">{sidebar}</aside>
 
-        <main className="flex min-w-0 flex-1 flex-col bg-[#212121]">
-          {topbar}
-          {statusBar}
-
-          <div className="flex min-h-0 flex-1">
-            <section className="flex min-w-0 flex-1 flex-col">{main}</section>
-            {rightPanel}
-          </div>
-        </main>
-      </div>
+      <main className="app-shell__main">
+        <div className="app-shell__topbar">{topbar}</div>
+        <div className="app-shell__body">
+          <section className="app-shell__content">{main}</section>
+          {artifact ? (
+            <aside className="app-shell__artifact">{artifact}</aside>
+          ) : null}
+        </div>
+      </main>
     </div>
   );
 }

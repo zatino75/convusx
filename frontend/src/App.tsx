@@ -1,445 +1,27 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  extractDebugMeta,
-  fetchDashboard,
-  fetchScoreboard,
-  fetchUsageSummary,
-  type DashboardResponse,
-  type ScoreboardResponse,
-  type UsageSummaryResponse
-} from "./api/chat";
-
+﻿import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { extractDebugMeta } from "./api/chat";
 import ChatView from "./components/chat/ChatView";
+import HomeView from "./components/chat/HomeView";
 import AppShell from "./components/layout/AppShell";
 import Sidebar from "./components/layout/Sidebar";
 import Topbar from "./components/layout/Topbar";
-import OrchestrationPanel from "./components/ops/OrchestrationPanel";
-import RequestStatusBar from "./components/ops/RequestStatusBar";
-
-type Role = "user" | "assistant";
-
-export type MessageStatus = "pending" | "done" | "error";
-
-export type ProviderDraft = {
-  provider: string;
-  content: string;
-};
-
-export type Message = {
-  id: string;
-  role: Role;
-  content: string;
-  createdAt: string;
-  status?: MessageStatus;
-  requestMeta?: any;
-};
-
-export type Thread = {
-  id: string;
-  title: string;
-  projectId: string;
-  messages: Message[];
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type ProjectGroup = {
-  id: string;
-  title: string;
-  threadCount: number;
-  updatedAt: string;
-  threads: Thread[];
-};
-
-type DebugMeta = {
-  providerChain: string[];
-  winnerProvider: string | null;
-  qualityScoreGain: number | null;
-  orchestraWins: number | null;
-  singleModelWins: number | null;
-  ties: number | null;
-  routerTask: string | null;
-  selectedProviders: string[];
-  verifierProviders: string[];
-  executionStrategy: string | null;
-  parallelWidth: number | null;
-  conflictRisk: string | null;
-  claimCount: number;
-  conflictCount: number;
-  conflictTypes: string[];
-  scoreboard: unknown;
-  raw: unknown;
-  selectedByFreshness?: boolean;
-  selectionOverrideReason?: string | null;
-  runnerUpProvider?: string | null;
-  usageProviders?: Array<{
-    provider?: string | undefined;
-    success?: boolean | undefined;
-    latency_ms?: number | undefined;
-    model?: string | null | undefined;
-    usage?: {
-      input_tokens?: number | undefined;
-      output_tokens?: number | undefined;
-      total_tokens?: number | undefined;
-      estimated_cost_usd?: number | undefined;
-    } | undefined;
-  }>;
-  usageTotals?: {
-    input_tokens?: number;
-    output_tokens?: number;
-    total_tokens?: number;
-    estimated_cost_usd?: number;
-  } | null;
-  requestLatencyMs?: number | null;
-  requestTotalTokens?: number | null;
-  requestCostUsd?: number | null;
-  fallbackUsed?: boolean;
-  judgeConfidence?: number | null;
-  selectedModels?: Array<{
-    provider?: string | undefined;
-    model?: string | undefined;
-  }>;
-  banditScores?: Record<
-    string,
-    {
-      routing_score?: number;
-      exploration_bonus?: number;
-      freshness_bonus?: number;
-      bandit_score?: number;
-    }
-  >;
-  providerDrafts?: ProviderDraft[];
-  displayWinner?: {
-    provider?: string | undefined;
-    role?: string | undefined;
-  } | null;
-  displayLosers?: string[];
-  hiddenFailedProviders?: string[];
-  primaryRecovered?: boolean;
-  recoveryFromModel?: string | null;
-  recoveryToModel?: string | null;
-  providerStatusMap?: Record<string, any>;
-  providerStreamSummary?: Record<string, any>;
-  timelineEvents?: any[];
-};
-
-type OpsSnapshot = {
-  usage: UsageSummaryResponse | null;
-  scoreboard: ScoreboardResponse | null;
-  dashboard: DashboardResponse | null;
-};
-
-type StartEvent = {
-  type: "start";
-  thread_id?: string;
-  project_id?: string;
-};
-
-type AnswerChunkEvent = {
-  type: "answer_chunk";
-  content?: string;
-};
-
-type ProviderChunkEvent = {
-  type: "provider_chunk";
-  provider: string;
-  content?: string;
-};
-
-type ProviderEvent = {
-  type: "provider";
-  stage: "start" | "done";
-  provider: string;
-  model?: string | null;
-  ok?: boolean;
-  latency_ms?: number;
-  error_code?: string | null;
-  answer_preview?: string;
-};
-
-type JudgeEvent = {
-  type: "judge";
-  stage: "start" | "done";
-  candidate_count?: number;
-  selected_provider?: string | null;
-  confidence?: number;
-  conflict_count?: number;
-};
-
-type OrchestrationEvent = {
-  type: "orchestration";
-  stage:
-    | "task_detected"
-    | "route_resolved"
-    | "fallback_started"
-    | "post_eval_pro_started"
-    | "final_selected";
-  task?: string;
-  planner_signals?: any;
-  route?: any;
-  provider?: string;
-  providers?: string[];
-  reason?: string;
-  selected_provider?: string | null;
-  selected_model?: string | null;
-  conflict_count?: number;
-  judge_confidence?: number;
-};
-
-type FinalEvent = {
-  type: "final";
-  provider?: string | null;
-  content?: string;
-};
-
-type DoneEvent = {
-  type: "done";
-  payload: any;
-};
-
-type ErrorEvent = {
-  type: "error";
-  error?: string;
-};
-
-type StreamEvent =
-  | StartEvent
-  | AnswerChunkEvent
-  | ProviderChunkEvent
-  | ProviderEvent
-  | JudgeEvent
-  | OrchestrationEvent
-  | FinalEvent
-  | DoneEvent
-  | ErrorEvent;
-
-const STORAGE_THREADS_KEY = "ai-orchestra.frontend.threads";
-const STORAGE_ACTIVE_KEY = "ai-orchestra.frontend.activeThreadId";
-
-function isProviderDoneEvent(event: StreamEvent): event is ProviderEvent {
-  return event.type === "provider" && event.stage === "done";
-}
-
-function isProviderChunkEvent(event: StreamEvent): event is ProviderChunkEvent {
-  return event.type === "provider_chunk";
-}
-
-function isRouteResolvedEvent(event: StreamEvent): event is OrchestrationEvent {
-  return event.type === "orchestration" && event.stage === "route_resolved";
-}
-
-function isFinalSelectedEvent(event: StreamEvent): event is OrchestrationEvent {
-  return event.type === "orchestration" && event.stage === "final_selected";
-}
-
-function isJudgeDoneEvent(event: StreamEvent): event is JudgeEvent {
-  return event.type === "judge" && event.stage === "done";
-}
-
-function isFinalEvent(event: StreamEvent): event is FinalEvent {
-  return event.type === "final";
-}
-
-function createId(prefix: string) {
-  const random = Math.random().toString(36).slice(2, 10);
-  return `${prefix}_${Date.now()}_${random}`;
-}
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function summarizeTitle(input: string) {
-  const clean = input.replace(/\s+/g, " ").trim();
-  if (!clean) return "새 채팅";
-  return clean.length > 28 ? `${clean.slice(0, 28)}...` : clean;
-}
-
-function cloneThread(thread: Thread): Thread {
-  return JSON.parse(JSON.stringify(thread)) as Thread;
-}
-
-function createDefaultDebugMeta(): DebugMeta {
-  return {
-    providerChain: [],
-    winnerProvider: null,
-    qualityScoreGain: null,
-    orchestraWins: null,
-    singleModelWins: null,
-    ties: null,
-    routerTask: null,
-    selectedProviders: [],
-    verifierProviders: [],
-    executionStrategy: null,
-    parallelWidth: null,
-    conflictRisk: null,
-    claimCount: 0,
-    conflictCount: 0,
-    conflictTypes: [],
-    scoreboard: null,
-    raw: null,
-    selectedByFreshness: false,
-    selectionOverrideReason: null,
-    runnerUpProvider: null,
-    usageProviders: [],
-    usageTotals: null,
-    requestLatencyMs: null,
-    requestTotalTokens: null,
-    requestCostUsd: null,
-    fallbackUsed: false,
-    judgeConfidence: null,
-    selectedModels: [],
-    banditScores: {},
-    providerDrafts: [],
-    displayWinner: null,
-    displayLosers: [],
-    hiddenFailedProviders: [],
-    primaryRecovered: false,
-    recoveryFromModel: null,
-    recoveryToModel: null,
-    providerStatusMap: {},
-    providerStreamSummary: {},
-    timelineEvents: []
-  };
-}
-
-function createWelcomeThread(projectId = "ai-orchestra"): Thread {
-  const timestamp = nowIso();
-  return {
-    id: createId("thread"),
-    title: "새 채팅",
-    projectId,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    messages: [
-      {
-        id: createId("msg"),
-        role: "assistant",
-        content: "AI ORCHESTRA 준비 완료입니다. 메시지를 입력하면 /api/chat/stream 으로 연결합니다.",
-        createdAt: timestamp,
-        status: "done",
-        requestMeta: null
-      }
-    ]
-  };
-}
-
-function loadInitialThreads() {
-  try {
-    const saved = localStorage.getItem(STORAGE_THREADS_KEY);
-    if (!saved) return [createWelcomeThread()];
-    const parsed = JSON.parse(saved) as Thread[];
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : [createWelcomeThread()];
-  } catch {
-    return [createWelcomeThread()];
-  }
-}
-
-function projectTitle(projectId: string) {
-  const normalized = String(projectId ?? "").trim();
-  if (!normalized) return "Untitled Project";
-  if (normalized === "ai-orchestra") return "AI ORCHESTRA";
-  return normalized
-    .split(/[-_]/g)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function buildProjectGroups(threads: Thread[]): ProjectGroup[] {
-  const grouped = new Map<string, Thread[]>();
-
-  for (const thread of threads) {
-    const key = String(thread.projectId ?? "ai-orchestra").trim() || "ai-orchestra";
-    const current = grouped.get(key) ?? [];
-    current.push(thread);
-    grouped.set(key, current);
-  }
-
-  return Array.from(grouped.entries())
-    .map(([id, projectThreads]) => {
-      const sortedThreads = [...projectThreads].sort(
-        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-      );
-
-      return {
-        id,
-        title: projectTitle(id),
-        threadCount: sortedThreads.length,
-        updatedAt: sortedThreads[0]?.updatedAt ?? nowIso(),
-        threads: sortedThreads
-      };
-    })
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-}
-
-function upsertProviderDraft(drafts: ProviderDraft[], provider: string, chunk: string) {
-  const normalizedProvider = String(provider ?? "").trim().toLowerCase() || "unknown";
-  const safeChunk = String(chunk ?? "");
-  const existing = drafts.find((item) => item.provider === normalizedProvider);
-
-  if (existing) {
-    return drafts.map((item) =>
-      item.provider === normalizedProvider
-        ? { ...item, content: `${item.content}${safeChunk}` }
-        : item
-    );
-  }
-
-  return [...drafts, { provider: normalizedProvider, content: safeChunk }];
-}
-
-function buildLiveMetaFromEvents(events: StreamEvent[]): DebugMeta {
-  const meta = createDefaultDebugMeta();
-
-  const providerDone = events.filter(isProviderDoneEvent);
-  const providerChunks = events.filter(isProviderChunkEvent);
-  const routeEvent = events.find(isRouteResolvedEvent);
-  const finalEvent = events.find(isFinalEvent);
-  const finalSelectedEvent = events.find(isFinalSelectedEvent);
-  const judgeDone = events.find(isJudgeDoneEvent);
-
-  meta.routerTask = routeEvent?.task ?? null;
-  meta.selectedProviders = Array.isArray(routeEvent?.route?.selected_providers) ? routeEvent.route.selected_providers : [];
-  meta.verifierProviders = Array.isArray(routeEvent?.route?.verifier_providers) ? routeEvent.route.verifier_providers : [];
-  meta.executionStrategy = routeEvent?.route?.execution_strategy ?? null;
-  meta.parallelWidth = Array.isArray(routeEvent?.route?.parallel_providers) ? routeEvent.route.parallel_providers.length : null;
-  meta.winnerProvider =
-    finalSelectedEvent?.selected_provider ??
-    finalEvent?.provider ??
-    judgeDone?.selected_provider ??
-    meta.selectedProviders[0] ??
-    null;
-  meta.displayWinner = meta.winnerProvider
-    ? {
-        provider: meta.winnerProvider,
-        role: null
-      }
-    : null;
-  meta.judgeConfidence = judgeDone?.confidence ?? finalSelectedEvent?.judge_confidence ?? null;
-  meta.conflictCount = judgeDone?.conflict_count ?? finalSelectedEvent?.conflict_count ?? 0;
-  meta.selectedModels = providerDone.map((event) => ({
-    provider: event.provider,
-    model: event.model ?? undefined
-  }));
-  meta.usageProviders = providerDone.map((event) => ({
-    provider: event.provider,
-    success: event.ok,
-    latency_ms: event.latency_ms ?? undefined,
-    model: event.model ?? undefined,
-    usage: {
-      estimated_cost_usd: 0
-    }
-  }));
-  meta.providerChain = Array.from(new Set(providerChunks.map((event) => event.provider)));
-  meta.providerDrafts = providerChunks.reduce<ProviderDraft[]>(
-    (acc, event) => upsertProviderDraft(acc, event.provider, event.content ?? ""),
-    []
-  );
-  meta.raw = events;
-
-  return meta;
-}
+import {
+  GENERAL_PROJECT_ID,
+  buildLiveMetaFromEvents,
+  createDefaultDebugMeta,
+  createVersionGroupId,
+  nowIso,
+  useWorkspaceState
+} from "./store/workspaceStore";
+import type {
+  DebugMeta,
+  MainViewMode,
+  Message,
+  MessageStatus,
+  StreamEvent,
+  Thread,
+  WorkspaceKind
+} from "./types/workspace";
 
 async function sendChatStream(
   payload: {
@@ -451,6 +33,9 @@ async function sendChatStream(
   handlers: {
     onEvent?: (event: StreamEvent) => void;
     onDone?: (payload: any) => void;
+  },
+  options?: {
+    signal?: AbortSignal;
   }
 ) {
   const response = await fetch("http://localhost:8000/api/chat/stream", {
@@ -458,7 +43,8 @@ async function sendChatStream(
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal: options?.signal
   });
 
   if (!response.ok || !response.body) {
@@ -469,218 +55,694 @@ async function sendChatStream(
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-
-    while (buffer.includes("\n\n")) {
-      const splitIndex = buffer.indexOf("\n\n");
-      const rawEvent = buffer.slice(0, splitIndex);
-      buffer = buffer.slice(splitIndex + 2);
-
-      const dataLines = rawEvent
-        .split("\n")
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).trim());
-
-      if (dataLines.length === 0) continue;
-
-      const json = dataLines.join("\n");
-      const event = JSON.parse(json) as StreamEvent;
-
-      if (event.type === "done") {
-        handlers.onDone?.(event.payload);
-      } else {
-        handlers.onEvent?.(event);
+  try {
+    while (true) {
+      if (options?.signal?.aborted) {
+        throw new DOMException("The operation was aborted.", "AbortError");
       }
 
-      if (event.type === "error") {
-        throw new Error(event.error || "unknown_error");
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      while (buffer.includes("\n\n")) {
+        const splitIndex = buffer.indexOf("\n\n");
+        const rawEvent = buffer.slice(0, splitIndex);
+        buffer = buffer.slice(splitIndex + 2);
+
+        const dataLines = rawEvent
+          .split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trim());
+
+        if (dataLines.length === 0) continue;
+
+        const json = dataLines.join("\n");
+        const event = JSON.parse(json) as StreamEvent;
+
+        if (event.type === "done") {
+          handlers.onDone?.(event.payload);
+        } else {
+          handlers.onEvent?.(event);
+        }
+
+        if (event.type === "error") {
+          throw new Error(event.error || "unknown_error");
+        }
       }
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      return;
     }
   }
 }
 
-export default function App() {
-  const initialThreads = useMemo(() => loadInitialThreads(), []);
-  const [threads, setThreads] = useState<Thread[]>(initialThreads);
-  const [activeThreadId, setActiveThreadId] = useState<string>(() => {
-    const saved = localStorage.getItem(STORAGE_ACTIVE_KEY);
-    if (saved && initialThreads.some((thread) => thread.id === saved)) {
-      return saved;
+function createMessage(
+  role: "user" | "assistant",
+  content: string,
+  status?: MessageStatus,
+  extra?: Partial<Message>
+): Message {
+  return {
+    id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+    role,
+    content,
+    createdAt: nowIso(),
+    status,
+    requestMeta: null,
+    ...extra
+  };
+}
+
+function normalizeThreadTitle(input: string | null | undefined) {
+  return String(input ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function isGenericThreadTitle(input: string | null | undefined) {
+  const normalized = normalizeThreadTitle(input);
+
+  if (!normalized) return true;
+
+  const genericTitles = new Set([
+    "새 채팅",
+    "새채팅",
+    "new chat",
+    "untitled",
+    "chat",
+    "thread",
+    "global chat",
+    "globalchat",
+    "글로벌채팅",
+    "글로벌 채팅",
+    "일반채팅",
+    "일반 채팅",
+    "general chat"
+  ]);
+
+  return genericTitles.has(normalized);
+}
+
+function makeThreadTitle(input: string) {
+  const oneLine = input.replace(/\s+/g, " ").trim();
+  if (!oneLine) return "새 채팅";
+  return oneLine.slice(0, 32);
+}
+
+function getVisibleMessages(thread: Thread | null) {
+  return (thread?.messages ?? []).filter((message) => !message.isHidden);
+}
+
+function findBaseUserMessageIndex(messages: Message[], messageId: string) {
+  return messages.findIndex((item) => item.id === messageId);
+}
+
+function findNextUserMessageIndex(messages: Message[], startIndex: number) {
+  for (let index = startIndex + 1; index < messages.length; index += 1) {
+    if (messages[index]?.role === "user") {
+      return index;
     }
-    return initialThreads[0]?.id ?? createWelcomeThread().id;
-  });
+  }
+  return -1;
+}
 
-  const [draft, setDraft] = useState("");
-  const [isSending, setIsSending] = useState(false);
-  const [showOps, setShowOps] = useState(true);
-  const [lastError, setLastError] = useState<string | null>(null);
-  const [opsError, setOpsError] = useState<string | null>(null);
-  const [opsLoading, setOpsLoading] = useState(false);
-  const [debugMeta, setDebugMeta] = useState<DebugMeta>(createDefaultDebugMeta());
-  const [opsSnapshot, setOpsSnapshot] = useState<OpsSnapshot>({
-    usage: null,
-    scoreboard: null,
-    dashboard: null
-  });
+function updateMessageStatus(
+  messages: Message[],
+  targetId: string,
+  updater: (message: Message) => Message
+): Message[] {
+  return messages.map((message) => (message.id === targetId ? updater(message) : message));
+}
 
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+function isAbortError(error: unknown) {
+  return error instanceof DOMException
+    ? error.name === "AbortError"
+    : error instanceof Error && error.name === "AbortError";
+}
+
+function FolderIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  );
+}
+
+function ProjectCreateModal({
+  open,
+  value,
+  onChange,
+  onClose,
+  onSubmit
+}: {
+  open: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_THREADS_KEY, JSON.stringify(threads));
-  }, [threads]);
+    if (!open) return;
+    const id = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [open]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_ACTIVE_KEY, activeThreadId);
-  }, [activeThreadId]);
+    if (!open) return;
 
-  useEffect(() => {
-    const exists = threads.some((thread) => thread.id === activeThreadId);
-    if (!exists && threads.length > 0) {
-      setActiveThreadId(threads[0].id);
-    }
-  }, [threads, activeThreadId]);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [threads, isSending]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function loadOps() {
-      setOpsLoading(true);
-      setOpsError(null);
-
-      try {
-        const [usage, scoreboard, dashboard] = await Promise.all([
-          fetchUsageSummary(controller.signal),
-          fetchScoreboard(controller.signal),
-          fetchDashboard(controller.signal)
-        ]);
-
-        setOpsSnapshot({ usage, scoreboard, dashboard });
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        const message = error instanceof Error ? error.message : "운영 패널 데이터를 불러오지 못했습니다.";
-        setOpsError(message);
-      } finally {
-        if (!controller.signal.aborted) {
-          setOpsLoading(false);
-        }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
       }
     }
 
-    void loadOps();
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open, onClose]);
 
-    return () => controller.abort();
-  }, []);
+  if (!open) return null;
 
-  const activeThread = useMemo(() => {
-    const found = threads.find((thread) => thread.id === activeThreadId);
-    return found ?? threads[0];
-  }, [threads, activeThreadId]);
+  return (
+    <div
+      className="modal-overlay"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div className="project-modal" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="project-modal__header">
+          <div className="project-modal__title">새 프로젝트</div>
 
-  const projectGroups = useMemo(() => buildProjectGroups(threads), [threads]);
+          <div className="project-modal__actions">
+            <button type="button" className="project-modal__icon-btn" onClick={onClose} aria-label="닫기">
+              <CloseIcon />
+            </button>
+          </div>
+        </div>
 
-  function updateActiveThread(mutator: (thread: Thread) => Thread) {
-    setThreads((current) =>
-      current.map((thread) => (thread.id === activeThreadId ? mutator(cloneThread(thread)) : thread))
-    );
-  }
+        <div className="project-modal__label">프로젝트 이름</div>
 
-  function handleNewThread() {
-    const projectId = activeThread?.projectId ?? "ai-orchestra";
-    const next = createWelcomeThread(projectId);
+        <div className="project-modal__input-wrap">
+          <span className="project-modal__input-icon">
+            <FolderIcon />
+          </span>
+          <input
+            ref={inputRef}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onSubmit();
+              }
+            }}
+            className="project-modal__input"
+            placeholder="예: AI ORCHESTRA UI 리디자인"
+          />
+        </div>
 
-    setThreads((current) => [next, ...current]);
-    setActiveThreadId(next.id);
-    setLastError(null);
-    setDraft("");
-    setDebugMeta(createDefaultDebugMeta());
+        <div className="project-modal__chips">
+          <button type="button" className="project-modal__chip" onClick={() => onChange("AI ORCHESTRA")}>
+            AI ORCHESTRA
+          </button>
+          <button type="button" className="project-modal__chip" onClick={() => onChange("멀티 AI 리서치")}>
+            멀티 AI 리서치
+          </button>
+          <button type="button" className="project-modal__chip" onClick={() => onChange("UI 고도화")}>
+            UI 고도화
+          </button>
+        </div>
+
+        <div className="project-modal__notice">
+          프로젝트를 만들면 프로젝트 홈과 스레드 구조가 분리되어 관리됩니다.
+        </div>
+
+        <div className="project-modal__footer">
+          <button
+            type="button"
+            className="project-modal__submit"
+            onClick={onSubmit}
+            disabled={!value.trim()}
+          >
+            생성
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type SendTarget = {
+  threadId: string;
+  projectId: string;
+  currentTitle: string;
+};
+
+type RetryOptions = {
+  replaceFromMessageId?: string | null;
+};
+
+type ActiveStreamState = {
+  controller: AbortController;
+  threadId: string;
+  projectId: string;
+  placeholderId: string;
+};
+
+export default function App() {
+  const workspace = useWorkspaceState();
+
+  const [draft, setDraft] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [debugMeta, setDebugMeta] = useState<DebugMeta>(createDefaultDebugMeta());
+  const [sidebarView, setSidebarView] = useState<"default" | "search" | "images">("default");
+  const [artifactContent, setArtifactContent] = useState<{ title: string; code: string; language: string } | null>(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState("");
+
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [projectTitleDraft, setProjectTitleDraft] = useState("");
+
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const shouldAutoStickRef = useRef(true);
+  const pendingScrollBehaviorRef = useRef<ScrollBehavior | null>("auto");
+  const activeStreamRef = useRef<ActiveStreamState | null>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) {
+      setShowScrollToBottom(false);
+      return;
+    }
+
+    const updateStickiness = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const isNearBottom = distanceFromBottom <= 96;
+      shouldAutoStickRef.current = isNearBottom;
+      setShowScrollToBottom(distanceFromBottom > 120);
+    };
+
+    updateStickiness();
+    el.addEventListener("scroll", updateStickiness, { passive: true });
+
+    return () => {
+      el.removeEventListener("scroll", updateStickiness);
+    };
+  }, [workspace.activeThreadId, sidebarView]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    if (!shouldAutoStickRef.current && pendingScrollBehaviorRef.current === null) return;
+
+    const behavior = pendingScrollBehaviorRef.current ?? "auto";
+
+    requestAnimationFrame(() => {
+      const latest = scrollRef.current;
+      if (!latest) return;
+
+      latest.scrollTo({
+        top: latest.scrollHeight,
+        behavior
+      });
+
+      const distanceFromBottom = latest.scrollHeight - latest.scrollTop - latest.clientHeight;
+      setShowScrollToBottom(distanceFromBottom > 120);
+      pendingScrollBehaviorRef.current = null;
+    });
+  }, [workspace.threads, workspace.activeThreadId, isSending]);
+
+  const workspaceKind: WorkspaceKind =
+    workspace.activeProjectId === GENERAL_PROJECT_ID ? "general" : "project";
+  const mode: MainViewMode = workspace.activeThreadId ? "thread-chat" : "home";
+
+  const messageVersionMap = useMemo(() => {
+    const thread = workspace.activeThread;
+    if (!thread) return {};
+
+    const versions = thread.messageVersions ?? {};
+    const activeVersionIndex = thread.activeVersionIndex ?? {};
+    const result: Record<string, { current: number; total: number }> = {};
+
+    for (const [groupId, messages] of Object.entries(versions)) {
+      if (!Array.isArray(messages) || messages.length <= 1) continue;
+
+      const visibleUserMessage = thread.messages.find(
+        (item) => item.role === "user" && !item.isHidden && item.versionGroupId === groupId
+      );
+
+      if (!visibleUserMessage) continue;
+
+      result[visibleUserMessage.id] = {
+        current: (activeVersionIndex[groupId] ?? 0) + 1,
+        total: messages.filter((item) => item.role === "user").length || messages.length
+      };
+    }
+
+    return result;
+  }, [workspace.activeThread]);
+
+  function focusComposer() {
     queueMicrotask(() => textareaRef.current?.focus());
   }
 
-  function handleNewThreadInProject(projectId: string) {
-    const next = createWelcomeThread(projectId);
-
-    setThreads((current) => [next, ...current]);
-    setActiveThreadId(next.id);
-    setLastError(null);
-    setDraft("");
-    setDebugMeta(createDefaultDebugMeta());
-    queueMicrotask(() => textareaRef.current?.focus());
+  function markScrollToBottom(behavior: ScrollBehavior = "auto") {
+    shouldAutoStickRef.current = true;
+    pendingScrollBehaviorRef.current = behavior;
+    setShowScrollToBottom(false);
   }
 
-  async function refreshOpsSnapshot() {
-    try {
-      const [usage, scoreboard, dashboard] = await Promise.all([
-        fetchUsageSummary(),
-        fetchScoreboard(),
-        fetchDashboard()
-      ]);
+  function resetEditingState() {
+    setEditingMessageId(null);
+    setEditingDraft("");
+  }
 
-      setOpsSnapshot({ usage, scoreboard, dashboard });
-      setOpsError(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "운영 패널 갱신에 실패했습니다.";
-      setOpsError(message);
+  function openProjectModal() {
+    setProjectTitleDraft("");
+    setIsProjectModalOpen(true);
+  }
+
+  function closeProjectModal() {
+    setIsProjectModalOpen(false);
+    setProjectTitleDraft("");
+  }
+
+  function handleSubmitProjectModal() {
+    const nextTitle = projectTitleDraft.trim();
+    if (!nextTitle) return;
+
+    workspace.createNamedProject(nextTitle);
+    setDraft("");
+    setLastError(null);
+    setDebugMeta(createDefaultDebugMeta());
+    setSidebarView("default");
+    resetEditingState();
+    markScrollToBottom("auto");
+    closeProjectModal();
+  }
+
+  function handleOpenGeneralHome() {
+    workspace.openGeneralHome();
+    setDraft("");
+    setLastError(null);
+    setSidebarView("default");
+    resetEditingState();
+    markScrollToBottom("auto");
+  }
+
+  function handleSelectProject(projectId: string) {
+    workspace.selectProject(projectId);
+    setDraft("");
+    setLastError(null);
+    setSidebarView("default");
+    resetEditingState();
+    markScrollToBottom("auto");
+  }
+
+  function handleOpenThread(threadId: string) {
+    workspace.openThread(threadId);
+    setDraft("");
+    setLastError(null);
+    setSidebarView("default");
+    resetEditingState();
+    markScrollToBottom("auto");
+    focusComposer();
+  }
+
+  function handleOpenSearch() {
+    workspace.setActiveThreadId(null);
+    setSidebarView("search");
+    setLastError(null);
+    resetEditingState();
+    markScrollToBottom("auto");
+  }
+
+  function handleOpenImages() {
+    workspace.setActiveThreadId(null);
+    setSidebarView("images");
+    setLastError(null);
+    resetEditingState();
+    markScrollToBottom("auto");
+  }
+
+  function handleCreateNamedProject() {
+    openProjectModal();
+  }
+
+  function handleCreateThreadInProject(projectId: string) {
+    workspace.createThreadInProject(projectId);
+    setDraft("");
+    setLastError(null);
+    setDebugMeta(createDefaultDebugMeta());
+    setSidebarView("default");
+    resetEditingState();
+    markScrollToBottom("auto");
+    focusComposer();
+  }
+
+  function handleToggleProjectMemory(projectId: string) {
+    const project = workspace.projects.find((item) => item.id === projectId);
+    if (!project) return;
+
+    workspace.updateProjectMeta(projectId, {
+      memoryEnabled: !project.meta?.memoryEnabled
+    });
+  }
+
+  function handleRenameThreadFromHome(threadId: string, nextTitle: string) {
+    const safeTitle = nextTitle.trim();
+    if (!safeTitle) return;
+
+    workspace.updateThreadById(threadId, (thread) => ({
+      ...thread,
+      title: safeTitle,
+      updatedAt: nowIso()
+    }));
+
+    const targetThread = workspace.threads.find((thread) => thread.id === threadId);
+    if (targetThread) {
+      workspace.touchProject(targetThread.projectId, nowIso());
     }
   }
 
-  async function handleSend() {
-    const text = draft.trim();
-    if (!text || !activeThread || isSending) return;
+  function handleMoveThreadFromHome(threadId: string, nextProjectId: string) {
+    if (!nextProjectId) return;
+    workspace.moveThread(threadId, nextProjectId);
+  }
+
+  function backToHome() {
+    workspace.setActiveThreadId(null);
+    setLastError(null);
+    setSidebarView("default");
+    resetEditingState();
+    markScrollToBottom("auto");
+  }
+
+  function handleScrollToBottom() {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: "smooth"
+    });
+
+    shouldAutoStickRef.current = true;
+    setShowScrollToBottom(false);
+  }
+
+  function handleStopGenerating() {
+    const activeStream = activeStreamRef.current;
+    if (!activeStream) return;
+
+    activeStream.controller.abort();
+
+    workspace.updateThreadById(activeStream.threadId, (thread) => ({
+      ...thread,
+      updatedAt: nowIso(),
+      messages: updateMessageStatus(thread.messages, activeStream.placeholderId, (message) => ({
+        ...message,
+        content: message.content?.trim() ? message.content : "생성이 중단되었습니다.",
+        status: "done",
+        requestMeta: message.requestMeta ?? debugMeta
+      }))
+    }));
+
+    workspace.touchProject(activeStream.projectId);
+    activeStreamRef.current = null;
+    setIsSending(false);
+    setLastError(null);
+    setShowScrollToBottom(false);
+    focusComposer();
+  }
+
+  async function sendMessageToThread(text: string, target: SendTarget, options?: RetryOptions) {
+    const trimmed = text.trim();
+    if (!trimmed || isSending) return;
 
     const timestamp = nowIso();
+    const replaceFromMessageId = options?.replaceFromMessageId ?? null;
+    const activeThread = workspace.threads.find((thread) => thread.id === target.threadId) ?? null;
+    const visibleMessages = getVisibleMessages(activeThread);
 
-    const userMessage: Message = {
-      id: createId("msg"),
-      role: "user",
-      content: text,
-      createdAt: timestamp,
-      status: "done",
-      requestMeta: null
-    };
+    let versionGroupId = createVersionGroupId();
+    let versionIndex = 0;
+    let preservedMessages = visibleMessages;
+    let messageVersions = { ...(activeThread?.messageVersions ?? {}) };
+    let activeVersionIndex = { ...(activeThread?.activeVersionIndex ?? {}) };
 
-    const assistantPlaceholder: Message = {
-      id: createId("msg"),
-      role: "assistant",
-      content: "",
-      createdAt: nowIso(),
-      status: "pending",
-      requestMeta: null
-    };
+    if (replaceFromMessageId && activeThread) {
+      const replaceIndex = findBaseUserMessageIndex(visibleMessages, replaceFromMessageId);
+      if (replaceIndex >= 0) {
+        const originalUserMessage = visibleMessages[replaceIndex];
+        versionGroupId = originalUserMessage.versionGroupId ?? createVersionGroupId();
 
-    const optimisticTitle = activeThread.title === "새 채팅" ? summarizeTitle(text) : activeThread.title;
+        const groupMessages = [...(messageVersions[versionGroupId] ?? [])];
+        const nextExistingIndex =
+          Math.max(
+            -1,
+            ...groupMessages
+              .filter((item) => item.role === "user")
+              .map((item) => item.versionIndex ?? 0)
+          ) + 1;
+
+        const originalAnswer =
+          replaceIndex + 1 < visibleMessages.length && visibleMessages[replaceIndex + 1]?.role === "assistant"
+            ? visibleMessages[replaceIndex + 1]
+            : null;
+
+        const archivedUserMessage: Message = {
+          ...originalUserMessage,
+          versionGroupId,
+          versionIndex: originalUserMessage.versionIndex ?? 0,
+          isHidden: true
+        };
+
+        const existingUserIndex = groupMessages.findIndex(
+          (item) =>
+            item.role === "user" &&
+            item.versionIndex === archivedUserMessage.versionIndex &&
+            item.versionGroupId === versionGroupId
+        );
+
+        if (existingUserIndex >= 0) {
+          groupMessages[existingUserIndex] = archivedUserMessage;
+        } else {
+          groupMessages.push(archivedUserMessage);
+        }
+
+        if (originalAnswer) {
+          const archivedAnswer: Message = {
+            ...originalAnswer,
+            versionGroupId,
+            versionIndex: archivedUserMessage.versionIndex ?? 0,
+            isHidden: true
+          };
+
+          const existingAnswerIndex = groupMessages.findIndex(
+            (item) =>
+              item.role === "assistant" &&
+              item.versionIndex === archivedAnswer.versionIndex &&
+              item.versionGroupId === versionGroupId
+          );
+
+          if (existingAnswerIndex >= 0) {
+            groupMessages[existingAnswerIndex] = archivedAnswer;
+          } else {
+            groupMessages.push(archivedAnswer);
+          }
+        }
+
+        versionIndex = nextExistingIndex;
+        messageVersions[versionGroupId] = groupMessages;
+        activeVersionIndex[versionGroupId] = versionIndex;
+
+        const nextUserBoundary = findNextUserMessageIndex(visibleMessages, replaceIndex);
+        preservedMessages =
+          nextUserBoundary >= 0
+            ? visibleMessages.slice(0, replaceIndex).concat(visibleMessages.slice(nextUserBoundary))
+            : visibleMessages.slice(0, replaceIndex);
+      }
+    }
+
+    const userMessage = createMessage("user", trimmed, "done", {
+      versionGroupId,
+      versionIndex,
+      isHidden: false
+    });
+
+    const assistantPlaceholder = createMessage("assistant", "", "pending", {
+      versionGroupId,
+      versionIndex,
+      isHidden: false
+    });
+
+    const nextTitle = makeThreadTitle(trimmed);
     const liveEvents: StreamEvent[] = [];
     let liveMeta = createDefaultDebugMeta();
     let finalTextFromEvent = "";
+    const controller = new AbortController();
 
-    updateActiveThread((thread) => ({
+    activeStreamRef.current = {
+      controller,
+      threadId: target.threadId,
+      projectId: target.projectId,
+      placeholderId: assistantPlaceholder.id
+    };
+
+    markScrollToBottom("smooth");
+
+    workspace.updateThreadById(target.threadId, (thread) => ({
       ...thread,
-      title: optimisticTitle,
+      title: isGenericThreadTitle(thread.title) ? nextTitle : thread.title,
       updatedAt: timestamp,
-      messages: [...thread.messages, userMessage, assistantPlaceholder]
+      meta: {
+        ...(thread.meta ?? {}),
+        lastSummary: trimmed.slice(0, 160)
+      },
+      messages: [...preservedMessages, userMessage, assistantPlaceholder],
+      messageVersions,
+      activeVersionIndex
     }));
+    workspace.touchProject(target.projectId, timestamp);
 
     setDraft("");
     setIsSending(true);
     setLastError(null);
     setDebugMeta(createDefaultDebugMeta());
+    resetEditingState();
 
     try {
       await sendChatStream(
         {
-          message: text,
-          thread_id: activeThread.id,
-          project_id: activeThread.projectId,
+          message: trimmed,
+          thread_id: target.threadId,
+          project_id: target.projectId,
           mode: "runtime_orchestra"
         },
         {
@@ -698,19 +760,15 @@ export default function App() {
               const currentWinnerDraft =
                 liveMeta.providerDrafts?.find((item) => item.provider === winnerProvider)?.content ?? "";
 
-              updateActiveThread((thread) => ({
+              workspace.updateThreadById(target.threadId, (thread) => ({
                 ...thread,
                 updatedAt: nowIso(),
-                messages: thread.messages.map((message) =>
-                  message.id === assistantPlaceholder.id
-                    ? {
-                        ...message,
-                        content: currentWinnerDraft,
-                        status: "pending",
-                        requestMeta: liveMeta
-                      }
-                    : message
-                )
+                messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (message) => ({
+                  ...message,
+                  content: currentWinnerDraft,
+                  status: "pending",
+                  requestMeta: liveMeta
+                }))
               }));
 
               setDebugMeta(liveMeta);
@@ -718,19 +776,15 @@ export default function App() {
             }
 
             if (event.type === "answer_chunk") {
-              updateActiveThread((thread) => ({
+              workspace.updateThreadById(target.threadId, (thread) => ({
                 ...thread,
                 updatedAt: nowIso(),
-                messages: thread.messages.map((message) =>
-                  message.id === assistantPlaceholder.id
-                    ? {
-                        ...message,
-                        content: `${message.content}${event.content ?? ""}`,
-                        status: "pending",
-                        requestMeta: liveMeta
-                      }
-                    : message
-                )
+                messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (message) => ({
+                  ...message,
+                  content: `${message.content}${event.content ?? ""}`,
+                  status: "pending",
+                  requestMeta: liveMeta
+                }))
               }));
 
               setDebugMeta(liveMeta);
@@ -743,24 +797,20 @@ export default function App() {
                 ...liveMeta,
                 winnerProvider: event.provider ?? liveMeta.winnerProvider ?? null,
                 displayWinner: {
-                  provider: event.provider ?? liveMeta.winnerProvider ?? null,
-                  role: liveMeta.displayWinner?.role ?? null
+                  provider: event.provider ?? liveMeta.winnerProvider ?? undefined,
+                  role: liveMeta.displayWinner?.role
                 }
               };
 
-              updateActiveThread((thread) => ({
+              workspace.updateThreadById(target.threadId, (thread) => ({
                 ...thread,
                 updatedAt: nowIso(),
-                messages: thread.messages.map((message) =>
-                  message.id === assistantPlaceholder.id
-                    ? {
-                        ...message,
-                        content: finalTextFromEvent || message.content,
-                        status: "pending",
-                        requestMeta: liveMeta
-                      }
-                    : message
-                )
+                messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (message) => ({
+                  ...message,
+                  content: finalTextFromEvent || message.content,
+                  status: "pending",
+                  requestMeta: liveMeta
+                }))
               }));
 
               setDebugMeta(liveMeta);
@@ -777,120 +827,404 @@ export default function App() {
               liveMeta.providerDrafts?.find((item) => item.provider === liveMeta.winnerProvider)?.content ||
               "";
 
-            const rawMeta = extractDebugMeta(payload);
+            const rawMeta = extractDebugMeta(payload) as any;
 
-            const meta = {
+            const meta: DebugMeta = {
               ...rawMeta,
               providerDrafts: liveMeta.providerDrafts ?? [],
-              displayWinner: rawMeta.display_winner ?? null,
-              displayLosers: rawMeta.display_losers ?? [],
-              hiddenFailedProviders: rawMeta.hidden_failed_providers ?? [],
-              primaryRecovered: rawMeta.primary_recovered ?? false,
-              recoveryFromModel: rawMeta.recovery_from_model ?? null,
-              recoveryToModel: rawMeta.recovery_to_model ?? null,
-              providerStatusMap: rawMeta.provider_status_map ?? {},
-              providerStreamSummary: rawMeta.provider_stream_summary ?? {},
-              timelineEvents: rawMeta.timeline_events ?? []
+              displayWinner: rawMeta?.display_winner ?? null,
+              displayLosers: rawMeta?.display_losers ?? [],
+              hiddenFailedProviders: rawMeta?.hidden_failed_providers ?? [],
+              primaryRecovered: rawMeta?.primary_recovered ?? false,
+              recoveryFromModel: rawMeta?.recovery_from_model ?? null,
+              recoveryToModel: rawMeta?.recovery_to_model ?? null,
+              providerStatusMap: rawMeta?.provider_status_map ?? {},
+              providerStreamSummary: rawMeta?.provider_stream_summary ?? {},
+              timelineEvents: rawMeta?.timeline_events ?? []
             };
 
-            updateActiveThread((thread) => ({
-              ...thread,
-              updatedAt: nowIso(),
-              messages: thread.messages.map((message) =>
-                message.id === assistantPlaceholder.id
-                  ? {
-                      ...message,
-                      content:
-                        assistantText ||
-                        message.content ||
-                        "응답은 왔지만 표시 가능한 final_answer를 찾지 못했습니다.",
-                      status: "done",
-                      requestMeta: meta
-                    }
-                  : message
-              )
-            }));
+            workspace.updateThreadById(target.threadId, (thread) => {
+              const nextMessages: Message[] = updateMessageStatus(thread.messages, assistantPlaceholder.id, (message) => ({
+                ...message,
+                content:
+                  assistantText ||
+                  message.content ||
+                  "응답은 왔지만 표시 가능한 final_answer를 찾지 못했습니다.",
+                status: "done",
+                requestMeta: meta
+              }));
 
+              const nextThread: Thread = {
+                ...thread,
+                updatedAt: nowIso(),
+                meta: {
+                  ...(thread.meta ?? {}),
+                  lastSummary: assistantText.slice(0, 160)
+                },
+                messages: nextMessages
+              };
+
+              if (replaceFromMessageId) {
+                const groupId = userMessage.versionGroupId ?? "";
+                const finalizedAssistant =
+                  nextMessages.find((item) => item.id === assistantPlaceholder.id) ?? assistantPlaceholder;
+
+                const mergedGroupMessages: Message[] = [
+                  ...(thread.messageVersions?.[groupId] ?? []).filter(
+                    (item) => item.versionIndex !== userMessage.versionIndex
+                  ),
+                  userMessage,
+                  finalizedAssistant
+                ];
+
+                nextThread.messageVersions = {
+                  ...(thread.messageVersions ?? {}),
+                  [groupId]: mergedGroupMessages
+                };
+                nextThread.activeVersionIndex = {
+                  ...(thread.activeVersionIndex ?? {}),
+                  [groupId]: userMessage.versionIndex ?? 0
+                };
+              }
+
+              return nextThread;
+            });
+
+            workspace.touchProject(target.projectId);
             setDebugMeta(meta);
           }
+        },
+        {
+          signal: controller.signal
         }
       );
-
-      void refreshOpsSnapshot();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+      if (isAbortError(error)) {
+        workspace.updateThreadById(target.threadId, (thread) => ({
+          ...thread,
+          updatedAt: nowIso(),
+          messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (item) => ({
+            ...item,
+            content: item.content?.trim() ? item.content : "생성이 중단되었습니다.",
+            status: "done",
+            requestMeta: liveMeta.providerDrafts?.length ? liveMeta : item.requestMeta ?? null
+          }))
+        }));
 
-      updateActiveThread((thread) => ({
-        ...thread,
-        updatedAt: nowIso(),
-        messages: thread.messages.map((item) =>
-          item.id === assistantPlaceholder.id
-            ? {
-                ...item,
-                content: item.content ? `${item.content}\n\n오류: ${message}` : `오류: ${message}`,
-                status: "error",
-                requestMeta: liveMeta.providerDrafts?.length ? liveMeta : null
-              }
-            : item
-        )
-      }));
+        workspace.touchProject(target.projectId);
+        setLastError(null);
+      } else {
+        const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
 
-      setLastError(message);
+        workspace.updateThreadById(target.threadId, (thread) => ({
+          ...thread,
+          updatedAt: nowIso(),
+          messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (item) => ({
+            ...item,
+            content: item.content ? `${item.content}\n\n오류: ${message}` : `오류: ${message}`,
+            status: "error",
+            requestMeta: liveMeta.providerDrafts?.length ? liveMeta : null
+          }))
+        }));
+
+        workspace.touchProject(target.projectId);
+        setLastError(message);
+      }
     } finally {
+      if (activeStreamRef.current?.placeholderId === assistantPlaceholder.id) {
+        activeStreamRef.current = null;
+      }
       setIsSending(false);
-      queueMicrotask(() => textareaRef.current?.focus());
+      focusComposer();
     }
   }
 
+  async function handleSend() {
+    if (!workspace.activeThread) return;
+
+    await sendMessageToThread(draft, {
+      threadId: workspace.activeThread.id,
+      projectId: workspace.activeThread.projectId,
+      currentTitle: workspace.activeThread.title
+    });
+  }
+
+  async function handleHomeSubmit(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || isSending) return;
+
+    setSidebarView("default");
+
+    if (workspace.activeProjectId === GENERAL_PROJECT_ID) {
+      const threadId = workspace.createGeneralChat();
+      await sendMessageToThread(trimmed, {
+        threadId,
+        projectId: GENERAL_PROJECT_ID,
+        currentTitle: ""
+      });
+      return;
+    }
+
+    const projectId = workspace.activeProjectId;
+    const threadId = workspace.createThreadInProject(projectId);
+
+    await sendMessageToThread(trimmed, {
+      threadId,
+      projectId,
+      currentTitle: ""
+    });
+  }
+
+  function handleStartEditMessage(message: Message) {
+    setEditingMessageId(message.id);
+    setEditingDraft(message.content);
+  }
+
+  function handleCancelEditMessage() {
+    resetEditingState();
+  }
+
+  async function handleSubmitEditMessage(messageId: string) {
+    if (!workspace.activeThread) return;
+    const nextText = editingDraft.trim();
+    if (!nextText) return;
+
+    await sendMessageToThread(
+      nextText,
+      {
+        threadId: workspace.activeThread.id,
+        projectId: workspace.activeThread.projectId,
+        currentTitle: workspace.activeThread.title
+      },
+      {
+        replaceFromMessageId: messageId
+      }
+    );
+  }
+
+  function handleCopyUserMessage(message: Message) {
+    void navigator.clipboard.writeText(message.content);
+  }
+
+  function handleCopyAssistantMessage(message: Message) {
+    void navigator.clipboard.writeText(message.content);
+  }
+
+  function handleSelectMessageVersion(messageId: string, direction: "prev" | "next") {
+    const thread = workspace.activeThread;
+    if (!thread) return;
+
+    const baseMessage = thread.messages.find((item) => item.id === messageId);
+    const groupId = baseMessage?.versionGroupId;
+    if (!groupId) return;
+
+    const versions = thread.messageVersions?.[groupId] ?? [];
+    const userVersions = versions
+      .filter((item) => item.role === "user")
+      .sort((a, b) => (a.versionIndex ?? 0) - (b.versionIndex ?? 0));
+
+    if (userVersions.length <= 1) return;
+
+    const currentVersionValue = thread.activeVersionIndex?.[groupId] ?? 0;
+    const currentVersionPosition = userVersions.findIndex(
+      (item) => (item.versionIndex ?? 0) === currentVersionValue
+    );
+
+    const safeCurrentPosition = currentVersionPosition >= 0 ? currentVersionPosition : 0;
+    const nextPosition =
+      direction === "prev"
+        ? Math.max(0, safeCurrentPosition - 1)
+        : Math.min(userVersions.length - 1, safeCurrentPosition + 1);
+
+    if (nextPosition === safeCurrentPosition) return;
+
+    const nextUserVersion = userVersions[nextPosition];
+    const nextVersionValue = nextUserVersion.versionIndex ?? 0;
+
+    const nextAssistantVersion =
+      versions.find(
+        (item) => item.role === "assistant" && (item.versionIndex ?? 0) === nextVersionValue
+      ) ?? null;
+
+    workspace.updateThreadById(thread.id, (currentThread) => {
+      const visibleMessages = getVisibleMessages(currentThread);
+      const currentUserIndex = visibleMessages.findIndex((item) => item.id === messageId);
+      if (currentUserIndex < 0) return currentThread;
+
+      const existingAssistant =
+        currentUserIndex + 1 < visibleMessages.length && visibleMessages[currentUserIndex + 1]?.role === "assistant"
+          ? visibleMessages[currentUserIndex + 1]
+          : null;
+
+      const before = visibleMessages.slice(0, currentUserIndex);
+      const after = existingAssistant
+        ? visibleMessages.slice(currentUserIndex + 2)
+        : visibleMessages.slice(currentUserIndex + 1);
+
+      const replacementMessages: Message[] = [
+        {
+          ...nextUserVersion,
+          isHidden: false
+        }
+      ];
+
+      if (nextAssistantVersion) {
+        replacementMessages.push({
+          ...nextAssistantVersion,
+          isHidden: false
+        });
+      }
+
+      return {
+        ...currentThread,
+        messages: [...before, ...replacementMessages, ...after],
+        activeVersionIndex: {
+          ...(currentThread.activeVersionIndex ?? {}),
+          [groupId]: nextVersionValue
+        }
+      };
+    });
+  }
+
   return (
-    <AppShell
-      sidebar={
-        <Sidebar
-          projects={projectGroups}
-          activeThreadId={activeThreadId}
-          onSelectThread={setActiveThreadId}
-          onNewThread={handleNewThread}
-          onNewThreadInProject={handleNewThreadInProject}
-        />
-      }
-      topbar={
-        <Topbar
-          onNewThread={handleNewThread}
-          onRefreshOps={() => void refreshOpsSnapshot()}
-          onToggleOps={() => setShowOps((prev) => !prev)}
-          showOps={showOps}
-        />
-      }
-      statusBar={
-        <RequestStatusBar
-          debugMeta={debugMeta}
-          recentSummary={opsSnapshot.dashboard?.stats}
-        />
-      }
-      main={
-        <ChatView
-          activeThread={activeThread}
-          isSending={isSending}
-          lastError={lastError}
-          draft={draft}
-          onDraftChange={setDraft}
-          onSend={() => void handleSend()}
-          textareaRef={textareaRef}
-          scrollRef={scrollRef}
-        />
-      }
-      rightPanel={
-        showOps ? (
-          <OrchestrationPanel
-            debugMeta={debugMeta}
-            usage={opsSnapshot.usage}
-            scoreboard={opsSnapshot.scoreboard}
-            dashboard={opsSnapshot.dashboard}
-            opsLoading={opsLoading}
-            opsError={opsError}
+    <>
+      <AppShell
+        sidebar={
+          <Sidebar
+            generalThreads={workspace.generalThreads}
+            projectThreads={workspace.projectThreads}
+            projects={workspace.projectGroups}
+            activeProjectId={workspace.activeProjectId}
+            activeThreadId={workspace.activeThreadId}
+            sidebarView={sidebarView}
+            onOpenGeneralHome={handleOpenGeneralHome}
+            onOpenSearch={handleOpenSearch}
+            onOpenImages={handleOpenImages}
+            onSelectProject={handleSelectProject}
+            onSelectThread={handleOpenThread}
+            onNewChat={handleOpenGeneralHome}
+            onCreateProject={handleCreateNamedProject}
+            onCreateThreadInProject={handleCreateThreadInProject}
+            onRenameProject={workspace.renameProject}
+            onDeleteProject={workspace.deleteProject}
+            onRenameThread={workspace.renameThread}
+            onDeleteThread={workspace.deleteThread}
+            onMoveThread={workspace.moveThread}
+            onToggleProjectMemory={handleToggleProjectMemory}
+            onToggleThreadPinned={workspace.toggleThreadPinned}
           />
-        ) : null
-      }
-    />
+        }
+        artifact={artifactContent ? (
+          <div className="artifact-panel">
+            <div className="artifact-panel__header">
+              <span className="artifact-panel__title">{artifactContent.title}</span>
+              <div className="artifact-panel__actions">
+                <button
+                  type="button"
+                  title="복사"
+                  onClick={() => navigator.clipboard.writeText(artifactContent.code).catch(() => {})}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "1px solid var(--border)", borderRadius: 7, background: "transparent", cursor: "pointer", color: "var(--text-sub)", fontSize: 11 }}
+                >
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="9" y="9" width="10" height="10" rx="2" /><path d="M5 15V7a2 2 0 0 1 2-2h8" /></svg>
+                </button>
+                <button
+                  type="button"
+                  title="닫기"
+                  onClick={() => setArtifactContent(null)}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "1px solid var(--border)", borderRadius: 7, background: "transparent", cursor: "pointer", color: "var(--text-sub)" }}
+                >
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+              </div>
+            </div>
+            <div className="artifact-panel__body">
+              <pre className="artifact-panel__code">{artifactContent.code}</pre>
+            </div>
+          </div>
+        ) : undefined}
+        topbar={
+          <Topbar
+            mode={mode}
+            workspaceKind={workspaceKind}
+            projectTitle={
+              sidebarView === "search"
+                ? "채팅 검색"
+                : sidebarView === "images"
+                  ? "이미지"
+                  : workspace.activeProject?.title ?? "AI Orchestra"
+            }
+            threadTitle={workspace.activeThread?.title ?? undefined}
+            projectMemoryEnabled={Boolean(workspace.activeProject?.meta?.memoryEnabled)}
+            onBackToHome={backToHome}
+          />
+        }
+        main={
+          mode === "home" ? (
+            <HomeView
+              workspaceKind={workspaceKind}
+              activeProject={workspace.activeProject}
+              generalThreads={workspace.generalThreads}
+              projectThreads={workspace.projectThreads}
+              sidebarView={sidebarView}
+              isSending={isSending}
+              onOpenThread={handleOpenThread}
+              onSubmitPrompt={(value) => void handleHomeSubmit(value)}
+              onRenameThread={handleRenameThreadFromHome}
+              onMoveThread={handleMoveThreadFromHome}
+              onRemoveFromProject={workspace.removeThreadFromProject}
+              onDeleteThread={workspace.deleteThread}
+              projectGroups={workspace.projectGroups}
+            />
+          ) : (
+            <ChatView
+              activeProject={workspace.activeProject}
+              activeThread={workspace.activeThread}
+              draft={draft}
+              isSending={isSending}
+              lastError={lastError}
+              onDraftChange={setDraft}
+              onSend={() => void handleSend()}
+              onStopGenerating={handleStopGenerating}
+              onBackToProject={backToHome}
+              textareaRef={textareaRef}
+              scrollRef={scrollRef}
+              debugMeta={debugMeta}
+              editingMessageId={editingMessageId}
+              editingDraft={editingDraft}
+              onEditingDraftChange={setEditingDraft}
+              onStartEditMessage={handleStartEditMessage}
+              onCancelEditMessage={handleCancelEditMessage}
+              onSubmitEditMessage={(messageId) => void handleSubmitEditMessage(messageId)}
+              onCopyUserMessage={handleCopyUserMessage}
+              onCopyAssistantMessage={handleCopyAssistantMessage}
+              onDeleteMessage={(messageId) => {
+                if (workspace.activeThread) {
+                  workspace.deleteMessage(workspace.activeThread.id, messageId);
+                }
+              }}
+              onRelatedQuestion={(q) => {
+                setDraft(q);
+                setTimeout(() => textareaRef.current?.focus(), 50);
+              }}
+              onOpenArtifact={(title, code, language) => {
+                setArtifactContent({ title, code, language });
+              }}
+              messageVersionMap={messageVersionMap}
+              onSelectMessageVersion={handleSelectMessageVersion}
+              showScrollToBottom={showScrollToBottom}
+              onScrollToBottom={handleScrollToBottom}
+            />
+          )
+        }
+      />
+
+      <ProjectCreateModal
+        open={isProjectModalOpen}
+        value={projectTitleDraft}
+        onChange={setProjectTitleDraft}
+        onClose={closeProjectModal}
+        onSubmit={handleSubmitProjectModal}
+      />
+    </>
   );
 }

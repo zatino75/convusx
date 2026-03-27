@@ -1,105 +1,145 @@
-import type { ScoreboardResponse } from "../../api/chat";
+﻿import type { UsageProviderNode } from "../../api/chat";
 
 type Props = {
-  scoreboard: ScoreboardResponse | null;
+  providers?: UsageProviderNode[];
+  taskProvidersByTask?: Record<string, UsageProviderNode[]>;
+  title?: string;
 };
 
-function formatNumber(value: number | null | undefined) {
-  const number = Number(value ?? 0);
-  if (!Number.isFinite(number)) return "0";
-  return number.toLocaleString("ko-KR");
+function safeNum(value: any, digits = 2): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "-";
+  return n.toFixed(digits);
 }
 
-function formatLatencyMs(value: number | null | undefined) {
-  const number = Number(value ?? 0);
-  if (!Number.isFinite(number) || number <= 0) return "-";
-  if (number < 1000) return `${Math.round(number)}ms`;
-  return `${(number / 1000).toFixed(1)}s`;
+function providerColor(provider: string | null | undefined) {
+  const n = String(provider ?? "").trim().toLowerCase();
+  if (n === "openai") return "#10a37f";
+  if (n === "claude") return "#c96442";
+  if (n === "gemini") return "#4285f4";
+  if (n === "perplexity") return "#8b5cf6";
+  return "#8e8ea0";
 }
 
-function formatUsd(value: number | null | undefined) {
-  const number = Number(value ?? 0);
-  if (!Number.isFinite(number) || number <= 0) return "$0";
-  if (number < 0.01) return `$${number.toFixed(4)}`;
-  return `$${number.toFixed(2)}`;
-}
-
-function formatScore(value: number | null | undefined) {
-  const number = Number(value ?? 0);
-  if (!Number.isFinite(number) || number <= 0) return "-";
-  return number.toFixed(2);
-}
-
-function providerLabel(provider: string | null | undefined) {
-  const normalized = String(provider ?? "").trim().toLowerCase();
-  if (!normalized) return "-";
-  if (normalized === "openai") return "OpenAI";
-  if (normalized === "claude") return "Claude";
-  if (normalized === "gemini") return "Gemini";
-  if (normalized === "perplexity") return "Perplexity";
-  return normalized;
-}
-
-function chip(text: string, accent?: string) {
+function Row({ label, value, accent }: { label: string; value: React.ReactNode; accent?: string }) {
   return (
-    <span
-      className={[
-        "inline-flex rounded-full border px-2.5 py-1 text-[11px]",
-        accent ? accent : "border-white/10 bg-white/[0.04] text-[#d7d7d7]"
-      ].join(" ")}
-    >
-      {text}
-    </span>
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11, lineHeight: 1.6 }}>
+      <span style={{ color: "#9ca3af" }}>{label}</span>
+      <span style={{ color: accent ?? "#e5e7eb", fontWeight: 500, textAlign: "right" }}>{value}</span>
+    </div>
   );
 }
 
-export default function ScoreboardCard({ scoreboard }: Props) {
-  const routingScores = Array.isArray(scoreboard?.routing_scores) ? scoreboard.routing_scores : [];
+function Divider() {
+  return <div style={{ height: 1, background: "rgba(255,255,255,0.05)", margin: "2px 0" }} />;
+}
+
+function ProviderCard({ row }: { row: UsageProviderNode }) {
+  const color = providerColor(row.provider);
+  const bandit = Number(row.bandit_score);
+  const winRate = Number(row.blended_win_rate ?? row.win_rate ?? 0);
+  const conflictPenalty = Number(row.conflict_penalty_recent ?? 0);
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-[#212121] p-4">
-      <div className="mb-3 text-[11px] uppercase tracking-[0.16em] text-[#8e8ea0]">Routing scoreboard</div>
-
-      <div className="space-y-3">
-        {routingScores.length > 0 ? (
-          routingScores.map((row) => (
-            <div
-              key={String(row?.provider ?? "unknown")}
-              className="rounded-xl border border-white/10 bg-[#1b1b1b] px-3 py-3"
-            >
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-white">{providerLabel(row?.provider)}</div>
-                <div className="text-xs text-emerald-300">{formatScore(row?.bandit_score)}</div>
-              </div>
-
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full rounded-full bg-emerald-400"
-                  style={{ width: `${Math.max(6, Math.min(100, Number(row?.bandit_score ?? 0) * 100))}%` }}
-                />
-              </div>
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                {chip(`Uses ${formatNumber(row?.uses)}`)}
-                {chip(`Wins ${formatNumber(row?.wins)}`)}
-                {chip(`Recent ${formatNumber(row?.recent_uses)}`)}
-                {chip(`WinRate ${formatScore(row?.win_rate)}`)}
-                {chip(`RecentWin ${formatScore(row?.recent_win_rate)}`)}
-                {chip(`Routing ${formatScore(row?.routing_score)}`)}
-                {chip(`Explore ${formatScore(row?.exploration_bonus)}`)}
-                {chip(`Fresh ${formatScore(row?.freshness_bonus)}`)}
-              </div>
-
-              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-[#8e8ea0]">
-                <div>avg latency: {formatLatencyMs(row?.avg_latency)}</div>
-                <div>avg cost: {formatUsd(row?.avg_cost)}</div>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="text-xs text-[#8e8ea0]">scoreboard 데이터가 없습니다.</div>
-        )}
+    <div
+      style={{
+        borderRadius: 10,
+        border: "1px solid rgba(255,255,255,0.07)",
+        background: "rgba(255,255,255,0.03)",
+        padding: "10px 12px",
+        display: "grid",
+        gap: 6
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color }}>{row.provider ?? "-"}</span>
+        {Number.isFinite(bandit) ? (
+          <span style={{ fontSize: 11, color: "#818cf8", fontWeight: 600 }}>
+            {bandit.toFixed(3)}
+          </span>
+        ) : null}
       </div>
-    </section>
+
+      {row.task ? (
+        <span style={{ fontSize: 10, color: "#7c3aed", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          {row.task}
+        </span>
+      ) : null}
+
+      <Row
+        label="Win Rate"
+        value={`${(winRate * 100).toFixed(1)}%`}
+        accent={winRate >= 0.6 ? "#34d399" : winRate >= 0.4 ? "#fbbf24" : "#f87171"}
+      />
+      <Row label="Uses / Wins" value={`${safeNum(row.uses, 0)} / ${safeNum(row.wins, 0)}`} />
+      <Row label="Routing Score" value={safeNum(row.routing_score, 3)} />
+
+      {conflictPenalty > 0 ? (
+        <>
+          <Divider />
+          <Row label="Conflict Penalty" value={safeNum(row.conflict_penalty_recent, 3)} accent="#f87171" />
+          {Number(row.context_conflicts_recent ?? 0) > 0 ? (
+            <Row label="Context Conflicts" value={safeNum(row.context_conflicts_recent, 0)} accent="#fbbf24" />
+          ) : null}
+        </>
+      ) : null}
+
+      <Divider />
+      <Row label="Avg Latency" value={`${safeNum(row.avg_latency, 0)}ms`} />
+      <Row label="Avg Cost" value={`$${safeNum(row.avg_cost, 6)}`} />
+    </div>
+  );
+}
+
+function TaskSection({ task, providers }: { task: string; providers: UsageProviderNode[] }) {
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+        {task}
+      </div>
+      {providers.map((row, i) => (
+        <ProviderCard key={`${row.provider}-${i}`} row={row} />
+      ))}
+    </div>
+  );
+}
+
+export default function ScoreboardCard({ providers = [], taskProvidersByTask = {} }: Props) {
+  const taskKeys = Object.keys(taskProvidersByTask).sort();
+  const hasGlobal = providers.length > 0;
+  const hasTask = taskKeys.length > 0;
+
+  if (!hasGlobal && !hasTask) {
+    return <div style={{ fontSize: 12, color: "#4b5563" }}>데이터 없음</div>;
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      {hasGlobal ? (
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+            Global
+          </div>
+          {providers.map((row, i) => (
+            <ProviderCard key={`global-${row.provider}-${i}`} row={row} />
+          ))}
+        </div>
+      ) : null}
+
+      {hasTask ? (
+        <div style={{ display: "grid", gap: 14 }}>
+          <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+            By Task
+          </div>
+          {taskKeys.map((task) => (
+            <TaskSection
+              key={task}
+              task={task}
+              providers={Array.isArray(taskProvidersByTask[task]) ? taskProvidersByTask[task] : []}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }

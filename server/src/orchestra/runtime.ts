@@ -4,7 +4,8 @@ import { judge } from "./judge.js"
 import { detectTaskType, extractPlanningSignals, planRequest } from "./planner.js"
 import { extractClaims } from "./claims.js"
 import { detectConflicts } from "./conflicts.js"
-import { readScoreboard, recordProviderExecution } from "./scoreboard.js"
+import { readScoreboard, recordProviderExecution, recordProviderConflict } from "./scoreboard.js"
+import { getLatestProjectContext } from "../memory/projectMemory.js"
 
 function hasText(value: any) {
   return typeof value === "string" && value.trim().length > 0
@@ -57,6 +58,95 @@ function extractInboundMessage(input: any) {
   return ""
 }
 
+function buildProjectContextBlock(projectContext: any) {
+  const retrieval = projectContext?.retrieval_context ?? {}
+
+  const summary = Array.isArray(retrieval?.summary) ? retrieval.summary : []
+  const decisions = Array.isArray(retrieval?.decisions) ? retrieval.decisions : []
+  const facts = Array.isArray(retrieval?.facts) ? retrieval.facts : []
+  const sources = Array.isArray(retrieval?.sources) ? retrieval.sources : []
+
+  const hasAny =
+    summary.length > 0 ||
+    decisions.length > 0 ||
+    facts.length > 0 ||
+    sources.length > 0
+
+  if (!hasAny) return ""
+
+  return [
+    "[PROJECT CONTEXT]",
+    "",
+    "[SUMMARY]",
+    ...summary,
+    "",
+    "[DECISIONS]",
+    ...decisions,
+    "",
+    "[FACTS]",
+    ...facts,
+    "",
+    "[SOURCES]",
+    ...sources
+  ].join("\n").trim()
+}
+
+function buildInputWithRetrievalContext(input: any, rawInboundMessage: string) {
+  const projectId = String(input?.project_id ?? "").trim()
+  if (!projectId) {
+    return {
+      effectiveInput: input,
+      retrievalContext: null,
+      enrichedInboundMessage: rawInboundMessage
+    }
+  }
+
+  const projectContext = getLatestProjectContext(projectId)
+  const contextBlock = buildProjectContextBlock(projectContext)
+
+  if (!contextBlock) {
+    return {
+      effectiveInput: input,
+      retrievalContext: projectContext,
+      enrichedInboundMessage: rawInboundMessage
+    }
+  }
+
+  const rawText = String(rawInboundMessage ?? "").trim()
+
+  if (rawText.includes("[PROJECT CONTEXT]")) {
+    return {
+      effectiveInput: {
+        ...input,
+        metadata: {
+          ...(input?.metadata ?? {}),
+          retrieval_context: projectContext?.retrieval_context ?? null
+        }
+      },
+      retrievalContext: projectContext,
+      enrichedInboundMessage: rawText
+    }
+  }
+
+  const enrichedInboundMessage = `${contextBlock}
+
+[USER INPUT]
+${rawText}`.trim()
+
+  return {
+    effectiveInput: {
+      ...input,
+      message: enrichedInboundMessage,
+      metadata: {
+        ...(input?.metadata ?? {}),
+        retrieval_context: projectContext?.retrieval_context ?? null
+      }
+    },
+    retrievalContext: projectContext,
+    enrichedInboundMessage
+  }
+}
+
 function pickText(result: any, partialText: string) {
   if (hasText(partialText)) return String(partialText)
   if (hasText(result?.answer_text)) return String(result.answer_text)
@@ -96,7 +186,12 @@ function buildCandidates(results: any[]) {
     .map((item) => ({
       provider: item.provider,
       answer_text: item.text,
-      raw: item.raw_result ?? item.raw ?? null
+      raw: {
+        role: item.role,
+        model: item.model ?? null,
+        latency_ms: Number(item?.latency_ms ?? 0),
+        usage: item?.usage ?? null
+      }
     }))
 }
 
@@ -135,6 +230,115 @@ function calculateConflictScore(conflicts: any[]) {
   }
 
   return Number(total.toFixed(4))
+}
+
+function summarizeConflictBuckets(conflicts: any[]) {
+  const rows = Array.isArray(conflicts) ? conflicts : []
+
+  const contextConflicts = rows.filter((item) =>
+    Array.isArray(item?.providers) && item.providers.includes("context")
+  )
+
+  const providerConflicts = rows.filter((item) =>
+    !(Array.isArray(item?.providers) && item.providers.includes("context"))
+  )
+
+  return {
+    total: rows.length,
+    context_conflicts: contextConflicts.length,
+    provider_conflicts: providerConflicts.length,
+    high: rows.filter((item) => String(item?.severity ?? "") === "high").length,
+    medium: rows.filter((item) => String(item?.severity ?? "") === "medium").length,
+    low: rows.filter((item) => String(item?.severity ?? "") === "low").length
+  }
+}
+
+function buildSelectionTrace(judged: any, finalProvider: string, finalRole: string, finalConflicts: any[]) {
+  const scores = Array.isArray(judged?.meta?.judge_scores) ? judged.meta.judge_scores : []
+  const selected = scores.find((row: any) => normalizeProvider(row?.provider) === normalizeProvider(finalProvider)) ?? null
+  const buckets = summarizeConflictBuckets(finalConflicts)
+
+  return {
+    selected_provider: finalProvider,
+    selected_role: finalRole,
+    judge_rationale: judged?.meta?.judge_rationale ?? null,
+    judge_confidence: Number(
+      judged?.meta?.judge_confidence ??
+      judged?.meta?.judge_scores?.[0]?.score ??
+      1
+    ),
+    selected_score: Number(selected?.score ?? 0),
+    selected_reasons: Array.isArray(selected?.reasons) ? selected.reasons : [],
+    conflict_buckets: buckets
+  }
+}
+
+function buildWinnerReason(trace: any) {
+  const reasons = Array.isArray(trace?.selected_reasons) ? trace.selected_reasons : []
+  const topReasons = reasons.slice(0, 6)
+
+  return {
+    provider: trace?.selected_provider ?? null,
+    role: trace?.selected_role ?? null,
+    rationale: trace?.judge_rationale ?? null,
+    confidence: Number(trace?.judge_confidence ?? 0),
+    top_reasons: topReasons,
+    context_conflicts: Number(trace?.conflict_buckets?.context_conflicts ?? 0),
+    provider_conflicts: Number(trace?.conflict_buckets?.provider_conflicts ?? 0)
+  }
+}
+
+function summarizeProviderConflictLearning(conflicts: any[], providerInput: string) {
+  const provider = normalizeProvider(providerInput)
+  if (!provider) {
+    return {
+      context_conflicts: 0,
+      provider_conflicts: 0,
+      penalty: 0,
+      conflict_types: []
+    }
+  }
+
+  const rows = Array.isArray(conflicts) ? conflicts : []
+  const related = rows.filter((row) =>
+    Array.isArray(row?.providers) && row.providers.map(normalizeProvider).includes(provider)
+  )
+
+  const contextConflicts = related.filter((row) =>
+    Array.isArray(row?.providers) && row.providers.map(normalizeProvider).includes("context")
+  )
+
+  const providerOnlyConflicts = related.filter((row) =>
+    !(Array.isArray(row?.providers) && row.providers.map(normalizeProvider).includes("context"))
+  )
+
+  const penalty = related.reduce((sum, row) => {
+    const weight = Number(row?.weight)
+    return sum + (Number.isFinite(weight) ? weight : 0)
+  }, 0)
+
+  const typeMap = new Map<string, { type: string; count: number; weight: number }>()
+
+  for (const row of related) {
+    const rawType = String(row?.type ?? "").trim().toLowerCase() || "other"
+    const existing = typeMap.get(rawType)
+
+    const nextCount = (existing?.count ?? 0) + 1
+    const nextWeight = (existing?.weight ?? 0) + (Number.isFinite(Number(row?.weight)) ? Number(row?.weight) : 0)
+
+    typeMap.set(rawType, {
+      type: rawType,
+      count: nextCount,
+      weight: Number(nextWeight.toFixed(4))
+    })
+  }
+
+  return {
+    context_conflicts: contextConflicts.length,
+    provider_conflicts: providerOnlyConflicts.length,
+    penalty: Number(penalty.toFixed(4)),
+    conflict_types: Array.from(typeMap.values())
+  }
 }
 
 function shouldEscalateAfterEval(params: {
@@ -263,11 +467,13 @@ function buildOrchestrationMeta(params: {
   judged: any
   finalProvider: string
   conflictCount: number
+  finalConflicts: any[]
   postEvalTriggered: boolean
   recoveryMeta: any
   transientFailures: any[]
   timelineEvents: any[]
   providerStreamSummary: Record<string, any>
+  retrievalContext: any
 }) {
   const providerUsage = summarizeProviderUsage(params.executed)
   const estimatedCostUsd = providerUsage.reduce(
@@ -283,6 +489,14 @@ function buildOrchestrationMeta(params: {
         .map((item: any) => normalizeProvider(item?.provider))
         .filter(Boolean)
     )
+  )
+
+  const conflictBuckets = summarizeConflictBuckets(params.finalConflicts)
+  const selectionTrace = buildSelectionTrace(
+    params.judged,
+    params.finalProvider,
+    outcome.winner_role ?? null,
+    params.finalConflicts
   )
 
   return {
@@ -305,6 +519,7 @@ function buildOrchestrationMeta(params: {
     estimated_cost_usd: Number(estimatedCostUsd.toFixed(8)),
     raw_cost_usd: Number((estimatedCostUsd + (params.recoveryMeta?.recovery_from_cost_usd ?? 0)).toFixed(8)),
     conflict_count: Number(params.conflictCount ?? 0),
+    conflict_buckets: conflictBuckets,
     judge_confidence: Number(
       params?.judged?.meta?.judge_confidence ??
       params?.judged?.meta?.judge_scores?.[0]?.score ??
@@ -328,6 +543,9 @@ function buildOrchestrationMeta(params: {
       role: outcome.winner_role
     },
     display_losers: outcome.loser_providers,
+    selection_trace: selectionTrace,
+    winner_reason: buildWinnerReason(selectionTrace),
+    retrieval_context: params.retrievalContext?.retrieval_context ?? null,
     timeline_events: params.timelineEvents ?? [],
     ...outcome
   }
@@ -355,8 +573,6 @@ function normalizePreviewText(value: any) {
     .replace(/\r/g, " ")
     .replace(/\n+/g, " ")
     .replace(/\s+/g, " ")
-    .replace(/([가-힣])\s+([가-힣])/g, "$1$2")
-    .replace(/([0-9])\s+([0-9])/g, "$1$2")
     .replace(/\s+([,.:;!?%])/g, "$1")
     .replace(/([(])\s+/g, "$1")
     .replace(/\s+([)\]])/g, "$1")
@@ -410,6 +626,96 @@ function applyFinalProviderPreview(
   row.preview_excerpt = clipText(finalPreview, 160)
   row.last_non_empty_chunk = clipText(finalPreview.slice(-120), 120)
   row.total_chars = Math.max(Number(row.total_chars ?? 0), finalPreview.length)
+}
+
+function getProviderRole(route: any, provider: string) {
+  const normalized = normalizeProvider(provider)
+  if (Array.isArray(route?.selected_providers) && route.selected_providers.map(normalizeProvider).includes(normalized)) return "primary"
+  if (Array.isArray(route?.verifier_providers) && route.verifier_providers.map(normalizeProvider).includes(normalized)) return "verifier"
+  if (Array.isArray(route?.optional_providers) && route.optional_providers.map(normalizeProvider).includes(normalized)) return "optional"
+  if (Array.isArray(route?.scout_providers) && route.scout_providers.map(normalizeProvider).includes(normalized)) return "scout"
+  return "fallback"
+}
+
+function getJudgeScore(judged: any, provider: string) {
+  const scores = Array.isArray(judged?.meta?.judge_scores) ? judged.meta.judge_scores : []
+  const row = scores.find((item: any) => normalizeProvider(item?.provider) === normalizeProvider(provider))
+  return Number(row?.score ?? 0)
+}
+
+function shouldKeepPrimaryWinner(params: {
+  route: any
+  judged: any
+  executed: any[]
+  primaryProvider: string
+}) {
+  const primaryProvider = normalizeProvider(params.primaryProvider)
+  if (!primaryProvider) return false
+
+  const selectedByJudge = normalizeProvider(
+    params?.judged?.meta?.judge_selected_provider ??
+    params?.judged?.provider ??
+    ""
+  )
+
+  if (!selectedByJudge) return false
+  if (selectedByJudge === primaryProvider) return false
+
+  const primaryRow = params.executed.find((item) => normalizeProvider(item?.provider) === primaryProvider)
+  const selectedRow = params.executed.find((item) => normalizeProvider(item?.provider) === selectedByJudge)
+
+  if (!primaryRow?.ok || !hasText(primaryRow?.text)) return false
+  if (!selectedRow?.ok || !hasText(selectedRow?.text)) return false
+
+  const selectedRole = getProviderRole(params.route, selectedByJudge)
+  if (selectedRole !== "verifier" && selectedRole !== "optional") return false
+
+  const primaryScore = getJudgeScore(params.judged, primaryProvider)
+  const selectedScore = getJudgeScore(params.judged, selectedByJudge)
+  const gap = selectedScore - primaryScore
+  const confidence = Number(params?.judged?.meta?.judge_confidence ?? 0)
+
+  if (selectedRole === "optional") {
+    return gap < 0.08 || confidence < 0.72
+  }
+
+  if (selectedRole === "verifier") {
+    return gap < 0.05 || confidence < 0.66
+  }
+
+  return false
+}
+
+function enforcePrimaryWinner(params: {
+  judged: any
+  primaryProvider: string
+}) {
+  const primaryProvider = normalizeProvider(params.primaryProvider)
+  if (!primaryProvider) return params.judged
+
+  const scores = Array.isArray(params?.judged?.meta?.judge_scores)
+    ? params.judged.meta.judge_scores
+    : []
+
+  return {
+    ...params.judged,
+    provider: primaryProvider,
+    meta: {
+      ...(params?.judged?.meta ?? {}),
+      judge_selected_provider: primaryProvider,
+      judge_rationale: `primary_survival_bias:${params?.judged?.meta?.judge_rationale ?? "override"}`,
+      judge_scores: scores.map((row: any) =>
+        normalizeProvider(row?.provider) === primaryProvider
+          ? {
+              ...row,
+              reasons: Array.isArray(row?.reasons)
+                ? [...row.reasons, "primary_survival_bias"]
+                : ["primary_survival_bias"]
+            }
+          : row
+      )
+    }
+  }
 }
 
 async function emit(stream: any, event: any) {
@@ -542,9 +848,9 @@ async function executeProvider(params: {
 
 export async function executeOrchestra(input: any, stream?: any) {
   const startedAt = Date.now()
-  const inboundMessage = extractInboundMessage(input)
-  const planner = planRequest(inboundMessage)
-  const plannerSignals = extractPlanningSignals(inboundMessage)
+  const rawInboundMessage = extractInboundMessage(input)
+  const planner = planRequest(rawInboundMessage)
+  const plannerSignals = extractPlanningSignals(rawInboundMessage)
   const transientFailures: any[] = []
   const recoveryMeta = createRecoveryMeta()
   const timelineEvents: any[] = []
@@ -557,6 +863,11 @@ export async function executeOrchestra(input: any, stream?: any) {
     last_non_empty_chunk: string
     total_chars: number
   }> = {}
+
+  const { effectiveInput, retrievalContext, enrichedInboundMessage } =
+    buildInputWithRetrievalContext(input, rawInboundMessage)
+
+  const inboundMessage = enrichedInboundMessage
 
   const emitTracked = async (event: any) => {
     if (event && typeof event === "object") {
@@ -593,19 +904,19 @@ export async function executeOrchestra(input: any, stream?: any) {
   }
 
   const task =
-    String(input?.task ?? planner?.task ?? detectTaskType(inboundMessage))
+    String(effectiveInput?.task ?? planner?.task ?? detectTaskType(rawInboundMessage))
       .trim()
       .toLowerCase() || "dialogue"
 
   const scoreboardBefore = readScoreboard()
 
   const route = resolveAdaptiveRoute({
-    ...input,
+    ...effectiveInput,
     task,
-    benchmark_mode: Boolean(input?.benchmark_mode || plannerSignals?.benchmark_mode),
-    deep_analysis: Boolean(input?.deep_analysis || plannerSignals?.deep_analysis),
-    deep_research: Boolean(input?.deep_research || plannerSignals?.deep_research),
-    force_pro: Boolean(input?.force_pro || plannerSignals?.force_pro)
+    benchmark_mode: Boolean(effectiveInput?.benchmark_mode || plannerSignals?.benchmark_mode),
+    deep_analysis: Boolean(effectiveInput?.deep_analysis || plannerSignals?.deep_analysis),
+    deep_research: Boolean(effectiveInput?.deep_research || plannerSignals?.deep_research),
+    force_pro: Boolean(effectiveInput?.force_pro || plannerSignals?.force_pro)
   })
 
   const selectedProviders = Array.isArray(route?.selected_providers) ? route.selected_providers : []
@@ -641,7 +952,7 @@ export async function executeOrchestra(input: any, stream?: any) {
       executeProvider({
         provider,
         role: roleMap.get(normalizeProvider(provider)) ?? "optional",
-        input,
+        input: effectiveInput,
         task,
         route,
         plannerSignals,
@@ -682,7 +993,7 @@ export async function executeOrchestra(input: any, stream?: any) {
       provider: "openai",
       role: "primary",
       input: {
-        ...input,
+        ...effectiveInput,
         model: "gpt-5.4",
         force_pro: false,
         use_pro: false,
@@ -691,7 +1002,7 @@ export async function executeOrchestra(input: any, stream?: any) {
         deep_research: false,
         allow_auto_promote_pro: false,
         metadata: {
-          ...(input?.metadata ?? {}),
+          ...(effectiveInput?.metadata ?? {}),
           openai_primary_recovery: true
         }
       },
@@ -755,7 +1066,7 @@ export async function executeOrchestra(input: any, stream?: any) {
           executeProvider({
             provider,
             role: "fallback",
-            input,
+            input: effectiveInput,
             task,
             route,
             plannerSignals,
@@ -776,9 +1087,9 @@ export async function executeOrchestra(input: any, stream?: any) {
   const successfulResults = executed.filter((item) => item.ok && hasText(item.text))
   const candidateClaims = successfulResults.map((item) => ({
     provider: item.provider,
-    claims: extractClaims(item.text)
+    claims: extractClaims(`${item.text}\n\n[INPUT_CONTEXT]\n${inboundMessage}`)
   }))
-  const detectedConflicts = detectConflicts(candidateClaims)
+  const detectedConflicts = detectConflicts(candidateClaims, inboundMessage)
   let weightedConflictScore = calculateConflictScore(detectedConflicts)
 
   let candidates = buildCandidates(successfulResults)
@@ -787,7 +1098,8 @@ export async function executeOrchestra(input: any, stream?: any) {
   if (candidates.length > 1) {
     judged = await judge({
       candidates,
-      task
+      task,
+      conflicts: detectedConflicts
     })
   } else if (candidates.length === 1) {
     judged = {
@@ -809,6 +1121,18 @@ export async function executeOrchestra(input: any, stream?: any) {
         claims: candidateClaims
       }
     }
+  }
+
+  if (judged && shouldKeepPrimaryWinner({
+    route,
+    judged,
+    executed,
+    primaryProvider
+  })) {
+    judged = enforcePrimaryWinner({
+      judged,
+      primaryProvider
+    })
   }
 
   const verifierProvider = normalizeProvider(verifierProviders[0] ?? "")
@@ -852,7 +1176,7 @@ export async function executeOrchestra(input: any, stream?: any) {
     const proResult = await executeProvider({
       provider: "openai",
       role: "primary",
-      input,
+      input: effectiveInput,
       task,
       route,
       plannerSignals,
@@ -873,9 +1197,9 @@ export async function executeOrchestra(input: any, stream?: any) {
       const nextSuccessful = executed.filter((item) => item.ok && hasText(item.text))
       const nextCandidateClaims = nextSuccessful.map((item) => ({
         provider: item.provider,
-        claims: extractClaims(item.text)
+        claims: extractClaims(`${item.text}\n\n[INPUT_CONTEXT]\n${inboundMessage}`)
       }))
-      const nextDetectedConflicts = detectConflicts(nextCandidateClaims)
+      const nextDetectedConflicts = detectConflicts(nextCandidateClaims, inboundMessage)
       weightedConflictScore = calculateConflictScore(nextDetectedConflicts)
 
       candidates = buildCandidates(nextSuccessful)
@@ -883,7 +1207,8 @@ export async function executeOrchestra(input: any, stream?: any) {
       if (candidates.length > 1) {
         judged = await judge({
           candidates,
-          task
+          task,
+          conflicts: nextDetectedConflicts
         })
       } else if (candidates.length === 1) {
         judged = {
@@ -906,15 +1231,27 @@ export async function executeOrchestra(input: any, stream?: any) {
           }
         }
       }
+
+      if (judged && shouldKeepPrimaryWinner({
+        route,
+        judged,
+        executed,
+        primaryProvider
+      })) {
+        judged = enforcePrimaryWinner({
+          judged,
+          primaryProvider
+        })
+      }
     }
   }
 
   const refreshedSuccessful = executed.filter((item) => item.ok && hasText(item.text))
   const finalClaimMap = refreshedSuccessful.map((item) => ({
     provider: item.provider,
-    claims: extractClaims(item.text)
+    claims: extractClaims(`${item.text}\n\n[INPUT_CONTEXT]\n${inboundMessage}`)
   }))
-  const finalDetectedConflicts = detectConflicts(finalClaimMap)
+  const finalDetectedConflicts = detectConflicts(finalClaimMap, inboundMessage)
 
   const finalResult =
     (judged?.provider
@@ -985,7 +1322,8 @@ export async function executeOrchestra(input: any, stream?: any) {
       selected_as_final: row.provider === finalProvider,
       effective: true,
       weight: 1,
-      error_code: row?.error_code ?? null
+      error_code: row?.error_code ?? null,
+      task
     })
   }
 
@@ -997,7 +1335,21 @@ export async function executeOrchestra(input: any, stream?: any) {
       selected_as_final: false,
       effective: false,
       weight: 0,
-      error_code: row?.error_code ?? null
+      error_code: row?.error_code ?? null,
+      task
+    })
+  }
+
+  for (const row of executed) {
+    const learning = summarizeProviderConflictLearning(finalConflicts, row.provider)
+
+    recordProviderConflict(row.provider, {
+      context_conflicts: learning.context_conflicts,
+      provider_conflicts: learning.provider_conflicts,
+      penalty: learning.penalty,
+      weight: row.provider === finalProvider ? 1 : 0.7,
+      task,
+      conflict_types: learning.conflict_types
     })
   }
 
@@ -1009,16 +1361,21 @@ export async function executeOrchestra(input: any, stream?: any) {
     judged,
     finalProvider,
     conflictCount: finalConflictCount,
+    finalConflicts,
     postEvalTriggered,
     recoveryMeta,
     transientFailures,
     timelineEvents,
-    providerStreamSummary
+    providerStreamSummary,
+    retrievalContext
   })
 
   const outcome = buildOutcomeMeta(executed, finalProvider)
   const providerStatusMap = buildProviderStatusMap(executed, finalProvider)
   const hiddenFailedProviders = Array.from(new Set(transientFailures.map((item) => normalizeProvider(item?.provider)).filter(Boolean)))
+  const conflictBuckets = summarizeConflictBuckets(finalConflicts)
+  const selectionTrace = buildSelectionTrace(judged, finalProvider, finalRole, finalConflicts)
+  const winnerReason = buildWinnerReason(selectionTrace)
 
   await emitTracked({
     type: "judge",
@@ -1055,7 +1412,9 @@ export async function executeOrchestra(input: any, stream?: any) {
       ok: Boolean(finalResult?.ok)
     },
     response_meta: {
-      orchestration: orchestrationMeta
+      orchestration: orchestrationMeta,
+      selection_trace: selectionTrace,
+      winner_reason: winnerReason
     },
     route,
     primary: primaryResult
@@ -1147,11 +1506,13 @@ export async function executeOrchestra(input: any, stream?: any) {
       },
       planner_signals: plannerSignals,
       route,
+      retrieval_context: retrievalContext?.retrieval_context ?? null,
       executed_providers: summarizeProviderUsage(executed),
       claims: finalClaimMap,
       conflicts: finalConflicts,
       conflict_score: calculateConflictScore(finalConflicts),
       conflict_count: finalConflictCount,
+      conflict_buckets: conflictBuckets,
       judge: {
         selected_provider: finalProvider,
         selected_role: finalRole,
@@ -1159,6 +1520,8 @@ export async function executeOrchestra(input: any, stream?: any) {
         scores: Array.isArray(judged?.meta?.judge_scores) ? judged.meta.judge_scores : [],
         rationale: judged?.meta?.judge_rationale ?? null
       },
+      selection_trace: selectionTrace,
+      winner_reason: winnerReason,
       outcome,
       provider_status_map: providerStatusMap,
       provider_stream_summary: providerStreamSummary,
@@ -1176,3 +1539,6 @@ export async function executeOrchestra(input: any, stream?: any) {
     }
   }
 }
+
+
+

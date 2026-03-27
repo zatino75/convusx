@@ -1,26 +1,43 @@
-import type { RefObject } from "react";
-import type { Message, ProviderDraft, Thread } from "../../App";
+﻿import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
+import type { Message, ProjectGroup, Thread } from "../../types/workspace";
+import renderMessageContent from "./MessageRenderer";
 
-type Props = {
-  activeThread?: Thread;
-  isSending: boolean;
-  lastError: string | null;
-  draft: string;
-  onDraftChange: (v: string) => void;
-  onSend: () => void;
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
-  scrollRef: RefObject<HTMLDivElement | null>;
+type MessageVersionState = {
+  current: number;
+  total: number;
 };
 
-function providerLabel(provider: string | null | undefined) {
-  const normalized = String(provider ?? "").trim().toLowerCase();
-  if (!normalized) return "-";
-  if (normalized === "openai") return "OpenAI";
-  if (normalized === "claude") return "Claude";
-  if (normalized === "gemini") return "Gemini";
-  if (normalized === "perplexity") return "Perplexity";
-  return normalized;
-}
+type ComposerMenuAction = "upload" | "deep-think" | "web-search";
+
+type Props = {
+  activeProject: ProjectGroup | null;
+  activeThread: Thread | null;
+  draft: string;
+  isSending: boolean;
+  lastError: string | null;
+  onDraftChange: (value: string) => void;
+  onSend: () => void;
+  onStopGenerating?: () => void;
+  onBackToProject: () => void;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  scrollRef: RefObject<HTMLDivElement | null>;
+  debugMeta?: any;
+  editingMessageId?: string | null;
+  editingDraft?: string;
+  onEditingDraftChange?: (value: string) => void;
+  onStartEditMessage?: (message: Message) => void;
+  onCancelEditMessage?: () => void;
+  onSubmitEditMessage?: (messageId: string) => void;
+  onCopyUserMessage?: (message: Message) => void;
+  onCopyAssistantMessage?: (message: Message) => void;
+  onDeleteMessage?: (messageId: string) => void;
+  onRelatedQuestion?: (q: string) => void;
+  onOpenArtifact?: (title: string, code: string, language: string) => void;
+  messageVersionMap?: Record<string, MessageVersionState>;
+  onSelectMessageVersion?: (messageId: string, direction: "prev" | "next") => void;
+  showScrollToBottom?: boolean;
+  onScrollToBottom?: () => void;
+};
 
 function formatTime(iso: string) {
   try {
@@ -33,301 +50,1046 @@ function formatTime(iso: string) {
   }
 }
 
-function formatLatencyMs(value: number | null | undefined) {
-  const number = Number(value ?? 0);
-  if (!Number.isFinite(number) || number <= 0) return "-";
-  if (number < 1000) return `${Math.round(number)}ms`;
-  return `${(number / 1000).toFixed(1)}s`;
+function hasStructuredCopyTarget(content: string) {
+  const normalized = String(content ?? "");
+  return normalized.includes("```") || /\|.+\|/.test(normalized);
 }
 
-function formatUsd(value: number | null | undefined) {
-  const number = Number(value ?? 0);
-  if (!Number.isFinite(number) || number <= 0) return "$0";
-  if (number < 0.01) return `$${number.toFixed(4)}`;
-  return `$${number.toFixed(2)}`;
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    return;
+  }
 }
 
-function formatScore(value: number | null | undefined) {
-  const number = Number(value ?? 0);
-  if (!Number.isFinite(number) || number <= 0) return "-";
-  return number.toFixed(2);
-}
-
-function TimelineNode({
-  label,
-  value,
-  accent
-}: {
-  label: string;
-  value: string;
-  accent?: string;
-}) {
+function CopyIcon() {
   return (
-    <div className="min-w-0 flex-1 rounded-xl border border-white/10 bg-[#1f1f1f] px-3 py-2">
-      <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-[#8e8ea0]">{label}</div>
-      <div className={["truncate text-xs text-white", accent ?? ""].join(" ")}>{value}</div>
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="9" y="9" width="10" height="10" rx="2" />
+      <path d="M5 15V7a2 2 0 0 1 2-2h8" />
+    </svg>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M4 20h4l10.5-10.5a2.1 2.1 0 1 0-4-4L4.5 16v4z" />
+    </svg>
+  );
+}
+
+function ChevronLeftIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M15 18 9 12l6-6" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M12 16V5" />
+      <path d="m7 10 5-5 5 5" />
+      <path d="M5 19h14" />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="11" cy="11" r="6" />
+      <path d="m20 20-3.5-3.5" />
+    </svg>
+  );
+}
+
+function SparkleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" />
+    </svg>
+  );
+}
+
+function StopIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+      <rect x="7" y="7" width="10" height="10" rx="2" />
+    </svg>
+  );
+}
+
+function ScrollDownIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 5v12" />
+      <path d="m7 12 5 5 5-5" />
+    </svg>
+  );
+}
+
+function ThumbUpIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z" />
+      <path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
+    </svg>
+  );
+}
+
+function ThumbDownIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z" />
+      <path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17" />
+    </svg>
+  );
+}
+
+function RegenerateIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+    </svg>
+  );
+}
+
+function DeleteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />
+    </svg>
+  );
+}
+
+function AssistantActionToolbar({
+  visible,
+  onCopy,
+  onRegenerate,
+  onDelete
+}: {
+  visible: boolean;
+  onCopy: () => void;
+  onRegenerate?: () => void;
+  onDelete?: () => void;
+}) {
+  const [thumbState, setThumbState] = useState<"up" | "down" | null>(null);
+
+  if (!visible) return null;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 2,
+        marginTop: 8,
+        opacity: visible ? 1 : 0,
+        transition: "opacity 0.14s ease"
+      }}
+    >
+      <button
+        type="button"
+        onClick={onCopy}
+        title="복사"
+        style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "none", background: "none", cursor: "pointer", borderRadius: 6, color: "var(--text-sub)" }}
+        onMouseEnter={e => (e.currentTarget.style.background = "var(--surface-2, #f3f4f6)")}
+        onMouseLeave={e => (e.currentTarget.style.background = "none")}
+      >
+        <CopyIcon />
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setThumbState(s => s === "up" ? null : "up")}
+        title="좋아요"
+        style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "none", background: "none", cursor: "pointer", borderRadius: 6, color: thumbState === "up" ? "#10b981" : "var(--text-sub)" }}
+        onMouseEnter={e => (e.currentTarget.style.background = "var(--surface-2, #f3f4f6)")}
+        onMouseLeave={e => (e.currentTarget.style.background = "none")}
+      >
+        <ThumbUpIcon />
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setThumbState(s => s === "down" ? null : "down")}
+        title="별로예요"
+        style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "none", background: "none", cursor: "pointer", borderRadius: 6, color: thumbState === "down" ? "#ef4444" : "var(--text-sub)" }}
+        onMouseEnter={e => (e.currentTarget.style.background = "var(--surface-2, #f3f4f6)")}
+        onMouseLeave={e => (e.currentTarget.style.background = "none")}
+      >
+        <ThumbDownIcon />
+      </button>
+
+      {onRegenerate && (
+        <button
+          type="button"
+          onClick={onRegenerate}
+          title="다시 생성"
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "none", background: "none", cursor: "pointer", borderRadius: 6, color: "var(--text-sub)" }}
+          onMouseEnter={e => (e.currentTarget.style.background = "var(--surface-2, #f3f4f6)")}
+          onMouseLeave={e => (e.currentTarget.style.background = "none")}
+        >
+          <RegenerateIcon />
+        </button>
+      )}
+
+      {onDelete && (
+        <button
+          type="button"
+          onClick={onDelete}
+          title="메시지 삭제"
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "none", background: "none", cursor: "pointer", borderRadius: 6, color: "var(--text-sub)" }}
+          onMouseEnter={e => { e.currentTarget.style.background = "var(--surface-2, #f3f4f6)"; e.currentTarget.style.color = "#ef4444"; }}
+          onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-sub)"; }}
+        >
+          <DeleteIcon />
+        </button>
+      )}
     </div>
   );
 }
 
-function MetaChip({
-  text,
-  accent
-}: {
-  text: string;
-  accent?: string;
-}) {
+function ThreadMetaStrip({ thread, project }: { thread: Thread; project: ProjectGroup | null }) {
+  const chips: string[] = [];
+
+  if (project?.meta?.memoryEnabled) chips.push("Project memory on");
+  if (thread.meta?.pinned) chips.push("Pinned");
+  if (thread.meta?.sourceThreadIds?.length) chips.push(`Fusion ${thread.meta.sourceThreadIds.length}`);
+  if (thread.meta?.labels?.length) chips.push(...thread.meta.labels.slice(0, 2));
+
+  if (!chips.length) return null;
+
   return (
-    <span
-      className={[
-        "inline-flex rounded-full border px-2.5 py-1 text-[11px]",
-        accent ? accent : "border-white/10 bg-white/[0.04] text-[#d7d7d7]"
-      ].join(" ")}
-    >
-      {text}
-    </span>
+    <div className="thread-meta-strip">
+      {chips.map((chip) => (
+        <span key={chip} className="thread-badge">
+          {chip}
+        </span>
+      ))}
+    </div>
   );
 }
 
-function ProviderDraftPanel({
-  drafts,
-  winnerProvider,
-  loserProviders,
-  hiddenFailedProviders,
-  primaryRecovered,
-  recoveryFromModel,
-  recoveryToModel
+function UserMessageToolsRow({
+  visible,
+  state,
+  onPrev,
+  onNext,
+  onCopy,
+  onEdit,
+  onDelete,
+  onMouseEnter,
+  onMouseLeave
 }: {
-  drafts: ProviderDraft[];
-  winnerProvider: string | null | undefined;
-  loserProviders: string[];
-  hiddenFailedProviders: string[];
-  primaryRecovered?: boolean;
-  recoveryFromModel?: string | null;
-  recoveryToModel?: string | null;
+  visible: boolean;
+  state?: MessageVersionState;
+  onPrev: () => void;
+  onNext: () => void;
+  onCopy: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
 }) {
-  if (!Array.isArray(drafts) || drafts.length === 0) return null;
+  return (
+    <div
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      style={{
+        position: "absolute",
+        right: 8,
+        top: "100%",
+        marginTop: 10,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        zIndex: 20,
+        pointerEvents: visible ? "auto" : "none",
+        whiteSpace: "nowrap",
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translateY(0)" : "translateY(-2px)",
+        transition: "opacity 0.14s ease, transform 0.14s ease"
+      }}
+    >
+      {state && state.total > 1 ? (
+        <div
+          style={{
+            minHeight: 28,
+            padding: "0 6px",
+            border: "1px solid var(--border)",
+            borderRadius: 999,
+            background: "rgba(255,255,255,0.98)",
+            boxShadow: "0 4px 14px rgba(15,23,42,0.08)",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 2
+          }}
+        >
+          <button type="button" className="message-version-nav__button" onClick={onPrev} aria-label="이전 버전">
+            <ChevronLeftIcon />
+          </button>
+          <span className="message-version-nav__label">
+            {state.current}/{state.total}
+          </span>
+          <button type="button" className="message-version-nav__button" onClick={onNext} aria-label="다음 버전">
+            <ChevronRightIcon />
+          </button>
+        </div>
+      ) : null}
 
-  const visibleDrafts = drafts.filter(
-    (draft) => !hiddenFailedProviders.includes(draft.provider)
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6
+        }}
+      >
+        <button type="button" className="user-message-tools__button" onClick={onCopy} aria-label="메시지 복사">
+          <CopyIcon />
+        </button>
+        <button type="button" className="user-message-tools__button" onClick={onEdit} aria-label="메시지 편집">
+          <EditIcon />
+        </button>
+        <button type="button" className="user-message-tools__button" onClick={onDelete} aria-label="메시지 삭제" style={{ color: "var(--text-sub)" }}>
+          <DeleteIcon />
+        </button>
+      </div>
+    </div>
   );
+}
 
-  if (visibleDrafts.length === 0) return null;
+function AssistantInlineCopy({
+  visible,
+  onCopy
+}: {
+  visible: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 10,
+        right: 10,
+        zIndex: 7,
+        opacity: visible ? 1 : 0,
+        pointerEvents: visible ? "auto" : "none",
+        transform: visible ? "translateY(0)" : "translateY(-2px)",
+        transition: "opacity 0.14s ease, transform 0.14s ease"
+      }}
+    >
+      <button type="button" className="assistant-inline-copy__button" onClick={onCopy} aria-label="답변 복사">
+        <CopyIcon />
+      </button>
+    </div>
+  );
+}
+
+function MessageEditComposer({
+  value,
+  isSending,
+  onChange,
+  onCancel,
+  onSubmit
+}: {
+  value: string;
+  isSending: boolean;
+  onChange: (value: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const [localRef, setLocalRef] = useState<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (!localRef) return;
+    localRef.style.height = "0px";
+    const nextHeight = Math.min(localRef.scrollHeight, 280);
+    localRef.style.height = `${nextHeight}px`;
+    localRef.style.overflowY = localRef.scrollHeight > 280 ? "auto" : "hidden";
+  }, [value, localRef]);
+
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      onSubmit();
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onCancel();
+    }
+  }
 
   return (
-    <div className="mt-3 space-y-2">
-      <div className="text-[10px] uppercase tracking-[0.16em] text-[#8e8ea0]">Live providers</div>
+    <div
+      className="message-edit-composer"
+      style={{
+        width: "100%",
+        minWidth: 0
+      }}
+    >
+      <textarea
+        ref={setLocalRef}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={handleKeyDown}
+        rows={1}
+        className="message-edit-composer__textarea"
+        style={{
+          width: "100%",
+          minWidth: 0,
+          boxSizing: "border-box",
+          padding: "10px 14px 8px",
+          textAlign: "left",
+          lineHeight: 1.45,
+          font: "inherit",
+          color: "inherit",
+          letterSpacing: "inherit"
+        }}
+      />
 
-      {visibleDrafts.map((draft) => {
-        const isWinner = draft.provider === winnerProvider;
-        const isLoser = loserProviders.includes(draft.provider);
+      <div
+        className="message-edit-composer__footer"
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: 8,
+          padding: "0 14px 12px"
+        }}
+      >
+        <button type="button" className="message-edit-composer__secondary" onClick={onCancel}>
+          취소
+        </button>
+        <button
+          type="button"
+          className="message-edit-composer__primary"
+          onClick={onSubmit}
+          disabled={isSending || !value.trim()}
+        >
+          보내기
+        </button>
+      </div>
+    </div>
+  );
+}
 
-        return (
+function MessageBubble({
+  message,
+  isEditing,
+  editingDraft,
+  isSending,
+  versionState,
+  onCopyUserMessage,
+  onStartEditMessage,
+  onEditingDraftChange,
+  onCancelEditMessage,
+  onSubmitEditMessage,
+  onSelectMessageVersion,
+  onCopyAssistantMessage,
+  onRegenerate,
+  onDeleteMessage,
+  onRelatedQuestion,
+  onOpenArtifact
+}: {
+  message: Message;
+  isEditing: boolean;
+  editingDraft: string;
+  isSending: boolean;
+  versionState?: MessageVersionState;
+  onCopyUserMessage?: (message: Message) => void;
+  onStartEditMessage?: (message: Message) => void;
+  onEditingDraftChange?: (value: string) => void;
+  onCancelEditMessage?: () => void;
+  onSubmitEditMessage?: (messageId: string) => void;
+  onSelectMessageVersion?: (messageId: string, direction: "prev" | "next") => void;
+  onCopyAssistantMessage?: (message: Message) => void;
+  onRegenerate?: () => void;
+  onDeleteMessage?: (messageId: string) => void;
+  onRelatedQuestion?: (q: string) => void;
+  onOpenArtifact?: (title: string, code: string, language: string) => void;
+}) {
+  const isUser = message.role === "user";
+  const isPending = message.status === "pending";
+  const isError = message.status === "error";
+  const showAssistantCopy = !isUser && hasStructuredCopyTarget(message.content);
+
+  const orchestrationMeta = (message as any)?.meta?.orchestration ?? (message as any)?.meta?.debug ?? null;
+  const provider = orchestrationMeta?.selected_provider || orchestrationMeta?.provider;
+  const confidence = orchestrationMeta?.confidence;
+  const conflicts = orchestrationMeta?.conflicts_count ?? orchestrationMeta?.conflicts?.length;
+  const route = orchestrationMeta?.route || orchestrationMeta?.task;
+
+  const [isBubbleHovered, setIsBubbleHovered] = useState(false);
+  const [isMenuHovered, setIsMenuHovered] = useState(false);
+  const hoverHideTimerRef = useRef<number | null>(null);
+
+  function clearHoverHideTimer() {
+    if (hoverHideTimerRef.current !== null) {
+      window.clearTimeout(hoverHideTimerRef.current);
+      hoverHideTimerRef.current = null;
+    }
+  }
+
+  function openHover() {
+    clearHoverHideTimer();
+    setIsBubbleHovered(true);
+  }
+
+  function scheduleHoverClose() {
+    clearHoverHideTimer();
+    hoverHideTimerRef.current = window.setTimeout(() => {
+      setIsBubbleHovered(false);
+      setIsMenuHovered(false);
+      hoverHideTimerRef.current = null;
+    }, 140);
+  }
+
+  useEffect(() => {
+    return () => {
+      clearHoverHideTimer();
+    };
+  }, []);
+
+  const isUserToolsVisible = isBubbleHovered || isMenuHovered;
+
+  if (isEditing && isUser) {
+    return (
+      <div
+        className="message message--user"
+        style={{
+          width: "100%"
+        }}
+      >
+        <div
+          className="message__body"
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "flex-start",
+            width: "100%"
+          }}
+        >
           <div
-            key={draft.provider}
-            className={[
-              "rounded-2xl border px-3 py-3",
-              isWinner
-                ? "border-emerald-500/30 bg-emerald-500/10"
-                : isLoser
-                  ? "border-white/10 bg-[#141414] opacity-80"
-                  : "border-white/10 bg-[#181818]"
-            ].join(" ")}
+            style={{
+              width: "100%",
+              maxWidth: "2500px",
+              minWidth: 0
+            }}
           >
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <div className="text-xs font-medium text-white">{providerLabel(draft.provider)}</div>
-              <div className="flex items-center gap-2 text-[10px]">
-                {isWinner ? <span className="text-emerald-300">winner</span> : null}
-                {isLoser ? <span className="text-[#8e8ea0]">loser</span> : null}
-                {!isWinner && !isLoser ? <span className="text-[#8e8ea0]">streaming</span> : null}
-              </div>
+            <div
+              style={{
+                width: "100%",
+                minWidth: 0,
+                padding: 0,
+                margin: 0,
+                borderRadius: 18,
+                background: "#e9eef5",
+                border: "1px solid rgba(15, 23, 42, 0.06)",
+                boxSizing: "border-box"
+              }}
+            >
+              <MessageEditComposer
+                value={editingDraft}
+                isSending={isSending}
+                onChange={(value) => onEditingDraftChange?.(value)}
+                onCancel={() => onCancelEditMessage?.()}
+                onSubmit={() => onSubmitEditMessage?.(message.id)}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const bodyStyle = isUser
+    ? {
+        display: "flex",
+        justifyContent: "flex-end",
+        alignItems: "flex-start"
+      }
+    : undefined;
+
+  const userSurfaceStyle = isUser
+    ? {
+        position: "relative" as const,
+        display: "inline-flex" as const,
+        flexDirection: "column" as const,
+        alignItems: "flex-end" as const,
+        width: "auto",
+        minWidth: 0,
+        maxWidth: "min(80%, 760px)",
+        verticalAlign: "top" as const,
+        overflow: "visible"
+      }
+    : {
+        position: "relative" as const
+      };
+
+  return (
+    <div className={"message " + (isUser ? "message--user" : "message--assistant")}>
+      <div className="message__body" style={bodyStyle}>
+        <div
+          className={"message__surface" + (isUser ? " message__surface--user" : " message__surface--assistant")}
+          style={userSurfaceStyle}
+          onMouseEnter={openHover}
+          onMouseLeave={scheduleHoverClose}
+        >
+          {!isUser ? (
+            <AssistantInlineCopy
+              visible={showAssistantCopy}
+              onCopy={() => {
+                if (onCopyAssistantMessage) {
+                  onCopyAssistantMessage(message);
+                  return;
+                }
+                void copyText(message.content);
+              }}
+            />
+          ) : null}
+
+          <div className={isError ? "message__error-box" : ""}>
+            <div
+              className={"message__text" + (isUser ? " message__text--user" : "")}
+              style={{
+                width: isUser ? "auto" : undefined,
+                minWidth: isUser ? 0 : undefined,
+                whiteSpace: isUser ? "pre-wrap" : undefined,
+                wordBreak: isUser ? "break-word" : undefined,
+                overflowWrap: isUser ? "anywhere" : undefined,
+                padding: isUser ? "9px 14px" : undefined,
+                lineHeight: isUser ? 1.45 : undefined
+              }}
+            >
+              {message.content ? renderMessageContent(message.content, { onRelatedQuestion, onOpenArtifact }) : isPending ? "응답 생성 중..." : ""}
             </div>
 
-            {isWinner && primaryRecovered ? (
-              <div className="mb-2 text-[10px] text-amber-300">
-                recovered ({recoveryFromModel ?? "-"} → {recoveryToModel ?? "-"})
+            {isPending ? (
+              <div className="message__pending">
+                <span className="message__pending-dot" />
+                생성 중...
               </div>
             ) : null}
 
-            <div className="whitespace-pre-wrap break-words text-[13px] leading-6 text-[#d7d7d7]">
-              {draft.content || "..."}
-            </div>
+            <div className="message__time">{formatTime(message.createdAt)}</div>
+
+            {!isUser && (provider || confidence !== undefined || conflicts !== undefined || route) ? (
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 12,
+                  color: "var(--text-sub)",
+                  opacity: 0.85,
+                  display: "flex",
+                  gap: 6,
+                  flexWrap: "wrap"
+                }}
+              >
+                {provider ? <span>{provider}</span> : null}
+                {confidence !== undefined ? <span>· {typeof confidence === "number" ? confidence.toFixed(2) : confidence}</span> : null}
+                {conflicts !== undefined ? <span>· conflicts {conflicts}</span> : null}
+                {route ? <span>· {route}</span> : null}
+              </div>
+            ) : null}
+
+            {!isUser && !isPending ? (
+              <AssistantActionToolbar
+                visible={isBubbleHovered || isMenuHovered}
+                onCopy={() => {
+                  if (onCopyAssistantMessage) {
+                    onCopyAssistantMessage(message);
+                    return;
+                  }
+                  void copyText(message.content);
+                }}
+                onRegenerate={onRegenerate}
+                onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
+              />
+            ) : null}
           </div>
-        );
-      })}
-    </div>
-  );
-}
 
-function RequestMetaInline({ meta }: { meta: any }) {
-  const primary = meta?.selectedProviders?.[0] ?? null;
-  const verifier = meta?.verifierProviders?.[0] ?? null;
-  const selectedModels = Array.isArray(meta?.selectedModels) ? meta.selectedModels : [];
-  const winner = meta?.displayWinner?.provider ?? meta?.winnerProvider ?? primary ?? null;
-  const providerDrafts = Array.isArray(meta?.providerDrafts) ? meta.providerDrafts : [];
-  const loserProviders = Array.isArray(meta?.displayLosers) ? meta.displayLosers : [];
-  const hiddenFailedProviders = Array.isArray(meta?.hiddenFailedProviders) ? meta.hiddenFailedProviders : [];
-
-  return (
-    <div className="mt-3 space-y-3">
-      <div className="rounded-2xl border border-white/10 bg-[#181818] p-3">
-        <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-[#8e8ea0]">Orchestration timeline</div>
-
-        <div className="flex items-center gap-2">
-          <TimelineNode label="Primary" value={providerLabel(primary)} />
-          <div className="text-xs text-[#5f5f66]">→</div>
-          <TimelineNode label="Verifier" value={providerLabel(verifier)} />
-          <div className="text-xs text-[#5f5f66]">→</div>
-          <TimelineNode label="Winner" value={providerLabel(winner)} accent="text-emerald-300" />
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-2">
-          <MetaChip text={`Latency ${formatLatencyMs(meta?.requestLatencyMs ?? meta?.latency)}`} />
-          <MetaChip text={`Cost ${formatUsd(meta?.requestCostUsd ?? meta?.cost)}`} />
-          <MetaChip text={`Confidence ${formatScore(meta?.judgeConfidence ?? meta?.confidence)}`} accent="border-emerald-500/20 bg-emerald-500/10 text-emerald-300" />
-          <MetaChip
-            text={meta?.fallbackUsed ?? meta?.fallback ? "Fallback 사용" : "Primary 유지"}
-            accent={meta?.fallbackUsed ?? meta?.fallback ? "border-amber-500/20 bg-amber-500/10 text-amber-300" : undefined}
-          />
-          {meta?.primaryRecovered ? (
-            <MetaChip
-              text={`Recovered ${meta?.recoveryFromModel ?? "-"} → ${meta?.recoveryToModel ?? "-"}`}
-              accent="border-amber-500/20 bg-amber-500/10 text-amber-300"
-            />
-          ) : null}
-          {meta?.banditScore != null ? (
-            <MetaChip
-              text={`Bandit ${Number(meta.banditScore).toFixed(2)}`}
-              accent="border-cyan-500/20 bg-cyan-500/10 text-cyan-300"
+          {isUser ? (
+            <UserMessageToolsRow
+              visible={isUserToolsVisible}
+              state={versionState}
+              onPrev={() => onSelectMessageVersion?.(message.id, "prev")}
+              onNext={() => onSelectMessageVersion?.(message.id, "next")}
+              onCopy={() => {
+                if (onCopyUserMessage) {
+                  onCopyUserMessage(message);
+                  return;
+                }
+                void copyText(message.content);
+              }}
+              onEdit={() => onStartEditMessage?.(message)}
+              onDelete={() => onDeleteMessage?.(message.id)}
+              onMouseEnter={() => {
+                clearHoverHideTimer();
+                setIsMenuHovered(true);
+              }}
+              onMouseLeave={() => {
+                setIsMenuHovered(false);
+                scheduleHoverClose();
+              }}
             />
           ) : null}
         </div>
       </div>
-
-      {selectedModels.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {selectedModels.map((row: any, index: number) => (
-            <div
-              key={`${row?.provider ?? "unknown"}_${row?.model ?? "unknown"}_${index}`}
-              className="rounded-full border border-white/10 bg-[#1f1f1f] px-2.5 py-1 text-[11px] text-[#b4b4b4]"
-            >
-              {providerLabel(row?.provider)} · {row?.model ?? "-"}
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      <ProviderDraftPanel
-        drafts={providerDrafts}
-        winnerProvider={winner}
-        loserProviders={loserProviders}
-        hiddenFailedProviders={hiddenFailedProviders}
-        primaryRecovered={Boolean(meta?.primaryRecovered)}
-        recoveryFromModel={meta?.recoveryFromModel ?? null}
-        recoveryToModel={meta?.recoveryToModel ?? null}
-      />
     </div>
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
-  const isUser = message.role === "user";
-  const isPending = message.status === "pending";
-  const isError = message.status === "error";
+function ComposerMenu({
+  open,
+  onClose,
+  onAction
+}: {
+  open: boolean;
+  onClose: () => void;
+  onAction: (action: ComposerMenuAction) => void;
+}) {
+  if (!open) return null;
 
   return (
-    <div className={["flex w-full", isUser ? "justify-end" : "justify-start"].join(" ")}>
-      <div
-        className={[
-          "max-w-[85%] rounded-3xl px-4 py-3 shadow-sm",
-          isUser ? "bg-[#303030] text-white" : "bg-[#2a2a2a] text-[#ececec]",
-          isError ? "border border-red-500/20" : ""
-        ].join(" ")}
+    <div className="composer-menu" data-composer-menu-root>
+      <button
+        type="button"
+        className="composer-menu__item"
+        onClick={() => {
+          onAction("upload");
+          onClose();
+        }}
       >
-        <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-[#8e8ea0]">
-          {isUser ? "You" : "AI ORCHESTRA"}
+        <span className="composer-menu__icon">
+          <UploadIcon />
+        </span>
+        <span className="composer-menu__text">사진 및 파일 업로드</span>
+      </button>
+
+      <button
+        type="button"
+        className="composer-menu__item"
+        onClick={() => {
+          onAction("deep-think");
+          onClose();
+        }}
+      >
+        <span className="composer-menu__icon">
+          <SparkleIcon />
+        </span>
+        <span className="composer-menu__stack">
+          <span className="composer-menu__text">심층리서치</span>
+          <span className="composer-menu__meta">GPT-5.4 Pro / Claude Opus 4.6 바로 생각하기</span>
+        </span>
+      </button>
+
+      <button
+        type="button"
+        className="composer-menu__item"
+        onClick={() => {
+          onAction("web-search");
+          onClose();
+        }}
+      >
+        <span className="composer-menu__icon">
+          <SearchIcon />
+        </span>
+        <span className="composer-menu__stack">
+          <span className="composer-menu__text">웹검색</span>
+          <span className="composer-menu__meta">Gemini 3.1 Pro Preview로 바로 웹검색</span>
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function Composer({
+  draft,
+  isSending,
+  onDraftChange,
+  onSend,
+  onStopGenerating,
+  textareaRef
+}: {
+  draft: string;
+  isSending: boolean;
+  onDraftChange: (value: string) => void;
+  onSend: () => void;
+  onStopGenerating?: () => void;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+
+    el.style.height = "0px";
+    const nextHeight = Math.min(el.scrollHeight, 480);
+    el.style.height = `${nextHeight}px`;
+    el.style.overflowY = el.scrollHeight > 480 ? "auto" : "hidden";
+  }, [draft, textareaRef]);
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as HTMLElement | null;
+      if (menuRootRef.current?.contains(target ?? null)) return;
+      setMenuOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      if (!isSending) {
+        onSend();
+      }
+    }
+  }
+
+  function handleMenuAction(action: ComposerMenuAction) {
+    const placeholderByAction: Record<ComposerMenuAction, string> = {
+      upload: "[사진 및 파일 업로드 준비]",
+      "deep-think": "[심층리서치: GPT-5.4 Pro / Claude Opus 4.6]",
+      "web-search": "[웹검색: Gemini 3.1 Pro Preview]"
+    };
+
+    const nextValue = draft.trim() ? draft : placeholderByAction[action];
+    onDraftChange(nextValue);
+  }
+
+  return (
+    <div className="chat-composer">
+      <div className="chat-composer__row">
+        <div ref={menuRootRef} className="chat-composer__menu-anchor">
+          <button
+            type="button"
+            className="chat-composer__icon-btn"
+            aria-label="도구"
+            onClick={() => setMenuOpen((current) => !current)}
+          >
+            <PlusIcon />
+          </button>
+
+          <ComposerMenu open={menuOpen} onClose={() => setMenuOpen(false)} onAction={handleMenuAction} />
         </div>
 
-        <div className="whitespace-pre-wrap break-words text-[15px] leading-7">
-          {message.content || (isPending ? "응답 생성 중..." : "")}
+        <textarea
+          ref={textareaRef}
+          value={draft}
+          onChange={(event) => onDraftChange(event.target.value)}
+          onKeyDown={handleKeyDown}
+          rows={1}
+          placeholder="무엇이든 물어보세요"
+          className="chat-composer__textarea"
+        />
+
+        <div className="chat-composer__actions">
+          <button
+            type="button"
+            onClick={() => {
+              if (isSending) {
+                onStopGenerating?.();
+                return;
+              }
+              onSend();
+            }}
+            disabled={!isSending && !draft.trim()}
+            className="chat-composer__send"
+            aria-label={isSending ? "정지" : "전송"}
+            title={isSending ? "생성 중지" : "전송"}
+          >
+            {isSending ? (
+              <StopIcon />
+            ) : (
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M5 12h14" />
+                <path d="m13 5 7 7-7 7" />
+              </svg>
+            )}
+          </button>
         </div>
-
-        {isPending ? (
-          <div className="mt-3 inline-flex items-center gap-2 text-[12px] text-[#b4b4b4]">
-            <span className="h-2 w-2 rounded-full bg-[#8e8ea0] animate-pulse" />
-            실시간 생성 중...
-          </div>
-        ) : null}
-
-        {!isUser && message.requestMeta ? <RequestMetaInline meta={message.requestMeta} /> : null}
-
-        <div className="mt-3 text-right text-[11px] text-[#8e8ea0]">{formatTime(message.createdAt)}</div>
       </div>
     </div>
   );
 }
 
 export default function ChatView({
+  activeProject,
   activeThread,
+  draft,
   isSending,
   lastError,
-  draft,
   onDraftChange,
   onSend,
+  onStopGenerating,
   textareaRef,
-  scrollRef
+  scrollRef,
+  editingMessageId = null,
+  editingDraft = "",
+  onEditingDraftChange,
+  onStartEditMessage,
+  onCancelEditMessage,
+  onSubmitEditMessage,
+  onCopyUserMessage,
+  onCopyAssistantMessage,
+  onDeleteMessage,
+  onRelatedQuestion,
+  onOpenArtifact,
+  messageVersionMap = {},
+  onSelectMessageVersion,
+  showScrollToBottom = false,
+  onScrollToBottom
 }: Props) {
-  function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      onSend();
-    }
-  }
+  const visibleMessages = useMemo(
+    () => (activeThread?.messages ?? []).filter((message) => !message.isHidden),
+    [activeThread?.messages]
+  );
 
-  return (
-    <>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 md:px-6">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-          {activeThread?.messages.map((message) => (
-            <MessageBubble key={message.id} message={message} />
-          ))}
+  if (!activeThread) return null;
 
-          {lastError ? (
-            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-              {lastError}
+  if (visibleMessages.length === 0) {
+    return (
+      <div className="chat-view">
+        <div className="chat-empty">
+          <div className="chat-empty__inner">
+            <div className="chat-empty__composer-shell">
+              <Composer
+                draft={draft}
+                isSending={isSending}
+                onDraftChange={onDraftChange}
+                onSend={onSend}
+                onStopGenerating={onStopGenerating}
+                textareaRef={textareaRef}
+              />
             </div>
-          ) : null}
-        </div>
-      </div>
 
-      <div className="border-t border-white/10 px-4 py-4 md:px-6">
-        <div className="mx-auto w-full max-w-3xl">
-          <div className="rounded-[28px] border border-white/10 bg-[#2f2f2f] p-3 shadow-2xl">
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(event) => onDraftChange(event.target.value)}
-              onKeyDown={handleKeyDown}
-              rows={1}
-              placeholder="AI ORCHESTRA에 메시지 보내기"
-              className="max-h-56 min-h-[28px] w-full resize-y border-none bg-transparent px-2 py-2 text-[15px] leading-7 text-white outline-none placeholder:text-[#8e8ea0]"
-            />
-
-            <div className="mt-3 flex items-center justify-between px-1">
-              <div className="text-xs text-[#8e8ea0]">Enter 전송 · Shift+Enter 줄바꿈</div>
-
-              <button
-                type="button"
-                onClick={onSend}
-                disabled={isSending || !draft.trim()}
-                className="inline-flex h-10 items-center rounded-full bg-white px-4 text-sm font-semibold text-black transition disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {isSending ? "생성 중..." : "보내기"}
-              </button>
-            </div>
+            <div className="chat-footer-note">ChatGPT는 실수를 할 수 있습니다. 중요한 정보는 확인하십시오.</div>
           </div>
         </div>
       </div>
-    </>
+    );
+  }
+
+  return (
+    <div
+      className="chat-view"
+      style={{
+        position: "relative"
+      }}
+    >
+      <div ref={scrollRef} className="chat-view__scroll">
+        <div className="chat-view__messages">
+          <ThreadMetaStrip thread={activeThread} project={activeProject} />
+
+          {visibleMessages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              isEditing={editingMessageId === message.id}
+              editingDraft={editingDraft}
+              isSending={isSending}
+              versionState={messageVersionMap[message.id]}
+              onCopyUserMessage={onCopyUserMessage}
+              onStartEditMessage={onStartEditMessage}
+              onEditingDraftChange={onEditingDraftChange}
+              onCancelEditMessage={onCancelEditMessage}
+              onSubmitEditMessage={onSubmitEditMessage}
+              onSelectMessageVersion={onSelectMessageVersion}
+              onCopyAssistantMessage={onCopyAssistantMessage}
+              onRegenerate={message.role === "assistant" && !isSending ? onSend : undefined}
+              onDeleteMessage={onDeleteMessage}
+              onRelatedQuestion={onRelatedQuestion}
+              onOpenArtifact={onOpenArtifact}
+            />
+          ))}
+
+          {lastError ? <div className="error-banner">{lastError}</div> : null}
+        </div>
+      </div>
+
+      <div className="chat-view__composer-shell">
+        <div className="chat-view__composer-inner" style={{ position: "relative" }}>
+          {showScrollToBottom ? (
+            <button
+              type="button"
+              className="scroll-to-bottom-btn"
+              onClick={onScrollToBottom}
+              aria-label="맨 아래로 이동"
+              title="맨 아래로 이동"
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: -44,
+                transform: "translateX(-50%)",
+                zIndex: 30,
+                width: 36,
+                height: 36,
+                borderRadius: 999,
+                border: "1px solid var(--border)",
+                background: "#ffffff",
+                color: "var(--text-sub)",
+                boxShadow: "0 10px 26px rgba(15, 23, 42, 0.14)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                transition: "transform 0.18s ease, box-shadow 0.18s ease"
+              }}
+            >
+              <ScrollDownIcon />
+            </button>
+          ) : null}
+
+          <Composer
+            draft={draft}
+            isSending={isSending}
+            onDraftChange={onDraftChange}
+            onSend={onSend}
+            onStopGenerating={onStopGenerating}
+            textareaRef={textareaRef}
+          />
+
+          <div className="chat-footer-note">ChatGPT는 실수를 할 수 있습니다. 중요한 정보는 확인하십시오.</div>
+        </div>
+      </div>
+    </div>
   );
 }
