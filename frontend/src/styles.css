@@ -1,12 +1,12 @@
-﻿:root {
+:root {
   color-scheme: light;
 
   /* 대화창 (메인) — 순백 */
   --bg-app: #ffffff;
-  --bg-main: #ffffff;
+  --bg-main: #f5f5f5;
 
-  /* 사이드바 — 연한 보라 */
-  --bg-sidebar: #f5f0ff;
+  /* 사이드바 — 아주 연한 회색, 대화창과 구분 */
+  --bg-sidebar: #f0f0f0;
 
   /* 입력창 — 흰색 + 그림자로 부각 */
   --bg-surface: #ffffff;
@@ -28,7 +28,7 @@
   --text-strong: #0f172a;
 
   /* 액센트 */
-  --accent: #7c3aed;
+  --accent: #111827;
   --accent-inverse: #ffffff;
 
   /* 위험 */
@@ -140,6 +140,14 @@ pre::-webkit-scrollbar-track {
   overflow: hidden;
   border-right: 1px solid #e2e2e2;
   background: var(--bg-sidebar);
+  transition: width 0.2s ease;
+}
+
+.app-shell__sidebar.is-collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  border: none !important;
 }
 
 .app-shell__main {
@@ -182,16 +190,12 @@ pre::-webkit-scrollbar-track {
 }
 
 .app-shell__artifact {
-  width: 420px;
-  min-width: 320px;
-  max-width: 520px;
   height: 100%;
   border-left: 1px solid var(--border);
   background: var(--surface-1, #f9fafb);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  flex-shrink: 0;
 }
 
 /* ─── Artifact Panel ────────────────────────────────────────────── */
@@ -206,7 +210,6 @@ pre::-webkit-scrollbar-track {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  background: #f5f0ff;
   border-bottom: 1px solid var(--border);
   background: var(--surface-1, #f9fafb);
   flex-shrink: 0;
@@ -433,11 +436,11 @@ pre::-webkit-scrollbar-track {
 }
 
 .sidebar-row:hover {
-  background: #ede5ff;
+  background: rgba(17, 24, 39, 0.03);
 }
 
 .sidebar-row.is-active {
-  background: #ede5ff;
+  background: rgba(17, 24, 39, 0.06);
 }
 
 .sidebar-row.is-emphasized {
@@ -1090,7 +1093,7 @@ pre::-webkit-scrollbar-track {
 
 .message {
   width: 100%;
-  margin-bottom: 48px;
+  margin-bottom: 36px;
 }
 
 .message--user {
@@ -1133,22 +1136,15 @@ pre::-webkit-scrollbar-track {
 }
 
 .message__text {
-  padding: 20px 22px;
+  padding: 16px 18px;
   border-radius: 18px;
   background: transparent;
   color: var(--text-main);
   font-size: 16px;
-  line-height: 1.9;
+  line-height: 1.82;
   white-space: pre-wrap;
   word-break: break-word;
 }
-
-.message__text p { margin-bottom: 12px; }
-.message__text p:last-child { margin-bottom: 0; }
-.message__text li { margin-bottom: 6px; }
-.message__text h1, .message__text h2, .message__text h3 { margin-top: 20px; margin-bottom: 10px; font-weight: 700; }
-.message__text h2 { font-size: 17px; }
-.message__text h3 { font-size: 15px; }
 
 .message__text strong {
   font-weight: 800;
@@ -1156,9 +1152,9 @@ pre::-webkit-scrollbar-track {
 }
 
 .message__text--user {
-  background: #ede5ff;
-  color: var(--text-strong);
-  box-shadow: inset 0 0 0 1px rgba(196, 181, 253, 0.6);
+  background: #f5f3ff;
+  color: #5b21b6;
+  box-shadow: inset 0 0 0 1px rgba(221, 214, 254, 0.8);
 }
 
 .message__text--editing {
@@ -1183,11 +1179,9 @@ pre::-webkit-scrollbar-track {
 }
 
 .message__time {
-  display: inline-block;
-  margin: 4px 22px 0;
-  font-size: 11px;
+  margin: 8px 18px 0;
+  font-size: 12px;
   color: var(--text-soft);
-  text-align: right;
 }
 
 .message-actions {
@@ -1197,7 +1191,7 @@ pre::-webkit-scrollbar-track {
 .message-rich {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 30px;
 }
 
 .user-message-tools__button {
@@ -1424,7 +1418,7 @@ pre::-webkit-scrollbar-track {
 
 .code-block {
   position: relative;
-  margin: 16px 0 24px;
+  margin: 12px 0 20px;
   border: 1px solid #dfe5ec;
   border-radius: 16px;
   overflow: hidden;

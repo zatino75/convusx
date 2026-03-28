@@ -23,6 +23,7 @@ type Props = {
   onMoveThread: (threadId: string, nextProjectId: string) => void;
   onToggleProjectMemory: (projectId: string) => void;
   onToggleThreadPinned?: (threadId: string) => void;
+  onCollapse?: () => void;
 };
 
 function stripMarkdown(text: string): string {
@@ -713,7 +714,8 @@ export default function Sidebar({
   onRenameThread,
   onDeleteThread,
   onMoveThread,
-  onToggleThreadPinned
+  onToggleThreadPinned,
+  onCollapse
 }: Props) {
   const [openProjectIds, setOpenProjectIds] = useState<string[]>([]);
   const [isCompact, setIsCompact] = useState<boolean>(false);
@@ -781,7 +783,7 @@ export default function Sidebar({
             paddingRight: 2
           }}
         >
-          <div className="sidebar__top">
+          <div className="sidebar__top" style={{ position: "relative" }}>
             <button type="button" className="sidebar-logo" onClick={onOpenGeneralHome}>
               <span className="sidebar-logo__icon">
                 <LogoIcon />
@@ -798,6 +800,17 @@ export default function Sidebar({
               >
                 <SidebarIcon />
               </button>
+              {onCollapse && (
+                <button
+                  type="button"
+                  className="sidebar-toolbar-btn"
+                  onClick={onCollapse}
+                  title="사이드바 닫기"
+                  style={{ fontSize: 16, fontWeight: 400, lineHeight: 1 }}
+                >
+                  ✕
+                </button>
+              )}
             </div>
           </div>
 

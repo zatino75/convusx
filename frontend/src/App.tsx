@@ -338,6 +338,7 @@ export default function App() {
   const [lastError, setLastError] = useState<string | null>(null);
   const [debugMeta, setDebugMeta] = useState<DebugMeta>(createDefaultDebugMeta());
   const [sidebarView, setSidebarView] = useState<"default" | "search" | "images">("default");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [artifactContent, setArtifactContent] = useState<{ title: string; code: string; language: string } | null>(null);
   const [composerOptions, setComposerOptions] = useState<{ force_pro?: boolean; deep_research?: boolean; task?: string } | null>(null);
   const [dialog, setDialog] = useState<{
@@ -1177,6 +1178,7 @@ export default function App() {
       )}
 
       <AppShell
+        sidebarCollapsed={!sidebarOpen}
         sidebar={
           <Sidebar
             generalThreads={workspace.generalThreads}
@@ -1214,6 +1216,7 @@ export default function App() {
             onMoveThread={workspace.moveThread}
             onToggleProjectMemory={handleToggleProjectMemory}
             onToggleThreadPinned={workspace.toggleThreadPinned}
+            onCollapse={() => setSidebarOpen(false)}
           />
         }
         artifact={artifactContent ? (

@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
 import type { Message, ProjectGroup, Thread } from "../../types/workspace";
 import renderMessageContent from "./MessageRenderer";
 
@@ -389,24 +389,8 @@ function AssistantInlineCopy({
   visible: boolean;
   onCopy: () => void;
 }) {
-  return (
-    <div
-      style={{
-        position: "absolute",
-        top: 10,
-        right: 10,
-        zIndex: 7,
-        opacity: visible ? 1 : 0,
-        pointerEvents: visible ? "auto" : "none",
-        transform: visible ? "translateY(0)" : "translateY(-2px)",
-        transition: "opacity 0.14s ease, transform 0.14s ease"
-      }}
-    >
-      <button type="button" className="assistant-inline-copy__button" onClick={onCopy} aria-label="답변 복사">
-        <CopyIcon />
-      </button>
-    </div>
-  );
+  // 인라인 복사 버튼 제거 (액션 툴바로 통합)
+  return null;
 }
 
 function MessageEditComposer({
@@ -696,8 +680,6 @@ function MessageBubble({
               </div>
             ) : null}
 
-            <div className="message__time">{formatTime(message.createdAt)}</div>
-
             {!isUser && (provider || confidence !== undefined || conflicts !== undefined || route) ? (
               <div
                 style={{
@@ -719,8 +701,8 @@ function MessageBubble({
 
           </div>
           {!isUser && !isPending ? (
-            <div style={{ position: "relative", height: 0 }}>
-              <div style={{ position: "absolute", top: 4, left: 0 }}>
+            <div style={{ marginTop: 4 }}>
+              <div>
                 <AssistantActionToolbar
                   visible={isBubbleHovered || isMenuHovered}
                   onCopy={() => {
