@@ -20,7 +20,7 @@ export default function AppShell({ sidebar, topbar, main, artifact, showPanel = 
     function onMove(ev: MouseEvent) {
       if (!dragRef.current) return;
       const delta = dragRef.current.startX - ev.clientX;
-      const next = Math.min(600, Math.max(280, dragRef.current.startW + delta));
+      const next = Math.min(600, Math.max(0, dragRef.current.startW + delta));
       setPanelWidth(next);
     }
 
