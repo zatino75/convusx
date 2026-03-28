@@ -1323,6 +1323,35 @@ ${perplexityResult.text}
   }
   // ===== END RESEARCH SYNTHESIS =====
 
+  // ===== CODE CRITIQUE & PATCH =====
+  if (task === "code" && primaryProvider === "claude") {
+    const claudeResult = executed.find((item) => item.provider === "claude" && item.ok && hasText(item.text))
+    if (claudeResult) {
+      const critiqueInput = {
+        ...effectiveInput,
+        messages: [{
+          role: "user",
+          content: `다음 코드를 리뷰해주세요:\n\n${claudeResult.text}\n\n버그나 개선점이 있으면 수정된 코드를 제시하세요. 코드가 올바르면 "LGTM" 한 줄만 출력하세요.\n\n원래 질문: ${extractInboundMessage(effectiveInput)}`
+        }]
+      }
+      const critiqueResult = await executeProvider({
+        provider: "openai", role: "verifier", input: critiqueInput,
+        task, route, plannerSignals, usePro: false, emitEvent: emitTracked
+      })
+      if (critiqueResult.ok && hasText(critiqueResult.text)) {
+        const isLgtm = /^lgtm\.?$/i.test(critiqueResult.text.trim())
+        if (!isLgtm) {
+          finalResult = {
+            ...claudeResult,
+            text: claudeResult.text + "\n\n---\n**🔍 코드 리뷰 (OpenAI):**\n" + critiqueResult.text,
+            provider: "claude", role: "patched"
+          }
+        }
+      }
+    }
+  }
+  // ===== END CODE CRITIQUE & PATCH =====
+
   const finalProvider = normalizeProvider(
     judged?.meta?.judge_selected_provider ??
     judged?.provider ??

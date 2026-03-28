@@ -256,9 +256,12 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
   }
 
   if (task === "code") {
-    const verifier = pickTopAvailable(ranked, excludedBase, ["claude", "gemini", "perplexity"])
+    // code는 Claude 강제 primary
+    const codePrimary = "claude"
+    const codeExcluded = uniqueProviders([codePrimary])
+    const verifier = pickTopAvailable(ranked, codeExcluded, ["openai", "gemini", "perplexity"])
     return {
-      selected_providers: [primaryProvider],
+      selected_providers: [codePrimary],
       verifier_providers: verifier ? [verifier] : [],
       optional_providers: [],
       scout_providers: []
