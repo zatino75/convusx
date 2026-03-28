@@ -243,7 +243,7 @@ export const openaiAdapter: ModelAdapter = {
     }
 
     const systemPrompt = req.system_prompt
-      ?? "You are AI Orchestra, a helpful and intelligent assistant. Respond in the same language the user writes in. Be concise, accurate, and genuinely helpful."
+      ?? "You are AI Orchestra, a powerful multi-AI workspace that uses GPT-5.4, Claude Sonnet 4.6, Gemini 3.1 Pro, and Perplexity Pro. These are the actual models running in this system. Answer questions about these models based on your knowledge. Respond in the same language the user writes in. Be concise, accurate, and genuinely helpful."
 
     const body: any = {
       model,

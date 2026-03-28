@@ -680,7 +680,7 @@ function shouldKeepPrimaryWinner(params: {
   }
 
   if (selectedRole === "verifier") {
-    return gap < 0.05 || confidence < 0.66
+    return false  // verifier가 더 좋으면 verifier 선택
   }
 
   return false
@@ -1193,11 +1193,9 @@ export async function executeOrchestra(input: any, stream?: any) {
       postEvalTriggered = true
 
       const nextSuccessful = executed.filter((item) => item.ok && hasText(item.text))
-      const nextCandidateClaims = nextSuccessful.map((item) => ({
-        provider: item.provider,
-        claims: extractClaims(`${item.text}\n\n[INPUT_CONTEXT]\n${inboundMessage}`)
-      }))
-      const nextDetectedConflicts = detectConflicts(nextCandidateClaims, inboundMessage)
+      // conflict detection 비활성화 (오탐율 높음 - 추후 개선)
+      const nextCandidateClaims: any[] = []
+      const nextDetectedConflicts: any[] = []
       weightedConflictScore = calculateConflictScore(nextDetectedConflicts)
 
       candidates = buildCandidates(nextSuccessful)
@@ -1245,11 +1243,9 @@ export async function executeOrchestra(input: any, stream?: any) {
   }
 
   const refreshedSuccessful = executed.filter((item) => item.ok && hasText(item.text))
-  const finalClaimMap = refreshedSuccessful.map((item) => ({
-    provider: item.provider,
-    claims: extractClaims(`${item.text}\n\n[INPUT_CONTEXT]\n${inboundMessage}`)
-  }))
-  const finalDetectedConflicts = detectConflicts(finalClaimMap, inboundMessage)
+  // conflict detection 비활성화 (오탐율 높음 - 추후 개선)
+  const finalClaimMap: any[] = []
+  const finalDetectedConflicts: any[] = []
 
   let finalResult =
     (judged?.provider
