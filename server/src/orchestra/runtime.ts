@@ -1251,7 +1251,7 @@ export async function executeOrchestra(input: any, stream?: any) {
   }))
   const finalDetectedConflicts = detectConflicts(finalClaimMap, inboundMessage)
 
-  const finalResult =
+  let finalResult =
     (judged?.provider
       ? refreshedSuccessful.find((item) => item.provider === normalizeProvider(judged.provider))
       : null) ??
@@ -1275,6 +1275,53 @@ export async function executeOrchestra(input: any, stream?: any) {
     }
 
   applyFinalProviderPreview(providerStreamSummary, finalResult)
+
+  // ===== RESEARCH SYNTHESIS =====
+  // Perplexity 검색 결과 → OpenAI가 종합 정리
+  if (task === "research" && primaryProvider === "perplexity") {
+    const perplexityResult = executed.find((item) => item.provider === "perplexity" && item.ok && hasText(item.text))
+    const openaiResult = executed.find((item) => item.provider === "openai" && item.ok && hasText(item.text))
+
+    if (perplexityResult && openaiResult) {
+      // OpenAI에게 Perplexity 결과 종합 요청
+      const synthesisInput = {
+        ...effectiveInput,
+        messages: [
+          {
+            role: "user",
+            content: `다음은 실시간 검색으로 수집한 정보입니다:
+
+${perplexityResult.text}
+
+위 정보를 바탕으로 질문에 대해 명확하고 구조화된 답변을 한국어로 작성해주세요. 핵심 내용을 요약하고 중요한 인사이트를 강조해주세요.
+
+원래 질문: ${extractInboundMessage(effectiveInput)}`
+          }
+        ]
+      }
+
+      const synthesisResult = await executeProvider({
+        provider: "openai",
+        role: "primary",
+        input: synthesisInput,
+        task,
+        route,
+        plannerSignals,
+        usePro: false,
+        emitEvent: emitTracked
+      })
+
+      if (synthesisResult.ok && hasText(synthesisResult.text)) {
+        finalResult = {
+          ...synthesisResult,
+          provider: "openai",
+          role: "synthesis"
+        }
+        executed = [...executed, { ...synthesisResult, role: "synthesis" }]
+      }
+    }
+  }
+  // ===== END RESEARCH SYNTHESIS =====
 
   const finalProvider = normalizeProvider(
     judged?.meta?.judge_selected_provider ??
