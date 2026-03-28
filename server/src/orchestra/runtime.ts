@@ -1,4 +1,4 @@
-import { runAdapter } from "./adapterDispatcher.js"
+﻿import { runAdapter } from "./adapterDispatcher.js"
 import { resolveAdaptiveRoute } from "./adaptiveRouter.js"
 import { judge } from "./judge.js"
 import { detectTaskType, extractPlanningSignals, planRequest } from "./planner.js"
@@ -1085,11 +1085,9 @@ export async function executeOrchestra(input: any, stream?: any) {
   }
 
   const successfulResults = executed.filter((item) => item.ok && hasText(item.text))
-  const candidateClaims = successfulResults.map((item) => ({
-    provider: item.provider,
-    claims: extractClaims(`${item.text}\n\n[INPUT_CONTEXT]\n${inboundMessage}`)
-  }))
-  const detectedConflicts = detectConflicts(candidateClaims, inboundMessage)
+  // conflict detection 비활성화 (오탐율 높음 - 추후 개선)
+  const candidateClaims: any[] = []
+  const detectedConflicts: any[] = []
   let weightedConflictScore = calculateConflictScore(detectedConflicts)
 
   let candidates = buildCandidates(successfulResults)

@@ -1,4 +1,4 @@
-import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
+﻿import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
 
 function env(name: string): string {
   const value = (globalThis as any)?.process?.env?.[name]
@@ -84,23 +84,31 @@ function extractTextFromPart(part: any): string {
 }
 
 function extractText(data: any): string {
+  // /v1/responses 최상위 output_text
   if (typeof data?.output_text === "string" && data.output_text.trim()) {
     return data.output_text.trim()
   }
 
+  // /v1/responses: output[].content[].text (type: "output_text")
   const output = Array.isArray(data?.output) ? data.output : []
-
   for (const item of output) {
-    const content = Array.isArray(item?.content) ? item.content : []
+    if (typeof item?.text === "string" && item.text.trim()) return item.text.trim()
 
-    for (const part of content) {
-      const text = extractTextFromPart(part)
-      if (text) return text
+    const parts = Array.isArray(item?.content) ? item.content : []
+    for (const part of parts) {
+      if (typeof part?.text === "string" && part.text.trim()) return part.text.trim()
+      if (typeof part?.output_text === "string" && part.output_text.trim()) return part.output_text.trim()
     }
   }
 
-  const contentArray = Array.isArray(data?.content) ? data.content : []
+  // /v1/chat/completions fallback
+  const choices = Array.isArray(data?.choices) ? data.choices : []
+  for (const choice of choices) {
+    const msg = choice?.message?.content ?? choice?.delta?.content ?? ""
+    if (typeof msg === "string" && msg.trim()) return msg.trim()
+  }
 
+  const contentArray = Array.isArray(data?.content) ? data.content : []
   for (const part of contentArray) {
     const text = extractTextFromPart(part)
     if (text) return text
@@ -234,8 +242,12 @@ export const openaiAdapter: ModelAdapter = {
       }
     }
 
+    const systemPrompt = req.system_prompt
+      ?? "You are AI Orchestra, a helpful and intelligent assistant. Respond in the same language the user writes in. Be concise, accurate, and genuinely helpful."
+
     const body: any = {
       model,
+      instructions: systemPrompt,
       input: buildInput(req.messages),
       max_output_tokens: req.max_tokens ?? 2048
     }

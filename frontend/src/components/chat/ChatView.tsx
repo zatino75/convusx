@@ -199,16 +199,15 @@ function AssistantActionToolbar({
 }) {
   const [thumbState, setThumbState] = useState<"up" | "down" | null>(null);
 
-  if (!visible) return null;
-
   return (
     <div
       style={{
         display: "flex",
         alignItems: "center",
         gap: 2,
-        marginTop: 8,
+        height: 32,
         opacity: visible ? 1 : 0,
+        pointerEvents: visible ? "auto" : "none",
         transition: "opacity 0.14s ease"
       }}
     >
@@ -718,21 +717,25 @@ function MessageBubble({
               </div>
             ) : null}
 
-            {!isUser && !isPending ? (
-              <AssistantActionToolbar
-                visible={isBubbleHovered || isMenuHovered}
-                onCopy={() => {
-                  if (onCopyAssistantMessage) {
-                    onCopyAssistantMessage(message);
-                    return;
-                  }
-                  void copyText(message.content);
-                }}
-                onRegenerate={onRegenerate}
-                onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
-              />
-            ) : null}
           </div>
+          {!isUser && !isPending ? (
+            <div style={{ position: "relative", height: 0 }}>
+              <div style={{ position: "absolute", top: 4, left: 0 }}>
+                <AssistantActionToolbar
+                  visible={isBubbleHovered || isMenuHovered}
+                  onCopy={() => {
+                    if (onCopyAssistantMessage) {
+                      onCopyAssistantMessage(message);
+                      return;
+                    }
+                    void copyText(message.content);
+                  }}
+                  onRegenerate={onRegenerate}
+                  onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
+                />
+              </div>
+            </div>
+          ) : null}
 
           {isUser ? (
             <UserMessageToolsRow

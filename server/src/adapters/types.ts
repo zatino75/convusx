@@ -1,4 +1,4 @@
-export type ProviderName =
+﻿export type ProviderName =
   | "openai"
   | "claude"
   | "gemini"
@@ -61,6 +61,7 @@ export type ModelRequest = {
   project_id?: string
   raw_input?: any
   stream?: boolean
+  system_prompt?: string
   onToken?: (chunk: string, meta?: any) => void | Promise<void>
   onEvent?: (event: any) => void | Promise<void>
 }

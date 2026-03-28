@@ -14,8 +14,8 @@ type RouteResponse = {
   end?: () => void
 }
 
-const REUSE_SIMILARITY_THRESHOLD = 0.72
-const REUSE_PAST_WINNER_CONFIDENCE = 0.85
+const REUSE_SIMILARITY_THRESHOLD = 1.1
+const REUSE_PAST_WINNER_CONFIDENCE = 1.1
 
 function safeArray(value: any): any[] {
   return Array.isArray(value) ? value : []

@@ -1,4 +1,4 @@
-export type PlannerSignals = {
+﻿export type PlannerSignals = {
   benchmark_mode: boolean
   deep_analysis: boolean
   deep_research: boolean
@@ -93,7 +93,29 @@ export function detectTaskType(input: string): PlannedTask {
       "디버그",
       "리팩터",
       "버그",
-      "에러 수정"
+      "에러 수정",
+      "파이썬",
+      "python",
+      "함수",
+      "짜줘",
+      "작성해",
+      "구현해",
+      "만들어줘",
+      "스크립트",
+      "알고리즘",
+      "클래스",
+      "자바",
+      "java",
+      "golang",
+      "go",
+      "rust",
+      "swift",
+      "kotlin",
+      "sql",
+      "데이터베이스",
+      "database",
+      "html",
+      "css"
     ])
   ) {
     return "code"
