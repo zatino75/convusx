@@ -17,3 +17,5 @@ server/model-scoreboard.json
 server/data/
 
 dist/
+
+.claude/worktrees/
