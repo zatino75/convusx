@@ -229,7 +229,7 @@ async function callOpenAI(params: {
 export const openaiAdapter: ModelAdapter = {
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const apiKey = env("OPENAI_API_KEY")
-    const model = req.model?.trim() || "gpt-5.4"
+    const model = req.model?.trim() || (req.force_pro ? "gpt-5.4-pro" : "gpt-5.2")
     const attempts: ModelAttempt[] = []
 
     if (!apiKey) {

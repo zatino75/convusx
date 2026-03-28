@@ -211,7 +211,7 @@ async function streamAnthropic(params: {
 export const claudeAdapter: ModelAdapter = {
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const apiKey = env("ANTHROPIC_API_KEY")
-    const model = req.model?.trim() || "claude-sonnet-4-6"
+    const model = req.model?.trim() || (req.force_pro ? "claude-opus-4-6" : "claude-sonnet-4-6")
     const attempts: ModelAttempt[] = []
     const { system, conversation } = splitSystemAndMessages(req.messages)
     const onToken = typeof (req as any)?.onToken === "function" ? (req as any).onToken : undefined

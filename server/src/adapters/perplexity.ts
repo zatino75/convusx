@@ -12,7 +12,7 @@ function buildError(provider: ModelRequest["provider"], message: string, code?: 
 export const perplexityAdapter: ModelAdapter = {
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const apiKey = env("PERPLEXITY_API_KEY")
-    const model = req.model?.trim() || "sonar-pro"
+    const model = req.model?.trim() || (req.force_pro ? "sonar-pro" : "sonar")
 
     if (!apiKey) {
       return {

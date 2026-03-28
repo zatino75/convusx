@@ -186,7 +186,7 @@ async function callGemini(params: {
 export const geminiAdapter: ModelAdapter = {
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const apiKey = env("GEMINI_API_KEY")
-    const model = req.model?.trim() || "gemini-3.1-pro-preview"
+    const model = req.model?.trim() || (req.force_pro ? "gemini-3.1-pro-preview" : "gemini-3-flash-preview")
     const attempts: ModelAttempt[] = []
     const { system, conversation } = splitSystemAndMessages(req.messages)
 

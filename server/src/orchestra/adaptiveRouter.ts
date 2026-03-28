@@ -126,10 +126,10 @@ function rankProviders(task: AdaptiveTask) {
 }
 
 function shouldUsePro(task: AdaptiveTask, params: any): boolean {
+  if (Boolean(params?.force_pro)) return true
   if (task !== "reasoning" && task !== "research") return false
 
   return Boolean(
-    params?.force_pro ||
     params?.benchmark_mode ||
     params?.deep_analysis ||
     params?.deep_research
@@ -240,6 +240,21 @@ function fallbackOrder(ranked: any[], excluded: string[], preferFast: boolean): 
 }
 
 function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
+  // force_pro일 때 reasoning으로 강제 + verifier 보장
+  if (Boolean(params?.force_pro) && task !== "code" && task !== "research") {
+    const primaryProvider = "openai"
+    const excluded = uniqueProviders([primaryProvider])
+    const verifier = pickTopAvailable(ranked, excluded, ["claude", "gemini", "perplexity"])
+    const optionalExcluded = uniqueProviders([...excluded, ...(verifier ? [verifier] : [])])
+    const optional = pickTopAvailable(ranked, optionalExcluded, ["gemini", "claude", "perplexity"])
+    return {
+      selected_providers: [primaryProvider],
+      verifier_providers: verifier ? [verifier] : [],
+      optional_providers: optional ? [optional] : [],
+      scout_providers: []
+    }
+  }
+
   const keepOpenAIPrimary = chooseOpenAIPrimaryOverride(task, params, ranked)
   const bestProvider = ranked[0]?.provider ?? "openai"
   const primaryProvider = keepOpenAIPrimary ? "openai" : bestProvider
@@ -269,24 +284,19 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
   }
 
   if (task === "reasoning") {
-    const verifier = pickTopAvailable(ranked, excludedBase, ["claude", "gemini", "perplexity"])
-    const optionalExcluded = uniqueProviders([...excludedBase, ...(verifier ? [verifier] : [])])
-
-    const allowOptional = Boolean(
-      params?.benchmark_mode ||
-      params?.deep_analysis ||
-      params?.deep_research ||
-      params?.force_pro
-    )
-
-    const optional = allowOptional
-      ? pickTopAvailable(ranked, optionalExcluded, ["gemini", "claude", "perplexity"])
-      : null
-
+    if (Boolean(params?.deep_analysis || params?.force_pro)) {
+      const verifier = pickTopAvailable(ranked, excludedBase, ["claude", "gemini", "perplexity"])
+      return {
+        selected_providers: [primaryProvider],
+        verifier_providers: verifier ? [verifier] : [],
+        optional_providers: [],
+        scout_providers: []
+      }
+    }
     return {
       selected_providers: [primaryProvider],
-      verifier_providers: verifier ? [verifier] : [],
-      optional_providers: optional ? [optional] : [],
+      verifier_providers: [],
+      optional_providers: [],
       scout_providers: []
     }
   }

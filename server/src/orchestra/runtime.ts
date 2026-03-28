@@ -114,6 +114,22 @@ function buildInputWithRetrievalContext(input: any, rawInboundMessage: string) {
 
   const rawText = String(rawInboundMessage ?? "").trim()
 
+  const skipContextPatterns = [
+    "안녕", "hi", "hello", "반가워", "잘 부탁",
+    "감사합니다", "고마워", "thanks"
+  ]
+  const shouldSkipContext =
+    rawText.length < 20 ||
+    skipContextPatterns.some((p) => rawText.toLowerCase().includes(p))
+
+  if (shouldSkipContext) {
+    return {
+      effectiveInput: input,
+      retrievalContext: projectContext,
+      enrichedInboundMessage: rawText
+    }
+  }
+
   if (rawText.includes("[PROJECT CONTEXT]")) {
     return {
       effectiveInput: {
