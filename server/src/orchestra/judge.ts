@@ -94,10 +94,31 @@ function scoreCandidate(
   const structure = estimateStructure(candidate.answer_text)
   const specificity = estimateSpecificity(candidate.answer_text)
 
+  const normalizedTask = String(task ?? "").trim().toLowerCase()
+
+  // task별 가중치
+  let coverageW = 0.22
+  let structureW = 0.16
+  let specificityW = 0.17
+
+  if (normalizedTask === "code") {
+    coverageW = 0.16
+    structureW = 0.16
+    specificityW = 0.23
+  } else if (normalizedTask === "research") {
+    coverageW = 0.20
+    structureW = 0.22
+    specificityW = 0.13
+  } else if (normalizedTask === "reasoning") {
+    coverageW = 0.18
+    structureW = 0.16
+    specificityW = 0.21
+  }
+
   let score = 0.45
-  score += coverage * 0.22
-  score += structure * 0.16
-  score += specificity * 0.17
+  score += coverage * coverageW
+  score += structure * structureW
+  score += specificity * specificityW
 
   const providerConflicts = conflicts.filter((c) =>
     Array.isArray(c.providers) && c.providers.includes(candidate.provider)
@@ -152,8 +173,21 @@ function scoreCandidate(
     reasons.push("multi_context_conflict_penalty")
   }
 
-  const normalizedTask = String(task ?? "").trim().toLowerCase()
+  // 1. 표(table) bonus — 비교/research/reasoning
+  if (normalizedTask === "research" || normalizedTask === "reasoning" || normalizedTask === "comparison") {
+    if (/\|.+\|.+\|/.test(candidate.answer_text)) {
+      score += 0.06
+      reasons.push("table_bonus")
+    }
+  }
 
+  // 2. 명확한 결론 bonus
+  if (/(결론|권고|추천|따라서|최종|결정|선택|recommend|conclusion|therefore)/i.test(candidate.answer_text)) {
+    score += 0.05
+    reasons.push("conclusion_bonus")
+  }
+
+  // 3. code task — 실행 가능한 코드 구조 bonus
   if (normalizedTask === "code") {
     const hasCodeFence = /```/.test(candidate.answer_text)
     const hasPathLike = /[A-Za-z0-9_\-/\\]+\.[A-Za-z0-9]+/.test(candidate.answer_text)
@@ -163,18 +197,30 @@ function scoreCandidate(
       reasons.push("code_fence_bonus")
     }
 
+    if (hasCodeFence && /(function|const|def |class |import |return )/i.test(candidate.answer_text)) {
+      score += 0.04
+      reasons.push("executable_code_bonus")
+    }
+
     if (hasPathLike) {
       score += 0.03
       reasons.push("path_specific_bonus")
     }
   }
 
+  // 4. reasoning connector bonus
   if (normalizedTask === "research" || normalizedTask === "reasoning") {
     const hasComparativeTerms = /(because|therefore|however|근거|따라서|하지만|반면)/i.test(candidate.answer_text)
     if (hasComparativeTerms) {
       score += 0.04
       reasons.push("reasoning_connector_bonus")
     }
+  }
+
+  // 5. 너무 짧은 답변 페널티
+  if (normalizeText(candidate.answer_text).length < 200) {
+    score -= 0.05
+    reasons.push("too_short_penalty")
   }
 
   return {

@@ -392,12 +392,7 @@ function buildTaskSystemPrompt(task: OrxTask, provider: string): string {
     "한국어로 질문이 들어오면 반드시 한국어로 답하세요.",
     "메타 응답(예: '알겠습니다', '도와드리겠습니다', '어떤 형식을 원하시나요')은 절대 출력하지 마세요.",
     "질문에 즉시 실질적인 답변을 제공하세요.",
-    "비교 질문에는 반드시 마크다운 표로 먼저 정리하고, 이후 텍스트로 부연 설명하세요.",
-    "표는 핵심 항목만 3~5개 행으로 간결하게 작성하세요.",
-    "표 다음에는 2~4줄의 핵심 결론 텍스트를 제시하세요.",
-    "헤더(##, ###)는 내용이 길 때만 사용하고, 짧은 답변은 산문체로 작성하세요.",
-    "불릿 포인트는 3개 이상 나열할 때만 사용하고, 남용하지 마세요.",
-    "'원하시면 더 정리해드릴게요', '추가 질문이 있으시면', '도움이 되셨으면 좋겠습니다' 같은 꼬리말은 절대 출력하지 마세요."
+    "Deliver high-quality responses by choosing the most effective format for the content — use tables when comparing multiple options, use prose when explaining concepts, use code blocks for code, use bullet points only when listing discrete items. Prioritize clarity, accuracy, and actionable insight over length. Always include a concrete conclusion or recommendation when the question requires a decision. Never pad responses with filler or meta-commentary."
   ].join(" ")
 
   if (task === "dialogue") {
