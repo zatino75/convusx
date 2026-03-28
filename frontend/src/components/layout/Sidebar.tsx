@@ -23,7 +23,6 @@ type Props = {
   onMoveThread: (threadId: string, nextProjectId: string) => void;
   onToggleProjectMemory: (projectId: string) => void;
   onToggleThreadPinned?: (threadId: string) => void;
-  onCollapse?: () => void;
 };
 
 function stripMarkdown(text: string): string {
@@ -80,15 +79,6 @@ function FolderIcon() {
   return (
     <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.9">
       <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-    </svg>
-  );
-}
-
-function SidebarIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.9">
-      <path d="M4 5h16v14H4z" />
-      <path d="M9 5v14" />
     </svg>
   );
 }
@@ -714,11 +704,9 @@ export default function Sidebar({
   onRenameThread,
   onDeleteThread,
   onMoveThread,
-  onToggleThreadPinned,
-  onCollapse
+  onToggleThreadPinned
 }: Props) {
   const [openProjectIds, setOpenProjectIds] = useState<string[]>([]);
-  const [isCompact, setIsCompact] = useState<boolean>(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -765,7 +753,7 @@ export default function Sidebar({
   }
 
   return (
-    <div className={"sidebar" + (isCompact ? " is-compact" : "")}>
+    <div className="sidebar">
       <div
         className="sidebar__inner"
         style={{
@@ -791,27 +779,6 @@ export default function Sidebar({
               <span className="sidebar-logo__text">AI ORCHESTRA</span>
             </button>
 
-            <div className="sidebar__toolbar">
-              <button
-                type="button"
-                className="sidebar-toolbar-btn"
-                onClick={() => setIsCompact((current) => !current)}
-                title="사이드바 폭 전환"
-              >
-                <SidebarIcon />
-              </button>
-              {onCollapse && (
-                <button
-                  type="button"
-                  className="sidebar-toolbar-btn"
-                  onClick={onCollapse}
-                  title="사이드바 닫기"
-                  style={{ fontSize: 16, fontWeight: 400, lineHeight: 1 }}
-                >
-                  ✕
-                </button>
-              )}
-            </div>
           </div>
 
           <div className="sidebar__menu">

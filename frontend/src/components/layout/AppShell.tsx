@@ -9,6 +9,34 @@ type Props = {
   onTogglePanel?: () => void;
 };
 
+function HamburgerButton({ onClick, title }: { onClick: () => void; title: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      style={{
+        flexShrink: 0,
+        width: 32,
+        height: 32,
+        border: "none",
+        borderRadius: 6,
+        background: "transparent",
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "var(--text-sub)",
+        padding: 0
+      }}
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M3 6h18M3 12h18M3 18h18" />
+      </svg>
+    </button>
+  );
+}
+
 export default function AppShell({ sidebar, topbar, main, artifact, showPanel = true, onTogglePanel }: Props) {
   const [panelWidth, setPanelWidth] = useState(380);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -39,74 +67,22 @@ export default function AppShell({ sidebar, topbar, main, artifact, showPanel = 
 
   return (
     <div className={"app-shell" + (hasPanel ? " app-shell--with-artifact" : "")}>
-      {/* 사이드바 닫혔을 때 열기 버튼 */}
-      {!sidebarOpen && (
-        <button
-          type="button"
-          onClick={() => setSidebarOpen(true)}
-          title="사이드바 열기"
-          style={{
-            position: "fixed",
-            left: 0,
-            top: "50%",
-            transform: "translateY(-50%)",
-            zIndex: 100,
-            width: 20,
-            height: 48,
-            border: "1px solid var(--border)",
-            borderLeft: "none",
-            borderRadius: "0 6px 6px 0",
-            background: "var(--bg-surface, #fff)",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "var(--text-sub)",
-            padding: 0
-          }}
-        >
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="m9 6 6 6-6 6" />
-          </svg>
-        </button>
-      )}
-      <aside
-        className={"app-shell__sidebar" + (sidebarOpen ? "" : " is-collapsed")}
-        style={{ position: "relative" }}
-      >
-        {/* 사이드바 닫기 버튼 */}
-        <button
-          type="button"
-          onClick={() => setSidebarOpen(false)}
-          title="사이드바 닫기"
-          style={{
-            position: "absolute",
-            top: 12,
-            right: 12,
-            zIndex: 10,
-            width: 28,
-            height: 28,
-            border: "1px solid var(--border)",
-            borderRadius: "6px",
-            background: "transparent",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "var(--text-sub)",
-            padding: 0,
-            fontSize: 14
-          }}
-        >
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M18 6 6 18M6 6l12 12" />
-          </svg>
-        </button>
+      <aside className={"app-shell__sidebar" + (sidebarOpen ? "" : " is-collapsed")} style={{ position: "relative" }}>
+        {/* 사이드바 우측 상단 토글 버튼 */}
+        <div style={{ position: "absolute", top: 10, right: 6, zIndex: 10 }}>
+          <HamburgerButton onClick={() => setSidebarOpen(false)} title="사이드바 닫기" />
+        </div>
         {sidebar}
       </aside>
 
       <main className="app-shell__main">
-        <div className="app-shell__topbar">{topbar}</div>
+        <div className="app-shell__topbar">
+          {/* 사이드바가 닫혔을 때만 topbar에 토글 버튼 표시 */}
+          {!sidebarOpen && (
+            <HamburgerButton onClick={() => setSidebarOpen(true)} title="사이드바 열기" />
+          )}
+          {topbar}
+        </div>
         <div className="app-shell__body">
           <section className="app-shell__content">{main}</section>
 
