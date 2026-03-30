@@ -1,4 +1,4 @@
-﻿import { runAdapter } from "./adapterDispatcher.js"
+import { runAdapter } from "./adapterDispatcher.js"
 import { resolveAdaptiveRoute } from "./adaptiveRouter.js"
 import { judge } from "./judge.js"
 import { detectTaskType, extractPlanningSignals, planRequest } from "./planner.js"
@@ -6,6 +6,7 @@ import { extractClaims } from "./claims.js"
 import { detectConflicts } from "./conflicts.js"
 import { readScoreboard, recordProviderExecution, recordProviderConflict } from "./scoreboard.js"
 import { getLatestProjectContext } from "../memory/projectMemory.js"
+import { getProjectThreadMemories, findSimilarQuery } from "../memory/threadMemory.js"
 
 function hasText(value: any) {
   return typeof value === "string" && value.trim().length > 0
@@ -56,6 +57,63 @@ function extractInboundMessage(input: any) {
   }
 
   return ""
+}
+
+function buildThreadFusionBlock(
+  projectId: string,
+  currentThreadId: string,
+  query: string
+): string {
+  if (!projectId || !query || query.length < 20) return ""
+
+  // 같은 프로젝트의 다른 스레드에서 유사 쿼리 검색
+  const similarResults = findSimilarQuery(query, projectId, {
+    threshold: 0.30,
+    limit: 3
+  })
+
+  const relevantThreads = similarResults.filter(
+    (r) => r.thread_id !== currentThreadId && r.matched_answer?.trim()
+  )
+
+  if (relevantThreads.length === 0) return ""
+
+  // 최신 스레드 structured memory도 추가로 주입
+  const allThreads = getProjectThreadMemories(projectId)
+    .filter((t) => t.thread_id !== currentThreadId)
+    .slice(0, 3)
+
+  const threadDecisions: string[] = []
+  const threadFacts: string[] = []
+
+  for (const thread of allThreads) {
+    const decisions = thread.structured?.decisions ?? []
+    const facts = thread.structured?.facts ?? []
+    threadDecisions.push(...decisions.slice(0, 2))
+    threadFacts.push(...facts.slice(0, 2))
+  }
+
+  const lines: string[] = ["[THREAD MEMORY]", ""]
+
+  for (const result of relevantThreads) {
+    lines.push(`[관련 스레드 내용]`)
+    lines.push(result.matched_answer.slice(0, 300))
+    lines.push("")
+  }
+
+  if (threadDecisions.length > 0) {
+    lines.push("[이전 스레드 결정사항]")
+    lines.push(...[...new Set(threadDecisions)].slice(0, 4))
+    lines.push("")
+  }
+
+  if (threadFacts.length > 0) {
+    lines.push("[이전 스레드 핵심 사실]")
+    lines.push(...[...new Set(threadFacts)].slice(0, 4))
+    lines.push("")
+  }
+
+  return lines.join("\n").trim()
 }
 
 function buildProjectContextBlock(projectContext: any) {
@@ -144,18 +202,54 @@ function buildInputWithRetrievalContext(input: any, rawInboundMessage: string) {
     }
   }
 
-  const enrichedInboundMessage = `${contextBlock}
+  // Thread fusion: 같은 프로젝트의 다른 스레드 자동 검색/주입
+  const currentThreadId = String(input?.thread_id ?? "").trim()
+  const threadFusionBlock = buildThreadFusionBlock(projectId, currentThreadId, rawText)
+
+  const fullContextBlock = threadFusionBlock
+    ? `${contextBlock}\n\n${threadFusionBlock}`
+    : contextBlock
+
+  const enrichedInboundMessage = `${fullContextBlock}
 
 [USER INPUT]
 ${rawText}`.trim()
+
+  // messages 배열이 있을 경우 마지막 user 메시지를 enrichedInboundMessage로 교체
+  // 그렇지 않으면 adapterDispatcher가 messages 배열을 우선 사용하여 PROJECT CONTEXT가 무시됨
+  const inputMessages = Array.isArray(input?.messages) ? input.messages : []
+  let updatedMessages: typeof inputMessages | undefined = undefined
+
+  if (inputMessages.length > 0) {
+    // 마지막 user 메시지 인덱스 찾기
+    let lastUserIdx = -1
+    for (let i = inputMessages.length - 1; i >= 0; i--) {
+      if (String(inputMessages[i]?.role ?? "").trim().toLowerCase() === "user") {
+        lastUserIdx = i
+        break
+      }
+    }
+
+    if (lastUserIdx >= 0) {
+      updatedMessages = inputMessages.map((msg: any, idx: number) => {
+        if (idx !== lastUserIdx) return msg
+        return {
+          ...msg,
+          content: enrichedInboundMessage
+        }
+      })
+    }
+  }
 
   return {
     effectiveInput: {
       ...input,
       message: enrichedInboundMessage,
+      ...(updatedMessages ? { messages: updatedMessages } : {}),
       metadata: {
         ...(input?.metadata ?? {}),
-        retrieval_context: projectContext?.retrieval_context ?? null
+        retrieval_context: projectContext?.retrieval_context ?? null,
+        thread_fusion_applied: threadFusionBlock.length > 0
       }
     },
     retrievalContext: projectContext,
@@ -1625,6 +1719,3 @@ ${perplexityResult.text}
     }
   }
 }
-
-
-
