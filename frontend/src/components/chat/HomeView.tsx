@@ -1,6 +1,8 @@
-﻿import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ProjectGroup, Thread, WorkspaceKind } from "../../types/workspace";
 import ProjectHomeView from "../project/ProjectHomeView";
+
+type AttachedFile = { name: string; type: string; base64: string; size: number };
 
 type Props = {
   workspaceKind: WorkspaceKind;
@@ -16,6 +18,8 @@ type Props = {
   onRemoveFromProject?: (threadId: string) => void;
   onDeleteThread?: (threadId: string) => void;
   projectGroups?: ProjectGroup[];
+  attachedFile?: AttachedFile | null;
+  onAttachFile?: (file: AttachedFile | null) => void;
 };
 
 function PlusIcon() {
@@ -177,36 +181,185 @@ function ImagesPlaceholder() {
   );
 }
 
-function HomeComposer({ placeholder, isSending, onSubmit }: { placeholder: string; isSending: boolean; onSubmit: (value: string) => void; }) {
+function HomeComposer({
+  placeholder, isSending, onSubmit, attachedFile, onAttachFile
+}: {
+  placeholder: string;
+  isSending: boolean;
+  onSubmit: (value: string) => void;
+  attachedFile?: AttachedFile | null;
+  onAttachFile?: (file: AttachedFile | null) => void;
+}) {
   const [value, setValue] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // 메뉴 외부 클릭 시 닫기
+  useState(() => {
+    function handleClick(e: MouseEvent) {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  });
+
   function handleSubmit() {
     const trimmed = value.trim();
-    if (!trimmed || isSending) return;
+    if ((!trimmed && !attachedFile) || isSending) return;
     onSubmit(trimmed);
     setValue("");
   }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 20 * 1024 * 1024) { alert("20MB 이하 파일만 가능합니다."); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(",")[1] ?? result;
+      onAttachFile?.({ name: file.name, type: file.type, base64, size: file.size });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }
+
   return (
-    <div className="launcher-composer">
+    <div
+      className="launcher-composer"
+      onDragOver={e => { e.preventDefault(); (e.currentTarget as HTMLElement).style.outline = "2px dashed var(--text-soft)"; }}
+      onDragLeave={e => { (e.currentTarget as HTMLElement).style.outline = ""; }}
+      onDrop={async e => {
+        e.preventDefault();
+        (e.currentTarget as HTMLElement).style.outline = "";
+        const file = e.dataTransfer.files?.[0];
+        if (!file) return;
+        if (file.size > 20 * 1024 * 1024) { alert("20MB 이하 파일만 가능합니다."); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          const base64 = result.split(",")[1] ?? result;
+          onAttachFile?.({ name: file.name, type: file.type, base64, size: file.size });
+        };
+        reader.readAsDataURL(file);
+      }}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,.pdf,.txt,.md,.csv,.json,.ts,.tsx,.js,.jsx,.py"
+        style={{ display: "none" }}
+        onChange={handleFileChange}
+      />
+
+      {/* 첨부 파일 미리보기 */}
+      {attachedFile && (
+        <div style={{ padding: "8px 14px 0", display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 8, background: "var(--surface-1)", border: "1px solid var(--border)", fontSize: 12 }}>
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: "var(--text-sub)", flexShrink: 0 }}>
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
+            </svg>
+            <span style={{ color: "var(--text-main)", fontWeight: 500, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{attachedFile.name}</span>
+            <span style={{ color: "var(--text-soft)", fontSize: 11 }}>{(attachedFile.size / 1024).toFixed(0)}KB</span>
+            <button type="button" onClick={() => onAttachFile?.(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "var(--text-soft)", display: "flex", alignItems: "center" }}>
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12" /></svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="launcher-composer__input-wrap">
-        <button type="button" className="launcher-composer__ghost"><PlusIcon /></button>
-        <input value={value} onChange={e => setValue(e.target.value)}
+        <div ref={menuRef} style={{ position: "relative" }}>
+          <button
+            type="button"
+            className="launcher-composer__ghost"
+            onClick={() => setMenuOpen(o => !o)}
+            title="도구"
+          >
+            <PlusIcon />
+          </button>
+
+          {menuOpen && (
+            <div style={{
+              position: "absolute", left: 0, bottom: 40, zIndex: 60,
+              width: 260, padding: 8, border: "1px solid var(--border)",
+              borderRadius: 16, background: "#ffffff",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.10)",
+              display: "flex", flexDirection: "column" as const, gap: 4
+            }}>
+              <button type="button" onClick={() => { fileInputRef.current?.click(); setMenuOpen(false); }}
+                style={{ width: "100%", padding: "10px", borderRadius: 12, display: "flex", alignItems: "flex-start", gap: 10, border: "none", background: "none", cursor: "pointer", textAlign: "left" as const }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(17,24,39,0.05)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "none")}>
+                <span style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+                </span>
+                <span>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-main)" }}>사진 및 파일 업로드</div>
+                  <div style={{ fontSize: 12, color: "var(--text-sub)", marginTop: 2 }}>이미지, PDF, 텍스트 파일</div>
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
+        <input
+          value={value}
+          onChange={e => setValue(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleSubmit(); } }}
-          placeholder={placeholder} className="launcher-composer__input" />
+          placeholder={attachedFile ? "파일에 대해 질문하거나 Enter로 바로 전송" : placeholder}
+          className="launcher-composer__input"
+        />
         <div className="launcher-composer__actions">
-          <button type="button" className="launcher-composer__ghost"><MicIcon /></button>
-          <button type="button" className="launcher-composer__submit" onClick={handleSubmit} disabled={isSending || !value.trim()}><WaveIcon /></button>
+          <button
+            type="button"
+            className="launcher-composer__submit"
+            onClick={handleSubmit}
+            disabled={isSending || (!value.trim() && !attachedFile)}
+          >
+            <WaveIcon />
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-function GeneralHome({ isSending, onSubmitPrompt }: { isSending: boolean; onSubmitPrompt: (value: string) => void; }) {
+function GeneralHome({
+  isSending, onSubmitPrompt, attachedFile, onAttachFile
+}: {
+  isSending: boolean;
+  onSubmitPrompt: (value: string) => void;
+  attachedFile?: AttachedFile | null;
+  onAttachFile?: (file: AttachedFile | null) => void;
+}) {
   return (
-    <div className="general-home">
+    <div
+      className="general-home"
+      onDragOver={e => { e.preventDefault(); }}
+      onDrop={async e => {
+        e.preventDefault();
+        const file = e.dataTransfer.files?.[0];
+        if (!file) return;
+        if (file.size > 20 * 1024 * 1024) { alert("20MB 이하 파일만 가능합니다."); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          const base64 = result.split(",")[1] ?? result;
+          onAttachFile?.({ name: file.name, type: file.type, base64, size: file.size });
+        };
+        reader.readAsDataURL(file);
+      }}
+    >
       <div className="general-home__center">
         <h1 className="general-home__title">Mr.T 님, 어떻게 도와드릴까요?</h1>
-        <HomeComposer placeholder="무엇이든 물어보세요" isSending={isSending} onSubmit={onSubmitPrompt} />
+        <HomeComposer
+          placeholder="무엇이든 물어보세요"
+          isSending={isSending}
+          onSubmit={onSubmitPrompt}
+          attachedFile={attachedFile}
+          onAttachFile={onAttachFile}
+        />
       </div>
     </div>
   );
@@ -215,7 +368,8 @@ function GeneralHome({ isSending, onSubmitPrompt }: { isSending: boolean; onSubm
 export default function HomeView({
   workspaceKind, activeProject, generalThreads, projectThreads,
   sidebarView, isSending, onOpenThread, onSubmitPrompt,
-  onRenameThread, onMoveThread, onRemoveFromProject, onDeleteThread, projectGroups
+  onRenameThread, onMoveThread, onRemoveFromProject, onDeleteThread, projectGroups,
+  attachedFile, onAttachFile
 }: Props) {
   if (sidebarView === "search") {
     return (
@@ -254,7 +408,12 @@ export default function HomeView({
     return (
       <div className="home-view">
         <div className="home-view__scroll">
-          <GeneralHome isSending={isSending} onSubmitPrompt={onSubmitPrompt} />
+          <GeneralHome
+            isSending={isSending}
+            onSubmitPrompt={onSubmitPrompt}
+            attachedFile={attachedFile}
+            onAttachFile={onAttachFile}
+          />
         </div>
       </div>
     );

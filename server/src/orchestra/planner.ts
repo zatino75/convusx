@@ -1,4 +1,4 @@
-﻿export type PlannerSignals = {
+export type PlannerSignals = {
   benchmark_mode: boolean
   deep_analysis: boolean
   deep_research: boolean
@@ -32,10 +32,14 @@ export function extractPlanningSignals(input: string): PlannerSignals {
     "벤치마크"
   ])
 
-  const deep_analysis =
-    input.trim().length >= 300 ||
-    (input.includes("```") && input.trim().length >= 200) ||
-    includesAny(text, ["force_pro", "force_pro: true", "deep dive", "전문가 수준으로"])
+  const deep_analysis = includesAny(text, [
+    "deep analysis",
+    "analyze deeply",
+    "심층분석",
+    "깊게 분석",
+    "정밀 분석",
+    "자세히 분석"
+  ])
 
   const deep_research = includesAny(text, [
     "deep research",
@@ -48,18 +52,11 @@ export function extractPlanningSignals(input: string): PlannerSignals {
 
   const force_pro = includesAny(text, [
     "force_pro",
-    "force_pro: true",
     "force pro",
-    "pro mode",
     "use pro",
     "pro로",
     "pro 사용",
-    "gpt-5.4-pro",
-    "심층 분석",
-    "심층 연구",
-    "deep dive",
-    "전문가 수준",
-    "전문가 수준으로"
+    "gpt-5.4-pro"
   ])
 
   return {
@@ -135,10 +132,32 @@ export function detectTaskType(input: string): PlannedTask {
       "verify with sources",
       "시장조사",
       "리서치",
-      "조사",
+      "조사해줘",
       "최신 정보",
       "팩트체크",
-      "출처 확인"
+      "출처 확인",
+      "트렌드 분석",
+      "시장 동향",
+      "업계 동향",
+      "최근 동향",
+      "최신 트렌드",
+      "news search",
+      "검색해줘",
+      "실시간",
+      "오늘 기준",
+      "현재 기준",
+      // 법률 검토
+      "법률 검토", "계약서 검토", "법적 검토", "법적 위험", "법률 분석",
+      "계약서 분석", "약관 검토", "법률 리뷰", "법적 리스크", "legal review",
+      // 데이터 분석
+      "데이터 분석", "통계 분석", "수치 분석", "데이터 시각화",
+      "csv 분석", "엑셀 분석", "kpi 분석", "data analysis",
+      // 재무정보
+      "재무정보", "재무분석", "재무제표", "재무 분석", "손익계산서",
+      "밸류에이션", "투자분석", "공시 분석", "financial analysis",
+      // 상품 개발
+      "상품 개발", "제품 개발", "상품 기획", "브랜딩 전략", "시장 분석",
+      "경쟁사 분석", "swot 분석", "gtm 전략", "product development"
     ])
   ) {
     return "research"

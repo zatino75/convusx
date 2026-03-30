@@ -62,6 +62,7 @@ export type ModelRequest = {
   raw_input?: any
   stream?: boolean
   system_prompt?: string
+  force_pro?: boolean
   onToken?: (chunk: string, meta?: any) => void | Promise<void>
   onEvent?: (event: any) => void | Promise<void>
 }

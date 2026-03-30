@@ -1,4 +1,4 @@
-﻿import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
+import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
 
 function env(name: string): string {
   const value = (globalThis as any)?.process?.env?.[name]
@@ -421,4 +421,60 @@ export const openaiAdapter: ModelAdapter = {
 
 export async function generate(req: ModelRequest): Promise<ModelResponse> {
   return openaiAdapter.generate(req)
+}
+
+// ─── DALL-E 3 이미지 생성 ─────────────────────────────────────
+export async function generateImage(params: {
+  prompt: string
+  size?: "1024x1024" | "1792x1024" | "1024x1792"
+  quality?: "standard" | "hd"
+  style?: "vivid" | "natural"
+}): Promise<{ ok: boolean; url?: string; revised_prompt?: string; error?: string }> {
+  const apiKey = env("OPENAI_API_KEY")
+  if (!apiKey) return { ok: false, error: "missing OPENAI_API_KEY" }
+
+  const body = {
+    model: "dall-e-3",
+    prompt: params.prompt,
+    n: 1,
+    size: params.size ?? "1024x1024",
+    quality: params.quality ?? "standard",
+    style: params.style ?? "vivid",
+    response_format: "url"
+  }
+
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 60000)
+
+    const response = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    })
+
+    clearTimeout(timer)
+
+    const data = await response.json().catch(() => ({}))
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: data?.error?.message ?? `HTTP ${response.status}`
+      }
+    }
+
+    const url = data?.data?.[0]?.url
+    const revised_prompt = data?.data?.[0]?.revised_prompt
+
+    if (!url) return { ok: false, error: "no image url returned" }
+
+    return { ok: true, url, revised_prompt }
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "network_error" }
+  }
 }

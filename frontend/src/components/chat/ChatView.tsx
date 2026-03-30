@@ -40,6 +40,9 @@ type Props = {
   onSelectMessageVersion?: (messageId: string, direction: "prev" | "next") => void;
   showScrollToBottom?: boolean;
   onScrollToBottom?: () => void;
+  onDownloadSlide?: (slideData: any) => void;
+  attachedFile?: { name: string; type: string; base64: string; size: number } | null;
+  onAttachFile?: (file: { name: string; type: string; base64: string; size: number } | null) => void;
 };
 
 function formatTime(iso: string) {
@@ -190,12 +193,14 @@ function AssistantActionToolbar({
   visible,
   onCopy,
   onRegenerate,
-  onDelete
+  onDelete,
+  onFeedback
 }: {
   visible: boolean;
   onCopy: () => void;
   onRegenerate?: () => void;
   onDelete?: () => void;
+  onFeedback?: (feedback: "up" | "down") => void;
 }) {
   const [thumbState, setThumbState] = useState<"up" | "down" | null>(null);
 
@@ -224,7 +229,11 @@ function AssistantActionToolbar({
 
       <button
         type="button"
-        onClick={() => setThumbState(s => s === "up" ? null : "up")}
+        onClick={() => {
+          const next = thumbState === "up" ? null : "up";
+          setThumbState(next);
+          if (next === "up") onFeedback?.("up");
+        }}
         title="좋아요"
         style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "none", background: "none", cursor: "pointer", borderRadius: 6, color: thumbState === "up" ? "#10b981" : "var(--text-sub)" }}
         onMouseEnter={e => (e.currentTarget.style.background = "var(--surface-2, #f3f4f6)")}
@@ -235,7 +244,11 @@ function AssistantActionToolbar({
 
       <button
         type="button"
-        onClick={() => setThumbState(s => s === "down" ? null : "down")}
+        onClick={() => {
+          const next = thumbState === "down" ? null : "down";
+          setThumbState(next);
+          if (next === "down") onFeedback?.("down");
+        }}
         title="별로예요"
         style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "none", background: "none", cursor: "pointer", borderRadius: 6, color: thumbState === "down" ? "#ef4444" : "var(--text-sub)" }}
         onMouseEnter={e => (e.currentTarget.style.background = "var(--surface-2, #f3f4f6)")}
@@ -497,7 +510,8 @@ function MessageBubble({
   onRegenerate,
   onDeleteMessage,
   onRelatedQuestion,
-  onOpenArtifact
+  onOpenArtifact,
+  onDownloadSlide
 }: {
   message: Message;
   isEditing: boolean;
@@ -516,6 +530,7 @@ function MessageBubble({
   onRelatedQuestion?: (q: string) => void;
   onOpenArtifact?: (title: string, code: string, language: string) => void;
   onComposerAction?: (action: "deep-think" | "web-search" | "upload") => void;
+  onDownloadSlide?: (slideData: any) => void;
 }) {
   const isUser = message.role === "user";
   const isPending = message.status === "pending";
@@ -673,6 +688,50 @@ function MessageBubble({
               {message.content ? renderMessageContent(message.content, { onRelatedQuestion, onOpenArtifact }) : isPending ? "응답 생성 중..." : ""}
             </div>
 
+            {/* 슬라이드 다운로드 버튼 */}
+            {!isUser && (message as any)?.requestMeta?.slide_data && onDownloadSlide && (
+              <div style={{ margin: "10px 18px 4px" }}>
+                <button
+                  type="button"
+                  onClick={() => onDownloadSlide((message as any).requestMeta.slide_data)}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 7,
+                    padding: "7px 14px", borderRadius: 8,
+                    background: "#ffffff", color: "#374151",
+                    border: "1px solid #d1d5db", cursor: "pointer",
+                    fontSize: 13, fontWeight: 600,
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.07)"
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "#f3f4f6")}
+                  onMouseLeave={e => (e.currentTarget.style.background = "#ffffff")}
+                >
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  PPTX 다운로드
+                </button>
+              </div>
+            )}
+
+            {/* 이미지 표시 */}
+            {!isUser && !isPending && (message as any).requestMeta?.image_url && (
+              <div style={{ padding: "10px 18px 4px" }}>
+                <img
+                  src={(message as any).requestMeta.image_url}
+                  alt="AI 생성 이미지"
+                  style={{ maxWidth: "100%", width: 480, height: "auto", borderRadius: 12, display: "block", border: "1px solid var(--border)" }}
+                  onError={e => { (e.target as HTMLImageElement).style.display = "none" }}
+                />
+                {(message as any).requestMeta?.image_revised_prompt && (
+                  <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-sub)", fontStyle: "italic", maxWidth: 480 }}>
+                    {(message as any).requestMeta.image_revised_prompt}
+                  </div>
+                )}
+              </div>
+            )}
+
             {isPending ? (
               <div className="message__pending">
                 <span className="message__pending-dot" />
@@ -714,6 +773,26 @@ function MessageBubble({
                   }}
                   onRegenerate={onRegenerate}
                   onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
+                  onFeedback={async (feedback) => {
+                    const meta = (message as any).requestMeta;
+                    const provider = meta?.winnerProvider ?? meta?.displayWinner?.provider ?? null;
+                    const task = meta?.routerTask ?? "dialogue";
+                    const runnerUp = meta?.displayLosers?.[0] ?? null;
+                    if (!provider) return;
+                    try {
+                      await fetch("http://localhost:8000/api/feedback", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          feedback,
+                          provider,
+                          task,
+                          runner_up: runnerUp,
+                          message_id: message.id
+                        })
+                      });
+                    } catch {}
+                  }}
                 />
               </div>
             </div>
@@ -823,7 +902,9 @@ function Composer({
   textareaRef,
   onComposerAction,
   composerMode,
-  onClearComposerMode
+  onClearComposerMode,
+  attachedFile,
+  onAttachFile
 }: {
   draft: string;
   isSending: boolean;
@@ -834,8 +915,11 @@ function Composer({
   onComposerAction?: (action: ComposerMenuAction) => void;
   composerMode?: "deep-think" | "web-search" | null;
   onClearComposerMode?: () => void;
+  attachedFile?: { name: string; type: string; base64: string; size: number } | null;
+  onAttachFile?: (file: { name: string; type: string; base64: string; size: number } | null) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const menuRootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -873,19 +957,88 @@ function Composer({
   function handleKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (!isSending) {
+      if (!isSending && (draft.trim() || attachedFile)) {
         onSend();
       }
     }
   }
 
   function handleMenuAction(action: ComposerMenuAction) {
+    if (action === "upload") {
+      fileInputRef.current?.click();
+      setMenuOpen(false);
+      return;
+    }
     onComposerAction?.(action);
     setMenuOpen(false);
   }
 
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const maxSize = 20 * 1024 * 1024; // 20MB
+    if (file.size > maxSize) {
+      alert("파일 크기는 20MB 이하여야 합니다.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(",")[1] ?? result;
+      onAttachFile?.({ name: file.name, type: file.type, base64, size: file.size });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }
+
   return (
-    <div className="chat-composer">
+    <div
+      className="chat-composer"
+      onDragOver={e => { e.preventDefault(); e.currentTarget.style.outline = "2px dashed var(--text-soft)"; }}
+      onDragLeave={e => { e.currentTarget.style.outline = ""; }}
+      onDrop={async e => {
+        e.preventDefault();
+        e.currentTarget.style.outline = "";
+        const file = e.dataTransfer.files?.[0];
+        if (!file) return;
+        const maxSize = 20 * 1024 * 1024;
+        if (file.size > maxSize) { alert("20MB 이하 파일만 가능합니다."); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          const base64 = result.split(",")[1] ?? result;
+          onAttachFile?.({ name: file.name, type: file.type, base64, size: file.size });
+        };
+        reader.readAsDataURL(file);
+      }}
+    >
+      {/* hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,.pdf,.txt,.md,.csv,.json,.ts,.tsx,.js,.jsx,.py"
+        style={{ display: "none" }}
+        onChange={handleFileChange}
+      />
+
+      {/* 첨부파일 미리보기 */}
+      {attachedFile && (
+        <div style={{ padding: "8px 14px 0", display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 8, background: "var(--surface-1)", border: "1px solid var(--border)", fontSize: 12 }}>
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: "var(--text-sub)", flexShrink: 0 }}>
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
+            </svg>
+            <span style={{ color: "var(--text-main)", fontWeight: 500, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{attachedFile.name}</span>
+            <span style={{ color: "var(--text-soft)", fontSize: 11 }}>{(attachedFile.size / 1024).toFixed(0)}KB</span>
+            <button type="button" onClick={() => onAttachFile?.(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "var(--text-soft)", display: "flex", alignItems: "center" }}>
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12" /></svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       {composerMode && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px 0" }}>
           <span style={{
@@ -925,7 +1078,7 @@ function Composer({
           onChange={(event) => onDraftChange(event.target.value)}
           onKeyDown={handleKeyDown}
           rows={1}
-          placeholder="무엇이든 물어보세요"
+          placeholder={attachedFile ? "파일에 대해 질문하거나 Enter로 바로 전송" : "무엇이든 물어보세요"}
           className="chat-composer__textarea"
         />
 
@@ -939,7 +1092,7 @@ function Composer({
               }
               onSend();
             }}
-            disabled={!isSending && !draft.trim()}
+            disabled={!isSending && !draft.trim() && !attachedFile}
             className="chat-composer__send"
             aria-label={isSending ? "정지" : "전송"}
             title={isSending ? "생성 중지" : "전송"}
@@ -987,7 +1140,10 @@ export default function ChatView({
   messageVersionMap = {},
   onSelectMessageVersion,
   showScrollToBottom = false,
-  onScrollToBottom
+  onScrollToBottom,
+  onDownloadSlide,
+  attachedFile,
+  onAttachFile
 }: Props) {
   const visibleMessages = useMemo(
     () => (activeThread?.messages ?? []).filter((message) => !message.isHidden),
@@ -1019,9 +1175,26 @@ export default function ChatView({
     );
   }
 
+  async function handleGlobalDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    const maxSize = 20 * 1024 * 1024;
+    if (file.size > maxSize) { alert("20MB 이하 파일만 가능합니다."); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(",")[1] ?? result;
+      onAttachFile?.({ name: file.name, type: file.type, base64, size: file.size });
+    };
+    reader.readAsDataURL(file);
+  }
+
   return (
     <div
       className="chat-view"
+      onDragOver={e => { e.preventDefault(); }}
+      onDrop={handleGlobalDrop}
       style={{
         position: "relative"
       }}
@@ -1049,6 +1222,7 @@ export default function ChatView({
               onDeleteMessage={onDeleteMessage}
               onRelatedQuestion={onRelatedQuestion}
               onOpenArtifact={onOpenArtifact}
+              onDownloadSlide={onDownloadSlide}
             />
           ))}
 
@@ -1099,6 +1273,8 @@ export default function ChatView({
             composerMode={composerMode}
             onClearComposerMode={onClearComposerMode}
             textareaRef={textareaRef}
+            attachedFile={attachedFile}
+            onAttachFile={onAttachFile}
           />
 
           <div className="chat-footer-note">AI Orchestra는 실수를 할 수 있습니다. 중요한 정보는 확인하십시오.</div>

@@ -68,9 +68,16 @@ function normalizeTask(task: any): OrxTask {
   const value = String(task ?? "").trim().toLowerCase()
 
   if (value.includes("code")) return "code"
-  if (value.includes("research")) return "research"
   if (value.includes("reasoning")) return "reasoning"
   if (value.includes("evidence")) return "evidence"
+  // 전용 파이프라인 task → research
+  if (
+    value.includes("research") ||
+    value.includes("legal_review") ||
+    value.includes("data_analysis") ||
+    value.includes("finance_analysis") ||
+    value.includes("product_development")
+  ) return "research"
 
   return "dialogue"
 }
@@ -191,9 +198,10 @@ function shouldPromoteByBoard(params: {
   const currentNode = getModelNode(params.board, params.provider, params.task, params.currentModel)
   const nextNode = getModelNode(params.board, params.provider, params.task, params.nextModel)
 
+  // next 모델 데이터가 충분해야 승격 허용
   const nextHasSignal =
-    safeNumber(nextNode?.recent_runs) >= 3 ||
-    safeNumber(nextNode?.runs) >= 5
+    safeNumber(nextNode?.recent_runs) >= 2 ||
+    safeNumber(nextNode?.runs) >= 3
 
   if (!nextHasSignal) {
     return false
@@ -204,14 +212,15 @@ function shouldPromoteByBoard(params: {
   const scoreGap = nextScore - currentScore
 
   const currentWeak =
-    safeNumber(currentNode?.recent_success_rate) < 0.45 ||
-    safeNumber(currentNode?.recent_win_rate) < 0.35
+    safeNumber(currentNode?.recent_success_rate) < 0.50 ||
+    safeNumber(currentNode?.recent_win_rate) < 0.40
 
   const nextStrong =
-    safeNumber(nextNode?.recent_success_rate) >= 0.7 &&
-    safeNumber(nextNode?.recent_win_rate) >= 0.6
+    safeNumber(nextNode?.recent_success_rate) >= 0.65 &&
+    safeNumber(nextNode?.recent_win_rate) >= 0.55
 
-  return scoreGap >= 0.12 || (currentWeak && nextStrong)
+  // scoreGap 0.08로 완화 (기존 0.12)
+  return scoreGap >= 0.08 || (currentWeak && nextStrong)
 }
 
 function shouldForceOpenAIPro(params: {
@@ -251,18 +260,16 @@ function pickTieredModel(params: {
       return "gpt-5.4-pro"
     }
 
-    const currentModel = "gpt-5.4"
-    const nextModel = "gpt-5.4-pro"
-
+    // scoreboard 데이터 기반 자동 승격 — allow_auto_promote_pro 조건 제거
     const canPromote = shouldPromoteByBoard({
       board,
       provider: params.provider,
       task: params.task,
-      currentModel,
-      nextModel
+      currentModel: "gpt-5.4",
+      nextModel: "gpt-5.4-pro"
     })
 
-    if (canPromote && Boolean(params.input?.allow_auto_promote_pro)) {
+    if (canPromote) {
       return "gpt-5.4-pro"
     }
 
@@ -274,6 +281,23 @@ function pickTieredModel(params: {
   }
 
   if (params.provider === "claude") {
+    if (shouldForceOpenAIPro({ task: params.task, input: params.input })) {
+      return "claude-opus-4-6"
+    }
+
+    // scoreboard 기반 Claude opus 자동 승격
+    const canPromoteClaude = shouldPromoteByBoard({
+      board,
+      provider: params.provider,
+      task: params.task,
+      currentModel: "claude-sonnet-4-6",
+      nextModel: "claude-opus-4-6"
+    })
+
+    if (canPromoteClaude) {
+      return "claude-opus-4-6"
+    }
+
     return "claude-sonnet-4-6"
   }
 
@@ -344,10 +368,10 @@ function buildTimeoutMs(provider: string, task: OrxTask, input?: any): number {
   }
 
   if (provider === "gemini") {
-    if (task === "research") return 55000
-    if (task === "reasoning") return 50000
-    if (task === "code") return 50000
-    return 45000
+    if (task === "research") return 20000
+    if (task === "reasoning") return 20000
+    if (task === "code") return 20000
+    return 20000
   }
 
   if (provider === "claude") {
@@ -379,8 +403,7 @@ function buildMaxRetries(provider: string, task: OrxTask, input?: any): number {
   }
 
   if (provider === "gemini") {
-    if (task === "research" || task === "reasoning") return 1
-    return 1
+    return 0
   }
 
   return 1
@@ -504,6 +527,8 @@ function buildPayload(input: DispatchInput) {
       typeof input?.input?.max_retries === "number"
         ? input.input.max_retries
         : buildMaxRetries(provider, task, input?.input),
+    // abort_signal: 클라이언트 ESC → chat.ts → runtime.ts → dispatcher → adapter
+    abort_signal: input?.input?.abort_signal ?? null,
     metadata: {
       ...(input?.input?.metadata ?? {}),
       normalized_task: task
@@ -757,6 +782,12 @@ export async function dispatchProvider(input: DispatchInput): Promise<any> {
     return buildFallbackResponse(input, "registry_not_found")
   }
 
+  // 클라이언트 abort 신호 — adapter 호출 전 체크
+  const abortSignal: AbortSignal | null = payload.abort_signal ?? null
+  if (abortSignal?.aborted) {
+    return buildFallbackResponse(input, "aborted")
+  }
+
   for (const resolver of resolvers) {
     const mod = await tryImportModule(resolver.modulePath)
     if (!mod) continue
@@ -771,6 +802,7 @@ export async function dispatchProvider(input: DispatchInput): Promise<any> {
       const streamingPayload = buildStreamingPayload(input, payload)
       const result = await fn({
         ...streamingPayload,
+        abort_signal: abortSignal,
         onToken: async (chunk: string, meta?: any) => {
           const safeChunk = typeof chunk === "string" ? chunk : String(chunk ?? "")
           if (safeChunk.length > 0) {

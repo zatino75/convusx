@@ -1,6 +1,6 @@
-﻿import { decayRecentBanditSignals, readRoutingScores } from "./scoreboard.js"
+import { decayRecentBanditSignals, readRoutingScores } from "./scoreboard.js"
 
-export type AdaptiveTask = "dialogue" | "reasoning" | "research" | "code"
+export type AdaptiveTask = "dialogue" | "reasoning" | "research" | "code" | "long_doc" | "writing"
 
 export type ExecutionStrategy =
   | "single_primary"
@@ -50,8 +50,18 @@ function normalizeTask(task: any): AdaptiveTask {
   const value = String(task ?? "").trim().toLowerCase()
 
   if (value.includes("code")) return "code"
-  if (value.includes("research")) return "research"
+  if (value.includes("long_doc") || value.includes("document")) return "long_doc"
+  if (value.includes("writing") || value.includes("creative")) return "writing"
   if (value.includes("reasoning")) return "reasoning"
+  // 전용 파이프라인 task → research 라우팅
+  if (
+    value.includes("research") ||
+    value.includes("legal_review") ||
+    value.includes("data_analysis") ||
+    value.includes("finance_analysis") ||
+    value.includes("product_development") ||
+    value.includes("deep_research")
+  ) return "research"
 
   return "dialogue"
 }
@@ -76,60 +86,40 @@ function getRoutingRows(task: AdaptiveTask) {
   return readRoutingScores(task)
 }
 
+// 2026년 3월 벤치마크 기반 태스크별 provider 가중치
+// - Claude: SWE-bench 코딩 1위(80.8%), 글쓰기/문서 1위(128K 출력)
+// - Gemini: ARC-AGI-2 추론 1위(77.1%), 1M 컨텍스트, 최저가
+// - OpenAI: 올라운더, 에이전트 실행(Terminal-Bench 1위), 사실확인
+// - Perplexity: 실시간 리서치 1위, 팩트 정확도 93.9%
+const TASK_WEIGHTS: Record<string, Record<string, number>> = {
+  code:     { claude: 0.12, openai: 0.06, gemini: 0.01, perplexity: 0.00 },
+  writing:  { claude: 0.14, openai: 0.04, gemini: 0.02, perplexity: 0.00 },
+  dialogue: { claude: 0.10, openai: 0.06, gemini: 0.02, perplexity: 0.01 },
+  reasoning:{ gemini: 0.12, openai: 0.08, claude: 0.06, perplexity: 0.00 },
+  research: { perplexity: 0.12, claude: 0.07, openai: 0.05, gemini: 0.03 },
+  long_doc: { gemini: 0.14, claude: 0.08, openai: 0.03, perplexity: 0.01 }
+}
+
 function rankProviders(task: AdaptiveTask) {
   const ranked = getRoutingRows(task)
     .filter((x) => ["openai", "claude", "gemini", "perplexity"].includes(x.provider))
 
-  if (task === "code") {
-    ranked.sort((a, b) => {
-      const weightA = a.provider === "claude" ? 0.08 : a.provider === "openai" ? 0.05 : 0
-      const weightB = b.provider === "claude" ? 0.08 : b.provider === "openai" ? 0.05 : 0
-      return (b.bandit_score + weightB) - (a.bandit_score + weightA)
-    })
-  }
+  const weights = TASK_WEIGHTS[task] ?? TASK_WEIGHTS["dialogue"]
 
-  if (task === "research") {
-    ranked.sort((a, b) => {
-      const weightA =
-        a.provider === "openai" ? 0.07 :
-        a.provider === "claude" ? 0.04 :
-        a.provider === "perplexity" ? 0.035 :
-        a.provider === "gemini" ? 0.025 : 0
-
-      const weightB =
-        b.provider === "openai" ? 0.07 :
-        b.provider === "claude" ? 0.04 :
-        b.provider === "perplexity" ? 0.035 :
-        b.provider === "gemini" ? 0.025 : 0
-
-      return (b.bandit_score + weightB) - (a.bandit_score + weightA)
-    })
-  }
-
-  if (task === "reasoning") {
-    ranked.sort((a, b) => {
-      const weightA =
-        a.provider === "openai" ? 0.07 :
-        a.provider === "claude" ? 0.04 :
-        a.provider === "gemini" ? 0.02 : 0
-
-      const weightB =
-        b.provider === "openai" ? 0.07 :
-        b.provider === "claude" ? 0.04 :
-        b.provider === "gemini" ? 0.02 : 0
-
-      return (b.bandit_score + weightB) - (a.bandit_score + weightA)
-    })
-  }
+  ranked.sort((a, b) => {
+    const wA = weights[a.provider] ?? 0
+    const wB = weights[b.provider] ?? 0
+    return (b.bandit_score + wB) - (a.bandit_score + wA)
+  })
 
   return ranked
 }
 
 function shouldUsePro(task: AdaptiveTask, params: any): boolean {
-  if (Boolean(params?.force_pro)) return true
   if (task !== "reasoning" && task !== "research") return false
 
   return Boolean(
+    params?.force_pro ||
     params?.benchmark_mode ||
     params?.deep_analysis ||
     params?.deep_research
@@ -137,12 +127,32 @@ function shouldUsePro(task: AdaptiveTask, params: any): boolean {
 }
 
 function buildExecutionPolicy(task: AdaptiveTask, params: any) {
+  const allowOptional = Boolean(params?.benchmark_mode || params?.deep_analysis || params?.deep_research || params?.force_pro)
+
   if (task === "dialogue") {
     return {
-      max_parallel: 1,
+      max_parallel: 2,  // Claude primary + OpenAI verifier
       cost_gate_enabled: true,
-      max_total_estimated_cost_usd: 0.03,
+      max_total_estimated_cost_usd: 0.05,
       prefer_fast_fallback: true
+    }
+  }
+
+  if (task === "writing") {
+    return {
+      max_parallel: allowOptional ? 2 : 1,
+      cost_gate_enabled: true,
+      max_total_estimated_cost_usd: 0.06,
+      prefer_fast_fallback: false
+    }
+  }
+
+  if (task === "long_doc") {
+    return {
+      max_parallel: 2,
+      cost_gate_enabled: true,
+      max_total_estimated_cost_usd: 0.10,
+      prefer_fast_fallback: false
     }
   }
 
@@ -239,76 +249,79 @@ function fallbackOrder(ranked: any[], excluded: string[], preferFast: boolean): 
   return uniqueProviders(ordered.map((x) => x.provider))
 }
 
+// 벤치마크 기반 역할 배정
+// code:     Claude(primary) + OpenAI Codex(verifier)          — SWE-bench 기반
+// writing:  Claude(primary) + OpenAI(verifier)                — 글쓰기/문서 품질
+// dialogue: Claude(primary) + OpenAI(verifier)                — 자연스러운 대화
+// reasoning:Gemini(primary) + OpenAI(verifier) + Claude(opt)  — ARC-AGI-2 기반
+// research: Perplexity(primary) + Claude(verifier) + OpenAI(opt) — 실시간+분석
+// long_doc: Gemini(primary) + Claude(verifier)                — 1M context 기반
 function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
-  // force_pro일 때 reasoning으로 강제 + verifier 보장
-  if (Boolean(params?.force_pro) && task !== "code" && task !== "research") {
-    const primaryProvider = "openai"
-    const excluded = uniqueProviders([primaryProvider])
-    const verifier = pickTopAvailable(ranked, excluded, ["claude", "gemini", "perplexity"])
-    const optionalExcluded = uniqueProviders([...excluded, ...(verifier ? [verifier] : [])])
-    const optional = pickTopAvailable(ranked, optionalExcluded, ["gemini", "claude", "perplexity"])
+  const allowOptional = Boolean(
+    params?.benchmark_mode ||
+    params?.deep_analysis ||
+    params?.deep_research ||
+    params?.force_pro
+  )
+
+  if (task === "code") {
     return {
-      selected_providers: [primaryProvider],
-      verifier_providers: verifier ? [verifier] : [],
-      optional_providers: optional ? [optional] : [],
-      scout_providers: []
-    }
-  }
-
-  const keepOpenAIPrimary = chooseOpenAIPrimaryOverride(task, params, ranked)
-  const bestProvider = ranked[0]?.provider ?? "openai"
-  const primaryProvider = keepOpenAIPrimary ? "openai" : bestProvider
-
-  const excludedBase = uniqueProviders([primaryProvider])
-
-  if (task === "dialogue") {
-    return {
-      selected_providers: [primaryProvider],
-      verifier_providers: [],
+      selected_providers: ["claude"],
+      verifier_providers: ["openai"],
       optional_providers: [],
       scout_providers: []
     }
   }
 
-  if (task === "code") {
-    // code는 Claude 강제 primary
-    const codePrimary = "claude"
-    const codeExcluded = uniqueProviders([codePrimary])
-    const verifier = pickTopAvailable(ranked, codeExcluded, ["openai", "gemini", "perplexity"])
+  if (task === "writing") {
     return {
-      selected_providers: [codePrimary],
-      verifier_providers: verifier ? [verifier] : [],
+      selected_providers: ["claude"],
+      verifier_providers: allowOptional ? ["openai"] : [],
+      optional_providers: [],
+      scout_providers: []
+    }
+  }
+
+  if (task === "dialogue") {
+    return {
+      selected_providers: ["claude"],
+      verifier_providers: ["openai"],
       optional_providers: [],
       scout_providers: []
     }
   }
 
   if (task === "reasoning") {
-    if (Boolean(params?.deep_analysis || params?.force_pro)) {
-      const verifier = pickTopAvailable(ranked, excludedBase, ["claude", "gemini", "perplexity"])
-      return {
-        selected_providers: [primaryProvider],
-        verifier_providers: verifier ? [verifier] : [],
-        optional_providers: [],
-        scout_providers: []
-      }
-    }
     return {
-      selected_providers: [primaryProvider],
-      verifier_providers: [],
+      selected_providers: ["gemini"],
+      verifier_providers: ["openai"],
+      optional_providers: allowOptional ? ["claude"] : [],
+      scout_providers: []
+    }
+  }
+
+  if (task === "research") {
+    return {
+      selected_providers: ["perplexity"],
+      verifier_providers: ["claude"],
+      optional_providers: allowOptional ? ["openai"] : [],
+      scout_providers: []
+    }
+  }
+
+  if (task === "long_doc") {
+    return {
+      selected_providers: ["gemini"],
+      verifier_providers: ["claude"],
       optional_providers: [],
       scout_providers: []
     }
   }
 
-  // research: Perplexity primary + OpenAI synthesis verifier
-  const researchPrimary = "perplexity"
-  const researchExcluded = uniqueProviders([researchPrimary])
-  const researchVerifier = "openai"
-
+  // fallback
   return {
-    selected_providers: [researchPrimary],
-    verifier_providers: [researchVerifier],
+    selected_providers: ["claude"],
+    verifier_providers: ["openai"],
     optional_providers: [],
     scout_providers: []
   }
@@ -397,7 +410,7 @@ export function resolveAdaptiveRoute(params: any): AdaptiveRouteDecision {
     parallel_providers: parallelProviders,
     execution_strategy: executionStrategy,
     parallel_width: parallelProviders.length,
-    router_policy: "openai_primary_role_aware_bandit_router",
+    router_policy: "benchmark_based_task_optimized_router_v2",
     provider_scores: providerScores,
     provider_costs: providerCosts,
     provider_latency: providerLatency,
@@ -414,4 +427,3 @@ export function resolveAdaptiveRoute(params: any): AdaptiveRouteDecision {
     }
   }
 }
-

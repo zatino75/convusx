@@ -17,10 +17,10 @@ function HamburgerButton({ onClick, title }: { onClick: () => void; title: strin
       title={title}
       style={{
         flexShrink: 0,
-        width: 32,
-        height: 32,
+        width: 36,
+        height: 36,
         border: "none",
-        borderRadius: 6,
+        borderRadius: 8,
         background: "transparent",
         cursor: "pointer",
         display: "flex",
@@ -29,8 +29,10 @@ function HamburgerButton({ onClick, title }: { onClick: () => void; title: strin
         color: "var(--text-sub)",
         padding: 0
       }}
+      onMouseEnter={e => (e.currentTarget.style.background = "rgba(0,0,0,0.06)")}
+      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
     >
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M3 6h18M3 12h18M3 18h18" />
       </svg>
     </button>
@@ -68,8 +70,7 @@ export default function AppShell({ sidebar, topbar, main, artifact, showPanel = 
   return (
     <div className={"app-shell" + (hasPanel ? " app-shell--with-artifact" : "")}>
       <aside className={"app-shell__sidebar" + (sidebarOpen ? "" : " is-collapsed")} style={{ position: "relative" }}>
-        {/* 사이드바 우측 상단 토글 버튼 */}
-        <div style={{ position: "absolute", top: 10, right: 6, zIndex: 10 }}>
+        <div style={{ position: "absolute", top: 8, right: 4, zIndex: 10 }}>
           <HamburgerButton onClick={() => setSidebarOpen(false)} title="사이드바 닫기" />
         </div>
         {sidebar}
@@ -77,7 +78,6 @@ export default function AppShell({ sidebar, topbar, main, artifact, showPanel = 
 
       <main className="app-shell__main">
         <div className="app-shell__topbar">
-          {/* 사이드바가 닫혔을 때만 topbar에 토글 버튼 표시 */}
           {!sidebarOpen && (
             <HamburgerButton onClick={() => setSidebarOpen(true)} title="사이드바 열기" />
           )}
@@ -88,7 +88,6 @@ export default function AppShell({ sidebar, topbar, main, artifact, showPanel = 
 
           {artifact && (
             <>
-              {/* 드래그 핸들 */}
               {showPanel && (
                 <div
                   onMouseDown={onMouseDown}
@@ -106,41 +105,6 @@ export default function AppShell({ sidebar, topbar, main, artifact, showPanel = 
                   title="드래그하여 너비 조절"
                 />
               )}
-
-              {/* 패널 토글 탭 버튼 */}
-              <button
-                type="button"
-                onClick={onTogglePanel}
-                title={showPanel ? "패널 닫기" : "패널 열기"}
-                style={{
-                  position: "absolute",
-                  right: showPanel ? panelWidth - 1 : 0,
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  zIndex: 20,
-                  width: 20,
-                  height: 48,
-                  border: "1px solid var(--border)",
-                  borderRight: showPanel ? "none" : "1px solid var(--border)",
-                  borderLeft: showPanel ? "1px solid var(--border)" : "none",
-                  borderRadius: showPanel ? "6px 0 0 6px" : "0 6px 6px 0",
-                  background: "var(--bg-surface, #fff)",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "var(--text-sub)",
-                  padding: 0
-                }}
-              >
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2">
-                  {showPanel
-                    ? <path d="m9 6 6 6-6 6" />
-                    : <path d="m15 6-6 6 6 6" />}
-                </svg>
-              </button>
-
-              {/* 패널 본체 */}
               <aside
                 className="app-shell__artifact"
                 style={{

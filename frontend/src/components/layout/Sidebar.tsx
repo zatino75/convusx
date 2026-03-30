@@ -1,5 +1,12 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ProjectGroup, Thread } from "../../types/workspace";
+
+type ArtifactItem = {
+  id: string;
+  title: string;
+  code: string;
+  language: string;
+};
 
 type Props = {
   generalThreads: Thread[];
@@ -7,10 +14,13 @@ type Props = {
   projects: ProjectGroup[];
   activeProjectId: string;
   activeThreadId: string | null;
-  sidebarView: "default" | "search" | "images";
+  sidebarView: "default" | "search" | "images" | "benchmark";
+  artifacts?: ArtifactItem[];
+  onOpenArtifact?: (title: string, code: string, language: string) => void;
   onOpenGeneralHome: () => void;
   onOpenSearch: () => void;
   onOpenImages: () => void;
+  onOpenBenchmark: () => void;
   onSelectProject: (projectId: string) => void;
   onSelectThread: (threadId: string) => void;
   onNewChat: () => void;
@@ -50,7 +60,7 @@ function LogoIcon() {
 
 function PlusIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.9">
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9">
       <path d="M12 5v14M5 12h14" />
     </svg>
   );
@@ -58,7 +68,7 @@ function PlusIcon() {
 
 function SearchIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.9">
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9">
       <circle cx="11" cy="11" r="6" />
       <path d="M20 20l-4-4" />
     </svg>
@@ -67,7 +77,7 @@ function SearchIcon() {
 
 function ImageIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.9">
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9">
       <rect x="4" y="5" width="16" height="14" rx="2" />
       <circle cx="9" cy="10" r="1.5" />
       <path d="m20 16-4.5-4.5L8 19" />
@@ -75,9 +85,26 @@ function ImageIcon() {
   );
 }
 
+function FileIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+    </svg>
+  );
+}
+
+function BenchmarkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9">
+      <path d="M18 20V10M12 20V4M6 20v-6" />
+    </svg>
+  );
+}
+
 function FolderIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.9">
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9">
       <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
     </svg>
   );
@@ -85,7 +112,7 @@ function FolderIcon() {
 
 function SettingsIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.9">
       <circle cx="12" cy="12" r="3.2" />
       <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a1 1 0 0 1-1.4 1.4l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V19a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a1 1 0 1 1-1.4-1.4l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H5a1 1 0 0 1-1-1v-1a1 1 0 0 1 1-1h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a1 1 0 1 1 1.4-1.4l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V5a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a1 1 0 1 1 1.4 1.4l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6H19a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1h-.2a1 1 0 0 0-.9.6z" />
     </svg>
@@ -686,15 +713,77 @@ function RecentThreadRow({
   );
 }
 
+function ArtifactRow({
+  artifact,
+  onClick
+}: {
+  artifact: ArtifactItem;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "5px 2px",
+        border: "none",
+        background: "none",
+        cursor: "pointer",
+        borderRadius: 6,
+        color: "var(--text-main)",
+        textAlign: "left",
+        minWidth: 0
+      }}
+      onMouseEnter={e => (e.currentTarget.style.background = "rgba(15,23,42,0.05)")}
+      onMouseLeave={e => (e.currentTarget.style.background = "none")}
+    >
+      <span style={{ flex: "0 0 auto", color: "var(--text-sub)", display: "flex", alignItems: "center" }}>
+        <FileIcon />
+      </span>
+      <span style={{
+        fontSize: 13,
+        fontWeight: 500,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        minWidth: 0
+      }}>
+        {artifact.title}
+      </span>
+      {artifact.language ? (
+        <span style={{
+          flex: "0 0 auto",
+          fontSize: 10,
+          fontWeight: 600,
+          padding: "1px 6px",
+          borderRadius: 4,
+          background: "rgba(15,23,42,0.07)",
+          color: "var(--text-sub)",
+          marginLeft: "auto"
+        }}>
+          {artifact.language}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 export default function Sidebar({
   generalThreads,
   projects,
   activeProjectId,
   activeThreadId,
   sidebarView,
+  artifacts = [],
+  onOpenArtifact,
   onOpenGeneralHome,
   onOpenSearch,
   onOpenImages,
+  onOpenBenchmark,
   onSelectProject,
   onSelectThread,
   onNewChat,
@@ -778,14 +867,30 @@ export default function Sidebar({
               </span>
               <span className="sidebar-logo__text">AI ORCHESTRA</span>
             </button>
-
           </div>
 
           <div className="sidebar__menu">
             <WorkspaceRow icon={<PlusIcon />} label="새 채팅" onClick={onNewChat} />
             <WorkspaceRow active={sidebarView === "search"} icon={<SearchIcon />} label="채팅 검색" onClick={onOpenSearch} />
             <WorkspaceRow active={sidebarView === "images"} icon={<ImageIcon />} label="이미지" onClick={onOpenImages} />
+            <WorkspaceRow active={sidebarView === "benchmark"} icon={<BenchmarkIcon />} label="벤치마크" onClick={onOpenBenchmark} />
           </div>
+
+          {/* 파일 섹션 — 아티팩트 목록 */}
+          {artifacts.length > 0 ? (
+            <div className="sidebar__section-block">
+              <div className="sidebar__section-label sidebar__section-label--large">파일</div>
+              <div style={{ paddingTop: 2 }}>
+                {artifacts.map((artifact) => (
+                  <ArtifactRow
+                    key={artifact.id}
+                    artifact={artifact}
+                    onClick={() => onOpenArtifact?.(artifact.title, artifact.code, artifact.language)}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="sidebar__section-block">
             <div className="sidebar__section-header">
@@ -852,7 +957,7 @@ export default function Sidebar({
             flex: "0 0 auto",
             borderTop: "1px solid var(--border)",
             padding: "10px 2px 0",
-            background: "var(--bg-sidebar)"
+            background: "transparent"
           }}
         >
           <button

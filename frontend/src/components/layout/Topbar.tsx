@@ -1,4 +1,3 @@
-﻿import { useState } from "react";
 import type { MainViewMode, WorkspaceKind } from "../../types/workspace";
 
 type Props = {
@@ -8,6 +7,7 @@ type Props = {
   threadTitle?: string;
   projectMemoryEnabled?: boolean;
   onBackToHome: () => void;
+  panelToggle?: React.ReactNode;
 };
 
 function GridIcon() {
@@ -37,34 +37,14 @@ function ChevronDownIcon() {
   );
 }
 
-function ShareIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M12 5v10" />
-      <path d="m8 9 4-4 4 4" />
-      <path d="M5 19h14" />
-    </svg>
-  );
-}
-
-function MoreIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-      <circle cx="5" cy="12" r="1.8" />
-      <circle cx="12" cy="12" r="1.8" />
-      <circle cx="19" cy="12" r="1.8" />
-    </svg>
-  );
-}
-
 export default function Topbar({
   mode,
   workspaceKind,
   projectTitle,
   threadTitle,
-  onBackToHome
+  onBackToHome,
+  panelToggle
 }: Props) {
-  const [showMore, setShowMore] = useState(false);
   const isThread = mode === "thread-chat";
   const isProject = workspaceKind === "project";
 
@@ -87,15 +67,11 @@ export default function Topbar({
 
   return (
     <header className="ui-topbar">
-      {/* 브레드크럼 */}
       <div className="ui-topbar__left" style={{ gap: 4, overflow: "hidden" }}>
-
-        {/* □ 홈 버튼 */}
         <button type="button" onClick={onBackToHome} style={crumbStyle} title="홈으로">
           <GridIcon />
         </button>
 
-        {/* 프로젝트명 */}
         {(isProject || isThread) && projectTitle && (
           <>
             <span style={sepStyle}><ChevronIcon /></span>
@@ -110,7 +86,6 @@ export default function Topbar({
           </>
         )}
 
-        {/* 스레드명 */}
         {isThread && threadTitle && (
           <>
             <span style={sepStyle}><ChevronIcon /></span>
@@ -120,7 +95,6 @@ export default function Topbar({
           </>
         )}
 
-        {/* general + home */}
         {!isProject && !isThread && (
           <>
             <span style={sepStyle}><ChevronIcon /></span>
@@ -131,52 +105,9 @@ export default function Topbar({
 
       <div className="ui-topbar__center" />
 
-      {/* 액션 버튼 */}
-      <div className="ui-topbar__actions" style={{ position: "relative" }}>
-        <button
-          type="button"
-          className="icon-button"
-          title="공유하기"
-          onClick={() => navigator.clipboard.writeText(window.location.href).catch(() => {})}
-          style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 12px", width: "auto", fontSize: 13, fontWeight: 500, color: "var(--text-main)", border: "1px solid var(--border)", borderRadius: 10, height: 34 }}
-        >
-          <ShareIcon />
-          공유하기
-        </button>
-
-        <div style={{ position: "relative" }}>
-          <button
-            type="button"
-            className="icon-button"
-            onClick={() => setShowMore(v => !v)}
-          >
-            <MoreIcon />
-          </button>
-
-          {showMore && (
-            <div
-              style={{ position: "absolute", right: 0, top: 40, zIndex: 50, background: "var(--bg-surface, #fff)", border: "1px solid var(--border)", borderRadius: 12, padding: "6px 0", minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,0.12)" }}
-              onMouseLeave={() => setShowMore(false)}
-            >
-              {[
-                { label: "이름 바꾸기", action: () => {} },
-                { label: "공유", action: () => navigator.clipboard.writeText(window.location.href).catch(() => {}) },
-                { label: "삭제", action: () => {}, danger: true }
-              ].map(item => (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={() => { item.action(); setShowMore(false); }}
-                  style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 16px", fontSize: 13, border: "none", background: "none", cursor: "pointer", color: (item as any).danger ? "#ef4444" : "var(--text-main)" }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "var(--surface-1, #f9f9f9)")}
-                  onMouseLeave={e => (e.currentTarget.style.background = "none")}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* 패널 토글 버튼 슬롯 */}
+      <div className="ui-topbar__actions">
+        {panelToggle ?? null}
       </div>
     </header>
   );

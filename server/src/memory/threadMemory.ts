@@ -119,8 +119,8 @@ export function findSimilarQuery(
   projectId: string,
   options?: { threshold?: number; limit?: number }
 ): SimilarQueryResult[] {
-  const threshold = options?.threshold ?? 0.35
-  const limit = options?.limit ?? 3
+  const threshold = options?.threshold ?? 0.25
+  const limit = options?.limit ?? 5
 
   const queryTokens = tokenize(query)
   if (queryTokens.size === 0) return []
@@ -130,22 +130,40 @@ export function findSimilarQuery(
   )
 
   const results: SimilarQueryResult[] = []
+  const seen = new Set<string>()
 
   for (const entry of projectEntries) {
     const userMessages = entry.messages.filter((m) => m.role === "user")
     const assistantMessages = entry.messages.filter((m) => m.role === "assistant")
 
+    // 스레드 제목도 매칭 대상에 포함
+    const titleTokens = entry.title ? tokenize(entry.title) : new Set<string>()
+    const titleScore = titleTokens.size > 0 ? jaccardScore(queryTokens, titleTokens) * 0.7 : 0
+
     for (let i = 0; i < userMessages.length; i++) {
       const userMsg = userMessages[i]
-      const score = jaccardScore(queryTokens, tokenize(userMsg.content))
+      const msgScore = jaccardScore(queryTokens, tokenize(userMsg.content))
+      
+      // structured summary도 점수에 반영
+      const summaryScore = entry.structured?.summary
+        ? jaccardScore(queryTokens, tokenize(entry.structured.summary)) * 0.5
+        : 0
+
+      const score = Math.max(msgScore, titleScore, summaryScore)
 
       if (score < threshold) continue
 
       const matchedAnswer =
-        assistantMessages[i]?.content ??
-        normalizeText(entry.structured?.summary)
+        assistantMessages[i]?.content ||
+        normalizeText(entry.structured?.summary) ||
+        ""
 
       if (!matchedAnswer) continue
+
+      // 같은 스레드에서 중복 제거 (가장 높은 점수만)
+      const key = `${entry.thread_id}:${i}`
+      if (seen.has(key)) continue
+      seen.add(key)
 
       results.push({
         thread_id: entry.thread_id,

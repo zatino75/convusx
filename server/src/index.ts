@@ -1,4 +1,4 @@
-﻿import dotenv from "dotenv"
+import dotenv from "dotenv"
 dotenv.config({ override: true })
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
@@ -9,7 +9,9 @@ const geminiKeyLoaded =
 
 console.log("[ENV] GEMINI_API_KEY:", geminiKeyLoaded ? "LOADED" : "EMPTY")
 
-import { runBenchmarkRoute } from "./routes/benchmark.js"
+import { runBenchmarkRoute, runBenchmarkRunRoute, runBenchmarkHistoryRoute, startBenchmarkScheduler } from "./routes/benchmark.js"
+import { runFeedbackRoute } from "./routes/feedback.js"
+import { runSlidesGenerateRoute as generateSlidesRoute } from "./routes/slides.js"
 import { chatRoute, chatStreamRoute } from "./routes/chat.js"
 import { usageRoute, scoreboardRoute } from "./routes/usage.js"
 import { dashboardRoute } from "./routes/dashboard.js"
@@ -83,7 +85,6 @@ async function handlePostRoute(req: IncomingMessage, res: ServerResponse, handle
 }
 
 const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-  // CORS 헤더 모든 요청에 먼저 적용
   res.setHeader("Access-Control-Allow-Origin", "*")
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization")
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -115,21 +116,24 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   }
 
   try {
-    // 🔥 기존
     if (method === "POST" && path === "/api/chat") {
       await handlePostRoute(req, res, chatRoute.handler)
       return
     }
 
-    // 🔥 추가 (핵심)
-        if (method === "POST" && path === "/api/chat/stream") {
+    if (method === "POST" && path === "/api/chat/stream") {
       const body = await readJsonBody(req)
 
       const reqLike = {
         method: req.method,
         url: req.url,
         headers: req.headers,
-        body
+        body,
+        on: (event: string, cb: () => void) => {
+          if (event === "close") {
+            req.on("close", cb)
+          }
+        }
       }
 
       await chatStreamRoute.handler(reqLike, res)
@@ -138,6 +142,52 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
     if (method === "POST" && path === "/api/benchmark") {
       await handlePostRoute(req, res, runBenchmarkRoute)
+      return
+    }
+
+    if (method === "POST" && path === "/api/benchmark/run") {
+      await handlePostRoute(req, res, runBenchmarkRunRoute)
+      return
+    }
+
+    if (method === "GET" && path === "/api/benchmark/history") {
+      const resLike = createExpressLikeResponse(res)
+      await runBenchmarkHistoryRoute({}, resLike)
+      return
+    }
+
+    if (method === "POST" && path === "/api/feedback") {
+      await handlePostRoute(req, res, runFeedbackRoute)
+      return
+    }
+
+    if (method === "POST" && path === "/api/slides/generate") {
+      const body = await readJsonBody(req)
+      const reqLike = { method: req.method, url: req.url, headers: req.headers, body }
+      const resLike = {
+        writeHead: (code: number, headers: Record<string, any>) => {
+          res.statusCode = code
+          for (const [k, v] of Object.entries(headers)) res.setHeader(k, v)
+        },
+        end: (data?: any) => res.end(data),
+        setHeader: (k: string, v: string) => res.setHeader(k, v),
+        send: (data: any) => {
+          if (!res.headersSent) {
+            res.setHeader("Access-Control-Allow-Origin", "*")
+          }
+          res.end(data)
+        },
+        status: (code: number) => { res.statusCode = code; return resLike },
+        json: (body: any) => {
+          if (!res.headersSent) {
+            res.statusCode = 200
+            res.setHeader("Content-Type", "application/json")
+            res.setHeader("Access-Control-Allow-Origin", "*")
+          }
+          res.end(JSON.stringify(body))
+        }
+      }
+      await generateSlidesRoute(reqLike, resLike)
       return
     }
 
@@ -179,5 +229,5 @@ const PORT = 8000
 
 server.listen(PORT, () => {
   console.log("AI ORCHESTRA running on http://localhost:" + PORT)
+  startBenchmarkScheduler()
 })
-

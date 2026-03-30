@@ -64,52 +64,96 @@ function buildThreadFusionBlock(
   currentThreadId: string,
   query: string
 ): string {
-  if (!projectId || !query || query.length < 20) return ""
+  if (!projectId || !query || query.length < 10) return ""
 
-  // 같은 프로젝트의 다른 스레드에서 유사 쿼리 검색
+  // 같은 프로젝트의 다른 스레드 전체 로드
+  const allThreads = getProjectThreadMemories(projectId)
+    .filter((t) => t.thread_id !== currentThreadId)
+
+  if (allThreads.length === 0) return ""
+
+  // 1. 유사 쿼리 검색 (threshold 낮춰서 더 많이 잡기)
   const similarResults = findSimilarQuery(query, projectId, {
-    threshold: 0.30,
-    limit: 3
+    threshold: 0.20,
+    limit: 5
   })
 
   const relevantThreads = similarResults.filter(
     (r) => r.thread_id !== currentThreadId && r.matched_answer?.trim()
   )
 
-  if (relevantThreads.length === 0) return ""
+  // 2. 엔티티 기반 추가 매칭 — 고유명사/핵심어 겹치는 스레드 찾기
+  const queryEntities = query
+    .split(/[\s,./!?:;]+/)
+    .filter((w) => w.length >= 2 && /[A-Z가-힣]/.test(w))
+    .map((w) => w.toLowerCase())
 
-  // 최신 스레드 structured memory도 추가로 주입
-  const allThreads = getProjectThreadMemories(projectId)
-    .filter((t) => t.thread_id !== currentThreadId)
-    .slice(0, 3)
+  const entityMatchThreads = allThreads.filter((t) => {
+    if (relevantThreads.some((r) => r.thread_id === t.thread_id)) return false
+    const threadText = [
+      t.title ?? "",
+      ...(t.structured?.decisions ?? []),
+      ...(t.structured?.facts ?? []),
+      ...(t.structured?.entities ?? [])
+    ].join(" ").toLowerCase()
+    return queryEntities.filter((e) => threadText.includes(e)).length >= 2
+  }).slice(0, 2)
+
+  // 3. 최신 스레드 structured memory (항상 주입 — 유사도 무관)
+  const recentThreads = allThreads.slice(0, 5)
 
   const threadDecisions: string[] = []
   const threadFacts: string[] = []
+  const threadEntities: string[] = []
 
-  for (const thread of allThreads) {
-    const decisions = thread.structured?.decisions ?? []
-    const facts = thread.structured?.facts ?? []
-    threadDecisions.push(...decisions.slice(0, 2))
-    threadFacts.push(...facts.slice(0, 2))
+  for (const thread of recentThreads) {
+    threadDecisions.push(...(thread.structured?.decisions ?? []).slice(0, 3))
+    threadFacts.push(...(thread.structured?.facts ?? []).slice(0, 3))
+    threadEntities.push(...(thread.structured?.entities ?? []).slice(0, 5))
   }
+
+  const uniqueDecisions = [...new Set(threadDecisions)].slice(0, 6)
+  const uniqueFacts = [...new Set(threadFacts)].slice(0, 6)
+
+  // 아무것도 없으면 빈 문자열
+  const hasContent =
+    relevantThreads.length > 0 ||
+    entityMatchThreads.length > 0 ||
+    uniqueDecisions.length > 0 ||
+    uniqueFacts.length > 0
+
+  if (!hasContent) return ""
 
   const lines: string[] = ["[THREAD MEMORY]", ""]
 
-  for (const result of relevantThreads) {
-    lines.push(`[관련 스레드 내용]`)
-    lines.push(result.matched_answer.slice(0, 300))
+  // 유사 쿼리 매칭 결과
+  for (const result of relevantThreads.slice(0, 3)) {
+    const title = allThreads.find((t) => t.thread_id === result.thread_id)?.title
+    lines.push(`[관련 스레드${title ? ` — ${title}` : ""}]`)
+    lines.push(result.matched_answer.slice(0, 500))
     lines.push("")
   }
 
-  if (threadDecisions.length > 0) {
-    lines.push("[이전 스레드 결정사항]")
-    lines.push(...[...new Set(threadDecisions)].slice(0, 4))
+  // 엔티티 매칭 스레드
+  for (const thread of entityMatchThreads) {
+    const summary = thread.structured?.summary?.slice(0, 300) ?? ""
+    if (summary) {
+      lines.push(`[관련 스레드${thread.title ? ` — ${thread.title}` : ""}]`)
+      lines.push(summary)
+      lines.push("")
+    }
+  }
+
+  // 프로젝트 전체 결정사항/사실 (항상 주입)
+  if (uniqueDecisions.length > 0) {
+    lines.push("[프로젝트 주요 결정사항]")
+    lines.push(...uniqueDecisions)
     lines.push("")
   }
 
-  if (threadFacts.length > 0) {
-    lines.push("[이전 스레드 핵심 사실]")
-    lines.push(...[...new Set(threadFacts)].slice(0, 4))
+  if (uniqueFacts.length > 0) {
+    lines.push("[프로젝트 핵심 사실]")
+    lines.push(...uniqueFacts)
     lines.push("")
   }
 
@@ -1207,7 +1251,8 @@ export async function executeOrchestra(input: any, stream?: any) {
     judged = await judge({
       candidates,
       task,
-      conflicts: detectedConflicts
+      conflicts: detectedConflicts,
+      question: rawInboundMessage
     })
   } else if (candidates.length === 1) {
     judged = {
@@ -1314,7 +1359,8 @@ export async function executeOrchestra(input: any, stream?: any) {
         judged = await judge({
           candidates,
           task,
-          conflicts: nextDetectedConflicts
+          conflicts: nextDetectedConflicts,
+          question: rawInboundMessage
         })
       } else if (candidates.length === 1) {
         judged = {

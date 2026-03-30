@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { extractDebugMeta } from "./api/chat";
 import ChatView from "./components/chat/ChatView";
 import HomeView from "./components/chat/HomeView";
@@ -30,6 +30,9 @@ async function sendChatStream(
     thread_id: string;
     project_id: string;
     mode: string;
+    messages?: Array<{ role: string; content: string }>;
+    attached_file?: { name: string; type: string; base64: string; size: number };
+    [key: string]: any;
   },
   handlers: {
     onEvent?: (event: StreamEvent) => void;
@@ -187,6 +190,300 @@ function isAbortError(error: unknown) {
     : error instanceof Error && error.name === "AbortError";
 }
 
+function extractImagesFromThreads(threads: Thread[]): Array<{ id: string; url: string; alt: string; threadTitle: string }> {
+  const results: Array<{ id: string; url: string; alt: string; threadTitle: string }> = [];
+  const seen = new Set<string>();
+  const mdImgRe = /!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g;
+  const htmlImgRe = /<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/g;
+
+  for (const thread of threads) {
+    for (const msg of thread.messages ?? []) {
+      const content = msg.content ?? "";
+      let m: RegExpExecArray | null;
+
+      mdImgRe.lastIndex = 0;
+      while ((m = mdImgRe.exec(content)) !== null) {
+        const url = m[2];
+        if (!seen.has(url)) {
+          seen.add(url);
+          results.push({ id: `${thread.id}_${results.length}`, url, alt: m[1] || "image", threadTitle: thread.title });
+        }
+      }
+
+      htmlImgRe.lastIndex = 0;
+      while ((m = htmlImgRe.exec(content)) !== null) {
+        const url = m[1];
+        if (!seen.has(url)) {
+          seen.add(url);
+          results.push({ id: `${thread.id}_${results.length}`, url, alt: "image", threadTitle: thread.title });
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+type BenchmarkResult = {
+  ok: boolean;
+  case_count: number;
+  single_providers: string[];
+  comparison: {
+    summary: { orchestra_wins: number; best_single_wins: number; ties: number };
+    pairwise: any[];
+    task_improvement: Record<string, { total: number; orchestra_win: number; best_single_win: number; tie: number }>;
+  };
+};
+
+function BenchmarkView() {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<BenchmarkResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [maxCases, setMaxCases] = useState(5);
+
+  async function runBenchmark() {
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch("http://localhost:8000/api/benchmark/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ max_cases: maxCases, single_providers: ["openai", "claude", "perplexity"] })
+      });
+      const data = await res.json();
+      if (data.ok) setResult(data);
+      else setError(data.error ?? "실행 실패");
+    } catch (e: any) {
+      setError(e.message ?? "네트워크 오류");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const summary = result?.comparison?.summary;
+  const pairwise = result?.comparison?.pairwise ?? [];
+  const taskImprovement = result?.comparison?.task_improvement ?? {};
+
+  const PROVIDER_COLOR: Record<string, string> = {
+    openai: "#10a37f", claude: "#d97706", gemini: "#3b82f6", perplexity: "#8b5cf6"
+  };
+  const TASK_LABEL: Record<string, string> = {
+    dialogue: "대화", reasoning: "추론", research: "리서치", code: "코드"
+  };
+
+  return (
+    <div style={{ padding: "24px 28px", overflowY: "auto", height: "100%", boxSizing: "border-box" as const }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-main)" }}>🏆 벤치마크 — 단일 모델 vs 오케스트라</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <label style={{ fontSize: 12, color: "var(--text-sub)" }}>
+            케이스 수:
+            <select
+              value={maxCases}
+              onChange={e => setMaxCases(Number(e.target.value))}
+              style={{ marginLeft: 6, fontSize: 12, padding: "2px 6px", borderRadius: 4, border: "1px solid var(--border)" }}
+            >
+              {[3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={runBenchmark}
+            disabled={loading}
+            style={{
+              padding: "7px 16px", borderRadius: 8, border: "none",
+              background: loading ? "var(--border)" : "var(--text-main)",
+              color: loading ? "var(--text-sub)" : "#fff",
+              fontSize: 13, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer"
+            }}
+          >
+            {loading ? "실행 중..." : "실행"}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div style={{ padding: 12, borderRadius: 8, background: "#fef2f2", color: "#ef4444", fontSize: 13, marginBottom: 16 }}>
+          {error}
+        </div>
+      )}
+
+      {loading && (
+        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--text-sub)" }}>
+          <div style={{ fontSize: 13 }}>단일 모델 + 오케스트라 동시 실행 중...</div>
+          <div style={{ fontSize: 11, marginTop: 6 }}>케이스당 약 15-30초 소요</div>
+        </div>
+      )}
+
+      {summary && (
+        <>
+          {/* 요약 scoreboard */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
+            {[
+              { label: "오케스트라 승", value: summary.orchestra_wins, color: "#10b981" },
+              { label: "단일 모델 승", value: summary.best_single_wins, color: "#ef4444" },
+              { label: "동점", value: summary.ties, color: "#6b7280" }
+            ].map(item => (
+              <div key={item.label} style={{ padding: 16, borderRadius: 10, border: "1px solid var(--border)", textAlign: "center" as const, background: item.color + "08" }}>
+                <div style={{ fontSize: 28, fontWeight: 700, color: item.color }}>{item.value}</div>
+                <div style={{ fontSize: 12, color: "var(--text-sub)", marginTop: 4 }}>{item.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Task별 개선율 */}
+          {Object.keys(taskImprovement).length > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginBottom: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Task별 결과</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
+                {Object.entries(taskImprovement).map(([task, data]) => {
+                  const winRate = data.total > 0 ? Math.round((data.orchestra_win / data.total) * 100) : 0;
+                  return (
+                    <div key={task} style={{ padding: 12, borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-1, #f9fafb)" }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)", marginBottom: 6 }}>
+                        {TASK_LABEL[task] ?? task}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--text-sub)" }}>{data.total}건 중</div>
+                      <div style={{ marginTop: 6, height: 4, borderRadius: 2, background: "var(--border)" }}>
+                        <div style={{ width: winRate + "%", height: "100%", borderRadius: 2, background: winRate >= 50 ? "#10b981" : "#ef4444", transition: "width 0.4s ease" }} />
+                      </div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: winRate >= 50 ? "#10b981" : "#ef4444", marginTop: 4 }}>
+                        오케스트라 {winRate}% 승
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Pairwise 결과 */}
+          {pairwise.length > 0 && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginBottom: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>케이스별 결과</div>
+              <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
+                {pairwise.map((pair: any, idx: number) => (
+                  <div key={idx} style={{
+                    padding: 14, borderRadius: 10, border: "1px solid var(--border)",
+                    borderLeft: `3px solid ${pair.benchmark_winner === "orchestra" ? "#10b981" : pair.benchmark_winner === "best_single" ? "#ef4444" : "#6b7280"}`
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: "var(--border)", color: "var(--text-sub)" }}>
+                          {TASK_LABEL[pair.task] ?? pair.task}
+                        </span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: pair.benchmark_winner === "orchestra" ? "#10b981" : pair.benchmark_winner === "best_single" ? "#ef4444" : "#6b7280" }}>
+                          {pair.benchmark_winner === "orchestra" ? "✓ 오케스트라" : pair.benchmark_winner === "best_single" ? "단일 모델" : "동점"}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--text-sub)", fontFamily: "monospace" }}>
+                        {pair.orchestra_score?.toFixed(1)} vs {pair.best_single_score?.toFixed(1)}
+                        <span style={{ marginLeft: 6, color: pair.score_gap >= 0 ? "#10b981" : "#ef4444" }}>
+                          ({pair.score_gap >= 0 ? "+" : ""}{pair.score_gap?.toFixed(1)})
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-sub)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
+                      {pair.case_id}
+                    </div>
+                    {pair.best_single_provider && (
+                      <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-sub)" }}>
+                        최강 단일: <span style={{ fontWeight: 600, color: PROVIDER_COLOR[pair.best_single_provider] ?? "var(--text-main)" }}>
+                          {pair.best_single_provider}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {!loading && !result && !error && (
+        <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-sub)" }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>🏆</div>
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>벤치마크 준비됨</div>
+          <div style={{ fontSize: 12 }}>실행 버튼을 누르면 단일 모델과 오케스트라를<br />동일한 테스트셋으로 비교합니다</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ImageGalleryView({ threads }: { threads: Thread[] }) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [images, setImages] = useState(() => extractImagesFromThreads(threads));
+
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const deleteSelected = () => {
+    setImages(prev => prev.filter(img => !selected.has(img.id)));
+    setSelected(new Set());
+  };
+
+  const deleteAll = () => {
+    setImages([]);
+    setSelected(new Set());
+  };
+
+  return (
+    <div style={{ padding: "24px 28px", overflowY: "auto", height: "100%", boxSizing: "border-box" as const }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-main)" }}>이미지</div>
+        {images.length > 0 && (
+          <div style={{ display: "flex", gap: 8 }}>
+            {selected.size > 0 && (
+              <button type="button" onClick={deleteSelected}
+                style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid #ef4444", background: "transparent", color: "#ef4444", cursor: "pointer" }}>
+                선택 삭제 ({selected.size})
+              </button>
+            )}
+            <button type="button" onClick={deleteAll}
+              style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--text-sub)", cursor: "pointer" }}>
+              전체 삭제
+            </button>
+          </div>
+        )}
+      </div>
+
+      {images.length === 0 ? (
+        <div style={{ fontSize: 13, color: "var(--text-sub)", paddingTop: 8 }}>채팅에서 생성된 이미지가 없습니다.</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
+          {images.map(img => (
+            <div
+              key={img.id}
+              onClick={() => toggleSelect(img.id)}
+              style={{
+                position: "relative", cursor: "pointer", borderRadius: 8,
+                border: selected.has(img.id) ? "2px solid var(--accent, #111827)" : "2px solid transparent",
+                overflow: "hidden", background: "var(--surface-1, #f9f9f9)"
+              }}
+            >
+              <img src={img.url} alt={img.alt} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", display: "block" }} />
+              {selected.has(img.id) && (
+                <div style={{ position: "absolute", top: 6, right: 6, width: 18, height: 18, borderRadius: "50%", background: "var(--accent, #111827)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="#fff" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>
+                </div>
+              )}
+              <div style={{ padding: "4px 6px", fontSize: 10, color: "var(--text-sub)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{img.threadTitle}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FolderIcon() {
   return (
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -335,11 +632,13 @@ export default function App() {
 
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [attachedFile, setAttachedFile] = useState<{ name: string; type: string; base64: string; size: number } | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [debugMeta, setDebugMeta] = useState<DebugMeta>(createDefaultDebugMeta());
-  const [sidebarView, setSidebarView] = useState<"default" | "search" | "images">("default");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [artifactContent, setArtifactContent] = useState<{ title: string; code: string; language: string } | null>(null);
+  const [sidebarView, setSidebarView] = useState<"default" | "search" | "images" | "benchmark">("default");
+  const [artifactList, setArtifactList] = useState<Array<{ id: string; title: string; code: string; language: string }>>([]);
+  const [activeArtifact, setActiveArtifact] = useState<{ id: string; title: string; code: string; language: string } | null>(null);
+  const [showPanel, setShowPanel] = useState(true);
   const [composerOptions, setComposerOptions] = useState<{ force_pro?: boolean; deep_research?: boolean; task?: string } | null>(null);
   const [dialog, setDialog] = useState<{
     type: "rename-project" | "delete-project" | "rename-thread" | "delete-thread";
@@ -519,6 +818,14 @@ export default function App() {
     markScrollToBottom("auto");
   }
 
+  function handleOpenBenchmark() {
+    workspace.setActiveThreadId(null);
+    setSidebarView("benchmark");
+    setLastError(null);
+    resetEditingState();
+    markScrollToBottom("auto");
+  }
+
   function handleCreateNamedProject() {
     openProjectModal();
   }
@@ -612,7 +919,7 @@ export default function App() {
 
   async function sendMessageToThread(text: string, target: SendTarget, options?: RetryOptions) {
     const trimmed = text.trim();
-    if (!trimmed || isSending) return;
+    if ((!trimmed && !attachedFile) || isSending) return;
 
     const timestamp = nowIso();
     const replaceFromMessageId = options?.replaceFromMessageId ?? null;
@@ -699,7 +1006,8 @@ export default function App() {
       }
     }
 
-    const userMessage = createMessage("user", trimmed, "done", {
+    const displayText = trimmed || (attachedFile ? `📎 ${attachedFile.name}` : "")
+    const userMessage = createMessage("user", displayText, "done", {
       versionGroupId,
       versionIndex,
       isHidden: false
@@ -711,7 +1019,7 @@ export default function App() {
       isHidden: false
     });
 
-    const nextTitle = makeThreadTitle(trimmed);
+    const nextTitle = makeThreadTitle(trimmed || (attachedFile?.name ?? "파일 분석"));
     const liveEvents: StreamEvent[] = [];
     let liveMeta = createDefaultDebugMeta();
     let finalTextFromEvent = "";
@@ -748,13 +1056,28 @@ export default function App() {
     resetEditingState();
 
     try {
+      // 현재 스레드 메시지 수집 (핸드오프/세션 요약용)
+      const currentThread = workspace.threads.find(t => t.id === target.threadId);
+      const threadMessages = (currentThread?.messages ?? [])
+        .filter(m => !m.isHidden && m.content?.trim())
+        .map(m => ({ role: m.role, content: m.content }));
+
       await sendChatStream(
         {
-          message: trimmed,
+          message: trimmed || (attachedFile ? `첨부 파일 ${attachedFile.name}을 분석해줘` : ""),
           thread_id: target.threadId,
           project_id: target.projectId,
           mode: "runtime_orchestra",
-          ...(composerOptions ?? {})
+          messages: threadMessages,
+          ...(composerOptions ?? {}),
+          ...(attachedFile ? {
+            attached_file: {
+              name: attachedFile.name,
+              type: attachedFile.type,
+              base64: attachedFile.base64,
+              size: attachedFile.size
+            }
+          } : {})
         },
         {
           onEvent: (event) => {
@@ -831,9 +1154,64 @@ export default function App() {
             setDebugMeta(liveMeta);
           },
           onDone: (payload) => {
+            // 슬라이드 데이터 감지 — 다운로드 버튼 메시지로 처리
+            if (payload?.is_slide && payload?.slide_data) {
+              const slideData = payload.slide_data
+              const slideText = String(payload?.answer?.text ?? "").trim()
+              workspace.updateThreadById(target.threadId, (thread) => ({
+                ...thread,
+                updatedAt: nowIso(),
+                messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (msg) => ({
+                  ...msg,
+                  content: slideText,
+                  status: "done",
+                  requestMeta: { ...(msg.requestMeta ?? {}), slide_data: slideData }
+                }))
+              }))
+              workspace.touchProject(target.projectId)
+              setIsSending(false)
+              setAttachedFile(null)
+              focusComposer()
+              activeStreamRef.current = null
+              return
+            }
+
+            // 이미지 생성 결과 저장
+            if (payload?.is_image && payload?.image_url) {
+              const imageUrl = payload.image_url
+              const imageText = String(payload?.answer?.text ?? "🎨 이미지가 생성됐습니다.").trim()
+              workspace.updateThreadById(target.threadId, (thread) => ({
+                ...thread,
+                updatedAt: nowIso(),
+                messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (msg) => ({
+                  ...msg,
+                  content: imageText,
+                  status: "done",
+                  requestMeta: {
+                    ...(msg.requestMeta ?? {}),
+                    image_url: imageUrl,
+                    image_revised_prompt: payload?.image_revised_prompt ?? null
+                  }
+                }))
+              }))
+              workspace.touchProject(target.projectId)
+              setIsSending(false)
+              setAttachedFile(null)
+              focusComposer()
+              activeStreamRef.current = null
+              return
+            }
+
+            // done 시점에 이미 화면에 표시된 내용을 우선 사용
+            const currentDisplayContent = (() => {
+              const thread = workspace.threads.find(t => t.id === target.threadId)
+              return thread?.messages.find(m => m.id === assistantPlaceholder.id)?.content ?? ""
+            })()
+
             const assistantText =
               String(payload?.answer?.text ?? "").trim() ||
               finalTextFromEvent ||
+              currentDisplayContent ||
               liveMeta.providerDrafts?.find((item) => item.provider === liveMeta.displayWinner?.provider)?.content ||
               liveMeta.providerDrafts?.find((item) => item.provider === liveMeta.winnerProvider)?.content ||
               "";
@@ -962,7 +1340,7 @@ export default function App() {
 
   async function handleHomeSubmit(text: string) {
     const trimmed = text.trim();
-    if (!trimmed || isSending) return;
+    if ((!trimmed && !attachedFile) || isSending) return;
 
     setSidebarView("default");
 
@@ -973,6 +1351,7 @@ export default function App() {
         projectId: GENERAL_PROJECT_ID,
         currentTitle: ""
       });
+      setAttachedFile(null);
       return;
     }
 
@@ -984,6 +1363,7 @@ export default function App() {
       projectId,
       currentTitle: ""
     });
+    setAttachedFile(null);
   }
 
   function handleStartEditMessage(message: Message) {
@@ -1097,6 +1477,40 @@ export default function App() {
     });
   }
 
+  async function handleDownloadSlide(slideData: any) {
+    try {
+      const res = await fetch("http://localhost:8000/api/slides/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slide_data: slideData })
+      })
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "")
+        console.error("[SLIDE DOWNLOAD] Server error:", res.status, errText)
+        throw new Error(`서버 오류 ${res.status}: ${errText.slice(0, 100)}`)
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${String(slideData?.title ?? "slides").replace(/[^a-zA-Z0-9가-힣\s]/g, "")}.pptx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      alert("슬라이드 다운로드 실패: " + (e?.message ?? "오류"))
+    }
+  }
+
+  function handleOpenArtifact(title: string, code: string, language: string) {
+    const existing = artifactList.find(a => a.title === title);
+    if (existing) {
+      setActiveArtifact(existing);
+    } else {
+      const item = { id: `artifact_${Date.now()}`, title, code, language };
+      setActiveArtifact(item);
+    }
+  }
+
   return (
     <>
       {/* ─── Inline Dialog ─────────────────────────────────────── */}
@@ -1106,7 +1520,6 @@ export default function App() {
           <div style={{ background: "var(--bg-surface, #fff)", borderRadius: 16, padding: 24, width: 400, maxWidth: "90vw", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}
             onClick={e => e.stopPropagation()}>
 
-            {/* 이름 변경 다이얼로그 */}
             {(dialog.type === "rename-project" || dialog.type === "rename-thread") && (
               <>
                 <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text-main)", marginBottom: 16 }}>
@@ -1145,7 +1558,6 @@ export default function App() {
               </>
             )}
 
-            {/* 삭제 확인 다이얼로그 */}
             {(dialog.type === "delete-project" || dialog.type === "delete-thread") && (
               <>
                 <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text-main)", marginBottom: 8 }}>
@@ -1178,7 +1590,8 @@ export default function App() {
       )}
 
       <AppShell
-        sidebarCollapsed={!sidebarOpen}
+        showPanel={showPanel}
+        onTogglePanel={() => setShowPanel(v => !v)}
         sidebar={
           <Sidebar
             generalThreads={workspace.generalThreads}
@@ -1187,9 +1600,12 @@ export default function App() {
             activeProjectId={workspace.activeProjectId}
             activeThreadId={workspace.activeThreadId}
             sidebarView={sidebarView}
+            artifacts={artifactList}
+            onOpenArtifact={handleOpenArtifact}
             onOpenGeneralHome={handleOpenGeneralHome}
             onOpenSearch={handleOpenSearch}
             onOpenImages={handleOpenImages}
+            onOpenBenchmark={handleOpenBenchmark}
             onSelectProject={handleSelectProject}
             onSelectThread={handleOpenThread}
             onNewChat={handleOpenGeneralHome}
@@ -1216,18 +1632,17 @@ export default function App() {
             onMoveThread={workspace.moveThread}
             onToggleProjectMemory={handleToggleProjectMemory}
             onToggleThreadPinned={workspace.toggleThreadPinned}
-            onCollapse={() => setSidebarOpen(false)}
           />
         }
-        artifact={artifactContent ? (
+        artifact={activeArtifact ? (
           <div className="artifact-panel">
             <div className="artifact-panel__header">
-              <span className="artifact-panel__title">{artifactContent.title}</span>
+              <span className="artifact-panel__title">{activeArtifact.title}</span>
               <div className="artifact-panel__actions">
                 <button
                   type="button"
                   title="복사"
-                  onClick={() => navigator.clipboard.writeText(artifactContent.code).catch(() => {})}
+                  onClick={() => navigator.clipboard.writeText(activeArtifact.code).catch(() => {})}
                   style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "1px solid var(--border)", borderRadius: 7, background: "transparent", cursor: "pointer", color: "var(--text-sub)", fontSize: 11 }}
                 >
                   <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="9" y="9" width="10" height="10" rx="2" /><path d="M5 15V7a2 2 0 0 1 2-2h8" /></svg>
@@ -1235,7 +1650,7 @@ export default function App() {
                 <button
                   type="button"
                   title="닫기"
-                  onClick={() => setArtifactContent(null)}
+                  onClick={() => setActiveArtifact(null)}
                   style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "1px solid var(--border)", borderRadius: 7, background: "transparent", cursor: "pointer", color: "var(--text-sub)" }}
                 >
                   <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -1243,7 +1658,7 @@ export default function App() {
               </div>
             </div>
             <div className="artifact-panel__body">
-              <pre className="artifact-panel__code">{artifactContent.code}</pre>
+              <pre className="artifact-panel__code">{activeArtifact.code}</pre>
             </div>
           </div>
         ) : (mode === "thread-chat" ? (
@@ -1254,6 +1669,7 @@ export default function App() {
             dashboard={null}
             opsLoading={false}
             opsError={null}
+            artifactList={artifactList}
           />
         ) : undefined)}
         topbar={
@@ -1265,15 +1681,41 @@ export default function App() {
                 ? "채팅 검색"
                 : sidebarView === "images"
                   ? "이미지"
-                  : workspace.activeProject?.title ?? "AI Orchestra"
+                  : sidebarView === "benchmark"
+                    ? "벤치마크"
+                    : workspace.activeProject?.title ?? "AI Orchestra"
             }
             threadTitle={workspace.activeThread?.title ?? undefined}
             projectMemoryEnabled={Boolean(workspace.activeProject?.meta?.memoryEnabled)}
             onBackToHome={backToHome}
+            panelToggle={
+              <button
+                type="button"
+                onClick={() => setShowPanel(v => !v)}
+                title={showPanel ? "패널 닫기" : "패널 열기"}
+                style={{
+                  width: 36, height: 36, border: "none", borderRadius: 8,
+                  background: "transparent", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  color: "var(--text-sub)", padding: 0
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(0,0,0,0.06)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <path d="M15 3v18" />
+                </svg>
+              </button>
+            }
           />
         }
         main={
-          mode === "home" ? (
+          sidebarView === "images" ? (
+            <ImageGalleryView threads={workspace.threads} />
+          ) : sidebarView === "benchmark" ? (
+            <BenchmarkView />
+          ) : mode === "home" ? (
             <HomeView
               workspaceKind={workspaceKind}
               activeProject={workspace.activeProject}
@@ -1282,6 +1724,8 @@ export default function App() {
               sidebarView={sidebarView}
               isSending={isSending}
               onOpenThread={handleOpenThread}
+              attachedFile={attachedFile}
+              onAttachFile={setAttachedFile}
               onSubmitPrompt={(value) => void handleHomeSubmit(value)}
               onRenameThread={(id, _nextTitle) => {
                 const thread = workspace.threads.find(t => t.id === id);
@@ -1328,8 +1772,23 @@ export default function App() {
                 setTimeout(() => textareaRef.current?.focus(), 50);
               }}
               onOpenArtifact={(title, code, language) => {
-                setArtifactContent({ title, code, language });
+                const newId = `artifact_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                setArtifactList(prev => {
+                  const existingIndex = prev.findIndex(a => a.title === title);
+                  if (existingIndex >= 0) {
+                    const next = [...prev];
+                    next[existingIndex] = { ...next[existingIndex], code, language };
+                    setActiveArtifact(next[existingIndex]);
+                    return next;
+                  }
+                  const item = { id: newId, title, code, language };
+                  setActiveArtifact(item);
+                  return [...prev, item];
+                });
               }}
+              onDownloadSlide={handleDownloadSlide}
+              attachedFile={attachedFile}
+              onAttachFile={setAttachedFile}
               composerMode={composerOptions ? (composerOptions.force_pro ? "deep-think" : composerOptions.task === "research" ? "web-search" : null) : null}
               onClearComposerMode={() => setComposerOptions(null)}
               onComposerAction={(action) => {

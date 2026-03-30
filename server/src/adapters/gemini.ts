@@ -135,14 +135,30 @@ async function callGemini(params: {
   model: string
   req: ModelRequest
   body: any
+  externalSignal?: AbortSignal | null
 }) {
   const timeoutMs =
     typeof params.req.timeout_ms === "number" && params.req.timeout_ms > 0
       ? params.req.timeout_ms
-      : 45000
+      : 20000
 
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  // 자체 timeout controller
+  const timeoutController = new AbortController()
+  const timer = setTimeout(() => timeoutController.abort(), timeoutMs)
+
+  // 외부 abort_signal (클라이언트 ESC) 연결
+  const externalSignal = params.externalSignal ?? null
+  let externalListener: (() => void) | null = null
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      clearTimeout(timer)
+      throw { original: new Error("aborted"), latencyMs: 0, timedOut: false, aborted: true }
+    }
+    externalListener = () => timeoutController.abort()
+    externalSignal.addEventListener("abort", externalListener)
+  }
+
   const startedAt = now()
 
   try {
@@ -154,7 +170,7 @@ async function callGemini(params: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify(params.body),
-        signal: controller.signal
+        signal: timeoutController.signal
       }
     )
 
@@ -173,13 +189,20 @@ async function callGemini(params: {
       error?.name === "AbortError" ||
       String(error?.message ?? "").toLowerCase().includes("aborted")
 
+    // 외부 signal에 의한 abort인지 구분
+    const clientAborted = externalSignal?.aborted === true
+
     throw {
       original: error,
       latencyMs,
-      timedOut
+      timedOut: timedOut && !clientAborted,
+      aborted: clientAborted
     }
   } finally {
     clearTimeout(timer)
+    if (externalSignal && externalListener) {
+      externalSignal.removeEventListener("abort", externalListener)
+    }
   }
 }
 
@@ -189,6 +212,9 @@ export const geminiAdapter: ModelAdapter = {
     const model = req.model?.trim() || (req.force_pro ? "gemini-3.1-pro-preview" : "gemini-3-flash-preview")
     const attempts: ModelAttempt[] = []
     const { system, conversation } = splitSystemAndMessages(req.messages)
+
+    // abort_signal: adapterDispatcher에서 전달된 클라이언트 중단 신호
+    const externalSignal: AbortSignal | null = (req as any).abort_signal ?? null
 
     if (!apiKey) {
       return {
@@ -225,12 +251,24 @@ export const geminiAdapter: ModelAdapter = {
         : 2
 
     for (let attemptNo = 1; attemptNo <= maxAttempts; attemptNo += 1) {
+      // 루프 진입 전 abort 체크
+      if (externalSignal?.aborted) {
+        return {
+          provider: req.provider,
+          model,
+          answer: "",
+          attempts,
+          error: buildError(req.provider, `[${model}] aborted`, "aborted", false)
+        }
+      }
+
       try {
         const { response, data, latencyMs } = await callGemini({
           apiKey,
           model,
           req,
-          body: requestBody
+          body: requestBody,
+          externalSignal
         })
 
         const text = extractText(data)
@@ -335,6 +373,29 @@ export const geminiAdapter: ModelAdapter = {
             ? wrapped.latencyMs
             : 0
 
+        // 클라이언트 ESC에 의한 abort → 즉시 반환, 재시도 없음
+        if (wrapped?.aborted === true) {
+          attempts.push({
+            provider: req.provider,
+            model,
+            status: "error",
+            latency_ms: latencyMs,
+            error: "aborted",
+            attempt_no: attemptNo,
+            outcome: "error",
+            retriable: false,
+            error_code: "aborted"
+          })
+
+          return {
+            provider: req.provider,
+            model,
+            answer: "",
+            attempts,
+            error: buildError(req.provider, `[${model}] aborted`, "aborted", false)
+          }
+        }
+
         const timedOut = wrapped?.timedOut === true
         const code = timedOut ? "timeout" : "network_error"
         const message = String(original?.message ?? code)
@@ -387,3 +448,108 @@ export async function generate(req: ModelRequest): Promise<ModelResponse> {
 }
 
 export default geminiAdapter
+
+// ─── Gemini Imagen 4 이미지 생성 ─────────────────────────────────
+export async function generateImageImagen(params: {
+  prompt: string
+  aspectRatio?: "1:1" | "16:9" | "9:16" | "4:3" | "3:4"
+}): Promise<{ ok: boolean; url?: string; base64?: string; mimeType?: string; error?: string }> {
+  const apiKey = env("GEMINI_API_KEY")
+  if (!apiKey) return { ok: false, error: "missing GEMINI_API_KEY" }
+
+  const model = "imagen-4.0-generate-preview-05-20"
+
+  const body = {
+    instances: [{ prompt: params.prompt }],
+    parameters: {
+      aspectRatio: params.aspectRatio ?? "1:1",
+      outputMimeType: "image/jpeg"
+    }
+  }
+
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 60000)
+
+    const response = await fetch(
+      `https://us-central1-aiplatform.googleapis.com/v1/projects/generativelanguage/locations/us-central1/publishers/google/models/${model}:predict?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      }
+    )
+
+    clearTimeout(timer)
+
+    const data = await response.json().catch(() => ({}))
+
+    if (!response.ok) {
+      // Imagen 4 Vertex AI 실패 → Imagen 3 fallback (AI Studio endpoint)
+      return await generateImageImagen3Fallback(params.prompt, apiKey)
+    }
+
+    const prediction = data?.predictions?.[0]
+    const base64 = prediction?.bytesBase64Encoded
+    const mimeType = prediction?.mimeType ?? "image/jpeg"
+
+    if (!base64) {
+      return await generateImageImagen3Fallback(params.prompt, apiKey)
+    }
+
+    // base64 → data URL
+    const url = `data:${mimeType};base64,${base64}`
+    return { ok: true, url, base64, mimeType }
+  } catch (e: any) {
+    return await generateImageImagen3Fallback(params.prompt, apiKey)
+  }
+}
+
+async function generateImageImagen3Fallback(
+  prompt: string,
+  apiKey: string
+): Promise<{ ok: boolean; url?: string; base64?: string; mimeType?: string; error?: string }> {
+  // Gemini 2.0 Flash 이미지 생성 모드 fallback
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 60000)
+
+    const body = {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseModalities: ["IMAGE", "TEXT"] }
+    }
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      }
+    )
+
+    clearTimeout(timer)
+
+    const data = await response.json().catch(() => ({}))
+
+    if (!response.ok) {
+      return { ok: false, error: data?.error?.message ?? `HTTP ${response.status}` }
+    }
+
+    const parts = data?.candidates?.[0]?.content?.parts ?? []
+    for (const part of parts) {
+      if (part?.inlineData?.data) {
+        const base64 = part.inlineData.data
+        const mimeType = part.inlineData.mimeType ?? "image/jpeg"
+        const url = `data:${mimeType};base64,${base64}`
+        return { ok: true, url, base64, mimeType }
+      }
+    }
+
+    return { ok: false, error: "no image in response" }
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "network_error" }
+  }
+}
