@@ -3,6 +3,37 @@ import { resetScoreboard } from "../orchestra/scoreboard.js"
 import { executeOrchestra } from "../orchestra/runtime.js"
 import { evaluateBenchmarkResult } from "../benchmark/evaluator.js"
 import { buildBenchmarkComparison, buildDefaultBenchmarkCases, toBenchmarkRunResult } from "../benchmark/scoreboard.js"
+import fs from "fs"
+import path from "path"
+
+// ─── 벤치마크 히스토리 ────────────────────────────────────────────────────────
+const HISTORY_FILE = path.resolve(process.cwd(), "server", "data", "benchmark-history.json")
+
+function loadHistory(): any[] {
+  try {
+    if (!fs.existsSync(HISTORY_FILE)) return []
+    return JSON.parse(fs.readFileSync(HISTORY_FILE, "utf-8")) ?? []
+  } catch { return [] }
+}
+
+function saveHistory(entry: any) {
+  try {
+    const dir = path.dirname(HISTORY_FILE)
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+    const history = loadHistory()
+    history.push(entry)
+    // 최근 30개만 유지
+    const trimmed = history.slice(-30)
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(trimmed, null, 2), "utf-8")
+  } catch (e: any) {
+    console.error("[BENCHMARK] 히스토리 저장 실패:", e?.message)
+  }
+}
+
+export async function runBenchmarkHistoryRoute(_req: any, res: any) {
+  const history = loadHistory()
+  return res.json({ ok: true, count: history.length, history })
+}
 
 export async function runBenchmarkRoute(req: any, res: any) {
   const body = req?.body ?? {}
@@ -152,12 +183,61 @@ export async function runBenchmarkRunRoute(req: any, res: any) {
   // 3. 비교 결과 생성
   const comparison = buildBenchmarkComparison(singleRuns, orchestraRuns)
 
+  // 히스토리 저장
+  const historyEntry = {
+    run_at: new Date().toISOString(),
+    case_count: selectedCases.length,
+    single_providers: singleProviders,
+    orchestra_wins: (comparison?.summary as any)?.orchestra_wins ?? 0,
+    total_cases: (comparison?.summary as any)?.total_cases ?? 0,
+    win_rate: (comparison?.summary as any)?.win_rate ?? 0,
+    avg_quality_orchestra: (comparison?.summary as any)?.avg_quality_orchestra ?? 0,
+    avg_quality_single: (comparison?.summary as any)?.avg_quality_single ?? 0,
+    comparison
+  }
+  saveHistory(historyEntry)
+  console.log(`[BENCHMARK] 자동 저장 완료 — 승률: ${Math.round((historyEntry.win_rate ?? 0) * 100)}%`)
+
   return res.json({
     ok: true,
     case_count: selectedCases.length,
     single_providers: singleProviders,
     comparison
   })
+}
+
+// ─── 자동 벤치마크 스케줄러 ──────────────────────────────────────────────────
+let autoScheduler: ReturnType<typeof setTimeout> | null = null
+const AUTO_BENCHMARK_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24시간
+
+async function runAutoBenchmark() {
+  console.log("[BENCHMARK] 자동 벤치마크 시작...")
+  try {
+    const fakeReq = { body: { max_cases: 3 } }
+    const results: any[] = []
+    const fakeRes = {
+      json: (data: any) => { results.push(data) }
+    }
+    await runBenchmarkRunRoute(fakeReq, fakeRes)
+    console.log("[BENCHMARK] 자동 벤치마크 완료")
+  } catch (e: any) {
+    console.error("[BENCHMARK] 자동 벤치마크 실패:", e?.message)
+  }
+}
+
+export function startBenchmarkScheduler() {
+  // 서버 시작 1시간 후 첫 실행, 이후 24시간마다 반복
+  const firstDelay = 60 * 60 * 1000 // 1시간
+  console.log(`[BENCHMARK] 스케줄러 등록 — 첫 실행: 1시간 후, 이후 24시간 주기`)
+  setTimeout(() => {
+    runAutoBenchmark()
+    autoScheduler = setInterval(runAutoBenchmark, AUTO_BENCHMARK_INTERVAL_MS)
+  }, firstDelay)
+}
+
+export const benchmarkHistoryRoute = {
+  path: "/api/benchmark/history",
+  handler: runBenchmarkHistoryRoute
 }
 
 export const benchmarkRoute = {
