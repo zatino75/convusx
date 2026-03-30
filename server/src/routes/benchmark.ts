@@ -99,22 +99,34 @@ async function runOrchestra(input: any): Promise<any> {
 }
 
 function buildEvalInput(label: string, mode: string, result: any) {
+  const executedProviders = result?.internal_rationale?.executed_providers ?? []
+  const winnerProvider = result?.final_answer?.provider ?? null
+  const runnerUp = executedProviders.find((p: any) => p.provider !== winnerProvider)
+
   return {
     label,
     mode,
     final_answer: {
       answer: result?.final_answer ?? null,
-      provider_chain: result?.internal_rationale?.executed_providers?.map((p: any) => p.provider) ?? [],
+      provider_chain: executedProviders.map((p: any) => p.provider),
       scoreboard_summary: result?.internal_rationale?.scoreboard_after ?? null,
-      judge_trace: result?.internal_rationale?.judge ?? null,
+      judge_trace: {
+        ...(result?.internal_rationale?.judge ?? {}),
+        winner: winnerProvider,
+        confidence: result?.internal_rationale?.judge?.confidence ?? null
+      },
       claims: result?.internal_rationale?.claims ?? [],
       conflict_count: result?.internal_rationale?.conflict_count ?? 0,
-      decision_rationale: result?.internal_rationale?.judge?.rationale ?? null,
+      decision_rationale: result?.internal_rationale?.judge?.rationale
+        ?? (winnerProvider ? `Selected ${winnerProvider} as final answer` : null),
       winner_snapshot: result?.final_answer ? {
         provider: result.final_answer.provider,
         text: result.final_answer.text?.slice(0, 200)
       } : null,
-      runner_up_snapshot: null
+      runner_up_snapshot: runnerUp ? {
+        provider: runnerUp.provider,
+        text: runnerUp.text?.slice(0, 200)
+      } : null
     }
   }
 }
@@ -183,27 +195,16 @@ export async function runBenchmarkRunRoute(req: any, res: any) {
   // 3. 비교 결과 생성
   const comparison = buildBenchmarkComparison(singleRuns, orchestraRuns)
 
-  // 히스토리 저장 — summary 필드 직접 계산
-  const orchWins = comparison?.summary?.orchestra_wins ?? 0
-  const singleWins = comparison?.summary?.best_single_wins ?? 0
-  const tiesCount = comparison?.summary?.ties ?? 0
-  const totalCases = orchWins + singleWins + tiesCount
-  const winRate = totalCases > 0 ? orchWins / totalCases : 0
-  const pw = comparison?.pairwise ?? []
-  const orchScores = pw.map((p: any) => Number(p?.orchestra_score ?? 0)).filter((n: number) => n > 0)
-  const singleScores = pw.map((p: any) => Number(p?.best_single_score ?? 0)).filter((n: number) => n > 0)
-  const avgOrch = orchScores.length > 0 ? orchScores.reduce((a: number, b: number) => a + b, 0) / orchScores.length : 0
-  const avgSingle = singleScores.length > 0 ? singleScores.reduce((a: number, b: number) => a + b, 0) / singleScores.length : 0
-
+  // 히스토리 저장
   const historyEntry = {
     run_at: new Date().toISOString(),
     case_count: selectedCases.length,
     single_providers: singleProviders,
-    orchestra_wins: orchWins,
-    total_cases: totalCases,
-    win_rate: winRate,
-    avg_quality_orchestra: Number(avgOrch.toFixed(1)),
-    avg_quality_single: Number(avgSingle.toFixed(1)),
+    orchestra_wins: comparison?.summary?.orchestra_wins ?? 0,
+    total_cases: comparison?.summary?.total_cases ?? 0,
+    win_rate: comparison?.summary?.win_rate ?? 0,
+    avg_quality_orchestra: comparison?.summary?.avg_quality_orchestra ?? 0,
+    avg_quality_single: comparison?.summary?.avg_quality_single ?? 0,
     comparison
   }
   saveHistory(historyEntry)
