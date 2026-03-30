@@ -240,6 +240,20 @@ function BenchmarkView() {
   const [result, setResult] = useState<BenchmarkResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [maxCases, setMaxCases] = useState(5);
+  const [activeTab, setActiveTab] = useState<"run" | "history">("run");
+  const [history, setHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  async function loadHistory() {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch("http://localhost:8000/api/benchmark/history");
+      const data = await res.json();
+      if (data.ok) setHistory((data.history ?? []).slice().reverse());
+    } catch {} finally {
+      setHistoryLoading(false);
+    }
+  }
 
   async function runBenchmark() {
     setLoading(true);
@@ -275,139 +289,172 @@ function BenchmarkView() {
   return (
     <div style={{ padding: "24px 28px", overflowY: "auto", height: "100%", boxSizing: "border-box" as const }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-main)" }}>🏆 벤치마크 — 단일 모델 vs 오케스트라</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <label style={{ fontSize: 12, color: "var(--text-sub)" }}>
-            케이스 수:
-            <select
-              value={maxCases}
-              onChange={e => setMaxCases(Number(e.target.value))}
-              style={{ marginLeft: 6, fontSize: 12, padding: "2px 6px", borderRadius: 4, border: "1px solid var(--border)" }}
+        <div style={{ display: "flex", gap: 4 }}>
+          {(["run", "history"] as const).map(tab => (
+            <button key={tab} type="button"
+              onClick={() => { setActiveTab(tab); if (tab === "history") loadHistory(); }}
+              style={{
+                padding: "6px 14px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600,
+                background: activeTab === tab ? "var(--text-main)" : "transparent",
+                color: activeTab === tab ? "#fff" : "var(--text-sub)"
+              }}
             >
-              {[3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </label>
-          <button
-            type="button"
-            onClick={runBenchmark}
-            disabled={loading}
-            style={{
-              padding: "7px 16px", borderRadius: 8, border: "none",
-              background: loading ? "var(--border)" : "var(--text-main)",
-              color: loading ? "var(--text-sub)" : "#fff",
-              fontSize: 13, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer"
-            }}
-          >
-            {loading ? "실행 중..." : "실행"}
-          </button>
+              {tab === "run" ? "🏆 실행" : "📈 히스토리"}
+            </button>
+          ))}
         </div>
+        {activeTab === "run" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <label style={{ fontSize: 12, color: "var(--text-sub)" }}>
+              케이스 수:
+              <select value={maxCases} onChange={e => setMaxCases(Number(e.target.value))}
+                style={{ marginLeft: 6, fontSize: 12, padding: "2px 6px", borderRadius: 4, border: "1px solid var(--border)" }}>
+                {[3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
+            <button type="button" onClick={runBenchmark} disabled={loading}
+              style={{ padding: "7px 16px", borderRadius: 8, border: "none",
+                background: loading ? "var(--border)" : "var(--text-main)",
+                color: loading ? "var(--text-sub)" : "#fff",
+                fontSize: 13, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer" }}>
+              {loading ? "실행 중..." : "실행"}
+            </button>
+          </div>
+        )}
       </div>
 
-      {error && (
-        <div style={{ padding: 12, borderRadius: 8, background: "#fef2f2", color: "#ef4444", fontSize: 13, marginBottom: 16 }}>
-          {error}
-        </div>
-      )}
-
-      {loading && (
-        <div style={{ textAlign: "center", padding: "48px 0", color: "var(--text-sub)" }}>
-          <div style={{ fontSize: 13 }}>단일 모델 + 오케스트라 동시 실행 중...</div>
-          <div style={{ fontSize: 11, marginTop: 6 }}>케이스당 약 15-30초 소요</div>
-        </div>
-      )}
-
-      {summary && (
-        <>
-          {/* 요약 scoreboard */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
-            {[
-              { label: "오케스트라 승", value: summary.orchestra_wins, color: "#10b981" },
-              { label: "단일 모델 승", value: summary.best_single_wins, color: "#ef4444" },
-              { label: "동점", value: summary.ties, color: "#6b7280" }
-            ].map(item => (
-              <div key={item.label} style={{ padding: 16, borderRadius: 10, border: "1px solid var(--border)", textAlign: "center" as const, background: item.color + "08" }}>
-                <div style={{ fontSize: 28, fontWeight: 700, color: item.color }}>{item.value}</div>
-                <div style={{ fontSize: 12, color: "var(--text-sub)", marginTop: 4 }}>{item.label}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Task별 개선율 */}
-          {Object.keys(taskImprovement).length > 0 && (
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginBottom: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Task별 결과</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
-                {Object.entries(taskImprovement).map(([task, data]) => {
-                  const winRate = data.total > 0 ? Math.round((data.orchestra_win / data.total) * 100) : 0;
-                  return (
-                    <div key={task} style={{ padding: 12, borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-1, #f9fafb)" }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)", marginBottom: 6 }}>
-                        {TASK_LABEL[task] ?? task}
-                      </div>
-                      <div style={{ fontSize: 11, color: "var(--text-sub)" }}>{data.total}건 중</div>
-                      <div style={{ marginTop: 6, height: 4, borderRadius: 2, background: "var(--border)" }}>
-                        <div style={{ width: winRate + "%", height: "100%", borderRadius: 2, background: winRate >= 50 ? "#10b981" : "#ef4444", transition: "width 0.4s ease" }} />
-                      </div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: winRate >= 50 ? "#10b981" : "#ef4444", marginTop: 4 }}>
-                        오케스트라 {winRate}% 승
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+      {activeTab === "history" && (
+        <div>
+          {historyLoading && <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-sub)", fontSize: 13 }}>로딩 중...</div>}
+          {!historyLoading && history.length === 0 && (
+            <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-sub)" }}>
+              <div style={{ fontSize: 28, marginBottom: 10 }}>📈</div>
+              <div style={{ fontSize: 13 }}>아직 벤치마크 기록이 없습니다.<br />실행 탭에서 벤치마크를 실행해주세요.</div>
             </div>
           )}
+          {!historyLoading && history.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column" as const, gap: 10 }}>
+              <div style={{ fontSize: 12, color: "var(--text-sub)", marginBottom: 4 }}>최근 {history.length}개 기록 (최신순)</div>
+              {history.map((entry: any, idx: number) => {
+                const winRate = Math.round((entry.win_rate ?? 0) * 100);
+                const date = new Date(entry.run_at).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+                return (
+                  <div key={idx} style={{ padding: 14, borderRadius: 10, border: "1px solid var(--border)",
+                    borderLeft: `3px solid ${winRate >= 60 ? "#10b981" : winRate >= 40 ? "#f59e0b" : "#ef4444"}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, color: "var(--text-sub)" }}>{date}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: winRate >= 60 ? "#10b981" : winRate >= 40 ? "#f59e0b" : "#ef4444" }}>
+                        오케스트라 {winRate}% 승
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 16 }}>
+                      {[
+                        { label: "오케스트라 승", value: entry.orchestra_wins, color: "#10b981" },
+                        { label: "단일 모델 승", value: (entry.total_cases ?? 0) - (entry.orchestra_wins ?? 0), color: "#ef4444" },
+                        { label: "품질 오케스트라", value: (entry.avg_quality_orchestra ?? 0).toFixed(1), color: "var(--text-main)" },
+                        { label: "품질 단일", value: (entry.avg_quality_single ?? 0).toFixed(1), color: "var(--text-sub)" },
+                      ].map(item => (
+                        <div key={item.label} style={{ textAlign: "center" as const }}>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: item.color }}>{item.value}</div>
+                          <div style={{ fontSize: 10, color: "var(--text-sub)" }}>{item.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
-          {/* Pairwise 결과 */}
-          {pairwise.length > 0 && (
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginBottom: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>케이스별 결과</div>
-              <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
-                {pairwise.map((pair: any, idx: number) => (
-                  <div key={idx} style={{
-                    padding: 14, borderRadius: 10, border: "1px solid var(--border)",
-                    borderLeft: `3px solid ${pair.benchmark_winner === "orchestra" ? "#10b981" : pair.benchmark_winner === "best_single" ? "#ef4444" : "#6b7280"}`
-                  }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: "var(--border)", color: "var(--text-sub)" }}>
-                          {TASK_LABEL[pair.task] ?? pair.task}
-                        </span>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: pair.benchmark_winner === "orchestra" ? "#10b981" : pair.benchmark_winner === "best_single" ? "#ef4444" : "#6b7280" }}>
-                          {pair.benchmark_winner === "orchestra" ? "✓ 오케스트라" : pair.benchmark_winner === "best_single" ? "단일 모델" : "동점"}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 11, color: "var(--text-sub)", fontFamily: "monospace" }}>
-                        {pair.orchestra_score?.toFixed(1)} vs {pair.best_single_score?.toFixed(1)}
-                        <span style={{ marginLeft: 6, color: pair.score_gap >= 0 ? "#10b981" : "#ef4444" }}>
-                          ({pair.score_gap >= 0 ? "+" : ""}{pair.score_gap?.toFixed(1)})
-                        </span>
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--text-sub)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
-                      {pair.case_id}
-                    </div>
-                    {pair.best_single_provider && (
-                      <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-sub)" }}>
-                        최강 단일: <span style={{ fontWeight: 600, color: PROVIDER_COLOR[pair.best_single_provider] ?? "var(--text-main)" }}>
-                          {pair.best_single_provider}
-                        </span>
-                      </div>
-                    )}
+      {activeTab === "run" && (
+        <>
+          {error && (
+            <div style={{ padding: 12, borderRadius: 8, background: "#fef2f2", color: "#ef4444", fontSize: 13, marginBottom: 16 }}>
+              {error}
+            </div>
+          )}
+          {loading && (
+            <div style={{ textAlign: "center", padding: "48px 0", color: "var(--text-sub)" }}>
+              <div style={{ fontSize: 13 }}>단일 모델 + 오케스트라 동시 실행 중...</div>
+              <div style={{ fontSize: 11, marginTop: 6 }}>케이스당 약 15-30초 소요</div>
+            </div>
+          )}
+          {summary && (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
+                {[
+                  { label: "오케스트라 승", value: summary.orchestra_wins, color: "#10b981" },
+                  { label: "단일 모델 승", value: summary.best_single_wins, color: "#ef4444" },
+                  { label: "동점", value: summary.ties, color: "#6b7280" }
+                ].map(item => (
+                  <div key={item.label} style={{ padding: 16, borderRadius: 10, border: "1px solid var(--border)", textAlign: "center" as const, background: item.color + "08" }}>
+                    <div style={{ fontSize: 28, fontWeight: 700, color: item.color }}>{item.value}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-sub)", marginTop: 4 }}>{item.label}</div>
                   </div>
                 ))}
               </div>
+              {Object.keys(taskImprovement).length > 0 && (
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginBottom: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Task별 결과</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
+                    {Object.entries(taskImprovement).map(([task, data]) => {
+                      const winRate = data.total > 0 ? Math.round((data.orchestra_win / data.total) * 100) : 0;
+                      return (
+                        <div key={task} style={{ padding: 12, borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-1, #f9fafb)" }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)", marginBottom: 6 }}>{TASK_LABEL[task] ?? task}</div>
+                          <div style={{ fontSize: 11, color: "var(--text-sub)" }}>{data.total}건 중</div>
+                          <div style={{ marginTop: 6, height: 4, borderRadius: 2, background: "var(--border)" }}>
+                            <div style={{ width: winRate + "%", height: "100%", borderRadius: 2, background: winRate >= 50 ? "#10b981" : "#ef4444", transition: "width 0.4s ease" }} />
+                          </div>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: winRate >= 50 ? "#10b981" : "#ef4444", marginTop: 4 }}>오케스트라 {winRate}% 승</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {pairwise.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginBottom: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>케이스별 결과</div>
+                  <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
+                    {pairwise.map((pair: any, idx: number) => (
+                      <div key={idx} style={{ padding: 14, borderRadius: 10, border: "1px solid var(--border)",
+                        borderLeft: `3px solid ${pair.benchmark_winner === "orchestra" ? "#10b981" : pair.benchmark_winner === "best_single" ? "#ef4444" : "#6b7280"}` }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: "var(--border)", color: "var(--text-sub)" }}>{TASK_LABEL[pair.task] ?? pair.task}</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: pair.benchmark_winner === "orchestra" ? "#10b981" : pair.benchmark_winner === "best_single" ? "#ef4444" : "#6b7280" }}>
+                              {pair.benchmark_winner === "orchestra" ? "✓ 오케스트라" : pair.benchmark_winner === "best_single" ? "단일 모델" : "동점"}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-sub)", fontFamily: "monospace" }}>
+                            {pair.orchestra_score?.toFixed(1)} vs {pair.best_single_score?.toFixed(1)}
+                            <span style={{ marginLeft: 6, color: pair.score_gap >= 0 ? "#10b981" : "#ef4444" }}>({pair.score_gap >= 0 ? "+" : ""}{pair.score_gap?.toFixed(1)})</span>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--text-sub)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{pair.case_id}</div>
+                        {pair.best_single_provider && (
+                          <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-sub)" }}>
+                            최강 단일: <span style={{ fontWeight: 600, color: PROVIDER_COLOR[pair.best_single_provider] ?? "var(--text-main)" }}>{pair.best_single_provider}</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          {!loading && !result && !error && (
+            <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-sub)" }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>🏆</div>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>벤치마크 준비됨</div>
+              <div style={{ fontSize: 12 }}>실행 버튼을 누르면 단일 모델과 오케스트라를<br />동일한 테스트셋으로 비교합니다</div>
             </div>
           )}
         </>
-      )}
-
-      {!loading && !result && !error && (
-        <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-sub)" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>🏆</div>
-          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>벤치마크 준비됨</div>
-          <div style={{ fontSize: 12 }}>실행 버튼을 누르면 단일 모델과 오케스트라를<br />동일한 테스트셋으로 비교합니다</div>
-        </div>
       )}
     </div>
   );

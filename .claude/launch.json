@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "AI ORCHESTRA Backend",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "server/src/index.ts"],
+      "port": 8000
+    },
+    {
+      "name": "AI ORCHESTRA Frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173
+    }
+  ]
+}

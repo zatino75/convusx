@@ -183,16 +183,27 @@ export async function runBenchmarkRunRoute(req: any, res: any) {
   // 3. 비교 결과 생성
   const comparison = buildBenchmarkComparison(singleRuns, orchestraRuns)
 
-  // 히스토리 저장
+  // 히스토리 저장 — summary 필드 직접 계산
+  const orchWins = comparison?.summary?.orchestra_wins ?? 0
+  const singleWins = comparison?.summary?.best_single_wins ?? 0
+  const tiesCount = comparison?.summary?.ties ?? 0
+  const totalCases = orchWins + singleWins + tiesCount
+  const winRate = totalCases > 0 ? orchWins / totalCases : 0
+  const pw = comparison?.pairwise ?? []
+  const orchScores = pw.map((p: any) => Number(p?.orchestra_score ?? 0)).filter((n: number) => n > 0)
+  const singleScores = pw.map((p: any) => Number(p?.best_single_score ?? 0)).filter((n: number) => n > 0)
+  const avgOrch = orchScores.length > 0 ? orchScores.reduce((a: number, b: number) => a + b, 0) / orchScores.length : 0
+  const avgSingle = singleScores.length > 0 ? singleScores.reduce((a: number, b: number) => a + b, 0) / singleScores.length : 0
+
   const historyEntry = {
     run_at: new Date().toISOString(),
     case_count: selectedCases.length,
     single_providers: singleProviders,
-    orchestra_wins: (comparison?.summary as any)?.orchestra_wins ?? 0,
-    total_cases: (comparison?.summary as any)?.total_cases ?? 0,
-    win_rate: (comparison?.summary as any)?.win_rate ?? 0,
-    avg_quality_orchestra: (comparison?.summary as any)?.avg_quality_orchestra ?? 0,
-    avg_quality_single: (comparison?.summary as any)?.avg_quality_single ?? 0,
+    orchestra_wins: orchWins,
+    total_cases: totalCases,
+    win_rate: winRate,
+    avg_quality_orchestra: Number(avgOrch.toFixed(1)),
+    avg_quality_single: Number(avgSingle.toFixed(1)),
     comparison
   }
   saveHistory(historyEntry)
