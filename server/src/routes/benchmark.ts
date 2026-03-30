@@ -99,34 +99,22 @@ async function runOrchestra(input: any): Promise<any> {
 }
 
 function buildEvalInput(label: string, mode: string, result: any) {
-  const executedProviders = result?.internal_rationale?.executed_providers ?? []
-  const winnerProvider = result?.final_answer?.provider ?? null
-  const runnerUp = executedProviders.find((p: any) => p.provider !== winnerProvider)
-
   return {
     label,
     mode,
     final_answer: {
       answer: result?.final_answer ?? null,
-      provider_chain: executedProviders.map((p: any) => p.provider),
+      provider_chain: result?.internal_rationale?.executed_providers?.map((p: any) => p.provider) ?? [],
       scoreboard_summary: result?.internal_rationale?.scoreboard_after ?? null,
-      judge_trace: {
-        ...(result?.internal_rationale?.judge ?? {}),
-        winner: winnerProvider,
-        confidence: result?.internal_rationale?.judge?.confidence ?? null
-      },
+      judge_trace: result?.internal_rationale?.judge ?? null,
       claims: result?.internal_rationale?.claims ?? [],
       conflict_count: result?.internal_rationale?.conflict_count ?? 0,
-      decision_rationale: result?.internal_rationale?.judge?.rationale
-        ?? (winnerProvider ? `Selected ${winnerProvider} as final answer` : null),
+      decision_rationale: result?.internal_rationale?.judge?.rationale ?? null,
       winner_snapshot: result?.final_answer ? {
         provider: result.final_answer.provider,
         text: result.final_answer.text?.slice(0, 200)
       } : null,
-      runner_up_snapshot: runnerUp ? {
-        provider: runnerUp.provider,
-        text: runnerUp.text?.slice(0, 200)
-      } : null
+      runner_up_snapshot: null
     }
   }
 }
@@ -146,7 +134,26 @@ export async function runBenchmarkRunRoute(req: any, res: any) {
 
   // max_cases: 최대 실행 케이스 수 (기본 5개 — 비용/시간 제한)
   const maxCases = Number(body?.max_cases ?? 5)
-  const selectedCases = cases.slice(0, maxCases)
+
+  // 태스크별 균등 선택 — dialogue만 나오는 문제 해결
+  const taskGroups: Record<string, any[]> = {}
+  for (const c of cases) {
+    const t = c.input?.task ?? "dialogue"
+    if (!taskGroups[t]) taskGroups[t] = []
+    taskGroups[t].push(c)
+  }
+  const taskKeys = Object.keys(taskGroups)
+  const perTask = Math.max(1, Math.floor(maxCases / taskKeys.length))
+  const selectedCases: any[] = []
+  for (const t of taskKeys) {
+    selectedCases.push(...taskGroups[t].slice(0, perTask))
+    if (selectedCases.length >= maxCases) break
+  }
+  // 부족하면 나머지 채우기
+  if (selectedCases.length < maxCases) {
+    const remaining = cases.filter((c: any) => !selectedCases.includes(c))
+    selectedCases.push(...remaining.slice(0, maxCases - selectedCases.length))
+  }
 
   const singleRuns: any[] = []
   const orchestraRuns: any[] = []
