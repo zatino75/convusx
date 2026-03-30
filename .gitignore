@@ -16,6 +16,7 @@ server/scoreboard.json
 server/model-scoreboard.json
 server/data/
 server/server-debug.log
+server/data/*.log
 server/package.json
 
 dist/
