@@ -229,7 +229,7 @@ type BenchmarkResult = {
   case_count: number;
   single_providers: string[];
   comparison: {
-    summary: { orchestra_wins: number; best_single_wins: number; ties: number };
+    summary: { orchestra_wins: number; best_single_wins: number; ties: number; total_cases?: number; win_rate?: number; avg_quality_orchestra?: number; avg_quality_single?: number };
     pairwise: any[];
     task_improvement: Record<string, { total: number; orchestra_win: number; best_single_win: number; tie: number }>;
   };
@@ -239,10 +239,13 @@ function BenchmarkView() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BenchmarkResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [maxCases, setMaxCases] = useState(5);
-  const [activeTab, setActiveTab] = useState<"run" | "history">("run");
+  const [maxCases, setMaxCases] = useState(6);
+  const [activeTab, setActiveTab] = useState<"run" | "history" | "routing">("run");
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [routingScores, setRoutingScores] = useState<Record<string, any[]> | null>(null);
+  const [currentRoles, setCurrentRoles] = useState<Record<string, { primary: string | null; verifier: string | null; optional: string | null }> | null>(null);
+  const [routingLoading, setRoutingLoading] = useState(false);
 
   async function loadHistory() {
     setHistoryLoading(true);
@@ -252,6 +255,20 @@ function BenchmarkView() {
       if (data.ok) setHistory((data.history ?? []).slice().reverse());
     } catch {} finally {
       setHistoryLoading(false);
+    }
+  }
+
+  async function loadRoutingScores() {
+    setRoutingLoading(true);
+    try {
+      const res = await fetch("http://localhost:8000/api/scoreboard");
+      const data = await res.json();
+      if (data.ok) {
+        setRoutingScores(data.task_routing_scores ?? null);
+        setCurrentRoles(data.current_roles ?? null);
+      }
+    } catch {} finally {
+      setRoutingLoading(false);
     }
   }
 
@@ -283,23 +300,27 @@ function BenchmarkView() {
     openai: "#10a37f", claude: "#d97706", gemini: "#3b82f6", perplexity: "#8b5cf6"
   };
   const TASK_LABEL: Record<string, string> = {
-    dialogue: "대화", reasoning: "추론", research: "리서치", code: "코드"
+    dialogue: "대화", reasoning: "추론", research: "리서치", code: "코드", writing: "글쓰기", long_doc: "긴 문서"
   };
 
   return (
     <div style={{ padding: "24px 28px", overflowY: "auto", height: "100%", boxSizing: "border-box" as const }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
         <div style={{ display: "flex", gap: 4 }}>
-          {(["run", "history"] as const).map(tab => (
+          {(["run", "history", "routing"] as const).map(tab => (
             <button key={tab} type="button"
-              onClick={() => { setActiveTab(tab); if (tab === "history") loadHistory(); }}
+              onClick={() => {
+                setActiveTab(tab);
+                if (tab === "history") loadHistory();
+                if (tab === "routing") loadRoutingScores();
+              }}
               style={{
                 padding: "6px 14px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600,
                 background: activeTab === tab ? "var(--text-main)" : "transparent",
                 color: activeTab === tab ? "#fff" : "var(--text-sub)"
               }}
             >
-              {tab === "run" ? "🏆 실행" : "📈 히스토리"}
+              {tab === "run" ? "🏆 실행" : tab === "history" ? "📈 히스토리" : "🧭 라우팅"}
             </button>
           ))}
         </div>
@@ -309,7 +330,7 @@ function BenchmarkView() {
               케이스 수:
               <select value={maxCases} onChange={e => setMaxCases(Number(e.target.value))}
                 style={{ marginLeft: 6, fontSize: 12, padding: "2px 6px", borderRadius: 4, border: "1px solid var(--border)" }}>
-                {[3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
+                {[3, 6, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
               </select>
             </label>
             <button type="button" onClick={runBenchmark} disabled={loading}
@@ -322,6 +343,132 @@ function BenchmarkView() {
           </div>
         )}
       </div>
+
+      {activeTab === "routing" && (
+        <div>
+          {routingLoading && <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-sub)", fontSize: 13 }}>로딩 중...</div>}
+          {!routingLoading && !routingScores && (
+            <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-sub)" }}>
+              <div style={{ fontSize: 28, marginBottom: 10 }}>🧭</div>
+              <div style={{ fontSize: 13 }}>탭을 클릭하면 현재 라우팅 점수를 불러옵니다.</div>
+            </div>
+          )}
+          {!routingLoading && routingScores && (() => {
+            const PROVIDERS = ["openai", "claude", "gemini", "perplexity"];
+            const PROVIDER_COLOR: Record<string, string> = { openai: "#10a37f", claude: "#d97706", gemini: "#3b82f6", perplexity: "#8b5cf6" };
+            const TASK_LABEL: Record<string, string> = { dialogue: "대화", reasoning: "추론", research: "리서치", code: "코드", writing: "글쓰기", long_doc: "긴 문서" };
+            const TASK_ORDER = ["dialogue", "reasoning", "research", "code", "writing", "long_doc"];
+            const tasks = TASK_ORDER.filter(t => Object.keys(routingScores).includes(t))
+              .concat(Object.keys(routingScores).filter(t => !TASK_ORDER.includes(t)).sort());
+            // bandit_score 기준 최대값 (색상 정규화)
+            const allScores = tasks.flatMap(t => (routingScores[t] ?? []).map((r: any) => Number(r.bandit_score ?? 0)));
+            const maxScore = Math.max(...allScores, 0.01);
+            return (
+              <div>
+                {/* 현재 배정 카드 */}
+                {currentRoles && (
+                  <div style={{ marginBottom: 18 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-sub)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      현재 배정 (Dynamic chooseRoles)
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
+                      {tasks.map(task => {
+                        const roles = currentRoles[task];
+                        if (!roles) return null;
+                        const primary = roles.primary;
+                        const verifier = roles.verifier;
+                        return (
+                          <div key={task} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-card, #fafafa)", fontSize: 11 }}>
+                            <span style={{ fontWeight: 700, color: "var(--text-sub)", minWidth: 38 }}>{TASK_LABEL[task] ?? task}</span>
+                            <span style={{ color: "var(--text-sub)" }}>→</span>
+                            {primary && (
+                              <span style={{ fontWeight: 800, color: PROVIDER_COLOR[primary] ?? "var(--text-main)", background: `${PROVIDER_COLOR[primary] ?? "#888"}18`, padding: "1px 6px", borderRadius: 4 }}>
+                                P: {primary}
+                              </span>
+                            )}
+                            {verifier && (
+                              <span style={{ fontWeight: 600, color: PROVIDER_COLOR[verifier] ?? "var(--text-sub)", background: "var(--bg-sub, #f3f4f6)", padding: "1px 6px", borderRadius: 4 }}>
+                                V: {verifier}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                <div style={{ fontSize: 12, color: "var(--text-sub)", marginBottom: 14 }}>
+                  provider × task 별 bandit_score — 높을수록 해당 태스크에서 우선 배정됨
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ padding: "6px 10px", textAlign: "left", color: "var(--text-sub)", fontWeight: 600, borderBottom: "1px solid var(--border)" }}>태스크</th>
+                        {PROVIDERS.map(p => (
+                          <th key={p} style={{ padding: "6px 10px", textAlign: "center", color: PROVIDER_COLOR[p] ?? "var(--text-main)", fontWeight: 700, borderBottom: "1px solid var(--border)" }}>
+                            {p}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tasks.map(task => {
+                        const rows: any[] = routingScores[task] ?? [];
+                        const scoreMap = Object.fromEntries(rows.map((r: any) => [r.provider, r]));
+                        const taskScores = PROVIDERS.map(p => Number(scoreMap[p]?.bandit_score ?? 0));
+                        const taskMax = Math.max(...taskScores, 0.01);
+                        return (
+                          <tr key={task} style={{ borderBottom: "1px solid var(--border)" }}>
+                            <td style={{ padding: "8px 10px", fontWeight: 600, color: "var(--text-main)" }}>{TASK_LABEL[task] ?? task}</td>
+                            {PROVIDERS.map(p => {
+                              const row = scoreMap[p];
+                              const score = Number(row?.bandit_score ?? 0);
+                              const pct = score / taskMax;
+                              const bg = pct >= 0.85 ? "#d1fae5" : pct >= 0.65 ? "#fef9c3" : pct >= 0.4 ? "#fee2e2" : "transparent";
+                              const textColor = pct >= 0.85 ? "#065f46" : pct >= 0.65 ? "#92400e" : pct >= 0.4 ? "#991b1b" : "var(--text-sub)";
+                              const uses = Number(row?.task_uses ?? row?.uses ?? 0);
+                              const winRate = row?.task_win_rate != null ? Number(row.task_win_rate) : (row?.win_rate != null ? Number(row.win_rate) : null);
+                              return (
+                                <td key={p} style={{ padding: "6px 8px", textAlign: "center" }}>
+                                  <div style={{ display: "inline-block", padding: "4px 10px", borderRadius: 6, background: bg, color: textColor, fontWeight: 700, fontSize: 13, minWidth: 52 }}>
+                                    {score.toFixed(3)}
+                                  </div>
+                                  <div style={{ fontSize: 10, color: "var(--text-sub)", marginTop: 2 }}>
+                                    {uses > 0 ? `${uses}회` : "—"}
+                                    {winRate != null && uses > 0 ? ` / ${Math.round(winRate * 100)}%승` : ""}
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ marginTop: 16, display: "flex", gap: 12, flexWrap: "wrap" as const }}>
+                  {[
+                    { label: "최우선", color: "#d1fae5", text: "#065f46", desc: "해당 태스크 1위" },
+                    { label: "경쟁", color: "#fef9c3", text: "#92400e", desc: "근접 경쟁 중" },
+                    { label: "열세", color: "#fee2e2", text: "#991b1b", desc: "낮은 우선순위" }
+                  ].map(item => (
+                    <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
+                      <div style={{ width: 12, height: 12, borderRadius: 3, background: item.color, border: `1px solid ${item.text}` }} />
+                      <span style={{ color: item.text, fontWeight: 600 }}>{item.label}</span>
+                      <span style={{ color: "var(--text-sub)" }}>{item.desc}</span>
+                    </div>
+                  ))}
+                  <button type="button" onClick={loadRoutingScores}
+                    style={{ marginLeft: "auto", padding: "4px 12px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", cursor: "pointer", fontSize: 11, color: "var(--text-sub)" }}>
+                    🔄 새로고침
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
       {activeTab === "history" && (
         <div>
@@ -383,7 +530,7 @@ function BenchmarkView() {
           )}
           {summary && (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 12 }}>
                 {[
                   { label: "오케스트라 승", value: summary.orchestra_wins, color: "#10b981" },
                   { label: "단일 모델 승", value: summary.best_single_wins, color: "#ef4444" },
@@ -392,6 +539,18 @@ function BenchmarkView() {
                   <div key={item.label} style={{ padding: 16, borderRadius: 10, border: "1px solid var(--border)", textAlign: "center" as const, background: item.color + "08" }}>
                     <div style={{ fontSize: 28, fontWeight: 700, color: item.color }}>{item.value}</div>
                     <div style={{ fontSize: 12, color: "var(--text-sub)", marginTop: 4 }}>{item.label}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
+                {[
+                  { label: "오케스트라 승률", value: Math.round((summary.win_rate ?? 0) * 100) + "%", color: (summary.win_rate ?? 0) >= 0.5 ? "#10b981" : "#ef4444" },
+                  { label: "품질 오케스트라", value: (summary.avg_quality_orchestra ?? 0).toFixed(1), color: "var(--text-main)" },
+                  { label: "품질 단일 최강", value: (summary.avg_quality_single ?? 0).toFixed(1), color: "var(--text-sub)" }
+                ].map(item => (
+                  <div key={item.label} style={{ padding: 12, borderRadius: 10, border: "1px solid var(--border)", textAlign: "center" as const }}>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: item.color }}>{item.value}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-sub)", marginTop: 4 }}>{item.label}</div>
                   </div>
                 ))}
               </div>

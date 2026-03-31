@@ -1,4 +1,5 @@
 import { readRoutingScores, readScoreboard, readTaskRoutingScores } from "../orchestra/scoreboard.js"
+import { resolveAdaptiveRoute } from "../orchestra/adaptiveRouter.js"
 
 function safeNumber(value: any, fallback = 0) {
   const n = Number(value)
@@ -66,6 +67,25 @@ function buildTaskRoutingSummary() {
   }, {})
 }
 
+// Dynamic chooseRoles 결과를 태스크별로 계산 → 현재 실제 배정 상태 반환
+const ROUTE_TASKS = ["dialogue", "reasoning", "research", "code", "writing", "long_doc"] as const
+
+function buildCurrentRoles(): Record<string, { primary: string | null; verifier: string | null; optional: string | null }> {
+  return ROUTE_TASKS.reduce<Record<string, { primary: string | null; verifier: string | null; optional: string | null }>>((acc, task) => {
+    try {
+      const route = resolveAdaptiveRoute({ task })
+      acc[task] = {
+        primary: route.selected_providers[0] ?? null,
+        verifier: route.verifier_providers[0] ?? null,
+        optional: route.optional_providers[0] ?? null
+      }
+    } catch {
+      acc[task] = { primary: null, verifier: null, optional: null }
+    }
+    return acc
+  }, {})
+}
+
 export async function runUsageRoute(_req: any, res: any) {
   return res.json({
     ok: true,
@@ -79,7 +99,8 @@ export async function runScoreboardRoute(_req: any, res: any) {
     ok: true,
     scoreboard: readScoreboard(),
     routing_scores: buildProviderUsageSummary(),
-    task_routing_scores: buildTaskRoutingSummary()
+    task_routing_scores: buildTaskRoutingSummary(),
+    current_roles: buildCurrentRoles()
   })
 }
 
