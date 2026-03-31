@@ -1,14 +1,3 @@
-export type RoutedProvider = "openai" | "claude" | "gemini" | "perplexity";
-
-export function selectProvider(taskType: string): RoutedProvider {
-  switch (taskType) {
-    case "research":
-      return "perplexity";
-    case "reasoning":
-      return "claude";
-    case "code":
-      return "openai";
-    default:
-      return "openai";
-  }
-}
+// DEPRECATED: 이 파일은 사용되지 않습니다.
+// 실제 라우팅 로직은 adaptiveRouter.ts 를 사용하세요.
+export {}

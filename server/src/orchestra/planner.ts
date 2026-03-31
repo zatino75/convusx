@@ -10,6 +10,8 @@ export type PlannedTask =
   | "reasoning"
   | "research"
   | "code"
+  | "writing"
+  | "long_doc"
 
 function normalizeText(input: string) {
   return String(input ?? "").trim().toLowerCase()
@@ -98,9 +100,7 @@ export function detectTaskType(input: string): PlannedTask {
       "python",
       "함수",
       "짜줘",
-      "작성해",
       "구현해",
-      "만들어줘",
       "스크립트",
       "알고리즘",
       "클래스",
@@ -119,6 +119,56 @@ export function detectTaskType(input: string): PlannedTask {
     ])
   ) {
     return "code"
+  }
+
+  if (
+    includesAny(text, [
+      "blog post",
+      "blog article",
+      "newsletter",
+      "press release",
+      "copywriting",
+      "essay writing",
+      "article writing",
+      "블로그 포스트",
+      "블로그 글",
+      "이메일 초안",
+      "기사 작성",
+      "보도자료",
+      "에세이",
+      "소개문",
+      "카피라이팅",
+      "마케팅 문구",
+      "sns 글",
+      "광고 문구",
+      "제안서 작성",
+      "자기소개서",
+      "cover letter"
+    ])
+  ) {
+    return "writing"
+  }
+
+  if (
+    includesAny(text, [
+      "long document",
+      "summarize document",
+      "document analysis",
+      "전체 문서",
+      "긴 문서",
+      "장문",
+      "전문 요약",
+      "전체 내용 분석",
+      "문서 전체",
+      "전체 리포트",
+      "보고서 전체",
+      "긴 보고서",
+      "pdf 요약",
+      "pdf 분석",
+      "계약서 전체"
+    ])
+  ) {
+    return "long_doc"
   }
 
   if (
@@ -146,16 +196,12 @@ export function detectTaskType(input: string): PlannedTask {
       "실시간",
       "오늘 기준",
       "현재 기준",
-      // 법률 검토
       "법률 검토", "계약서 검토", "법적 검토", "법적 위험", "법률 분석",
       "계약서 분석", "약관 검토", "법률 리뷰", "법적 리스크", "legal review",
-      // 데이터 분석
       "데이터 분석", "통계 분석", "수치 분석", "데이터 시각화",
       "csv 분석", "엑셀 분석", "kpi 분석", "data analysis",
-      // 재무정보
       "재무정보", "재무분석", "재무제표", "재무 분석", "손익계산서",
       "밸류에이션", "투자분석", "공시 분석", "financial analysis",
-      // 상품 개발
       "상품 개발", "제품 개발", "상품 기획", "브랜딩 전략", "시장 분석",
       "경쟁사 분석", "swot 분석", "gtm 전략", "product development"
     ])
