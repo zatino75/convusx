@@ -118,6 +118,10 @@ function scoreCandidate(
     coverageW = 0.20; structureW = 0.22; specificityW = 0.13
   } else if (normalizedTask === "reasoning") {
     coverageW = 0.18; structureW = 0.14; specificityW = 0.23
+  } else if (normalizedTask === "writing") {
+    coverageW = 0.26; structureW = 0.20; specificityW = 0.12
+  } else if (normalizedTask === "long_doc") {
+    coverageW = 0.24; structureW = 0.24; specificityW = 0.10
   }
 
   let score = 0.45
@@ -190,6 +194,28 @@ function scoreCandidate(
     if (/(because|therefore|however|근거|따라서|하지만|반면)/i.test(candidate.answer_text)) {
       score += 0.04; reasons.push("reasoning_connector_bonus")
     }
+  }
+
+  if (normalizedTask === "writing") {
+    const textLen = candidate.answer_text.trim().length
+    if (textLen >= 300) { score += 0.04; reasons.push("writing_length_bonus") }
+    if (/(서론|본론|결론|introduction|paragraph|문단)/i.test(candidate.answer_text)) {
+      score += 0.04; reasons.push("writing_structure_bonus")
+    }
+    if (/(compelling|설득력|자연스럽|readable|engaging|간결)/i.test(candidate.answer_text)) {
+      score += 0.03; reasons.push("writing_quality_bonus")
+    }
+  }
+
+  if (normalizedTask === "long_doc") {
+    if (/(핵심|요약|결론|key point|summary|takeaway|실행 항목)/i.test(candidate.answer_text)) {
+      score += 0.05; reasons.push("long_doc_extraction_bonus")
+    }
+    if (/(리스크|의사결정|실행|action|decision|risk)/i.test(candidate.answer_text)) {
+      score += 0.04; reasons.push("long_doc_decision_bonus")
+    }
+    const textLen = candidate.answer_text.trim().length
+    if (textLen >= 400) { score += 0.03; reasons.push("long_doc_depth_bonus") }
   }
 
   // 패널티
