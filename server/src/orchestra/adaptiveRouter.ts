@@ -86,7 +86,7 @@ function getRoutingRows(task: AdaptiveTask) {
   return readRoutingScores(task)
 }
 
-// 2026년 3월 벤치마크 기반 태스크별 provider 가중치
+// 2026년 3월 벤치마크 기반 태스크별 provider 가중치 (초기값 / 데이터 없을 때 fallback)
 // - Claude: SWE-bench 코딩 1위(80.8%), 글쓰기/문서 1위(128K 출력)
 // - Gemini: ARC-AGI-2 추론 1위(77.1%), 1M 컨텍스트, 최저가
 // - OpenAI: 올라운더, 에이전트 실행(Terminal-Bench 1위), 사실확인
@@ -94,7 +94,7 @@ function getRoutingRows(task: AdaptiveTask) {
 const TASK_WEIGHTS: Record<string, Record<string, number>> = {
   code:     { claude: 0.12, openai: 0.06, gemini: 0.01, perplexity: 0.00 },
   writing:  { claude: 0.14, openai: 0.04, gemini: 0.02, perplexity: 0.00 },
-  dialogue: { claude: 0.10, openai: 0.06, gemini: 0.02, perplexity: 0.01 },
+  dialogue: { openai: 0.10, claude: 0.06, gemini: 0.02, perplexity: 0.01 },
   reasoning:{ gemini: 0.12, openai: 0.08, claude: 0.06, perplexity: 0.00 },
   research: { perplexity: 0.12, claude: 0.07, openai: 0.05, gemini: 0.03 },
   long_doc: { gemini: 0.14, claude: 0.08, openai: 0.03, perplexity: 0.01 }
@@ -131,7 +131,7 @@ function buildExecutionPolicy(task: AdaptiveTask, params: any) {
 
   if (task === "dialogue") {
     return {
-      max_parallel: 2,  // Claude primary + OpenAI verifier
+      max_parallel: 2,
       cost_gate_enabled: true,
       max_total_estimated_cost_usd: 0.05,
       prefer_fast_fallback: true
@@ -200,25 +200,6 @@ function buildExecutionPolicy(task: AdaptiveTask, params: any) {
   }
 }
 
-function chooseOpenAIPrimaryOverride(task: AdaptiveTask, params: any, ranked: any[]) {
-  if (task === "dialogue") return true
-  if (task === "code") return false  // Claude primary
-  if (task === "reasoning") return true
-  if (task === "research") return false  // Perplexity primary
-
-  if (Boolean(params?.force_primary_provider) && String(params.force_primary_provider).trim().toLowerCase() !== "openai") {
-    return false
-  }
-
-  const openai = ranked.find((x) => x.provider === "openai")
-  const best = ranked[0]
-
-  if (!openai || !best) return true
-  if (best.provider === "openai") return true
-
-  return (best.bandit_score - openai.bandit_score) < 0.15
-}
-
 function pickTopAvailable(ranked: any[], excluded: string[], preferredOrder: string[]) {
   for (const provider of preferredOrder) {
     const normalized = String(provider ?? "").trim().toLowerCase()
@@ -249,13 +230,15 @@ function fallbackOrder(ranked: any[], excluded: string[], preferFast: boolean): 
   return uniqueProviders(ordered.map((x) => x.provider))
 }
 
-// 벤치마크 기반 역할 배정
-// code:     Claude(primary) + OpenAI Codex(verifier)          — SWE-bench 기반
-// writing:  Claude(primary) + OpenAI(verifier)                — 글쓰기/문서 품질
-// dialogue: Claude(primary) + OpenAI(verifier)                — 자연스러운 대화
-// reasoning:Gemini(primary) + OpenAI(verifier) + Claude(opt)  — ARC-AGI-2 기반
-// research: Perplexity(primary) + Claude(verifier) + OpenAI(opt) — 실시간+분석
-// long_doc: Gemini(primary) + Claude(verifier)                — 1M context 기반
+// Dynamic chooseRoles — task별 bandit_score 1위 provider 자동 배정
+//
+// ranked[]는 이미 bandit_score + TASK_WEIGHTS 합산 기준 내림차순 정렬됨.
+// 데이터 없을 때 → TASK_WEIGHTS가 초기 순위를 결정 (hardcoded fallback 불필요).
+// 데이터 쌓일수록 → 실제 성능 기반으로 순위가 자연스럽게 갱신됨.
+//
+// 예외 (능력 특성상 고정):
+//   research  → perplexity 항상 primary (실시간 검색 전용, bandit으로 대체 불가)
+//   long_doc  → gemini 항상 primary (1M context, bandit으로 대체 불가)
 function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
   const allowOptional = Boolean(
     params?.benchmark_mode ||
@@ -264,42 +247,7 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
     params?.force_pro
   )
 
-  if (task === "code") {
-    return {
-      selected_providers: ["claude"],
-      verifier_providers: ["openai"],
-      optional_providers: [],
-      scout_providers: []
-    }
-  }
-
-  if (task === "writing") {
-    return {
-      selected_providers: ["claude"],
-      verifier_providers: allowOptional ? ["openai"] : [],
-      optional_providers: [],
-      scout_providers: []
-    }
-  }
-
-  if (task === "dialogue") {
-    return {
-      selected_providers: ["claude"],
-      verifier_providers: ["openai"],
-      optional_providers: [],
-      scout_providers: []
-    }
-  }
-
-  if (task === "reasoning") {
-    return {
-      selected_providers: ["gemini"],
-      verifier_providers: ["openai"],
-      optional_providers: allowOptional ? ["claude"] : [],
-      scout_providers: []
-    }
-  }
-
+  // ── research: perplexity 고정 primary (실시간 검색) ─────────────────────────
   if (task === "research") {
     return {
       selected_providers: ["perplexity"],
@@ -309,6 +257,7 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
     }
   }
 
+  // ── long_doc: gemini 고정 primary (1M context) ─────────────────────────────
   if (task === "long_doc") {
     return {
       selected_providers: ["gemini"],
@@ -318,11 +267,20 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
     }
   }
 
-  // fallback
+  // ── Dynamic: bandit_score + TASK_WEIGHTS 기준 자동 배정 ────────────────────
+  // ranked[]는 이미 정렬 완료 → 순서대로 primary / verifier / optional 배정
+  const available = ranked.map((r) => r.provider)
+
+  const primary = available[0] ?? "openai"
+  const verifier = available.find((p) => p !== primary) ?? null
+  const optionalCandidate = allowOptional
+    ? available.find((p) => p !== primary && p !== verifier) ?? null
+    : null
+
   return {
-    selected_providers: ["claude"],
-    verifier_providers: ["openai"],
-    optional_providers: [],
+    selected_providers: [primary],
+    verifier_providers: verifier ? [verifier] : [],
+    optional_providers: optionalCandidate ? [optionalCandidate] : [],
     scout_providers: []
   }
 }
@@ -330,6 +288,57 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
 export function resolveAdaptiveRoute(params: any): AdaptiveRouteDecision {
   const task = normalizeTask(params?.task)
   const ranked = rankProviders(task)
+
+  // _single_provider_override: 벤치마크 단일 모델 비교 전용
+  // primary 1개만 실행, verifier/optional 없음 → 진짜 단일 모델 비교
+  if (params?._single_provider_override) {
+    const singleProvider = String(params._single_provider_override).trim().toLowerCase()
+    const pScores = ranked.reduce<Record<string, number>>((acc, row) => {
+      acc[row.provider] = Number(row.routing_score.toFixed(4)); return acc
+    }, {})
+    const pCosts = ranked.reduce<Record<string, number>>((acc, row) => {
+      acc[row.provider] = Number(row.avg_cost.toFixed(6)); return acc
+    }, {})
+    const pLatency = ranked.reduce<Record<string, number>>((acc, row) => {
+      acc[row.provider] = Number(row.avg_latency); return acc
+    }, {})
+    const pBandit = ranked.reduce<Record<string, { routing_score: number; exploration_bonus: number; freshness_bonus: number; bandit_score: number }>>((acc, row) => {
+      acc[row.provider] = {
+        routing_score: Number(row.routing_score.toFixed(4)),
+        exploration_bonus: Number(row.exploration_bonus.toFixed(4)),
+        freshness_bonus: Number(row.freshness_bonus.toFixed(4)),
+        bandit_score: Number(row.bandit_score.toFixed(4))
+      }; return acc
+    }, {})
+    return {
+      task,
+      benchmark_mode: false,
+      selected_providers: [singleProvider],
+      verifier_providers: [],
+      optional_providers: [],
+      scout_providers: [],
+      fallback_providers: [],
+      parallel_providers: [singleProvider],
+      execution_strategy: "single_primary",
+      parallel_width: 1,
+      router_policy: "single_provider_override",
+      provider_scores: pScores,
+      provider_costs: pCosts,
+      provider_latency: pLatency,
+      provider_bandit: pBandit,
+      execution_policy: {
+        max_parallel: 1,
+        cost_gate_enabled: true,
+        max_total_estimated_cost_usd: 0.05,
+        prefer_fast_fallback: false
+      },
+      escalation: {
+        use_pro: false,
+        reason: { force_pro: false, benchmark_mode: false, deep_analysis: false, deep_research: false }
+      }
+    }
+  }
+
   const executionPolicy = buildExecutionPolicy(task, params)
 
   const roles = chooseRoles(task, ranked, params)
@@ -410,7 +419,7 @@ export function resolveAdaptiveRoute(params: any): AdaptiveRouteDecision {
     parallel_providers: parallelProviders,
     execution_strategy: executionStrategy,
     parallel_width: parallelProviders.length,
-    router_policy: "benchmark_based_task_optimized_router_v2",
+    router_policy: "dynamic_bandit_task_router_v3",
     provider_scores: providerScores,
     provider_costs: providerCosts,
     provider_latency: providerLatency,
