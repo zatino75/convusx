@@ -144,8 +144,8 @@ export async function runBenchmarkRunRoute(req: any, res: any) {
     ? body.single_providers
     : ["openai", "claude", "gemini", "perplexity"]
 
-  // max_cases: 최대 실행 케이스 수 (기본 6개 — task 6종류 균등 커버)
-  const maxCases = Number(body?.max_cases ?? 6)
+  // max_cases: 최대 실행 케이스 수 (기본 18개 — task당 3케이스 균등 커버)
+  const maxCases = Number(body?.max_cases ?? 18)
 
   // 태스크별 균등 선택 — dialogue만 나오는 문제 해결
   const taskGroups: Record<string, any[]> = {}
@@ -285,7 +285,7 @@ const AUTO_BENCHMARK_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24시간
 async function runAutoBenchmark() {
   console.log("[BENCHMARK] 자동 벤치마크 시작...")
   try {
-    const fakeReq = { body: { max_cases: 6 } }
+    const fakeReq = { body: { max_cases: 12 } }
     const results: any[] = []
     const fakeRes = {
       json: (data: any) => { results.push(data) }

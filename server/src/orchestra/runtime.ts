@@ -203,17 +203,6 @@ function buildInputWithRetrievalContext(input: any, rawInboundMessage: string) {
     }
   }
 
-  const projectContext = getLatestProjectContext(projectId)
-  const contextBlock = buildProjectContextBlock(projectContext)
-
-  if (!contextBlock) {
-    return {
-      effectiveInput: input,
-      retrievalContext: projectContext,
-      enrichedInboundMessage: rawInboundMessage
-    }
-  }
-
   const rawText = String(rawInboundMessage ?? "").trim()
 
   const skipContextPatterns = [
@@ -223,6 +212,18 @@ function buildInputWithRetrievalContext(input: any, rawInboundMessage: string) {
   const shouldSkipContext =
     rawText.length < 20 ||
     skipContextPatterns.some((p) => rawText.toLowerCase().includes(p))
+
+  // query-aware: rawText를 전달해 관련 소스만 검색
+  const projectContext = getLatestProjectContext(projectId, shouldSkipContext ? undefined : rawText)
+  const contextBlock = buildProjectContextBlock(projectContext)
+
+  if (!contextBlock) {
+    return {
+      effectiveInput: input,
+      retrievalContext: projectContext,
+      enrichedInboundMessage: rawInboundMessage
+    }
+  }
 
   if (shouldSkipContext) {
     return {
@@ -285,6 +286,14 @@ ${rawText}`.trim()
     }
   }
 
+  const retrievalMeta = {
+    project_facts: (projectContext?.retrieval_context?.facts?.length ?? 0),
+    project_decisions: (projectContext?.retrieval_context?.decisions?.length ?? 0),
+    matched_sources: Number(projectContext?.matched_source_count ?? 0),
+    thread_fusions: threadFusionBlock.length > 0 ? 1 : 0,
+    query_matched: rawText.length >= 10
+  }
+
   return {
     effectiveInput: {
       ...input,
@@ -293,10 +302,12 @@ ${rawText}`.trim()
       metadata: {
         ...(input?.metadata ?? {}),
         retrieval_context: projectContext?.retrieval_context ?? null,
+        retrieval_meta: retrievalMeta,
         thread_fusion_applied: threadFusionBlock.length > 0
       }
     },
     retrievalContext: projectContext,
+    retrievalMeta,
     enrichedInboundMessage
   }
 }
@@ -1018,7 +1029,7 @@ export async function executeOrchestra(input: any, stream?: any) {
     total_chars: number
   }> = {}
 
-  const { effectiveInput, retrievalContext, enrichedInboundMessage } =
+  const { effectiveInput, retrievalContext, retrievalMeta, enrichedInboundMessage } =
     buildInputWithRetrievalContext(input, rawInboundMessage)
 
   const inboundMessage = enrichedInboundMessage
@@ -1239,9 +1250,26 @@ export async function executeOrchestra(input: any, stream?: any) {
   }
 
   const successfulResults = executed.filter((item) => item.ok && hasText(item.text))
-  // conflict detection 비활성화 (오탐율 높음 - 추후 개선)
-  const candidateClaims: any[] = []
-  const detectedConflicts: any[] = []
+
+  // conflict detection — reasoning/research 한정 활성화 (threshold 강화로 오탐 방지)
+  const CONFLICT_TASKS = ["reasoning", "research"]
+  let candidateClaims: any[] = []
+  let detectedConflicts: any[] = []
+
+  if (CONFLICT_TASKS.includes(task) && successfulResults.length >= 2) {
+    try {
+      const providerClaims = successfulResults.map((item) => ({
+        provider: item.provider,
+        claims: extractClaims(item.text)
+      }))
+      candidateClaims = providerClaims.flatMap((pc) => pc.claims)
+      detectedConflicts = detectConflicts(providerClaims, rawInboundMessage)
+    } catch {
+      candidateClaims = []
+      detectedConflicts = []
+    }
+  }
+
   let weightedConflictScore = calculateConflictScore(detectedConflicts)
 
   let candidates = buildCandidates(successfulResults)
@@ -1348,9 +1376,22 @@ export async function executeOrchestra(input: any, stream?: any) {
       postEvalTriggered = true
 
       const nextSuccessful = executed.filter((item) => item.ok && hasText(item.text))
-      // conflict detection 비활성화 (오탐율 높음 - 추후 개선)
-      const nextCandidateClaims: any[] = []
-      const nextDetectedConflicts: any[] = []
+      // escalation 후 재판정 — reasoning/research만 conflict 재감지
+      let nextCandidateClaims: any[] = []
+      let nextDetectedConflicts: any[] = []
+      if (CONFLICT_TASKS.includes(task) && nextSuccessful.length >= 2) {
+        try {
+          const nextProviderClaims = nextSuccessful.map((item) => ({
+            provider: item.provider,
+            claims: extractClaims(item.text)
+          }))
+          nextCandidateClaims = nextProviderClaims.flatMap((pc) => pc.claims)
+          nextDetectedConflicts = detectConflicts(nextProviderClaims, rawInboundMessage)
+        } catch {
+          nextCandidateClaims = []
+          nextDetectedConflicts = []
+        }
+      }
       weightedConflictScore = calculateConflictScore(nextDetectedConflicts)
 
       candidates = buildCandidates(nextSuccessful)
@@ -1399,9 +1440,9 @@ export async function executeOrchestra(input: any, stream?: any) {
   }
 
   const refreshedSuccessful = executed.filter((item) => item.ok && hasText(item.text))
-  // conflict detection 비활성화 (오탐율 높음 - 추후 개선)
-  const finalClaimMap: any[] = []
-  const finalDetectedConflicts: any[] = []
+  // 최종 conflict — detectedConflicts 재사용 (reasoning/research에서만 유효)
+  const finalClaimMap: any[] = candidateClaims
+  const finalDetectedConflicts: any[] = detectedConflicts
 
   let finalResult =
     (judged?.provider
@@ -1428,81 +1469,212 @@ export async function executeOrchestra(input: any, stream?: any) {
 
   applyFinalProviderPreview(providerStreamSummary, finalResult)
 
-  // ===== RESEARCH SYNTHESIS =====
-  // Perplexity 검색 결과 → OpenAI가 종합 정리
-  if (task === "research" && primaryProvider === "perplexity") {
-    const perplexityResult = executed.find((item) => item.provider === "perplexity" && item.ok && hasText(item.text))
-    const openaiResult = executed.find((item) => item.provider === "openai" && item.ok && hasText(item.text))
+  // ===== SYNTHESIS HELPERS =====
+  // judgeWinner: judge가 선택한 provider (finalProvider 선언 전에 사용)
+  const judgeWinner = normalizeProvider(
+    judged?.meta?.judge_selected_provider ?? judged?.provider ?? primaryProvider
+  )
+  function getSynthProvider(excludeProvider: string, preferList: string[]): string | null {
+    for (const p of preferList) {
+      if (normalizeProvider(p) !== normalizeProvider(excludeProvider) &&
+          executed.some((e) => normalizeProvider(e.provider) === normalizeProvider(p) && e.ok && hasText(e.text))) {
+        return normalizeProvider(p)
+      }
+    }
+    const fallback = executed.find((e) =>
+      normalizeProvider(e.provider) !== normalizeProvider(excludeProvider) && e.ok && hasText(e.text)
+    )
+    return fallback?.provider ?? null
+  }
+  // ===== END SYNTHESIS HELPERS =====
 
-    if (perplexityResult && openaiResult) {
-      // OpenAI에게 Perplexity 결과 종합 요청
+  // ===== RESEARCH SYNTHESIS =====
+  // Perplexity 검색 결과 → 합성 provider(openai 우선)가 구조화
+  if (task === "research" && normalizeProvider(primaryProvider) === "perplexity") {
+    const perplexityResult = executed.find((item) => normalizeProvider(item.provider) === "perplexity" && item.ok && hasText(item.text))
+    const synthBy = getSynthProvider("perplexity", ["openai", "claude", "gemini"])
+    const synthResult = synthBy ? executed.find((item) => normalizeProvider(item.provider) === synthBy && item.ok && hasText(item.text)) : null
+
+    if (perplexityResult && !synthResult) {
+      // verifier 결과 없으면 새로 호출
+      const synthProvider = synthBy ?? "openai"
       const synthesisInput = {
         ...effectiveInput,
-        messages: [
-          {
-            role: "user",
-            content: `다음은 실시간 검색으로 수집한 정보입니다:
-
-${perplexityResult.text}
-
-위 정보를 바탕으로 질문에 대해 명확하고 구조화된 답변을 한국어로 작성해주세요. 핵심 내용을 요약하고 중요한 인사이트를 강조해주세요.
-
-원래 질문: ${extractInboundMessage(effectiveInput)}`
-          }
-        ]
+        messages: [{
+          role: "user",
+          content: `다음은 실시간 검색으로 수집한 정보입니다:\n\n${perplexityResult.text}\n\n위 정보를 바탕으로 질문에 대해 명확하고 구조화된 답변을 한국어로 작성해주세요. 핵심 내용을 요약하고 중요한 인사이트를 강조해주세요.\n\n원래 질문: ${extractInboundMessage(effectiveInput)}`
+        }]
       }
-
       const synthesisResult = await executeProvider({
-        provider: "openai",
-        role: "primary",
-        input: synthesisInput,
-        task,
-        route,
-        plannerSignals,
-        usePro: false,
-        emitEvent: emitTracked
+        provider: synthProvider, role: "synthesis",
+        input: synthesisInput, task, route, plannerSignals, usePro: false, emitEvent: emitTracked
       })
-
       if (synthesisResult.ok && hasText(synthesisResult.text)) {
-        finalResult = {
-          ...synthesisResult,
-          provider: "openai",
-          role: "synthesis"
-        }
+        finalResult = { ...synthesisResult, provider: synthProvider, role: "synthesis" }
         executed = [...executed, { ...synthesisResult, role: "synthesis" }]
+      }
+    } else if (perplexityResult && synthResult) {
+      // verifier 결과 있으면 추가 API 호출 없이 합성
+      finalResult = {
+        ...synthResult,
+        text: synthResult.text,
+        provider: synthBy!, role: "synthesis"
       }
     }
   }
   // ===== END RESEARCH SYNTHESIS =====
 
-  // ===== CODE CRITIQUE & PATCH =====
-  if (task === "code" && primaryProvider === "claude") {
-    const claudeResult = executed.find((item) => item.provider === "claude" && item.ok && hasText(item.text))
-    if (claudeResult) {
-      const critiqueInput = {
-        ...effectiveInput,
-        messages: [{
-          role: "user",
-          content: `다음 코드를 리뷰해주세요:\n\n${claudeResult.text}\n\n버그나 개선점이 있으면 수정된 코드를 제시하세요. 코드가 올바르면 "LGTM" 한 줄만 출력하세요.\n\n원래 질문: ${extractInboundMessage(effectiveInput)}`
-        }]
+  // ===== REASONING LOGIC VERIFICATION =====
+  // judge winner 논리 → verifier가 전제/결론 유효성 검증 + 반론 보완
+  if (task === "reasoning") {
+    const winnerReasoning = executed.find((item) => normalizeProvider(item.provider) === judgeWinner && item.ok && hasText(item.text))
+    if (winnerReasoning) {
+      const verifyBy = getSynthProvider(judgeWinner, ["openai", "claude", "gemini"])
+      if (verifyBy) {
+        // 이미 실행된 verifier 결과 재활용 우선 (추가 API 호출 최소화)
+        const existingVerify = executed.find((e) => normalizeProvider(e.provider) === verifyBy && e.ok && hasText(e.text))
+        if (!existingVerify) {
+          const verifyInput = {
+            ...effectiveInput,
+            messages: [{
+              role: "user",
+              content: `다음 추론/분석 결과를 검증해주세요:\n\n${winnerReasoning.text}\n\n1) 전제나 사실 오류가 있으면 지적해주세요.\n2) 논리적 비약이 있으면 지적해주세요.\n3) 빠진 반론이나 중요한 반대 관점이 있으면 추가해주세요.\n문제가 없으면 "VERIFIED" 한 줄만 출력하세요.\n\n원래 질문: ${extractInboundMessage(effectiveInput)}`
+            }]
+          }
+          const verifyResult = await executeProvider({
+            provider: verifyBy, role: "verifier", input: verifyInput,
+            task, route, plannerSignals, usePro: false, emitEvent: emitTracked
+          })
+          if (verifyResult.ok && hasText(verifyResult.text)) {
+            const isVerified = /^verified\.?$/i.test(verifyResult.text.trim())
+            if (!isVerified) {
+              finalResult = {
+                ...winnerReasoning,
+                text: winnerReasoning.text + `\n\n---\n**🔎 논리 검증 (${verifyBy.toUpperCase()}):**\n` + verifyResult.text,
+                provider: judgeWinner, role: "verified"
+              }
+            }
+          }
+        }
       }
-      const critiqueResult = await executeProvider({
-        provider: "openai", role: "verifier", input: critiqueInput,
-        task, route, plannerSignals, usePro: false, emitEvent: emitTracked
-      })
-      if (critiqueResult.ok && hasText(critiqueResult.text)) {
-        const isLgtm = /^lgtm\.?$/i.test(critiqueResult.text.trim())
-        if (!isLgtm) {
-          finalResult = {
-            ...claudeResult,
-            text: claudeResult.text + "\n\n---\n**🔍 코드 리뷰 (OpenAI):**\n" + critiqueResult.text,
-            provider: "claude", role: "patched"
+    }
+  }
+  // ===== END REASONING LOGIC VERIFICATION =====
+
+  // ===== CODE CRITIQUE & PATCH =====
+  // judge winner 코드 → 다른 provider가 리뷰 (routing 변경에 강건)
+  if (task === "code") {
+    const winnerCode = executed.find((item) => normalizeProvider(item.provider) === normalizeProvider(judgeWinner) && item.ok && hasText(item.text))
+    if (winnerCode) {
+      const critiqueBy = getSynthProvider(judgeWinner, ["openai", "claude", "gemini"])
+      if (critiqueBy) {
+        // 이미 실행된 verifier 결과 재활용 우선
+        const existingCritique = executed.find((e) => normalizeProvider(e.provider) === critiqueBy && e.ok && hasText(e.text))
+        if (!existingCritique) {
+          const critiqueInput = {
+            ...effectiveInput,
+            messages: [{
+              role: "user",
+              content: `다음 코드를 리뷰해주세요:\n\n${winnerCode.text}\n\n버그나 개선점이 있으면 수정된 코드를 제시하세요. 코드가 올바르면 "LGTM" 한 줄만 출력하세요.\n\n원래 질문: ${extractInboundMessage(effectiveInput)}`
+            }]
+          }
+          const critiqueResult = await executeProvider({
+            provider: critiqueBy, role: "verifier", input: critiqueInput,
+            task, route, plannerSignals, usePro: false, emitEvent: emitTracked
+          })
+          if (critiqueResult.ok && hasText(critiqueResult.text)) {
+            const isLgtm = /^lgtm\.?$/i.test(critiqueResult.text.trim())
+            if (!isLgtm) {
+              finalResult = {
+                ...winnerCode,
+                text: winnerCode.text + `\n\n---\n**🔍 코드 리뷰 (${critiqueBy.toUpperCase()}):**\n` + critiqueResult.text,
+                provider: normalizeProvider(judgeWinner), role: "patched"
+              }
+            }
           }
         }
       }
     }
   }
   // ===== END CODE CRITIQUE & PATCH =====
+
+  // ===== WRITING EDITORIAL REVIEW =====
+  // judge winner 글 → 다른 provider가 편집 검토 (routing 변경에 강건)
+  if (task === "writing") {
+    const winnerText = executed.find((item) => normalizeProvider(item.provider) === normalizeProvider(judgeWinner) && item.ok && hasText(item.text))
+    if (winnerText) {
+      const editBy = getSynthProvider(judgeWinner, ["openai", "claude", "gemini"])
+      if (editBy) {
+        const existingEdit = executed.find((e) => normalizeProvider(e.provider) === editBy && e.ok && hasText(e.text))
+        if (!existingEdit) {
+          const editInput = {
+            ...effectiveInput,
+            messages: [{
+              role: "user",
+              content: `다음 작성된 글을 편집 검토해주세요:\n\n${winnerText.text}\n\n구조, 흐름, 논리적 일관성 관점에서 구체적인 개선 제안을 1~3줄로 요약해주세요. 내용이 충분히 좋으면 "APPROVED" 한 줄만 출력하세요.\n\n원래 요청: ${extractInboundMessage(effectiveInput)}`
+            }]
+          }
+          const editResult = await executeProvider({
+            provider: editBy, role: "verifier", input: editInput,
+            task, route, plannerSignals, usePro: false, emitEvent: emitTracked
+          })
+          if (editResult.ok && hasText(editResult.text)) {
+            const isApproved = /^approved\.?$/i.test(editResult.text.trim())
+            if (!isApproved) {
+              finalResult = {
+                ...winnerText,
+                text: winnerText.text + `\n\n---\n**✏️ 편집 검토 (${editBy.toUpperCase()}):**\n` + editResult.text,
+                provider: normalizeProvider(judgeWinner), role: "edited"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  // ===== END WRITING EDITORIAL REVIEW =====
+
+  // ===== LONG DOC KEY EXTRACTION =====
+  // judge winner 문서 분석 → verifier가 핵심 의사결정 추출 (routing 변경에 강건)
+  if (task === "long_doc") {
+    const winnerDoc = executed.find((item) => normalizeProvider(item.provider) === normalizeProvider(judgeWinner) && item.ok && hasText(item.text))
+    if (winnerDoc) {
+      const extractBy = getSynthProvider(judgeWinner, ["claude", "openai", "gemini"])
+      if (extractBy) {
+        const existingExtract = executed.find((e) => normalizeProvider(e.provider) === extractBy && e.ok && hasText(e.text))
+        const extractSource = existingExtract ?? null
+        if (!extractSource) {
+          const extractInput = {
+            ...effectiveInput,
+            messages: [{
+              role: "user",
+              content: `다음은 장문 문서를 분석한 결과입니다:\n\n${winnerDoc.text}\n\n이 내용에서 핵심 의사결정 포인트, 실행 가능한 항목, 리스크/주의사항, 중요 결론을 구조화하여 정리해주세요.\n\n원래 요청: ${extractInboundMessage(effectiveInput)}`
+            }]
+          }
+          const extractResult = await executeProvider({
+            provider: extractBy, role: "verifier", input: extractInput,
+            task, route, plannerSignals, usePro: false, emitEvent: emitTracked
+          })
+          if (extractResult.ok && hasText(extractResult.text)) {
+            finalResult = {
+              ...winnerDoc,
+              text: winnerDoc.text + `\n\n---\n**🔑 핵심 추출 (${extractBy.toUpperCase()}):**\n` + extractResult.text,
+              provider: normalizeProvider(judgeWinner), role: "extracted"
+            }
+            executed = [...executed, { ...extractResult, role: "extracted" }]
+          }
+        } else {
+          // 이미 실행된 verifier 결과가 있으면 재활용
+          finalResult = {
+            ...winnerDoc,
+            text: winnerDoc.text + `\n\n---\n**🔑 핵심 추출 (${extractBy.toUpperCase()}):**\n` + extractSource.text,
+            provider: normalizeProvider(judgeWinner), role: "extracted"
+          }
+        }
+      }
+    }
+  }
+  // ===== END LONG DOC KEY EXTRACTION =====
 
   const finalProvider = normalizeProvider(
     judged?.meta?.judge_selected_provider ??
@@ -1733,6 +1905,7 @@ ${perplexityResult.text}
       planner_signals: plannerSignals,
       route,
       retrieval_context: retrievalContext?.retrieval_context ?? null,
+      retrieval_meta: retrievalMeta ?? null,
       executed_providers: summarizeProviderUsage(executed),
       claims: finalClaimMap,
       conflicts: finalConflicts,

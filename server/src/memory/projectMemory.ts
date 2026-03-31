@@ -266,7 +266,72 @@ export function getConfirmedProjectSourceAssets(projectId: string) {
   return getProjectSourceAssets(projectId).filter((item) => String(item?.status ?? "") === "confirmed")
 }
 
-export function getLatestProjectContext(projectId: string) {
+// ------- query-aware source asset retrieval -------
+
+function tokenizeSource(text: string): Set<string> {
+  return new Set(
+    String(text ?? "").toLowerCase()
+      .split(/[\s\.,!?;:()\[\]{}"'가-힣]+/)
+      .map((t) => t.replace(/[^a-z0-9가-힣]/g, ""))
+      .filter((t) => t.length >= 2)
+  )
+}
+
+function jaccardSourceScore(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0
+  let intersection = 0
+  for (const token of a) {
+    if (b.has(token)) intersection++
+  }
+  const union = a.size + b.size - intersection
+  return union === 0 ? 0 : intersection / union
+}
+
+export function findRelevantSourceAssets(
+  projectId: string,
+  query: string,
+  options?: { threshold?: number; limit?: number; includeAll?: boolean }
+) {
+  const threshold = options?.threshold ?? 0.06
+  const limit = options?.limit ?? 6
+  const includeAll = options?.includeAll ?? false
+
+  const queryTokens = tokenizeSource(query)
+
+  // query가 너무 짧거나 빈값이면 confirmed 전체 반환
+  if (queryTokens.size < 2) {
+    return getConfirmedProjectSourceAssets(projectId).slice(0, limit)
+  }
+
+  const assets = includeAll
+    ? getProjectSourceAssets(projectId)
+    : getConfirmedProjectSourceAssets(projectId)
+
+  const scored = assets.map((asset) => {
+    const titleTokens = tokenizeSource(asset.title ?? "")
+    const contentTokens = tokenizeSource((asset.content ?? "").slice(0, 2000))
+    // 제목은 1.5배 가중치 (짧지만 핵심 키워드 포함)
+    const titleScore = jaccardSourceScore(queryTokens, titleTokens) * 1.5
+    const contentScore = jaccardSourceScore(queryTokens, contentTokens)
+    return { asset, score: Math.max(titleScore, contentScore) }
+  })
+
+  const filtered = scored.filter(({ score }) => score >= threshold)
+
+  if (filtered.length === 0) {
+    // 관련 소스가 없으면 confirmed 중 최신 3개만 fallback
+    return getConfirmedProjectSourceAssets(projectId).slice(0, 3)
+  }
+
+  return filtered
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((s) => s.asset)
+}
+
+// ------- getLatestProjectContext (query-aware 버전) -------
+
+export function getLatestProjectContext(projectId: string, query?: string) {
   const state = ensureProjectState(projectId)
   const entries = [...state.entries].sort((a, b) => Number(b?.timestamp ?? 0) - Number(a?.timestamp ?? 0))
   const latest = entries.length > 0 ? entries[0] : null
@@ -285,8 +350,13 @@ export function getLatestProjectContext(projectId: string) {
     entries.flatMap((entry) => Array.isArray(entry?.facts) ? entry.facts : [])
   ).slice(0, 12)
 
+  // query가 있으면 관련성 높은 소스만, 없으면 confirmed 전체
+  const relevantAssets = query && query.trim().length >= 10
+    ? findRelevantSourceAssets(projectId, query)
+    : getConfirmedProjectSourceAssets(projectId)
+
   const sources = uniqueStrings(
-    getConfirmedProjectSourceAssets(projectId)
+    relevantAssets
       .map((asset) => normalizeText(asset?.content))
       .filter(Boolean)
   ).slice(0, 8)
@@ -295,6 +365,7 @@ export function getLatestProjectContext(projectId: string) {
     project_id: projectId,
     entry_count: entries.length,
     source_asset_count: state.source_assets.length,
+    matched_source_count: relevantAssets.length,
     latest_goal: latest?.goal ?? null,
     latest_task: latest?.task ?? null,
     latest_winner_provider: latest?.winner_provider ?? null,
