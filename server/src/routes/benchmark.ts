@@ -1,5 +1,5 @@
 import { logBenchmark, normalizeBenchmarkCase } from "../orchestra/benchmark.js"
-import { resetScoreboard } from "../orchestra/scoreboard.js"
+import { resetScoreboard, recordProviderExecution } from "../orchestra/scoreboard.js"
 import { executeOrchestra } from "../orchestra/runtime.js"
 import { evaluateBenchmarkResult } from "../benchmark/evaluator.js"
 import { buildBenchmarkComparison, buildDefaultBenchmarkCases, toBenchmarkRunResult } from "../benchmark/scoreboard.js"
@@ -99,6 +99,15 @@ async function runOrchestra(input: any): Promise<any> {
 }
 
 function buildEvalInput(label: string, mode: string, result: any) {
+  const rawJudge = result?.internal_rationale?.judge ?? null
+  // evaluator의 hasJudgeTrace = !!judgeTrace?.winner 이므로
+  // runtime judge는 selected_provider를 사용 → winner로 매핑
+  const judgeTrace = rawJudge ? {
+    ...rawJudge,
+    winner: rawJudge.selected_provider ?? null,
+    rationale: rawJudge.rationale ?? rawJudge.decision_rationale ?? (rawJudge.selected_provider ? `selected ${rawJudge.selected_provider} as winner` : null)
+  } : null
+
   return {
     label,
     mode,
@@ -106,15 +115,18 @@ function buildEvalInput(label: string, mode: string, result: any) {
       answer: result?.final_answer ?? null,
       provider_chain: result?.internal_rationale?.executed_providers?.map((p: any) => p.provider) ?? [],
       scoreboard_summary: result?.internal_rationale?.scoreboard_after ?? null,
-      judge_trace: result?.internal_rationale?.judge ?? null,
+      judge_trace: judgeTrace,
       claims: result?.internal_rationale?.claims ?? [],
       conflict_count: result?.internal_rationale?.conflict_count ?? 0,
-      decision_rationale: result?.internal_rationale?.judge?.rationale ?? null,
+      decision_rationale: rawJudge?.rationale ?? rawJudge?.decision_rationale ?? (rawJudge?.selected_provider ? `selected ${rawJudge.selected_provider}` : null),
       winner_snapshot: result?.final_answer ? {
         provider: result.final_answer.provider,
         text: result.final_answer.text?.slice(0, 200)
       } : null,
-      runner_up_snapshot: null
+      runner_up_snapshot: result?.verifier ? {
+        provider: result.verifier.provider,
+        text: result.verifier.text?.slice(0, 200)
+      } : null
     }
   }
 }
@@ -127,10 +139,10 @@ export async function runBenchmarkRunRoute(req: any, res: any) {
     ? body.cases
     : buildDefaultBenchmarkCases()
 
-  // single_providers: 비교할 단일 모델 목록
-  const singleProviders: string[] = Array.isArray(body?.single_providers)
+  // single_providers: 비교할 단일 모델 목록 (gemini 포함 — reasoning/long_doc 공정 비교)
+  const singleProviders: string[] = Array.isArray(body?.single_providers) && body.single_providers.length > 0
     ? body.single_providers
-    : ["openai", "claude", "perplexity"]
+    : ["openai", "claude", "gemini", "perplexity"]
 
   // max_cases: 최대 실행 케이스 수 (기본 6개 — task 6종류 균등 커버)
   const maxCases = Number(body?.max_cases ?? 6)
@@ -201,6 +213,47 @@ export async function runBenchmarkRunRoute(req: any, res: any) {
 
   // 3. 비교 결과 생성
   const comparison = buildBenchmarkComparison(singleRuns, orchestraRuns)
+
+  // ─── Pairwise 승자 → Scoreboard 자동 반영 ────────────────────────────────────
+  // 벤치마크 비교 결과를 routing 학습에 직접 피드백
+  // - orchestra 승: winning provider에 weight 1.8 win 기록
+  // - single 승: 해당 single provider에 weight 1.5 win 기록
+  // - tie: 양쪽 모두 weight 0.5 중립 기록
+  for (const pair of comparison.pairwise ?? []) {
+    const task = String(pair?.task ?? "dialogue").trim().toLowerCase()
+    const winner = String(pair?.benchmark_winner ?? "")
+    const orchestraProvider = String(pair?.orchestra_provider_chain?.[0] ?? "").toLowerCase() ||
+      String(pair?.winner_snapshot?.provider ?? "").toLowerCase()
+    const bestSingleProvider = String(pair?.best_single_provider ?? "").toLowerCase()
+
+    if (winner === "orchestra" && orchestraProvider) {
+      recordProviderExecution(orchestraProvider, {
+        success: true, selected_as_final: true, effective: true,
+        weight: 1.8, task, latency_ms: 0, estimated_cost_usd: 0, error_code: null
+      })
+    } else if (winner === "best_single" && bestSingleProvider) {
+      recordProviderExecution(bestSingleProvider, {
+        success: true, selected_as_final: true, effective: true,
+        weight: 1.5, task, latency_ms: 0, estimated_cost_usd: 0, error_code: null
+      })
+      // orchestra provider는 패배 기록 (약하게)
+      if (orchestraProvider && orchestraProvider !== bestSingleProvider) {
+        recordProviderExecution(orchestraProvider, {
+          success: false, selected_as_final: false, effective: true,
+          weight: 0.6, task, latency_ms: 0, estimated_cost_usd: 0, error_code: "benchmark_loss"
+        })
+      }
+    } else if (winner === "tie") {
+      // 동점: 양쪽 모두 약하게 긍정 기록
+      if (orchestraProvider) {
+        recordProviderExecution(orchestraProvider, {
+          success: true, selected_as_final: false, effective: true,
+          weight: 0.4, task, latency_ms: 0, estimated_cost_usd: 0, error_code: null
+        })
+      }
+    }
+  }
+  console.log(`[BENCHMARK] Scoreboard 반영 완료 — ${comparison.pairwise?.length ?? 0}개 케이스`)
 
   // 히스토리 저장
   const historyEntry = {

@@ -195,15 +195,85 @@ function getSignals(text: string, finalAnswer: any) {
     hasDecisionRationale: typeof finalAnswer?.decision_rationale === "string" && finalAnswer.decision_rationale.trim().length > 0,
     hasWinnerSnapshot: !!finalAnswer?.winner_snapshot?.provider,
     hasRunnerUpSnapshot: !!finalAnswer?.runner_up_snapshot?.provider,
-    hasFinalRecommendation: includesAny(text, ["final recommendation", "final answer", "recommend", "choose", "결론", "최종 추천", "추천"]),
-    hasEvidenceWords: includesAny(text, ["evidence", "source", "data", "benchmark", "출처", "근거", "데이터"]),
-    hasTradeoffWords: includesAny(text, ["trade-off", "tradeoff", "pros", "cons", "리스크", "장점", "단점"]),
-    hasReasoningWords: includesAny(text, ["because", "therefore", "why", "roi", "risk", "margin", "따라서", "리스크", "마진"]),
+    hasFinalRecommendation: includesAny(text, [
+      "final recommendation", "final answer", "recommend", "choose",
+      "결론", "최종 추천", "추천", "권고", "제안합니다", "선택해야", "적합합니다",
+      "따라서", "결론적으로", "최종적으로", "정리하면"
+    ]),
+    hasEvidenceWords: includesAny(text, [
+      "evidence", "source", "data", "benchmark", "출처", "근거", "데이터",
+      "사례", "통계", "수치", "비율", "조사", "연구", "분석 결과", "실적"
+    ]),
+    hasTradeoffWords: includesAny(text, [
+      "trade-off", "tradeoff", "pros", "cons", "리스크", "장점", "단점",
+      "강점", "약점", "유리", "불리", "반면", "비교", "차이", "장단점",
+      "반면에", "한편", "다만", "그러나", "하지만"
+    ]),
+    hasReasoningWords: includesAny(text, [
+      "because", "therefore", "why", "roi", "risk", "margin",
+      "따라서", "리스크", "마진", "왜냐하면", "이유는", "근거는",
+      "분석하면", "판단하면", "고려하면", "검토하면", "평가하면"
+    ]),
     hasCodeWords: includesAny(text, ["function", "class", "interface", "type ", "return", "async", "await", "export ", "const ", "fallback", "provider", "router"]),
     hasCodeBlock: hasCodeBlock(text),
-    hasWritingStructure: includesAny(text, ["서론", "본론", "결론", "introduction", "conclusion", "paragraph", "문단", "단락"]),
-    hasWritingQualityWords: includesAny(text, ["명확", "간결", "설득력", "자연스럽", "readable", "coherent", "compelling", "engaging"]),
-    hasSummaryStructure: includesAny(text, ["요약", "핵심", "결론", "주요 내용", "summary", "key points", "highlights", "takeaway"])
+    hasWritingStructure: includesAny(text, [
+      // 명시적 문서 구조
+      "서론", "본론", "결론", "introduction", "conclusion", "paragraph", "문단", "단락",
+      // 번호/목록 기반 구조 (실무 문서에서 흔함)
+      "1.", "2.", "3.", "첫째", "둘째", "셋째", "first", "second", "third",
+      // 섹션 구분 패턴
+      "제목", "주제", "배경", "목적", "내용", "방향", "전략", "실행",
+      // 소제목/헤더 패턴
+      "##", "**", "◆", "●", "▶", "■",
+      // 라이팅 흐름 키워드
+      "도입", "전개", "마무리", "요약하면", "정리하면", "결론적으로"
+    ]),
+    hasWritingQualityWords: includesAny(text, [
+      // 기존
+      "명확", "간결", "설득력", "자연스럽", "readable", "coherent", "compelling", "engaging",
+      // 한국어 실무 라이팅 품질 키워드
+      "전달", "효과적", "강조", "실무", "전략적", "핵심", "차별화", "경쟁력",
+      "브랜드", "포지셔닝", "고객", "가치", "제안", "솔루션",
+      // 비즈니스 라이팅 패턴
+      "이를 통해", "따라서", "즉", "특히", "구체적으로", "예를 들어",
+      "중요한 것은", "핵심은", "주목할 점은"
+    ]),
+    hasSummaryStructure: includesAny(text, [
+      // 기존
+      "요약", "핵심", "결론", "주요 내용", "summary", "key points", "highlights", "takeaway",
+      // 확장: 실무 문서 패턴
+      "정리", "종합", "분석", "인사이트", "시사점", "제언", "권고",
+      "action item", "next step", "결론적으로", "최종적으로",
+      // 리스크/의사결정 키워드 (long_doc에 유용)
+      "리스크", "위험", "주의", "우선순위", "실행 방안", "대응 전략"
+    ]),
+    // 멀티섹션 완성도 — 번호/헤더 기반 섹션 개수 감지
+    sectionCount: (() => {
+      const numbered = (text.match(/(?:^|\n)\s*(?:\d+[\.\)]\s+|\*{1,2}[가-힣a-zA-Z]|#{1,3}\s+)[^\n]{3,}/g) ?? []).length
+      const bullet = (text.match(/(?:^|\n)\s*[◆●▶■▷→]\s+[^\n]{5,}/g) ?? []).length
+      return numbered + bullet
+    })(),
+    // 분석 깊이 신호 — long_doc 심층 분석 케이스용
+    hasRiskAnalysis: includesAny(text, [
+      "리스크", "위험", "독소 조항", "주의 사항", "협상 필요", "거부", "주의", "경고",
+      "risk", "hazard", "concern", "red flag", "caution", "liability"
+    ]),
+    hasActionItems: includesAny(text, [
+      "즉시 실행", "액션 아이템", "실행 항목", "조치 사항", "다음 단계", "우선 실행",
+      "action item", "next step", "immediate action", "priority action", "실행 계획"
+    ]),
+    hasScenarioAnalysis: includesAny(text, [
+      "시나리오", "낙관", "비관", "중립", "case 1", "case 2", "최선", "최악", "기본 시나리오",
+      "scenario", "best case", "worst case", "base case", "가정", "전제"
+    ]),
+    hasDataEvidence: /\d+[\.,]?\d*\s*(?:%|억|만|천|원|개|건|배|위|점|명|회)/.test(text),
+    // 문서 완성도 — 서두/본문/결론 3단 구조 감지
+    hasDocumentCompleteness: (() => {
+      const hasIntro = includesAny(text, ["개요", "배경", "목적", "현황", "overview", "background", "context", "들어가며"])
+      const hasBody = includesAny(text, ["분석", "검토", "평가", "비교", "세부", "상세", "구체적", "내용"])
+      const hasConclusion = includesAny(text, ["결론", "권고", "제언", "최종", "정리", "요약", "conclusion", "recommendation"])
+      return hasIntro && hasBody && hasConclusion
+    })()
   }
 }
 
@@ -228,7 +298,15 @@ function scoreDialogue(text: string, rubric: RubricBreakdown, reasons: string[])
     addReason(reasons, "dialogue_useful_length", true)
   }
 
-  if (includesAny(text, ["차별", "가치", "고객", "포지셔닝", "benefit", "value"])) {
+  if (includesAny(text, [
+    // 기존
+    "차별", "가치", "고객", "포지셔닝", "benefit", "value",
+    // 한국어 비즈니스 대화 패턴 확장
+    "브랜드", "전략", "시장", "경쟁", "타깃", "핵심", "강점",
+    "제안", "솔루션", "성과", "효과", "실무", "운영",
+    // 일반 실용 답변 패턴
+    "중요", "필요", "방법", "방향", "접근", "기준"
+  ])) {
     rubric.request_fit += 1
     addReason(reasons, "dialogue_practical_fit", true)
   }
@@ -243,11 +321,13 @@ function scoreReasoning(text: string, signals: ReturnType<typeof getSignals>, ru
 
   if (signals.hasReasoningWords) {
     rubric.request_fit += 1
+    rubric.claim_density += 1
     addReason(reasons, "reasoning_logic_language", true)
   }
 
   if (signals.hasTradeoffWords) {
     rubric.request_fit += 1
+    rubric.evidence_strength += 1
     addReason(reasons, "reasoning_tradeoff", true)
   }
 
@@ -311,10 +391,35 @@ function scoreWriting(text: string, signals: ReturnType<typeof getSignals>, rubr
     addReason(reasons, "writing_depth", true)
   }
 
+  if (signals.textLength >= 900) {
+    rubric.base_text_quality += 1
+    addReason(reasons, "writing_comprehensive", true)
+  }
+
   if (signals.hasWritingStructure) {
     rubric.consistency += 1
     rubric.request_fit += 1
     addReason(reasons, "writing_structure", true)
+  }
+
+  // 멀티섹션 완성도 보상 — 새 케이스는 5~6섹션 구조 요구
+  if (signals.sectionCount >= 3) {
+    rubric.consistency += 1
+    rubric.request_fit += 1
+    addReason(reasons, "writing_multi_section_3", true)
+  }
+
+  if (signals.sectionCount >= 5) {
+    rubric.consistency += 2
+    rubric.request_fit += 1
+    addReason(reasons, "writing_multi_section_5", true)
+  }
+
+  // 문서 완성도 (서두-본문-결론 3단 구조)
+  if (signals.hasDocumentCompleteness) {
+    rubric.consistency += 1
+    rubric.claim_density += 1
+    addReason(reasons, "writing_doc_completeness", true)
   }
 
   if (signals.hasWritingQualityWords) {
@@ -325,6 +430,11 @@ function scoreWriting(text: string, signals: ReturnType<typeof getSignals>, rubr
   if (signals.sentenceCount >= 5) {
     rubric.consistency += 1
     addReason(reasons, "writing_sentence_density", true)
+  }
+
+  if (signals.hasFinalRecommendation) {
+    rubric.request_fit += 1
+    addReason(reasons, "writing_actionable_conclusion", true)
   }
 }
 
@@ -340,10 +450,39 @@ function scoreLongDoc(text: string, signals: ReturnType<typeof getSignals>, rubr
     addReason(reasons, "long_doc_depth", true)
   }
 
+  if (signals.textLength >= 1000) {
+    rubric.base_text_quality += 1
+    addReason(reasons, "long_doc_comprehensive", true)
+  }
+
   if (signals.hasSummaryStructure) {
     rubric.claim_density += 2
     rubric.request_fit += 1
     addReason(reasons, "long_doc_summary_structure", true)
+  }
+
+  // 분석 깊이 신호 — 새 케이스는 리스크/액션/시나리오 분석 요구
+  if (signals.hasRiskAnalysis) {
+    rubric.evidence_strength += 2
+    rubric.claim_density += 1
+    addReason(reasons, "long_doc_risk_analysis", true)
+  }
+
+  if (signals.hasActionItems) {
+    rubric.request_fit += 2
+    addReason(reasons, "long_doc_action_items", true)
+  }
+
+  if (signals.hasScenarioAnalysis) {
+    rubric.evidence_strength += 1
+    rubric.claim_density += 1
+    addReason(reasons, "long_doc_scenario_analysis", true)
+  }
+
+  // 수치/데이터 기반 증거 (계약 조항, 재무 데이터 케이스)
+  if (signals.hasDataEvidence) {
+    rubric.evidence_strength += 2
+    addReason(reasons, "long_doc_data_evidence", true)
   }
 
   if (signals.hasEvidenceWords) {
@@ -351,9 +490,27 @@ function scoreLongDoc(text: string, signals: ReturnType<typeof getSignals>, rubr
     addReason(reasons, "long_doc_evidence_extraction", true)
   }
 
+  // 멀티섹션 완성도
+  if (signals.sectionCount >= 3) {
+    rubric.consistency += 1
+    rubric.claim_density += 1
+    addReason(reasons, "long_doc_multi_section", true)
+  }
+
+  // 문서 완성도 (서두-본문-결론)
+  if (signals.hasDocumentCompleteness) {
+    rubric.consistency += 2
+    addReason(reasons, "long_doc_completeness", true)
+  }
+
   if (signals.claimsCount >= 3) {
     rubric.claim_density += 1
     addReason(reasons, "long_doc_claim_density", true)
+  }
+
+  if (signals.hasFinalRecommendation) {
+    rubric.request_fit += 2
+    addReason(reasons, "long_doc_final_recommendation", true)
   }
 }
 

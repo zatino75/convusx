@@ -25,6 +25,8 @@ type OrxTask =
   | "reasoning"
   | "research"
   | "code"
+  | "writing"
+  | "long_doc"
   | "evidence"
 
 const REGISTRY: Record<string, AdapterResolver[]> = {
@@ -68,6 +70,8 @@ function normalizeTask(task: any): OrxTask {
   const value = String(task ?? "").trim().toLowerCase()
 
   if (value.includes("code")) return "code"
+  if (value.includes("long_doc") || value.includes("long_document")) return "long_doc"
+  if (value.includes("writing") || value.includes("write")) return "writing"
   if (value.includes("reasoning")) return "reasoning"
   if (value.includes("evidence")) return "evidence"
   // 전용 파이프라인 task → research
@@ -327,7 +331,9 @@ function defaultModel(provider: string, task: OrxTask, input?: any): string {
 
 function defaultTemperature(task: OrxTask): number {
   if (task === "dialogue") return 0.2
+  if (task === "writing") return 0.3
   if (task === "research") return 0.1
+  if (task === "long_doc") return 0.1
   if (task === "reasoning") return 0.1
   if (task === "code") return 0
   return 0.1
@@ -345,6 +351,8 @@ function defaultMaxTokens(task: OrxTask, provider: string, input?: any): number 
   }
 
   if (task === "dialogue") return 1200
+  if (task === "writing") return 3000
+  if (task === "long_doc") return 4000
   if (task === "reasoning") return 2200
   if (task === "research") return 3000
   if (task === "code") return 2800
@@ -368,6 +376,7 @@ function buildTimeoutMs(provider: string, task: OrxTask, input?: any): number {
   }
 
   if (provider === "gemini") {
+    if (task === "long_doc") return 40000
     if (task === "research") return 20000
     if (task === "reasoning") return 20000
     if (task === "code") return 20000
@@ -375,6 +384,8 @@ function buildTimeoutMs(provider: string, task: OrxTask, input?: any): number {
   }
 
   if (provider === "claude") {
+    if (task === "writing") return 55000
+    if (task === "long_doc") return 70000
     if (task === "research") return 70000
     if (task === "reasoning") return 65000
     if (task === "code") return 60000
@@ -409,7 +420,7 @@ function buildMaxRetries(provider: string, task: OrxTask, input?: any): number {
   return 1
 }
 
-function buildTaskSystemPrompt(task: OrxTask, provider: string): string {
+function buildTaskSystemPrompt(task: OrxTask, provider: string, structuredOutput = false): string {
   const COMMON = [
     "당신은 AI Orchestra 멀티 AI 시스템의 일원입니다.",
     "한국어로 질문이 들어오면 반드시 한국어로 답하세요.",
@@ -458,15 +469,42 @@ function buildTaskSystemPrompt(task: OrxTask, provider: string): string {
     return [COMMON, roleMap[provider] ?? roleMap.openai].join(" ")
   }
 
+  if (task === "writing") {
+    const roleMap: Record<string, string> = {
+      openai: "당신은 편집 검토 AI입니다. 작성된 글의 구조, 흐름, 논리적 일관성을 검토하고 구체적인 개선안을 제시하세요. 누락된 섹션이나 약한 논거가 있으면 반드시 지적하고 보완 내용을 제안하세요.",
+      claude: "당신은 주 작성 AI입니다. 요청에 명시된 모든 섹션을 빠짐없이 작성하세요. 각 섹션은 ## 헤더로 구분하고, 번호를 붙여 명확히 구조화하세요. 단순 설명이 아니라 실무에서 즉시 활용 가능한 구체적 내용을 담아야 합니다. 결론 또는 권고사항을 반드시 포함하세요.",
+      gemini: "당신은 스타일 최적화 AI입니다. 글의 문체, 톤, 가독성을 분석하고 타깃 독자(투자자/파트너/고객)에게 최적화된 표현으로 개선안을 제시하세요. 각 섹션의 설득력을 높이는 구체적 언어 수정을 포함하세요.",
+      perplexity: "당신은 사실 보강 AI입니다. 글에 필요한 시장 데이터, 수치, 사례, 트렌드를 실시간 검색하여 각 섹션에 근거를 추가하세요. 수치와 출처를 명시하세요."
+    }
+    const SECTION_ENFORCE = structuredOutput
+      ? " 【필수】 요청의 모든 섹션/항목을 빠짐없이 작성하세요. 섹션 생략, '이하 생략', '간략히' 같은 표현 금지."
+      : ""
+    return [COMMON, roleMap[provider] ?? roleMap.claude].join(" ") + SECTION_ENFORCE
+  }
+
+  if (task === "long_doc") {
+    const roleMap: Record<string, string> = {
+      openai: "당신은 핵심 추출 AI입니다. 장문 문서에서 의사결정자가 즉시 필요한 핵심 결론, 리스크 항목, 실행 가능한 액션 아이템을 구조화하여 추출하세요. 각 항목에 우선순위와 이유를 명시하세요.",
+      claude: "당신은 심층 분석 AI입니다. 문서의 논리 구조, 리스크 요소, 숨겨진 가정, 모순점을 분석하세요. 분석은 반드시 다음 구조로 작성: 1) 핵심 발견사항 2) 리스크 평가 3) 협상/수정 필요 항목 4) 즉시 실행 권고.",
+      gemini: "당신은 주 문서 처리 AI입니다. 문서 전체를 빠짐없이 처리하고 다음 섹션 구조로 정리하세요: 1) 핵심 수치/사실 요약 2) 기회 및 위협 분석 3) 실행 가능한 전략 인사이트 4) 단계별 권고 액션. 각 섹션은 ## 헤더로 구분하고 구체적 수치와 근거를 포함하세요.",
+      perplexity: "당신은 보완 정보 AI입니다. 문서 내용을 검증하고 관련 최신 시장 데이터, 법률/규제 정보, 비교 사례를 실시간으로 보완하세요. 출처 URL 또는 출처명을 반드시 명시하세요."
+    }
+    const SECTION_ENFORCE = structuredOutput
+      ? " 【필수】 요청의 모든 분석 섹션을 완성하세요. 항목 생략 금지. 각 섹션에 구체적 근거와 수치를 포함하세요."
+      : ""
+    return [COMMON, roleMap[provider] ?? roleMap.gemini].join(" ") + SECTION_ENFORCE
+  }
+
   return COMMON
 }
 
 function prependSystemMessage(
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
   task: OrxTask,
-  provider: string
+  provider: string,
+  structuredOutput = false
 ) {
-  const systemPrompt = buildTaskSystemPrompt(task, provider)
+  const systemPrompt = buildTaskSystemPrompt(task, provider, structuredOutput)
 
   if (!systemPrompt.trim()) {
     return messages
@@ -500,7 +538,8 @@ function prependSystemMessage(
 function buildPayload(input: DispatchInput) {
   const provider = normalizeProvider(input?.provider)
   const task = normalizeTask(input?.task ?? input?.input?.task)
-  const messages = prependSystemMessage(normalizeMessages(input), task, provider)
+  const structuredOutput = Boolean(input?.input?.metadata?.planner_signals?.structured_output)
+  const messages = prependSystemMessage(normalizeMessages(input), task, provider, structuredOutput)
 
   return {
     provider,

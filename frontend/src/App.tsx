@@ -240,6 +240,7 @@ function BenchmarkView() {
   const [result, setResult] = useState<BenchmarkResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [maxCases, setMaxCases] = useState(6);
+  const [selectedProviders, setSelectedProviders] = useState<string[]>(["openai", "claude", "gemini", "perplexity"]);
   const [activeTab, setActiveTab] = useState<"run" | "history" | "routing">("run");
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -280,7 +281,7 @@ function BenchmarkView() {
       const res = await fetch("http://localhost:8000/api/benchmark/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ max_cases: maxCases, single_providers: ["openai", "claude", "perplexity"] })
+        body: JSON.stringify({ max_cases: maxCases, single_providers: selectedProviders })
       });
       const data = await res.json();
       if (data.ok) setResult(data);
@@ -325,7 +326,8 @@ function BenchmarkView() {
           ))}
         </div>
         {activeTab === "run" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" as const }}>
             <label style={{ fontSize: 12, color: "var(--text-sub)" }}>
               케이스 수:
               <select value={maxCases} onChange={e => setMaxCases(Number(e.target.value))}
@@ -333,13 +335,35 @@ function BenchmarkView() {
                 {[3, 6, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
               </select>
             </label>
-            <button type="button" onClick={runBenchmark} disabled={loading}
+            {/* 비교 대상 provider 선택 */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text-sub)" }}>
+              <span>비교 대상:</span>
+              {(["openai", "claude", "gemini", "perplexity"] as const).map(p => {
+                const COLORS: Record<string, string> = { openai: "#10a37f", claude: "#d97706", gemini: "#3b82f6", perplexity: "#8b5cf6" };
+                const checked = selectedProviders.includes(p);
+                return (
+                  <label key={p} style={{ display: "flex", alignItems: "center", gap: 3, cursor: "pointer", userSelect: "none" as const }}>
+                    <input type="checkbox" checked={checked}
+                      onChange={e => setSelectedProviders(prev =>
+                        e.target.checked ? [...prev, p] : prev.filter(x => x !== p)
+                      )}
+                      style={{ accentColor: COLORS[p] }} />
+                    <span style={{ color: checked ? COLORS[p] : "var(--text-sub)", fontWeight: checked ? 700 : 400 }}>{p}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <button type="button" onClick={runBenchmark} disabled={loading || selectedProviders.length === 0}
               style={{ padding: "7px 16px", borderRadius: 8, border: "none",
                 background: loading ? "var(--border)" : "var(--text-main)",
                 color: loading ? "var(--text-sub)" : "#fff",
                 fontSize: 13, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer" }}>
               {loading ? "실행 중..." : "실행"}
             </button>
+          </div>
+          {selectedProviders.length === 0 && (
+            <div style={{ fontSize: 11, color: "#ef4444" }}>비교 대상 provider를 1개 이상 선택하세요.</div>
+          )}
           </div>
         )}
       </div>
@@ -481,6 +505,67 @@ function BenchmarkView() {
           )}
           {!historyLoading && history.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column" as const, gap: 10 }}>
+              {/* 트렌드 차트 — orchestra vs single 점수 추이 */}
+              {history.length >= 2 && (() => {
+                const chartData = [...history].reverse(); // 오래된 순으로
+                const W = 560; const H = 110; const PAD = { t: 10, r: 12, b: 28, l: 36 };
+                const cW = W - PAD.l - PAD.r; const cH = H - PAD.t - PAD.b;
+                const orchScores = chartData.map(e => Number(e.avg_quality_orchestra ?? 0));
+                const singleScores = chartData.map(e => Number(e.avg_quality_single ?? 0));
+                const winRates = chartData.map(e => Number(e.win_rate ?? 0));
+                const allScores = [...orchScores, ...singleScores].filter(s => s > 0);
+                const minY = Math.max(0, Math.min(...allScores) - 1);
+                const maxY = Math.max(...allScores) + 1;
+                const xStep = chartData.length > 1 ? cW / (chartData.length - 1) : cW;
+                const toX = (i: number) => PAD.l + i * xStep;
+                const toY = (v: number) => PAD.t + cH - ((v - minY) / (maxY - minY)) * cH;
+                const polyline = (arr: number[]) =>
+                  arr.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
+                const yTicks = [minY, (minY + maxY) / 2, maxY].map(v => Math.round(v));
+                return (
+                  <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", background: "var(--bg-card, #fafafa)" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-sub)", marginBottom: 8, display: "flex", alignItems: "center", gap: 14 }}>
+                      <span>품질 점수 추이</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="18" height="3"><line x1="0" y1="1.5" x2="18" y2="1.5" stroke="#6366f1" strokeWidth="2" /></svg>오케스트라</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="18" height="3"><line x1="0" y1="1.5" x2="18" y2="1.5" stroke="#f87171" strokeWidth="2" strokeDasharray="4 2" /></svg>단일 최강</span>
+                    </div>
+                    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H, display: "block" }}>
+                      {/* y grid */}
+                      {yTicks.map(v => (
+                        <g key={v}>
+                          <line x1={PAD.l} y1={toY(v)} x2={W - PAD.r} y2={toY(v)} stroke="var(--border, #e5e7eb)" strokeWidth="1" />
+                          <text x={PAD.l - 4} y={toY(v) + 4} textAnchor="end" fontSize="9" fill="var(--text-sub, #9ca3af)">{v.toFixed(0)}</text>
+                        </g>
+                      ))}
+                      {/* win rate bars */}
+                      {chartData.map((_, i) => {
+                        const bW = Math.max(4, xStep * 0.4);
+                        const bH = winRates[i] * cH * 0.35;
+                        const bX = toX(i) - bW / 2;
+                        const bY = PAD.t + cH - bH;
+                        return <rect key={i} x={bX} y={bY} width={bW} height={bH} fill={winRates[i] >= 0.5 ? "#d1fae5" : "#fee2e2"} opacity="0.7" rx="2" />;
+                      })}
+                      {/* lines */}
+                      <polyline points={polyline(singleScores)} fill="none" stroke="#f87171" strokeWidth="1.5" strokeDasharray="5 3" strokeLinejoin="round" />
+                      <polyline points={polyline(orchScores)} fill="none" stroke="#6366f1" strokeWidth="2" strokeLinejoin="round" />
+                      {/* dots */}
+                      {orchScores.map((v, i) => (
+                        <circle key={i} cx={toX(i)} cy={toY(v)} r="3" fill="#6366f1" />
+                      ))}
+                      {singleScores.map((v, i) => (
+                        <circle key={i} cx={toX(i)} cy={toY(v)} r="2.5" fill="#f87171" />
+                      ))}
+                      {/* x labels */}
+                      {chartData.map((_, i) => (
+                        <text key={i} x={toX(i)} y={H - 6} textAnchor="middle" fontSize="9" fill="var(--text-sub, #9ca3af)">#{i + 1}</text>
+                      ))}
+                    </svg>
+                    <div style={{ fontSize: 10, color: "var(--text-sub)", marginTop: 4 }}>
+                      막대: 오케스트라 승률 (초록=50%↑, 빨강=50%↓) · 최근 {chartData.length}회
+                    </div>
+                  </div>
+                );
+              })()}
               <div style={{ fontSize: 12, color: "var(--text-sub)", marginBottom: 4 }}>최근 {history.length}개 기록 (최신순)</div>
               {history.map((entry: any, idx: number) => {
                 const winRate = Math.round((entry.win_rate ?? 0) * 100);
@@ -554,26 +639,60 @@ function BenchmarkView() {
                   </div>
                 ))}
               </div>
-              {Object.keys(taskImprovement).length > 0 && (
-                <div style={{ marginBottom: 24 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginBottom: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Task별 결과</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
-                    {Object.entries(taskImprovement).map(([task, data]) => {
-                      const winRate = data.total > 0 ? Math.round((data.orchestra_win / data.total) * 100) : 0;
-                      return (
-                        <div key={task} style={{ padding: 12, borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-1, #f9fafb)" }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)", marginBottom: 6 }}>{TASK_LABEL[task] ?? task}</div>
-                          <div style={{ fontSize: 11, color: "var(--text-sub)" }}>{data.total}건 중</div>
-                          <div style={{ marginTop: 6, height: 4, borderRadius: 2, background: "var(--border)" }}>
-                            <div style={{ width: winRate + "%", height: "100%", borderRadius: 2, background: winRate >= 50 ? "#10b981" : "#ef4444", transition: "width 0.4s ease" }} />
+              {Object.keys(taskImprovement).length > 0 && (() => {
+                // pairwise에서 task별 평균 점수 계산
+                const taskScores: Record<string, { orchSum: number; singleSum: number; count: number }> = {};
+                pairwise.forEach((p: any) => {
+                  const t = p.task ?? "unknown";
+                  if (!taskScores[t]) taskScores[t] = { orchSum: 0, singleSum: 0, count: 0 };
+                  if (Number(p.orchestra_score) > 0 || Number(p.best_single_score) > 0) {
+                    taskScores[t].orchSum += Number(p.orchestra_score ?? 0);
+                    taskScores[t].singleSum += Number(p.best_single_score ?? 0);
+                    taskScores[t].count += 1;
+                  }
+                });
+                const TASK_ORDER_BENCH = ["dialogue", "reasoning", "research", "code", "writing", "long_doc"];
+                const sortedTasks = TASK_ORDER_BENCH.filter(t => taskImprovement[t])
+                  .concat(Object.keys(taskImprovement).filter(t => !TASK_ORDER_BENCH.includes(t)));
+                return (
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginBottom: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Task별 결과</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
+                      {sortedTasks.map(task => {
+                        const data = taskImprovement[task];
+                        const winRate = data.total > 0 ? Math.round((data.orchestra_win / data.total) * 100) : 0;
+                        const sc = taskScores[task];
+                        const orchAvg = sc && sc.count > 0 ? sc.orchSum / sc.count : null;
+                        const singleAvg = sc && sc.count > 0 ? sc.singleSum / sc.count : null;
+                        const gap = orchAvg != null && singleAvg != null ? orchAvg - singleAvg : null;
+                        const winColor = winRate >= 50 ? "#10b981" : "#ef4444";
+                        return (
+                          <div key={task} style={{ padding: 12, borderRadius: 8, border: `1px solid ${winRate >= 50 ? "#a7f3d0" : "#fecaca"}`, background: winRate >= 50 ? "#f0fdf4" : "#fff5f5" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-main)" }}>{TASK_LABEL[task] ?? task}</span>
+                              <span style={{ fontSize: 10, color: "var(--text-sub)" }}>{data.total}건</span>
+                            </div>
+                            <div style={{ marginTop: 4, height: 4, borderRadius: 2, background: "var(--border, #e5e7eb)" }}>
+                              <div style={{ width: winRate + "%", height: "100%", borderRadius: 2, background: winColor, transition: "width 0.4s ease" }} />
+                            </div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: winColor, marginTop: 5 }}>오케 {winRate}% 승 ({data.orchestra_win}W/{data.best_single_win}L/{data.tie}T)</div>
+                            {orchAvg != null && singleAvg != null && (
+                              <div style={{ fontSize: 10, color: "var(--text-sub)", marginTop: 3, display: "flex", gap: 6 }}>
+                                <span style={{ color: "#6366f1" }}>오케 {orchAvg.toFixed(1)}</span>
+                                <span>vs</span>
+                                <span style={{ color: "#f87171" }}>단일 {singleAvg.toFixed(1)}</span>
+                                <span style={{ fontWeight: 700, color: gap != null && gap >= 0 ? "#10b981" : "#ef4444" }}>
+                                  {gap != null ? (gap >= 0 ? "+" : "") + gap.toFixed(1) : ""}
+                                </span>
+                              </div>
+                            )}
                           </div>
-                          <div style={{ fontSize: 11, fontWeight: 600, color: winRate >= 50 ? "#10b981" : "#ef4444", marginTop: 4 }}>오케스트라 {winRate}% 승</div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
               {pairwise.length > 0 && (
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginBottom: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>케이스별 결과</div>

@@ -87,17 +87,19 @@ function getRoutingRows(task: AdaptiveTask) {
 }
 
 // 2026년 3월 벤치마크 기반 태스크별 provider 가중치 (초기값 / 데이터 없을 때 fallback)
-// - Claude: SWE-bench 코딩 1위(80.8%), 글쓰기/문서 1위(128K 출력)
-// - Gemini: ARC-AGI-2 추론 1위(77.1%), 1M 컨텍스트, 최저가
+// - Claude: SWE-bench 코딩 1위(80.8%), 글쓰기/문서 1위(128K 출력), long_doc 구조화 최강
+// - Gemini: ARC-AGI-2 추론 1위(77.1%), 1M 컨텍스트(long input 읽기), 최저가
 // - OpenAI: 올라운더, 에이전트 실행(Terminal-Bench 1위), 사실확인
 // - Perplexity: 실시간 리서치 1위, 팩트 정확도 93.9%
+// long_doc: gemini는 long input 처리 강점, claude는 구조화 문서 출력 강점
+//   → 오케스트라 primary를 gemini와 차별화해 benchmark 비교가 유의미하도록 claude primary
 const TASK_WEIGHTS: Record<string, Record<string, number>> = {
   code:     { claude: 0.12, openai: 0.06, gemini: 0.01, perplexity: 0.00 },
   writing:  { claude: 0.14, openai: 0.04, gemini: 0.02, perplexity: 0.00 },
   dialogue: { openai: 0.10, claude: 0.06, gemini: 0.02, perplexity: 0.01 },
   reasoning:{ gemini: 0.12, openai: 0.08, claude: 0.06, perplexity: 0.00 },
   research: { perplexity: 0.12, claude: 0.07, openai: 0.05, gemini: 0.03 },
-  long_doc: { gemini: 0.14, claude: 0.08, openai: 0.03, perplexity: 0.01 }
+  long_doc: { claude: 0.14, gemini: 0.08, openai: 0.03, perplexity: 0.01 }
 }
 
 function rankProviders(task: AdaptiveTask) {
@@ -237,8 +239,10 @@ function fallbackOrder(ranked: any[], excluded: string[], preferFast: boolean): 
 // 데이터 쌓일수록 → 실제 성능 기반으로 순위가 자연스럽게 갱신됨.
 //
 // 예외 (능력 특성상 고정):
-//   research  → perplexity 항상 primary (실시간 검색 전용, bandit으로 대체 불가)
-//   long_doc  → gemini 항상 primary (1M context, bandit으로 대체 불가)
+//   research → perplexity 항상 primary (실시간 검색 전용, bandit으로 대체 불가)
+//   long_doc → bandit dynamic (TASK_WEIGHTS: claude primary 초기값)
+//              gemini는 1M context 읽기 강점이지만 구조화 출력은 claude가 우위
+//              → benchmark 비교 의미를 위해 단일 gemini와 차별화된 조합 사용
 function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
   const allowOptional = Boolean(
     params?.benchmark_mode ||
@@ -253,16 +257,6 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
       selected_providers: ["perplexity"],
       verifier_providers: ["claude"],
       optional_providers: allowOptional ? ["openai"] : [],
-      scout_providers: []
-    }
-  }
-
-  // ── long_doc: gemini 고정 primary (1M context) ─────────────────────────────
-  if (task === "long_doc") {
-    return {
-      selected_providers: ["gemini"],
-      verifier_providers: ["claude"],
-      optional_providers: [],
       scout_providers: []
     }
   }
