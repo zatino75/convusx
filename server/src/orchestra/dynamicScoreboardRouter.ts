@@ -248,6 +248,23 @@ function getTaskWeights(task: "dialogue" | "reasoning" | "research" | "code" | "
     }
   }
 
+  if (task === "code") {
+    return {
+      latency: 0.06,
+      success: 0.18,
+      quality: 0.26,
+      claims: 0.03,
+      conflicts: 0.08,
+      decisions: 0.07,
+      fallback: 0.07,
+      confidence: 0.09,
+      cost_efficiency: 0.05,
+      cost_penalty: 0.02,
+      freshness: 0.06,
+      recent_winner_bonus: 0.05
+    }
+  }
+
   return {
     latency: 0.05,
     success: 0.20,
