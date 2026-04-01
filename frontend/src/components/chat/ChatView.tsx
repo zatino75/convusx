@@ -1165,6 +1165,11 @@ export default function ChatView({
                 onSend={onSend}
                 onStopGenerating={onStopGenerating}
                 textareaRef={textareaRef}
+                onComposerAction={onComposerAction}
+                composerMode={composerMode}
+                onClearComposerMode={onClearComposerMode}
+                attachedFile={attachedFile}
+                onAttachFile={onAttachFile}
               />
             </div>
 
