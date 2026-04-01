@@ -769,6 +769,7 @@ function normalizeUsage(result: any, payload: any, answerText: string, model: st
     rawUsage?.prompt_tokens ??
     rawUsage?.promptTokens ??
     rawUsage?.inputTokenCount ??
+    rawUsage?.promptTokenCount ??    // Gemini usageMetadata
     estimateTokensFromText((payload?.messages ?? []).map((m: any) => m.content).join("\n\n")))
 
   const outputTokens =
