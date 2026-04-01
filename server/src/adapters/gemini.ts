@@ -85,6 +85,17 @@ function extractText(data: any): string {
   return ""
 }
 
+function extractTextChunk(data: any): string {
+  const candidates = Array.isArray(data?.candidates) ? data.candidates : []
+  for (const candidate of candidates) {
+    const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : []
+    for (const part of parts) {
+      if (typeof part?.text === "string") return part.text
+    }
+  }
+  return ""
+}
+
 function extractApiError(data: any, statusCode: number): { code: string; message: string } {
   const apiError = data?.error ?? {}
   const statusText = typeof apiError?.status === "string" ? apiError.status.trim() : ""
@@ -142,11 +153,9 @@ async function callGemini(params: {
       ? params.req.timeout_ms
       : 20000
 
-  // 자체 timeout controller
   const timeoutController = new AbortController()
   const timer = setTimeout(() => timeoutController.abort(), timeoutMs)
 
-  // 외부 abort_signal (클라이언트 ESC) 연결
   const externalSignal = params.externalSignal ?? null
   let externalListener: (() => void) | null = null
 
@@ -189,7 +198,6 @@ async function callGemini(params: {
       error?.name === "AbortError" ||
       String(error?.message ?? "").toLowerCase().includes("aborted")
 
-    // 외부 signal에 의한 abort인지 구분
     const clientAborted = externalSignal?.aborted === true
 
     throw {
@@ -206,6 +214,156 @@ async function callGemini(params: {
   }
 }
 
+// ─── Gemini SSE 스트리밍 ─────────────────────────────────────────
+async function streamGemini(params: {
+  apiKey: string
+  model: string
+  body: any
+  onToken?: (chunk: string) => void | Promise<void>
+  timeoutMs?: number
+  externalSignal?: AbortSignal | null
+}) {
+  const timeoutMs = typeof params.timeoutMs === "number" && params.timeoutMs > 0
+    ? params.timeoutMs
+    : 60000
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const start = now()
+
+  const externalSignal = params.externalSignal ?? null
+  let externalListener: (() => void) | null = null
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      clearTimeout(timer)
+      return {
+        ok: false,
+        latency: 0,
+        text: "",
+        usage: undefined,
+        errorCode: "aborted",
+        timedOut: false
+      }
+    }
+    externalListener = () => controller.abort()
+    externalSignal.addEventListener("abort", externalListener)
+  }
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${params.model}:streamGenerateContent?key=${params.apiKey}&alt=sse`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(params.body),
+        signal: controller.signal
+      }
+    )
+
+    const latency = now() - start
+
+    if (!response.ok || !response.body) {
+      const data = await response.json().catch(async () => {
+        const text = await response.text().catch(() => "")
+        return { error: { message: text } }
+      })
+      return {
+        ok: false,
+        latency,
+        text: "",
+        usage: undefined,
+        errorCode: extractApiError(data, response.status).code,
+        timedOut: false
+      }
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+
+    let buffer = ""
+    let fullText = ""
+    let usage: any = undefined
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+
+      // Gemini SSE: data: {...}\n\n 형식
+      while (buffer.includes("\n\n")) {
+        const index = buffer.indexOf("\n\n")
+        const rawEvent = buffer.slice(0, index)
+        buffer = buffer.slice(index + 2)
+
+        const lines = rawEvent
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+
+        const dataLine = lines.find((line) => line.startsWith("data:"))
+        if (!dataLine) continue
+
+        const jsonStr = dataLine.replace(/^data:\s*/, "")
+        if (!jsonStr || jsonStr === "[DONE]") continue
+
+        try {
+          const parsed = JSON.parse(jsonStr)
+
+          // 텍스트 청크 추출
+          const chunkText = extractTextChunk(parsed)
+          if (chunkText) {
+            fullText += chunkText
+            if (params.onToken) {
+              await params.onToken(chunkText)
+            }
+          }
+
+          // usageMetadata: 마지막 청크에 포함됨
+          if (parsed?.usageMetadata) {
+            usage = parsed.usageMetadata
+          }
+        } catch {
+          // JSON parse 실패 무시
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      latency: now() - start,
+      text: fullText,
+      usage,
+      errorCode: null,
+      timedOut: false
+    }
+  } catch (error: any) {
+    const latency = now() - start
+    const clientAborted = externalSignal?.aborted === true
+    const timedOut =
+      !clientAborted &&
+      (error?.name === "AbortError" ||
+        String(error?.message ?? "").toLowerCase().includes("aborted"))
+
+    return {
+      ok: false,
+      latency,
+      text: "",
+      usage: undefined,
+      errorCode: clientAborted ? "aborted" : timedOut ? "timeout" : "network_error",
+      timedOut
+    }
+  } finally {
+    clearTimeout(timer)
+    if (externalSignal && externalListener) {
+      externalSignal.removeEventListener("abort", externalListener)
+    }
+  }
+}
+
 export const geminiAdapter: ModelAdapter = {
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const apiKey = env("GEMINI_API_KEY")
@@ -213,8 +371,8 @@ export const geminiAdapter: ModelAdapter = {
     const attempts: ModelAttempt[] = []
     const { system, conversation } = splitSystemAndMessages(req.messages)
 
-    // abort_signal: adapterDispatcher에서 전달된 클라이언트 중단 신호
     const externalSignal: AbortSignal | null = (req as any).abort_signal ?? null
+    const onToken = typeof (req as any)?.onToken === "function" ? (req as any).onToken : undefined
 
     if (!apiKey) {
       return {
@@ -225,6 +383,11 @@ export const geminiAdapter: ModelAdapter = {
         error: buildError(req.provider, "missing GEMINI_API_KEY", "missing_api_key")
       }
     }
+
+    const timeoutMs =
+      typeof req.timeout_ms === "number" && req.timeout_ms > 0
+        ? req.timeout_ms
+        : 20000
 
     const requestBody = {
       contents: conversation,
@@ -245,13 +408,82 @@ export const geminiAdapter: ModelAdapter = {
       }
     }
 
+    // ── 스트리밍 경로 ──────────────────────────────────────────────
+    if (onToken) {
+      const maxAttempts = 2
+
+      for (let attemptNo = 1; attemptNo <= maxAttempts; attemptNo += 1) {
+        if (externalSignal?.aborted) {
+          return {
+            provider: req.provider,
+            model,
+            answer: "",
+            attempts,
+            error: buildError(req.provider, `[${model}] aborted`, "aborted", false)
+          }
+        }
+
+        const streamed = await streamGemini({
+          apiKey,
+          model,
+          body: requestBody,
+          onToken,
+          timeoutMs,
+          externalSignal
+        })
+
+        const isSuccess = streamed.ok && !!streamed.text
+
+        attempts.push({
+          provider: req.provider,
+          model,
+          status: isSuccess ? "success" : "error",
+          latency_ms: streamed.latency,
+          error: streamed.errorCode,
+          attempt_no: attemptNo,
+          http_status: isSuccess ? 200 : 500,
+          error_code: streamed.errorCode ?? undefined,
+          retriable: !isSuccess && streamed.errorCode !== "aborted"
+        })
+
+        // 클라이언트 abort → 즉시 반환
+        if (streamed.errorCode === "aborted") {
+          return {
+            provider: req.provider,
+            model,
+            answer: "",
+            attempts,
+            error: buildError(req.provider, `[${model}] aborted`, "aborted", false)
+          }
+        }
+
+        if (isSuccess) {
+          return {
+            provider: req.provider,
+            model,
+            answer: streamed.text,
+            usage: streamed.usage,
+            attempts,
+            streaming_supported: true
+          }
+        }
+
+        if (attemptNo < maxAttempts) {
+          await sleep(500 * attemptNo)
+          continue
+        }
+      }
+
+      // 스트리밍 2회 실패 → 논스트리밍 폴백
+    }
+
+    // ── 논스트리밍 경로 ────────────────────────────────────────────
     const maxAttempts =
       typeof req.max_retries === "number" && req.max_retries >= 1
         ? req.max_retries + 1
         : 2
 
     for (let attemptNo = 1; attemptNo <= maxAttempts; attemptNo += 1) {
-      // 루프 진입 전 abort 체크
       if (externalSignal?.aborted) {
         return {
           provider: req.provider,
@@ -373,7 +605,6 @@ export const geminiAdapter: ModelAdapter = {
             ? wrapped.latencyMs
             : 0
 
-        // 클라이언트 ESC에 의한 abort → 즉시 반환, 재시도 없음
         if (wrapped?.aborted === true) {
           attempts.push({
             provider: req.provider,
@@ -486,7 +717,6 @@ export async function generateImageImagen(params: {
     const data = await response.json().catch(() => ({}))
 
     if (!response.ok) {
-      // Imagen 4 Vertex AI 실패 → Imagen 3 fallback (AI Studio endpoint)
       return await generateImageImagen3Fallback(params.prompt, apiKey)
     }
 
@@ -498,7 +728,6 @@ export async function generateImageImagen(params: {
       return await generateImageImagen3Fallback(params.prompt, apiKey)
     }
 
-    // base64 → data URL
     const url = `data:${mimeType};base64,${base64}`
     return { ok: true, url, base64, mimeType }
   } catch (e: any) {
@@ -510,7 +739,6 @@ async function generateImageImagen3Fallback(
   prompt: string,
   apiKey: string
 ): Promise<{ ok: boolean; url?: string; base64?: string; mimeType?: string; error?: string }> {
-  // Gemini 2.0 Flash 이미지 생성 모드 fallback
   try {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 60000)
