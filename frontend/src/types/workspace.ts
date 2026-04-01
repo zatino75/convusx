@@ -142,6 +142,11 @@ export type StreamStartEvent = {
   project_id?: string;
 };
 
+export type StreamChunkEvent = {
+  type: "chunk";
+  content?: string;
+};
+
 export type StreamAnswerChunkEvent = {
   type: "answer_chunk";
   content?: string;
@@ -204,6 +209,7 @@ export type StreamErrorEvent = {
 
 export type StreamEvent =
   | StreamStartEvent
+  | StreamChunkEvent
   | StreamAnswerChunkEvent
   | StreamProviderChunkEvent
   | StreamProviderEvent

@@ -1639,7 +1639,7 @@ export default function App() {
               return;
             }
 
-            if (event.type === "answer_chunk") {
+            if (event.type === "chunk" || event.type === "answer_chunk") {
               workspace.updateThreadById(target.threadId, (thread) => ({
                 ...thread,
                 updatedAt: nowIso(),
