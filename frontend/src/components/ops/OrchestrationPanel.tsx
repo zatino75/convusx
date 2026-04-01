@@ -269,6 +269,57 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
         </div>
       )}
 
+      {/* Dynamic Router Score — v4 12지표 합산 */}
+      {(() => {
+        const dynScores: Record<string, { score: number; breakdown: Record<string, number> }> =
+          internalRationale.route?.dynamic_scores ?? {};
+        const providers = Object.keys(dynScores).sort((a, b) => (dynScores[b]?.score ?? 0) - (dynScores[a]?.score ?? 0));
+        if (providers.length === 0) return null;
+        const maxScore = Math.max(...providers.map(p => dynScores[p]?.score ?? 0), 1);
+        const BREAKDOWN_LABEL: Record<string, string> = {
+          quality: "품질", success: "성공률", latency: "속도", cost_efficiency: "비용효율",
+          freshness: "최신성", confidence: "신뢰도", recent_winner_bonus: "최근승리",
+          conflicts: "충돌↓", fallback: "폴백↓", claims: "근거", decisions: "판단"
+        };
+        return (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-soft)", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 8 }}>
+              Dynamic Router Score <span style={{ fontSize: 9, fontWeight: 500, color: "var(--text-soft)", textTransform: "none" as const }}>v4 · 12지표</span>
+            </div>
+            {providers.map((p) => {
+              const { score, breakdown } = dynScores[p] ?? { score: 0, breakdown: {} };
+              const pct = Math.round((score / maxScore) * 100);
+              const isWinner = normP(p) === normP(winner);
+              const topItems = Object.entries(breakdown ?? {})
+                .filter(([k]) => k !== "cost_penalty")
+                .sort(([, a], [, b]) => (b as number) - (a as number))
+                .slice(0, 3);
+              return (
+                <div key={p} style={{ marginBottom: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <ProviderBadge provider={p} />
+                    {isWinner && <span style={{ fontSize: 10, color: "#10b981", fontWeight: 700 }}>선택됨</span>}
+                    <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: "var(--text-main)", fontVariantNumeric: "tabular-nums" as const }}>
+                      {score.toFixed(0)}<span style={{ fontSize: 9, color: "var(--text-soft)", fontWeight: 400 }}>/1000</span>
+                    </span>
+                  </div>
+                  <div style={{ height: 4, borderRadius: 2, background: "var(--border)", overflow: "hidden", marginBottom: 5 }}>
+                    <div style={{ height: "100%", width: `${pct}%`, borderRadius: 2, background: isWinner ? pColor(p) : pColor(p) + "80", transition: "width 0.3s" }} />
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 3 }}>
+                    {topItems.map(([k, v]) => (
+                      <span key={k} style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: "#f3f4f6", color: "var(--text-sub)" }}>
+                        {BREAKDOWN_LABEL[k] ?? k} {(v as number).toFixed(0)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* Retrieval meta — thread fusion + source 매칭 정보 */}
       {(() => {
         const rm = internalRationale.retrieval_meta;

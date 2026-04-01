@@ -1868,6 +1868,31 @@ export async function executeOrchestra(input: any, stream?: any) {
     } catch { conflictDecisions = [] }
   }
 
+  // claims + decisions per-provider 트래킹 → dynamic_scoreboard_router_v4 피드백
+  try {
+    const providerClaimCounts: Record<string, number> = {}
+    for (const item of executed) {
+      if (item.ok && item.text) {
+        try { providerClaimCounts[item.provider] = extractClaims(item.text).length } catch { providerClaimCounts[item.provider] = 0 }
+      }
+    }
+    const providerDecisionWins: Record<string, number> = {}
+    for (const d of conflictDecisions) {
+      const wp = normalizeProvider(d?.winner_provider)
+      if (wp) providerDecisionWins[wp] = (providerDecisionWins[wp] ?? 0) + 1
+    }
+    if (Object.keys(providerClaimCounts).length > 0 || Object.keys(providerDecisionWins).length > 0) {
+      updateModelScoreboard({
+        task,
+        final_provider: finalProvider,
+        provider_usage: summarizeProviderUsage(executed),
+        provider_claims: providerClaimCounts,
+        provider_decisions: providerDecisionWins,
+        claims_only_update: true
+      })
+    }
+  } catch { /* non-fatal */ }
+
   await emitTracked({
     type: "judge",
     provider: finalProvider,

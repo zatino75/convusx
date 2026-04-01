@@ -23,6 +23,9 @@ export type ModelScoreNode = {
   recent_avg_cost_usd: number
   recent_win_streak: number
   freshness_score: number
+
+  avg_claims: number
+  avg_decisions: number
 }
 
 export type ModelTaskBoard = {
@@ -70,7 +73,10 @@ function createEmptyNode(): ModelScoreNode {
     recent_avg_tokens: 0,
     recent_avg_cost_usd: 0,
     recent_win_streak: 0,
-    freshness_score: 0
+    freshness_score: 0,
+
+    avg_claims: 0,
+    avg_decisions: 0
   }
 }
 
@@ -137,7 +143,10 @@ function recalcNode(node: ModelScoreNode): ModelScoreNode {
     recent_avg_tokens: Number(recentAvgTokens.toFixed(2)),
     recent_avg_cost_usd: round(recentAvgCostUsd),
     recent_win_streak: recentWinStreak,
-    freshness_score: Number(freshnessScore.toFixed(4))
+    freshness_score: Number(freshnessScore.toFixed(4)),
+
+    avg_claims: Number((node?.avg_claims ?? 0).toFixed(4)),
+    avg_decisions: Number((node?.avg_decisions ?? 0).toFixed(4))
   }
 }
 
@@ -226,6 +235,8 @@ export function updateModelScoreboard(payload: any): ModelScoreboard {
   const task = String(payload?.task ?? "unknown").trim() || "unknown"
   const finalProvider = normalizeProvider(payload?.final_provider)
   const usageRows = Array.isArray(payload?.provider_usage) ? payload.provider_usage : []
+  // claims_only_update: run 카운트 없이 claims/decisions만 업데이트
+  const claimsOnlyUpdate = Boolean(payload?.claims_only_update)
 
   for (const row of usageRows) {
     const provider = normalizeProvider(row?.provider)
@@ -241,44 +252,64 @@ export function updateModelScoreboard(payload: any): ModelScoreboard {
     const providerEstimatedCost = Math.max(0, Number(row?.usage?.estimated_cost_usd ?? 0))
     const providerWon = finalProvider.length > 0 && provider === finalProvider
 
-    node.runs += 1
+    if (!claimsOnlyUpdate) {
+      node.runs += 1
 
-    if (providerSuccess) {
-      node.success += 1
+      if (providerSuccess) {
+        node.success += 1
+      }
+
+      if (providerLatency > 0) {
+        node.avg_latency =
+          node.avg_latency <= 0
+            ? providerLatency
+            : Math.round((node.avg_latency * 0.8) + (providerLatency * 0.2))
+      }
+
+      if (providerWon) {
+        node.wins += 1
+      }
+
+      node.total_tokens += providerTotalTokens
+      node.estimated_cost_usd += providerEstimatedCost
+
+      node.recent_runs = Math.min(8, Math.max(1, node.recent_runs + 1))
+      node.recent_success_rate = blend(node.recent_success_rate, providerSuccess ? 1 : 0)
+      node.recent_win_rate = blend(node.recent_win_rate, providerWon ? 1 : 0)
+
+      if (providerLatency > 0) {
+        node.recent_avg_latency = blend(node.recent_avg_latency, providerLatency)
+      }
+
+      if (providerTotalTokens > 0) {
+        node.recent_avg_tokens = blend(node.recent_avg_tokens, providerTotalTokens)
+      }
+
+      node.recent_avg_cost_usd = blend(node.recent_avg_cost_usd, providerEstimatedCost)
+
+      if (providerWon) {
+        node.recent_win_streak = Math.min(5, node.recent_win_streak + 1)
+      } else {
+        node.recent_win_streak = Math.max(0, node.recent_win_streak - 1)
+      }
     }
 
-    if (providerLatency > 0) {
-      node.avg_latency =
-        node.avg_latency <= 0
-          ? providerLatency
-          : Math.round((node.avg_latency * 0.8) + (providerLatency * 0.2))
+    // claims: provider가 이번 응답에서 추출된 근거 수 (블렌드 평균)
+    const providerClaims = payload?.provider_claims
+    if (providerClaims && typeof providerClaims === "object") {
+      const claimCount = Math.max(0, Number(providerClaims[provider] ?? -1))
+      if (claimCount >= 0) {
+        node.avg_claims = node.avg_claims <= 0 ? claimCount : blend(node.avg_claims, claimCount)
+      }
     }
 
-    if (providerWon) {
-      node.wins += 1
-    }
-
-    node.total_tokens += providerTotalTokens
-    node.estimated_cost_usd += providerEstimatedCost
-
-    node.recent_runs = Math.min(8, Math.max(1, node.recent_runs + 1))
-    node.recent_success_rate = blend(node.recent_success_rate, providerSuccess ? 1 : 0)
-    node.recent_win_rate = blend(node.recent_win_rate, providerWon ? 1 : 0)
-
-    if (providerLatency > 0) {
-      node.recent_avg_latency = blend(node.recent_avg_latency, providerLatency)
-    }
-
-    if (providerTotalTokens > 0) {
-      node.recent_avg_tokens = blend(node.recent_avg_tokens, providerTotalTokens)
-    }
-
-    node.recent_avg_cost_usd = blend(node.recent_avg_cost_usd, providerEstimatedCost)
-
-    if (providerWon) {
-      node.recent_win_streak = Math.min(5, node.recent_win_streak + 1)
-    } else {
-      node.recent_win_streak = Math.max(0, node.recent_win_streak - 1)
+    // decisions: provider가 conflict 해소에서 승자로 선택된 횟수 (블렌드 평균)
+    const providerDecisions = payload?.provider_decisions
+    if (providerDecisions && typeof providerDecisions === "object") {
+      const decisionWins = Math.max(0, Number(providerDecisions[provider] ?? -1))
+      if (decisionWins >= 0) {
+        node.avg_decisions = node.avg_decisions <= 0 ? decisionWins : blend(node.avg_decisions, decisionWins)
+      }
     }
 
     board[provider][task][model] = recalcNode(node)
