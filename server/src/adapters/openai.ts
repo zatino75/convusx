@@ -226,6 +226,108 @@ async function callOpenAI(params: {
   }
 }
 
+// ─── SSE 스트리밍 ───────────────────────────────────────────────────────────
+async function callOpenAIStreaming(params: {
+  apiKey: string
+  model: string
+  req: ModelRequest
+  body: any
+}): Promise<{ text: string; usage: any; latencyMs: number; timedOut: boolean; errorData?: any; httpStatus?: number }> {
+  const timeoutMs =
+    typeof params.req.timeout_ms === "number" && params.req.timeout_ms > 0
+      ? params.req.timeout_ms
+      : 60000
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const startedAt = now()
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${params.apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ ...params.body, stream: true }),
+      signal: controller.signal
+    })
+
+    // API 오류 → 스트리밍 없이 조기 반환
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      const latencyMs = now() - startedAt
+      return { text: "", usage: {}, latencyMs, timedOut: false, errorData, httpStatus: response.status }
+    }
+
+    let fullText = ""
+    const usage: { input_tokens?: number; output_tokens?: number; total_tokens?: number } = {}
+
+    const reader = response.body?.getReader()
+    if (!reader) {
+      const latencyMs = now() - startedAt
+      return { text: "", usage, latencyMs, timedOut: false }
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ""
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split("\n")
+      buffer = lines.pop() ?? ""
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed === "data: [DONE]") continue
+        if (!trimmed.startsWith("data: ")) continue
+
+        const jsonStr = trimmed.slice(6)
+        try {
+          const parsed = JSON.parse(jsonStr)
+          const eventType = String(parsed?.type ?? "")
+
+          // 텍스트 청크 — response.output_text.delta
+          if (eventType === "response.output_text.delta") {
+            const delta = String(parsed?.delta ?? "")
+            if (delta) {
+              fullText += delta
+              await params.req.onToken?.(delta)
+            }
+          }
+
+          // 스트림 완료 — usage 수집
+          if (eventType === "response.completed") {
+            const responseUsage = parsed?.response?.usage
+            if (responseUsage) {
+              if (typeof responseUsage.input_tokens === "number") usage.input_tokens = responseUsage.input_tokens
+              if (typeof responseUsage.output_tokens === "number") usage.output_tokens = responseUsage.output_tokens
+              if (typeof responseUsage.total_tokens === "number") usage.total_tokens = responseUsage.total_tokens
+            }
+          }
+        } catch {
+          // SSE 파싱 실패 무시
+        }
+      }
+    }
+
+    const latencyMs = now() - startedAt
+    return { text: fullText, usage, latencyMs, timedOut: false }
+  } catch (error: any) {
+    const latencyMs = now() - startedAt
+    const timedOut =
+      error?.name === "AbortError" ||
+      String(error?.message ?? "").toLowerCase().includes("aborted")
+
+    throw { original: error, latencyMs, timedOut }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export const openaiAdapter: ModelAdapter = {
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const apiKey = env("OPENAI_API_KEY")
@@ -261,6 +363,51 @@ export const openaiAdapter: ModelAdapter = {
         ? req.max_retries + 1
         : 2
 
+    // ─── 스트리밍 경로 ──────────────────────────────────────────────────────
+    const wantsStreaming = Boolean(req.stream || typeof req.onToken === "function")
+
+    if (wantsStreaming && typeof req.onToken === "function") {
+      try {
+        const streamResult = await callOpenAIStreaming({ apiKey, model, req, body })
+
+        if (streamResult.httpStatus !== undefined && streamResult.httpStatus >= 400) {
+          // API 오류 → 논스트리밍 폴백으로 강등
+          console.warn(`[OpenAI] streaming HTTP ${streamResult.httpStatus}, falling back to non-streaming`)
+        } else if (streamResult.text || !streamResult.errorData) {
+          const text = streamResult.text.trim()
+          const latencyMs = streamResult.latencyMs
+
+          if (text) {
+            attempts.push({
+              provider: req.provider,
+              model,
+              status: "success",
+              latency_ms: latencyMs,
+              error: null,
+              attempt_no: 1,
+              outcome: "success",
+              retriable: false
+            })
+
+            return {
+              provider: req.provider,
+              model,
+              answer: text,
+              usage: streamResult.usage,
+              attempts,
+              streaming_supported: true
+            }
+          }
+          // 텍스트 없으면 논스트리밍 폴백
+          console.warn("[OpenAI] streaming returned empty text, falling back to non-streaming")
+        }
+      } catch (e: any) {
+        // 스트리밍 오류 → 논스트리밍 폴백
+        console.warn("[OpenAI] streaming error, falling back to non-streaming:", e?.original?.message ?? e?.message ?? "unknown")
+      }
+    }
+
+    // ─── 논스트리밍 경로 (기존 로직) ────────────────────────────────────────
     for (let attemptNo = 1; attemptNo <= maxAttempts; attemptNo += 1) {
       try {
         const { response, data, latencyMs } = await callOpenAI({
