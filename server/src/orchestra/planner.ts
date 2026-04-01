@@ -48,12 +48,9 @@ export function extractPlanningSignals(input: string): PlannerSignals {
     "다방면으로",
     "종합적으로",
     "철저하게",
-    "상세히",
-    "자세하게",
+    "상세히 분석",
+    "자세하게 분석",
     "완전히 분석",
-    "분석해줘",
-    "분석해 줘",
-    "분석 부탁",
     "치밀하게",
     "면밀히"
   ])

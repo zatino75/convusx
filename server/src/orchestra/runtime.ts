@@ -1,7 +1,7 @@
 import { runAdapter } from "./adapterDispatcher.js"
 import { resolveAdaptiveRoute } from "./adaptiveRouter.js"
 import { judge } from "./judge.js"
-import { detectTaskType, extractPlanningSignals, planRequest } from "./planner.js"
+import { detectTaskType, planRequest } from "./planner.js"
 import { extractClaims } from "./claims.js"
 import { detectConflicts, resolveConflictDecisions } from "./conflicts.js"
 import { readScoreboard, recordProviderExecution, recordProviderConflict } from "./scoreboard.js"
@@ -1037,7 +1037,7 @@ export async function executeOrchestra(input: any, stream?: any) {
   const startedAt = Date.now()
   const rawInboundMessage = extractInboundMessage(input)
   const planner = planRequest(rawInboundMessage)
-  const plannerSignals = extractPlanningSignals(rawInboundMessage)
+  const plannerSignals = planner.signals
   const transientFailures: any[] = []
   const recoveryMeta = createRecoveryMeta()
   const timelineEvents: any[] = []

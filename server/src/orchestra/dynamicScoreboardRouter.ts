@@ -261,7 +261,7 @@ function getTaskWeights(task: "dialogue" | "reasoning" | "research" | "code" | "
       cost_efficiency: 0.05,
       cost_penalty: 0.02,
       freshness: 0.06,
-      recent_winner_bonus: 0.05
+      recent_winner_bonus: 0.03
     }
   }
 
