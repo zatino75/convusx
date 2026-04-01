@@ -551,7 +551,6 @@ function BenchmarkView() {
                     🔄 새로고침
                   </button>
                 </div>
-              </div>
 
               {/* 누적 실적 — provider별 실사용 데이터 */}
               {accumulatedStats && Object.keys(accumulatedStats).length > 0 && (() => {
@@ -593,6 +592,7 @@ function BenchmarkView() {
                   </div>
                 );
               })()}
+            </div>
             );
           })()}
         </div>
