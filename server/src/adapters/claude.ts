@@ -183,6 +183,7 @@ async function streamAnthropic(params: {
 
     let buffer = ""
     let fullText = ""
+    const usage: { input_tokens?: number; output_tokens?: number } = {}
 
     while (true) {
       const { done, value } = await reader.read()
@@ -211,6 +212,15 @@ async function streamAnthropic(params: {
         try {
           const parsed = JSON.parse(jsonStr)
 
+          // message_start → input_tokens
+          if (eventType === "message_start" || parsed?.type === "message_start") {
+            const inputTokens = parsed?.message?.usage?.input_tokens
+            if (typeof inputTokens === "number") {
+              usage.input_tokens = inputTokens
+            }
+          }
+
+          // content_block_delta → text chunks
           if (eventType === "content_block_delta" || parsed?.type === "content_block_delta") {
             const deltaText =
               typeof parsed?.delta?.text === "string"
@@ -226,6 +236,14 @@ async function streamAnthropic(params: {
               }
             }
           }
+
+          // message_delta → output_tokens
+          if (eventType === "message_delta" || parsed?.type === "message_delta") {
+            const outputTokens = parsed?.usage?.output_tokens
+            if (typeof outputTokens === "number") {
+              usage.output_tokens = outputTokens
+            }
+          }
         } catch {
         }
       }
@@ -235,7 +253,7 @@ async function streamAnthropic(params: {
       ok: true,
       latency,
       text: fullText,
-      data: { usage: {} },
+      data: { usage },
       errorCode: null,
       timedOut: false
     }
