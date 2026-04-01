@@ -245,7 +245,13 @@ function BenchmarkView() {
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [routingScores, setRoutingScores] = useState<Record<string, any[]> | null>(null);
-  const [currentRoles, setCurrentRoles] = useState<Record<string, { primary: string | null; verifier: string | null; optional: string | null }> | null>(null);
+  const [currentRoles, setCurrentRoles] = useState<Record<string, {
+    primary: string | null;
+    verifier: string | null;
+    optional: string | null;
+    dynamic_scores?: Record<string, { score: number; breakdown: Record<string, number> }>;
+    router_policy?: string;
+  }> | null>(null);
   const [routingLoading, setRoutingLoading] = useState(false);
 
   async function loadHistory() {
@@ -392,8 +398,18 @@ function BenchmarkView() {
                 {/* 현재 배정 카드 */}
                 {currentRoles && (
                   <div style={{ marginBottom: 18 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-sub)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                      현재 배정 (Dynamic chooseRoles)
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-sub)", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>
+                        현재 배정
+                      </div>
+                      {(() => {
+                        const anyPolicy = Object.values(currentRoles)[0]?.router_policy;
+                        return anyPolicy ? (
+                          <span style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: "#eff6ff", color: "#3b82f6", fontWeight: 600 }}>
+                            {anyPolicy}
+                          </span>
+                        ) : null;
+                      })()}
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
                       {tasks.map(task => {
@@ -418,6 +434,51 @@ function BenchmarkView() {
                           </div>
                         );
                       })}
+                    </div>
+
+                    {/* Dynamic v4 Score — 태스크별 provider 점수 바 */}
+                    <div style={{ marginTop: 16 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-sub)", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 10 }}>
+                        Dynamic Router v4 · 12지표 점수 <span style={{ fontSize: 9, fontWeight: 400, textTransform: "none" as const }}>(0–1000)</span>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
+                        {tasks.map(task => {
+                          const roles = currentRoles[task];
+                          if (!roles?.dynamic_scores) return null;
+                          const dynScores = roles.dynamic_scores as Record<string, { score: number; breakdown: Record<string, number> }>;
+                          const ranked = PROVIDERS
+                            .map(p => ({ p, score: dynScores[p]?.score ?? 0 }))
+                            .sort((a, b) => b.score - a.score);
+                          const maxDyn = Math.max(...ranked.map(r => r.score), 1);
+                          const primary = roles.primary;
+                          return (
+                            <div key={task} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-card, #fafafa)" }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-main)", marginBottom: 8 }}>
+                                {TASK_LABEL[task] ?? task}
+                              </div>
+                              {ranked.map(({ p, score }) => {
+                                const pct = Math.round((score / maxDyn) * 100);
+                                const isWinner = p === primary;
+                                return (
+                                  <div key={p} style={{ marginBottom: 6 }}>
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
+                                      <span style={{ fontSize: 10, fontWeight: isWinner ? 800 : 500, color: PROVIDER_COLOR[p] ?? "var(--text-sub)" }}>
+                                        {isWinner ? "▶ " : ""}{p}
+                                      </span>
+                                      <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-main)", fontVariantNumeric: "tabular-nums" as const }}>
+                                        {score.toFixed(0)}
+                                      </span>
+                                    </div>
+                                    <div style={{ height: 4, borderRadius: 2, background: "var(--border)", overflow: "hidden" }}>
+                                      <div style={{ height: "100%", width: `${pct}%`, borderRadius: 2, background: isWinner ? (PROVIDER_COLOR[p] ?? "#888") : (PROVIDER_COLOR[p] ?? "#888") + "60" }} />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -579,19 +640,44 @@ function BenchmarkView() {
                         오케스트라 {winRate}% 승
                       </span>
                     </div>
-                    <div style={{ display: "flex", gap: 16 }}>
+                    <div style={{ display: "flex", gap: 16, marginBottom: 8 }}>
                       {[
-                        { label: "오케스트라 승", value: entry.orchestra_wins, color: "#10b981" },
-                        { label: "단일 모델 승", value: (entry.total_cases ?? 0) - (entry.orchestra_wins ?? 0), color: "#ef4444" },
-                        { label: "품질 오케스트라", value: (entry.avg_quality_orchestra ?? 0).toFixed(1), color: "var(--text-main)" },
-                        { label: "품질 단일", value: (entry.avg_quality_single ?? 0).toFixed(1), color: "var(--text-sub)" },
+                        { label: "오케 승", value: entry.orchestra_wins, color: "#10b981" },
+                        { label: "단일 승", value: (entry.total_cases ?? 0) - (entry.orchestra_wins ?? 0), color: "#ef4444" },
+                        { label: "오케 품질", value: (entry.avg_quality_orchestra ?? 0).toFixed(1), color: "#6366f1" },
+                        { label: "단일 품질", value: (entry.avg_quality_single ?? 0).toFixed(1), color: "#f87171" },
                       ].map(item => (
                         <div key={item.label} style={{ textAlign: "center" as const }}>
-                          <div style={{ fontSize: 16, fontWeight: 700, color: item.color }}>{item.value}</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: item.color }}>{item.value}</div>
                           <div style={{ fontSize: 10, color: "var(--text-sub)" }}>{item.label}</div>
                         </div>
                       ))}
                     </div>
+                    {/* task별 승률 미니 바 */}
+                    {(() => {
+                      const ti = entry.comparison?.task_improvement ?? {};
+                      const tasks = Object.keys(ti);
+                      if (tasks.length === 0) return null;
+                      const TASK_L: Record<string, string> = { dialogue: "대화", reasoning: "추론", research: "리서치", code: "코드", writing: "글쓰기", long_doc: "긴문서" };
+                      return (
+                        <div style={{ display: "flex", flexWrap: "wrap" as const, gap: "4px 10px" }}>
+                          {tasks.map(t => {
+                            const d = ti[t];
+                            const wr = d.total > 0 ? Math.round((d.orchestra_win / d.total) * 100) : 0;
+                            const color = wr >= 60 ? "#10b981" : wr >= 40 ? "#f59e0b" : "#ef4444";
+                            return (
+                              <div key={t} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10 }}>
+                                <span style={{ color: "var(--text-sub)", minWidth: 28 }}>{TASK_L[t] ?? t}</span>
+                                <div style={{ width: 40, height: 3, borderRadius: 2, background: "var(--border)" }}>
+                                  <div style={{ width: wr + "%", height: "100%", borderRadius: 2, background: color }} />
+                                </div>
+                                <span style={{ fontWeight: 700, color, minWidth: 24 }}>{wr}%</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
@@ -697,29 +783,105 @@ function BenchmarkView() {
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginBottom: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>케이스별 결과</div>
                   <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
-                    {pairwise.map((pair: any, idx: number) => (
-                      <div key={idx} style={{ padding: 14, borderRadius: 10, border: "1px solid var(--border)",
-                        borderLeft: `3px solid ${pair.benchmark_winner === "orchestra" ? "#10b981" : pair.benchmark_winner === "best_single" ? "#ef4444" : "#6b7280"}` }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: "var(--border)", color: "var(--text-sub)" }}>{TASK_LABEL[pair.task] ?? pair.task}</span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: pair.benchmark_winner === "orchestra" ? "#10b981" : pair.benchmark_winner === "best_single" ? "#ef4444" : "#6b7280" }}>
-                              {pair.benchmark_winner === "orchestra" ? "✓ 오케스트라" : pair.benchmark_winner === "best_single" ? "단일 모델" : "동점"}
-                            </span>
+                    {pairwise.map((pair: any, idx: number) => {
+                      const winColor = pair.benchmark_winner === "orchestra" ? "#10b981" : pair.benchmark_winner === "best_single" ? "#ef4444" : "#6b7280";
+                      const orchEval = pair.orchestra_evaluation ?? {};
+                      const rubric: Record<string, number> = orchEval.rubric_breakdown ?? {};
+                      const reasons: string[] = orchEval.quality_reasons ?? [];
+                      const orchChain: string[] = pair.orchestra_provider_chain ?? [];
+                      const RUBRIC_LABEL: Record<string, string> = {
+                        base_text_quality: "텍스트", request_fit: "요청 적합", multi_provider_reasoning: "멀티 추론",
+                        verifier_agreement: "검증 일치", claim_density: "근거 밀도", evidence_strength: "증거",
+                        conflict_resolution: "충돌 해소", judge_quality: "Judge", consistency: "일관성",
+                        code_quality: "코드 품질", penalty: "페널티"
+                      };
+                      const topRubric = Object.entries(rubric)
+                        .filter(([k, v]) => k !== "penalty" && (v as number) !== 0)
+                        .sort(([, a], [, b]) => (b as number) - (a as number))
+                        .slice(0, 4);
+                      const singleCandidates: any[] = pair.single_evaluations ?? pair.single_candidates ?? [];
+                      return (
+                        <div key={idx} style={{ padding: 14, borderRadius: 10, border: "1px solid var(--border)", borderLeft: `3px solid ${winColor}` }}>
+                          {/* 헤더 */}
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: "var(--border)", color: "var(--text-sub)" }}>{TASK_LABEL[pair.task] ?? pair.task}</span>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: winColor }}>
+                                {pair.benchmark_winner === "orchestra" ? "✓ 오케스트라" : pair.benchmark_winner === "best_single" ? "단일 모델" : "동점"}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 11, color: "var(--text-sub)", fontFamily: "monospace" }}>
+                              <span style={{ color: "#6366f1", fontWeight: 700 }}>{pair.orchestra_score?.toFixed(1)}</span>
+                              {" vs "}
+                              <span style={{ color: "#f87171", fontWeight: 700 }}>{pair.best_single_score?.toFixed(1)}</span>
+                              <span style={{ marginLeft: 6, color: pair.score_gap >= 0 ? "#10b981" : "#ef4444", fontWeight: 700 }}>
+                                ({pair.score_gap >= 0 ? "+" : ""}{pair.score_gap?.toFixed(1)})
+                              </span>
+                            </div>
                           </div>
-                          <div style={{ fontSize: 11, color: "var(--text-sub)", fontFamily: "monospace" }}>
-                            {pair.orchestra_score?.toFixed(1)} vs {pair.best_single_score?.toFixed(1)}
-                            <span style={{ marginLeft: 6, color: pair.score_gap >= 0 ? "#10b981" : "#ef4444" }}>({pair.score_gap >= 0 ? "+" : ""}{pair.score_gap?.toFixed(1)})</span>
+
+                          {/* case_id + provider chain */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" as const }}>
+                            <span style={{ fontSize: 10, color: "var(--text-soft, #9ca3af)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, maxWidth: 160 }}>{pair.case_id}</span>
+                            {orchChain.length > 0 && (
+                              <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                                {orchChain.map((p: string, i: number) => (
+                                  <span key={i} style={{ fontSize: 9, padding: "1px 5px", borderRadius: 6, background: (PROVIDER_COLOR[p.toLowerCase()] ?? "#888") + "20", color: PROVIDER_COLOR[p.toLowerCase()] ?? "var(--text-sub)", fontWeight: 600 }}>
+                                    {p}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {pair.best_single_provider && (
+                              <span style={{ fontSize: 10, color: "var(--text-sub)" }}>
+                                vs <span style={{ fontWeight: 600, color: PROVIDER_COLOR[pair.best_single_provider] ?? "var(--text-main)" }}>{pair.best_single_provider}</span>
+                              </span>
+                            )}
                           </div>
+
+                          {/* Rubric breakdown bars */}
+                          {topRubric.length > 0 && (
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3px 10px", marginBottom: 6 }}>
+                              {topRubric.map(([k, v]) => (
+                                <div key={k} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                  <span style={{ fontSize: 9, color: "var(--text-sub)", minWidth: 48, whiteSpace: "nowrap" as const }}>{RUBRIC_LABEL[k] ?? k}</span>
+                                  <div style={{ flex: 1, height: 3, borderRadius: 2, background: "var(--border)" }}>
+                                    <div style={{ height: "100%", width: `${Math.min(100, Math.max(0, (v as number) / 3 * 100))}%`, borderRadius: 2, background: "#6366f1" }} />
+                                  </div>
+                                  <span style={{ fontSize: 9, fontWeight: 700, color: "var(--text-main)", minWidth: 18, textAlign: "right" as const }}>{(v as number).toFixed(1)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* quality_reasons tags */}
+                          {reasons.length > 0 && (
+                            <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 3 }}>
+                              {reasons.slice(0, 5).map((r: string, i: number) => (
+                                <span key={i} style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: r.includes("bonus") ? "#f0fdf4" : r.includes("penalty") ? "#fff5f5" : "#f3f4f6", color: r.includes("bonus") ? "#065f46" : r.includes("penalty") ? "#991b1b" : "var(--text-sub)" }}>
+                                  {r.replace(/_bonus$/, " ✓").replace(/_penalty$/, " ✗").replace(/_/g, " ")}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* single 후보 점수 비교 */}
+                          {singleCandidates.length > 1 && (
+                            <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" as const }}>
+                              {singleCandidates.slice(0, 4).map((s: any, i: number) => {
+                                const sp = s.provider ?? s.mode?.replace("single_", "") ?? "?";
+                                const ss = Number(s.score ?? s.evaluation?.text_quality_score ?? 0);
+                                return (
+                                  <span key={i} style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: "var(--border)", color: PROVIDER_COLOR[sp] ?? "var(--text-sub)", fontWeight: 600 }}>
+                                    {sp} {ss.toFixed(1)}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                        <div style={{ fontSize: 11, color: "var(--text-sub)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{pair.case_id}</div>
-                        {pair.best_single_provider && (
-                          <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-sub)" }}>
-                            최강 단일: <span style={{ fontWeight: 600, color: PROVIDER_COLOR[pair.best_single_provider] ?? "var(--text-main)" }}>{pair.best_single_provider}</span>
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

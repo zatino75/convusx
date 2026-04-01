@@ -103,17 +103,31 @@ function buildAccumulatedModelStats() {
 // Dynamic chooseRoles 결과를 태스크별로 계산 → 현재 실제 배정 상태 반환
 const ROUTE_TASKS = ["dialogue", "reasoning", "research", "code", "writing", "long_doc"] as const
 
-function buildCurrentRoles(): Record<string, { primary: string | null; verifier: string | null; optional: string | null }> {
-  return ROUTE_TASKS.reduce<Record<string, { primary: string | null; verifier: string | null; optional: string | null }>>((acc, task) => {
+function buildCurrentRoles(): Record<string, {
+  primary: string | null
+  verifier: string | null
+  optional: string | null
+  dynamic_scores: Record<string, { score: number; breakdown: Record<string, number> }>
+  router_policy: string
+}> {
+  return ROUTE_TASKS.reduce<Record<string, {
+    primary: string | null
+    verifier: string | null
+    optional: string | null
+    dynamic_scores: Record<string, { score: number; breakdown: Record<string, number> }>
+    router_policy: string
+  }>>((acc, task) => {
     try {
       const route = resolveAdaptiveRoute({ task })
       acc[task] = {
         primary: route.selected_providers[0] ?? null,
         verifier: route.verifier_providers[0] ?? null,
-        optional: route.optional_providers[0] ?? null
+        optional: route.optional_providers[0] ?? null,
+        dynamic_scores: route.dynamic_scores ?? {},
+        router_policy: route.router_policy ?? ""
       }
     } catch {
-      acc[task] = { primary: null, verifier: null, optional: null }
+      acc[task] = { primary: null, verifier: null, optional: null, dynamic_scores: {}, router_policy: "" }
     }
     return acc
   }, {})
