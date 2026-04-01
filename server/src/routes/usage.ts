@@ -148,7 +148,8 @@ export async function runScoreboardRoute(_req: any, res: any) {
     scoreboard: readScoreboard(),
     routing_scores: buildProviderUsageSummary(),
     task_routing_scores: buildTaskRoutingSummary(),
-    current_roles: buildCurrentRoles()
+    current_roles: buildCurrentRoles(),
+    accumulated: buildAccumulatedModelStats()
   })
 }
 

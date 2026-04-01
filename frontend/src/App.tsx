@@ -253,6 +253,7 @@ function BenchmarkView() {
     router_policy?: string;
   }> | null>(null);
   const [routingLoading, setRoutingLoading] = useState(false);
+  const [accumulatedStats, setAccumulatedStats] = useState<Record<string, { total_tokens: number; estimated_cost_usd: number; runs: number; wins: number }> | null>(null);
 
   async function loadHistory() {
     setHistoryLoading(true);
@@ -273,6 +274,7 @@ function BenchmarkView() {
       if (data.ok) {
         setRoutingScores(data.task_routing_scores ?? null);
         setCurrentRoles(data.current_roles ?? null);
+        setAccumulatedStats(data.accumulated ?? null);
       }
     } catch {} finally {
       setRoutingLoading(false);
@@ -550,6 +552,47 @@ function BenchmarkView() {
                   </button>
                 </div>
               </div>
+
+              {/* 누적 실적 — provider별 실사용 데이터 */}
+              {accumulatedStats && Object.keys(accumulatedStats).length > 0 && (() => {
+                const PROVIDER_COLOR: Record<string, string> = { openai: "#10a37f", claude: "#d97706", gemini: "#3b82f6", perplexity: "#8b5cf6" };
+                const providers = Object.entries(accumulatedStats).filter(([, v]) => v.runs > 0);
+                if (providers.length === 0) return null;
+                return (
+                  <div style={{ marginTop: 20 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-sub)", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 10 }}>
+                      누적 실사용 실적 <span style={{ fontSize: 9, fontWeight: 400, textTransform: "none" as const }}>(model-scoreboard 집계)</span>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
+                      {providers.map(([provider, stats]) => {
+                        const winRate = stats.runs > 0 ? stats.wins / stats.runs : 0;
+                        const color = PROVIDER_COLOR[provider] ?? "var(--text-sub)";
+                        return (
+                          <div key={provider} style={{ borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-card, #fafafa)", padding: "10px 12px", display: "grid", gap: 4 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color, marginBottom: 2 }}>{provider.toUpperCase()}</div>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                              <span style={{ color: "var(--text-sub)" }}>실행 / 승</span>
+                              <span style={{ fontWeight: 600 }}>{stats.runs} / {stats.wins}</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                              <span style={{ color: "var(--text-sub)" }}>승률</span>
+                              <span style={{ fontWeight: 700, color: winRate >= 0.6 ? "#10b981" : winRate >= 0.4 ? "#f59e0b" : "#ef4444" }}>{(winRate * 100).toFixed(1)}%</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                              <span style={{ color: "var(--text-sub)" }}>누적 토큰</span>
+                              <span>{stats.total_tokens.toLocaleString()}</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                              <span style={{ color: "var(--text-sub)" }}>누적 비용</span>
+                              <span>${stats.estimated_cost_usd.toFixed(4)}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             );
           })()}
         </div>
