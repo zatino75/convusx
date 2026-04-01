@@ -687,7 +687,7 @@ export default function OrchestrationPanel({ debugMeta, artifactList = [] }: Pro
       {/* 헤더 */}
       <div style={{ padding: "12px 16px 0", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)", display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-          <span>🎼</span> AI Orchestra
+          오케스트레이션
         </div>
         {/* 탭 */}
         <div style={{ display: "flex", alignItems: "center", gap: 1 }}>

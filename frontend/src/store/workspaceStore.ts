@@ -16,10 +16,10 @@ import type {
 } from "../types/workspace";
 
 export const GENERAL_PROJECT_ID = "__general__";
-const STORAGE_PROJECTS_KEY = "ai-orchestra.frontend.projects.v14";
-const STORAGE_THREADS_KEY = "ai-orchestra.frontend.threads.v14";
-const STORAGE_ACTIVE_PROJECT_KEY = "ai-orchestra.frontend.activeProjectId.v14";
-const STORAGE_ACTIVE_THREAD_KEY = "ai-orchestra.frontend.activeThreadId.v14";
+const STORAGE_PROJECTS_KEY = "corvus-x.frontend.projects.v15";
+const STORAGE_THREADS_KEY = "corvus-x.frontend.threads.v15";
+const STORAGE_ACTIVE_PROJECT_KEY = "corvus-x.frontend.activeProjectId.v15";
+const STORAGE_ACTIVE_THREAD_KEY = "corvus-x.frontend.activeThreadId.v15";
 
 type ThreadMetaWithPinned = NonNullable<Thread["meta"]> & {
   pinned?: boolean;
@@ -128,7 +128,7 @@ export function createThread(projectId: string, title = "새 채팅"): Thread {
 }
 
 function createSeedSnapshot(): WorkspaceSnapshot {
-  const seedProject = createProjectEntity("AI ORCHESTRA");
+  const seedProject = createProjectEntity("CORVUS X");
 
   return {
     projects: [seedProject],
@@ -138,9 +138,13 @@ function createSeedSnapshot(): WorkspaceSnapshot {
   };
 }
 
+const LEGACY_BRAND_NAMES = ["AI ORCHESTRA", "AI Orchestra", "ai-orchestra"];
+
 function normalizeProjects(projects: Project[]): Project[] {
   return projects.map((project) => ({
     ...project,
+    // 구 브랜드명 자동 마이그레이션
+    title: LEGACY_BRAND_NAMES.includes(project.title) ? "CORVUS X" : project.title,
     meta: {
       description: project.meta?.description ?? null,
       tags: Array.isArray(project.meta?.tags) ? project.meta.tags : [],
