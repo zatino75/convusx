@@ -51,6 +51,7 @@ const MODEL_PRICING_USD_PER_1K_TOKENS: Record<string, { input: number; output: n
   "gpt-5.3-codex": { input: 0.006, output: 0.018 },
 
   "claude-sonnet-4-6": { input: 0.0035, output: 0.018 },
+  "claude-opus-4-6": { input: 0.018, output: 0.09 },
 
   "gemini-3.1-pro-preview": { input: 0.00125, output: 0.005 },
 
