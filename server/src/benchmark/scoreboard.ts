@@ -15,7 +15,18 @@ type BenchmarkCase = {
   }
 }
 
+// text_quality_score: orchestration 신호 제외 순수 텍스트 품질 (fair comparison 기준)
+// quality_score: orchestration 보너스 포함 전체 점수 (orchestra 구조 가치 측정용)
 function getScore(run: BenchmarkRunResult | undefined): number {
+  return Number(
+    run?.evaluation?.text_quality_score ??
+    run?.evaluation?.quality_score ??
+    run?.evaluation?.score ??
+    0
+  )
+}
+
+function getFullScore(run: BenchmarkRunResult | undefined): number {
   return Number(run?.evaluation?.quality_score ?? run?.evaluation?.score ?? 0)
 }
 
@@ -441,9 +452,13 @@ export function buildBenchmarkComparison(
       benchmark_winner: benchmarkWinner,
       best_single_mode: bestSingle.mode,
       best_single_provider: bestSingleProvider,
+      // fair comparison: text_quality_score 기준 (orchestration 신호 제외)
       best_single_score: bestSingleScore,
       orchestra_score: orchestraScore,
       score_gap: Number((orchestraScore - bestSingleScore).toFixed(4)),
+      // orchestration 포함 전체 점수 (orchestra 구조 가치 측정용)
+      orchestra_full_score: getFullScore(orchestraRun),
+      best_single_full_score: getFullScore(bestSingle),
       single_candidates: rankedSingles.map((run) => ({
         mode: run.mode,
         provider: getWinnerProvider(run),

@@ -15,6 +15,16 @@ import { runSlidesGenerateRoute as generateSlidesRoute } from "./routes/slides.j
 import { chatRoute, chatStreamRoute } from "./routes/chat.js"
 import { usageRoute, scoreboardRoute } from "./routes/usage.js"
 import { dashboardRoute } from "./routes/dashboard.js"
+import {
+  getProjectMemory,
+  getLatestProjectContext,
+  getProjectSourceAssets,
+  addProjectSourceAsset
+} from "./memory/projectMemory.js"
+import {
+  getThreadMemory,
+  getProjectThreadMemories
+} from "./memory/threadMemory.js"
 
 type RouteHandler = (req: any, res: any) => any | Promise<any>
 
@@ -206,6 +216,56 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     if (method === "GET" && path === "/api/dashboard") {
       const resLike = createExpressLikeResponse(res)
       await dashboardRoute.handler({}, resLike)
+      return
+    }
+
+    // ===== MEMORY API =====
+
+    if (method === "GET" && path === "/api/project-memory") {
+      const url = new URL(req.url ?? "/", "http://localhost:8000")
+      const projectId = url.searchParams.get("projectId") ?? ""
+      endJson(res, 200, { ok: true, data: getProjectMemory(projectId) })
+      return
+    }
+
+    if (method === "GET" && path === "/api/thread-memory") {
+      const url = new URL(req.url ?? "/", "http://localhost:8000")
+      const threadId = url.searchParams.get("threadId") ?? ""
+      endJson(res, 200, { ok: true, data: getThreadMemory(threadId) })
+      return
+    }
+
+    if (method === "GET" && path === "/api/project-thread-memories") {
+      const url = new URL(req.url ?? "/", "http://localhost:8000")
+      const projectId = url.searchParams.get("projectId") ?? ""
+      endJson(res, 200, { ok: true, data: getProjectThreadMemories(projectId) })
+      return
+    }
+
+    if (method === "GET" && path === "/api/project-sources") {
+      const url = new URL(req.url ?? "/", "http://localhost:8000")
+      const projectId = url.searchParams.get("projectId") ?? ""
+      endJson(res, 200, { ok: true, data: getProjectSourceAssets(projectId) })
+      return
+    }
+
+    if (method === "POST" && path === "/api/project-sources") {
+      const body = await readJsonBody(req)
+      const projectId = String(body?.projectId ?? "")
+      const asset = body?.asset ?? null
+      if (!projectId || !asset) {
+        endJson(res, 400, { ok: false, error: "invalid_input" })
+        return
+      }
+      addProjectSourceAsset(projectId, asset)
+      endJson(res, 200, { ok: true })
+      return
+    }
+
+    if (method === "GET" && path === "/api/retrieval-context") {
+      const url = new URL(req.url ?? "/", "http://localhost:8000")
+      const projectId = url.searchParams.get("projectId") ?? ""
+      endJson(res, 200, { ok: true, data: getLatestProjectContext(projectId) })
       return
     }
 

@@ -544,7 +544,7 @@ function buildRoutingScore(params: {
     clamp(providerConflictsRecent * 0.008, 0, 0.08) +
     clamp(typePenalty * 0.12, 0, 0.18)
 
-  const banditScore = routingScore + explorationBonus + freshnessBonus - conflictPenalty
+  const banditScore = clamp(routingScore + explorationBonus + freshnessBonus - conflictPenalty, 0, 1)
 
   return {
     provider,
@@ -827,7 +827,7 @@ export function readTaskRoutingScores() {
   const providers = Object.keys(data)
   const baseProviders = ["openai", "claude", "gemini", "perplexity"]
   const allProviders = Array.from(new Set([...baseProviders, ...providers]))
-  const tasks = ["dialogue", "reasoning", "research", "code"]
+  const tasks = ["dialogue", "reasoning", "research", "code", "writing", "long_doc"]
 
   return tasks.reduce((acc: Record<string, any[]>, task) => {
     acc[task] = allProviders
@@ -835,4 +835,79 @@ export function readTaskRoutingScores() {
       .sort((a, b) => b.bandit_score - a.bandit_score)
     return acc
   }, {})
+}
+
+// Judge 자동 선택 결과 → bandit_score 학습 루프
+// 사용자 피드백(weight 1.5)보다 가벼운 자동 신호 (winner: 0.7, loser: 0.4)
+export function recordJudgeOutcome(params: {
+  winner: string
+  losers: string[]
+  task: string
+  judge_confidence?: number
+  source?: string   // "judge_auto" | "benchmark"
+}) {
+  const winner = normalizeProvider(params.winner)
+  const losers = (params.losers ?? []).map(normalizeProvider).filter((p) => p && p !== winner)
+  const task = normalizeTask(params.task)
+  if (!winner || !task) return null
+
+  // confidence가 높을수록 학습 신호 강도 높임 (0.5 ~ 1.0 → weight 0.55 ~ 0.80)
+  const confidence = clamp(safeNumber(params.judge_confidence, 0.65), 0.5, 1.0)
+  const winnerWeight = Number((0.55 + (confidence - 0.5) * 0.5).toFixed(4))   // 0.55 ~ 0.80
+  const loserWeight = Number((winnerWeight * 0.55).toFixed(4))                 // winner의 55%
+
+  const data = load()
+
+  // winner 기록
+  const winnerRow = ensureRow(data, winner)
+  applyWeightedUpdate({
+    row: winnerRow,
+    provider: winner,
+    latency_ms: 0,
+    estimated_cost_usd: 0,
+    selected_as_final: true,
+    weight: winnerWeight,
+    effective: false   // latency/cost는 실제 실행 시점에만 기록
+  })
+  const winnerTaskRow = ensureTaskRow(winnerRow, task, winner)
+  if (winnerTaskRow) {
+    applyWeightedUpdate({
+      row: winnerTaskRow,
+      provider: winner,
+      latency_ms: 0,
+      estimated_cost_usd: 0,
+      selected_as_final: true,
+      weight: winnerWeight,
+      effective: false
+    })
+  }
+
+  // losers 기록
+  for (const loser of losers) {
+    const loserRow = ensureRow(data, loser)
+    applyWeightedUpdate({
+      row: loserRow,
+      provider: loser,
+      latency_ms: 0,
+      estimated_cost_usd: 0,
+      selected_as_final: false,
+      weight: loserWeight,
+      effective: false
+    })
+    const loserTaskRow = ensureTaskRow(loserRow, task, loser)
+    if (loserTaskRow) {
+      applyWeightedUpdate({
+        row: loserTaskRow,
+        provider: loser,
+        latency_ms: 0,
+        estimated_cost_usd: 0,
+        selected_as_final: false,
+        weight: loserWeight,
+        effective: false
+      })
+    }
+  }
+
+  save(data)
+  return { winner, losers, task, winner_weight: winnerWeight, loser_weight: loserWeight }
 }

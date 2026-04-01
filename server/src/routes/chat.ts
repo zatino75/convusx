@@ -225,24 +225,34 @@ function buildStructuredMemory(result: any) {
   const finalAnswerText = safeString(result?.final_answer?.text)
   const winnerReason = safeObject(result?.response_meta?.winner_reason)
   const selectionTrace = safeObject(result?.response_meta?.selection_trace)
-  const judgeScores = safeArray(result?.internal_rationale?.judge?.scores)
   const claims = safeArray(result?.internal_rationale?.claims)
   const sentences = splitSentences(finalAnswerText)
 
+  // judge score reasons("coverage:0.8432" 등 metric string)는 decisions에서 제외
+  const isMetricString = (s: string) => /^[a-z_]+:\d+\.?\d*$/.test(s.trim())
   const INTERNAL_NOISE_PATTERNS = ["single_candidate", "primary_survival_bias", "override", "single_candidate_after_escalation"]
   const decisions = uniqueStrings([
     safeString(winnerReason?.rationale),
     safeString(selectionTrace?.judge_rationale),
-    ...safeArray(selectionTrace?.selected_reasons),
-    ...judgeScores.flatMap((row: any) => safeArray(row?.reasons))
-  ]).filter((d) => !INTERNAL_NOISE_PATTERNS.some((n) => String(d).toLowerCase().includes(n)))
+    ...safeArray(selectionTrace?.selected_reasons)
+  ]).filter((d) =>
+    String(d).length >= 10 &&
+    !isMetricString(String(d)) &&
+    !INTERNAL_NOISE_PATTERNS.some((n) => String(d).toLowerCase().includes(n))
+  )
 
+  // facts: 숫자+단위 포함 또는 명확한 사실 진술 문장 (단순 숫자 포함이 아닌 의미 있는 문장 위주)
   const facts = uniqueStrings([
-    ...sentences.filter((line) => /\d/.test(line)),
+    ...sentences.filter((line) =>
+      (/\d+[\.,]?\d*\s*(?:%|억|만|천|원|개|건|배|위|점|명|회|달러|\$|ms|px|KB|MB|GB|TB)/.test(line) ||
+       /(이다|입니다|됩니다|했습니다|합니다|아닙니다|없습니다|있습니다)\s*$/.test(line.trim())) &&
+      line.length >= 15
+    ),
     ...claims.flatMap((row: any) =>
       safeArray(row?.claims)
         .filter((claim: any) => String(claim?.type ?? "") === "fact")
         .map((claim: any) => safeString(claim?.text))
+        .filter((t: string) => t.length >= 15)
     )
   ])
 
@@ -250,12 +260,27 @@ function buildStructuredMemory(result: any) {
     sentences.filter((line) => /\?$|질문|확인 필요|미정|불명확/i.test(line))
   )
 
+  // entities: 대문자 시작 영문, 한글 고유명사(2자 이상), 대문자 약어, 하이픈 포함 기술어 위주
+  // stopwords 제거로 노이즈 감소
+  const STOPWORDS = new Set([
+    "이","가","을","를","은","는","의","에","로","으로","와","과","도","만","더","또","및","등","즉","그","이런","이와",
+    "that","this","with","from","have","will","been","when","where","which","they","their","there","these","those",
+    "about","would","could","should","after","before","other","also","into","such","than","then","just","very","much"
+  ])
   const entities = uniqueStrings(
     finalAnswerText
       .split(/\s+/)
       .map((token) => token.replace(/[^\w가-힣-]/g, ""))
-      .filter((token) => token.length >= 2)
-      .filter((token) => /[A-Za-z가-힣]/.test(token))
+      .filter((token) =>
+        token.length >= 2 &&
+        !STOPWORDS.has(token.toLowerCase()) &&
+        (
+          /^[A-Z]/.test(token) ||          // 대문자 시작 영문 (고유명사)
+          /^[A-Z]{2,}$/.test(token) ||     // 대문자 약어 (API, LLM 등)
+          token.includes("-") ||            // 하이픈 기술어 (bandit-score 등)
+          /^[가-힣]{2,4}$/.test(token)     // 짧은 한글 고유명사 후보
+        )
+      )
       .slice(0, 20)
   )
 

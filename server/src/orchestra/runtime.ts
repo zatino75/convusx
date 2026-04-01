@@ -3,8 +3,9 @@ import { resolveAdaptiveRoute } from "./adaptiveRouter.js"
 import { judge } from "./judge.js"
 import { detectTaskType, extractPlanningSignals, planRequest } from "./planner.js"
 import { extractClaims } from "./claims.js"
-import { detectConflicts } from "./conflicts.js"
+import { detectConflicts, resolveConflictDecisions } from "./conflicts.js"
 import { readScoreboard, recordProviderExecution, recordProviderConflict } from "./scoreboard.js"
+import { updateModelScoreboard } from "./modelScoreboard.js"
 import { getLatestProjectContext } from "../memory/projectMemory.js"
 import { getProjectThreadMemories, findSimilarQuery } from "../memory/threadMemory.js"
 
@@ -944,6 +945,7 @@ async function executeProvider(params: {
   const result = await runAdapter({
     provider,
     task: params.task,
+    role: params.role,
     message: extractInboundMessage(params.input),
     messages: params.input?.messages,
     input: buildProviderInput(
@@ -1252,7 +1254,8 @@ export async function executeOrchestra(input: any, stream?: any) {
   const successfulResults = executed.filter((item) => item.ok && hasText(item.text))
 
   // conflict detection — reasoning/research 한정 활성화 (threshold 강화로 오탐 방지)
-  const CONFLICT_TASKS = ["reasoning", "research"]
+  // code/long_doc 포함: 구현 방식·분석 결론 이견도 claims/conflict 감지 대상
+  const CONFLICT_TASKS = ["reasoning", "research", "code", "long_doc"]
   let candidateClaims: any[] = []
   let detectedConflicts: any[] = []
 
@@ -1575,21 +1578,24 @@ export async function executeOrchestra(input: any, stream?: any) {
             ...effectiveInput,
             messages: [{
               role: "user",
-              content: `다음 코드를 리뷰해주세요:\n\n${winnerCode.text}\n\n버그나 개선점이 있으면 수정된 코드를 제시하세요. 코드가 올바르면 "LGTM" 한 줄만 출력하세요.\n\n원래 질문: ${extractInboundMessage(effectiveInput)}`
+              content: `다음 코드를 리뷰하고 수정된 완성본을 반환하세요:\n\n${winnerCode.text}\n\n규칙:\n1. 버그·논리 오류·성능 문제가 있으면 수정된 전체 코드를 그대로 출력하세요 (설명이나 주석 최소화, 코드만).\n2. 코드가 완전히 정확하면 "LGTM" 한 줄만 출력하세요.\n3. 절대 리뷰 코멘트와 코드를 섞지 마세요.\n\n원래 질문: ${extractInboundMessage(effectiveInput)}`
             }]
           }
           const critiqueResult = await executeProvider({
-            provider: critiqueBy, role: "verifier", input: critiqueInput,
+            provider: critiqueBy, role: "synthesis", input: critiqueInput,
             task, route, plannerSignals, usePro: false, emitEvent: emitTracked
           })
           if (critiqueResult.ok && hasText(critiqueResult.text)) {
             const isLgtm = /^lgtm\.?$/i.test(critiqueResult.text.trim())
             if (!isLgtm) {
+              // critiqueResult가 수정된 전체 코드 — 원본을 교체
               finalResult = {
                 ...winnerCode,
-                text: winnerCode.text + `\n\n---\n**🔍 코드 리뷰 (${critiqueBy.toUpperCase()}):**\n` + critiqueResult.text,
-                provider: normalizeProvider(judgeWinner), role: "patched"
+                text: critiqueResult.text,
+                provider: normalizeProvider(judgeWinner),
+                role: "patched"
               }
+              executed = [...executed, { ...critiqueResult, role: "synthesis" }]
             }
           }
         }
@@ -1611,21 +1617,24 @@ export async function executeOrchestra(input: any, stream?: any) {
             ...effectiveInput,
             messages: [{
               role: "user",
-              content: `다음 작성된 글을 편집 검토해주세요:\n\n${winnerText.text}\n\n구조, 흐름, 논리적 일관성 관점에서 구체적인 개선 제안을 1~3줄로 요약해주세요. 내용이 충분히 좋으면 "APPROVED" 한 줄만 출력하세요.\n\n원래 요청: ${extractInboundMessage(effectiveInput)}`
+              content: `다음 글을 편집하여 완성본을 반환하세요:\n\n${winnerText.text}\n\n규칙:\n1. 구조·흐름·논리·문장이 완벽하면 "APPROVED" 한 줄만 출력하세요.\n2. 개선이 필요하면 수정이 반영된 글 전체를 출력하세요 (설명 없이 완성된 글만).\n3. 원본의 핵심 내용과 관점은 유지하고, 표현과 구조만 개선하세요.\n\n원래 요청: ${extractInboundMessage(effectiveInput)}`
             }]
           }
           const editResult = await executeProvider({
-            provider: editBy, role: "verifier", input: editInput,
+            provider: editBy, role: "synthesis", input: editInput,
             task, route, plannerSignals, usePro: false, emitEvent: emitTracked
           })
           if (editResult.ok && hasText(editResult.text)) {
             const isApproved = /^approved\.?$/i.test(editResult.text.trim())
-            if (!isApproved) {
+            if (!isApproved && editResult.text.length >= winnerText.text.length * 0.5) {
+              // 편집본이 원본의 50% 이상 길이일 때만 교체 (너무 짧으면 실패로 간주)
               finalResult = {
                 ...winnerText,
-                text: winnerText.text + `\n\n---\n**✏️ 편집 검토 (${editBy.toUpperCase()}):**\n` + editResult.text,
-                provider: normalizeProvider(judgeWinner), role: "edited"
+                text: editResult.text,
+                provider: normalizeProvider(judgeWinner),
+                role: "edited"
               }
+              executed = [...executed, { ...editResult, role: "synthesis" }]
             }
           }
         }
@@ -1675,6 +1684,70 @@ export async function executeOrchestra(input: any, stream?: any) {
     }
   }
   // ===== END LONG DOC KEY EXTRACTION =====
+
+  // ===== DIALOGUE SYNTHESIS =====
+  // judge winner 대화 응답 + runner-up 핵심 보완 → 단일 모델 응답보다 완성도 높은 답변 생성
+  if (task === "dialogue") {
+    const winnerDialogue = executed.find(
+      (item) => normalizeProvider(item.provider) === normalizeProvider(judgeWinner) && item.ok && hasText(item.text)
+    )
+    if (winnerDialogue) {
+      // runner-up: winner 제외하고 응답 길이가 충분한 성공 결과 중 가장 풍부한 것
+      const runnerUp = executed
+        .filter(
+          (item) =>
+            normalizeProvider(item.provider) !== normalizeProvider(judgeWinner) &&
+            item.ok &&
+            hasText(item.text) &&
+            item.text.length > 80
+        )
+        .sort((a, b) => b.text.length - a.text.length)[0] ?? null
+
+      if (runnerUp) {
+        // 합성: claude 우선 (대화 품질), 없으면 openai
+        const blendBy = getSynthProvider(judgeWinner, ["claude", "openai", "gemini"])
+        if (blendBy) {
+          // 이미 실행된 provider 결과 재활용 우선 (추가 API 호출 최소화)
+          const existingBlend = executed.find(
+            (e) => normalizeProvider(e.provider) === blendBy && e.ok && hasText(e.text)
+          )
+          if (!existingBlend) {
+            const blendInput = {
+              ...effectiveInput,
+              messages: [
+                {
+                  role: "user",
+                  content: `두 AI의 응답을 참고해 더 완성도 높은 답변을 작성해주세요.\n\n[응답 A — ${judgeWinner.toUpperCase()}]:\n${winnerDialogue.text}\n\n[응답 B — ${runnerUp.provider.toUpperCase()}]:\n${runnerUp.text}\n\n지침: A를 중심으로 유지하되, B에서 A가 빠뜨린 실질적인 포인트가 있으면 자연스럽게 통합하세요. 중복·불필요한 반복은 제거하고 흐름을 자연스럽게 유지하세요. B가 특별히 추가할 내용이 없으면 A를 그대로 출력하세요. 별도 주석이나 설명 없이 최종 답변만 출력하세요.\n\n원래 질문: ${extractInboundMessage(effectiveInput)}`
+                }
+              ]
+            }
+            const blendResult = await executeProvider({
+              provider: blendBy,
+              role: "synthesis",
+              input: blendInput,
+              task,
+              route,
+              plannerSignals,
+              usePro: false,
+              emitEvent: emitTracked
+            })
+            if (blendResult.ok && hasText(blendResult.text)) {
+              finalResult = {
+                ...winnerDialogue,
+                text: blendResult.text,
+                provider: normalizeProvider(judgeWinner),
+                role: "synthesis"
+              }
+              executed = [...executed, { ...blendResult, role: "synthesis" }]
+            }
+          }
+          // 이미 실행된 결과가 있으면 runner-up과 비교해 winner 텍스트와 길이차가 클 때만 교체
+          // (existingBlend가 이미 winner보다 충분히 다른 내용이면 합성 효과 있음)
+        }
+      }
+    }
+  }
+  // ===== END DIALOGUE SYNTHESIS =====
 
   const finalProvider = normalizeProvider(
     judged?.meta?.judge_selected_provider ??
@@ -1751,6 +1824,13 @@ export async function executeOrchestra(input: any, stream?: any) {
     })
   }
 
+  // 누적 per-model 통계 업데이트 (토큰/비용/승률 축적)
+  updateModelScoreboard({
+    task,
+    final_provider: finalProvider,
+    provider_usage: summarizeProviderUsage(executed)
+  })
+
   const scoreboardAfter = readScoreboard()
   const orchestrationMeta = buildOrchestrationMeta({
     startedAt,
@@ -1774,6 +1854,19 @@ export async function executeOrchestra(input: any, stream?: any) {
   const conflictBuckets = summarizeConflictBuckets(finalConflicts)
   const selectionTrace = buildSelectionTrace(judged, finalProvider, finalRole, finalConflicts)
   const winnerReason = buildWinnerReason(selectionTrace)
+
+  // Conflict → Decision 레코드: 감지된 충돌에서 신뢰 provider 판단
+  let conflictDecisions: ReturnType<typeof resolveConflictDecisions> = []
+  if (finalConflicts.length > 0) {
+    try {
+      conflictDecisions = resolveConflictDecisions(
+        finalConflicts,
+        finalProvider,
+        finalJudgeConfidence,
+        task
+      )
+    } catch { conflictDecisions = [] }
+  }
 
   await emitTracked({
     type: "judge",
@@ -1909,6 +2002,7 @@ export async function executeOrchestra(input: any, stream?: any) {
       executed_providers: summarizeProviderUsage(executed),
       claims: finalClaimMap,
       conflicts: finalConflicts,
+      conflict_decisions: conflictDecisions,
       conflict_score: calculateConflictScore(finalConflicts),
       conflict_count: finalConflictCount,
       conflict_buckets: conflictBuckets,

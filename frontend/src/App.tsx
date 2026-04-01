@@ -1989,11 +1989,6 @@ export default function App() {
         ) : (mode === "thread-chat" ? (
           <OrchestrationPanel
             debugMeta={debugMeta}
-            usage={null}
-            scoreboard={null}
-            dashboard={null}
-            opsLoading={false}
-            opsError={null}
             artifactList={artifactList}
           />
         ) : undefined)}

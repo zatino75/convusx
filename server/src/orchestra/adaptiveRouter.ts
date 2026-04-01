@@ -96,8 +96,10 @@ function getRoutingRows(task: AdaptiveTask) {
 const TASK_WEIGHTS: Record<string, Record<string, number>> = {
   code:     { claude: 0.12, openai: 0.06, gemini: 0.01, perplexity: 0.00 },
   writing:  { claude: 0.14, openai: 0.04, gemini: 0.02, perplexity: 0.00 },
-  dialogue: { openai: 0.10, claude: 0.06, gemini: 0.02, perplexity: 0.01 },
-  reasoning:{ gemini: 0.12, openai: 0.08, claude: 0.06, perplexity: 0.00 },
+  // dialogue: claude 1위 — 대화 흐름·공감·뉘앙스에서 claude 강점
+  dialogue: { claude: 0.12, openai: 0.08, gemini: 0.02, perplexity: 0.01 },
+  // reasoning: openai 1위 — 다단계 추론·수치 분석에서 openai 강점 (프로젝트 전략 기준)
+  reasoning:{ openai: 0.12, claude: 0.08, gemini: 0.06, perplexity: 0.00 },
   research: { perplexity: 0.12, claude: 0.07, openai: 0.05, gemini: 0.03 },
   long_doc: { claude: 0.14, gemini: 0.08, openai: 0.03, perplexity: 0.01 }
 }
@@ -118,10 +120,13 @@ function rankProviders(task: AdaptiveTask) {
 }
 
 function shouldUsePro(task: AdaptiveTask, params: any): boolean {
+  // force_pro: 유저가 명시적으로 요청 → 모든 task 허용
+  if (params?.force_pro) return true
+
+  // 자동 escalation (benchmark_mode / deep_analysis / deep_research): reasoning/research만
   if (task !== "reasoning" && task !== "research") return false
 
   return Boolean(
-    params?.force_pro ||
     params?.benchmark_mode ||
     params?.deep_analysis ||
     params?.deep_research
@@ -142,7 +147,8 @@ function buildExecutionPolicy(task: AdaptiveTask, params: any) {
 
   if (task === "writing") {
     return {
-      max_parallel: allowOptional ? 2 : 1,
+      // primary(claude) + verifier(openai) 항상 2개 실행 — 1개면 judge/claims/conflicts 무용지물
+      max_parallel: 2,
       cost_gate_enabled: true,
       max_total_estimated_cost_usd: 0.06,
       prefer_fast_fallback: false

@@ -3,6 +3,7 @@ import { readModelScoreboard } from "./modelScoreboard.js"
 type DispatchInput = {
   provider: string
   task?: string
+  role?: string   // "primary" | "verifier" | "optional" | "synthesis" | "scout"
   mode?: string
   input?: any
   message?: string
@@ -106,6 +107,24 @@ async function tryImportModule(modulePath: string): Promise<AdapterModule | null
   }
 }
 
+// 대화 길이 제한 — system 메시지 보존 + 최신 N쌍 유지 (토큰 한계 보호)
+const MAX_CONV_MESSAGES = 20  // system 제외 최대 유지 메시지 수
+
+function trimContextMessages(
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>
+): Array<{ role: "system" | "user" | "assistant"; content: string }> {
+  const systemMsgs = messages.filter((m) => m.role === "system")
+  const convMsgs = messages.filter((m) => m.role !== "system")
+
+  if (convMsgs.length <= MAX_CONV_MESSAGES) return messages
+
+  // 최신 N개 유지 — 가장 오래된 쪽부터 제거 (최신 컨텍스트가 중요)
+  const trimmed = convMsgs.slice(convMsgs.length - MAX_CONV_MESSAGES)
+  // user 메시지로 시작해야 함 — assistant로 시작하면 첫 메시지 제거
+  const adjusted = trimmed[0]?.role === "assistant" ? trimmed.slice(1) : trimmed
+  return [...systemMsgs, ...adjusted]
+}
+
 function normalizeMessages(input: DispatchInput): Array<{ role: "system" | "user" | "assistant"; content: string }> {
   const rawMessages =
     Array.isArray(input?.messages) && input.messages.length > 0
@@ -115,7 +134,7 @@ function normalizeMessages(input: DispatchInput): Array<{ role: "system" | "user
         : null
 
   if (rawMessages && rawMessages.length > 0) {
-    return rawMessages.map((m: any) => {
+    const normalized = rawMessages.map((m: any) => {
       const rawRole = String(m?.role ?? "user").trim().toLowerCase()
       const role =
         rawRole === "system"
@@ -143,6 +162,7 @@ function normalizeMessages(input: DispatchInput): Array<{ role: "system" | "user
 
       return { role, content }
     })
+    return trimContextMessages(normalized)
   }
 
   const fallbackMessage =
@@ -329,7 +349,9 @@ function defaultModel(provider: string, task: OrxTask, input?: any): string {
   return "gpt-5.4"
 }
 
-function defaultTemperature(task: OrxTask): number {
+function defaultTemperature(task: OrxTask, role = "primary"): number {
+  // synthesis/blend 호출은 자연스러운 텍스트 합성을 위해 온도 고정
+  if (role === "synthesis") return 0.25
   if (task === "dialogue") return 0.2
   if (task === "writing") return 0.3
   if (task === "research") return 0.1
@@ -420,7 +442,7 @@ function buildMaxRetries(provider: string, task: OrxTask, input?: any): number {
   return 1
 }
 
-function buildTaskSystemPrompt(task: OrxTask, provider: string, structuredOutput = false): string {
+function buildTaskSystemPrompt(task: OrxTask, provider: string, structuredOutput = false, role = "primary"): string {
   const COMMON = [
     "당신은 AI Orchestra 멀티 AI 시스템의 일원입니다.",
     "한국어로 질문이 들어오면 반드시 한국어로 답하세요.",
@@ -429,14 +451,23 @@ function buildTaskSystemPrompt(task: OrxTask, provider: string, structuredOutput
     "Deliver high-quality responses by choosing the most effective format for the content — use tables when comparing multiple options, use prose when explaining concepts, use code blocks for code, use bullet points only when listing discrete items. Prioritize clarity, accuracy, and actionable insight over length. Always include a concrete conclusion or recommendation when the question requires a decision. Never pad responses with filler or meta-commentary."
   ].join(" ")
 
+  // synthesis/patching 호출은 중립 프롬프트 사용 — role-specific 지시와 충돌 방지
+  if (role === "synthesis") {
+    return [
+      COMMON,
+      "주어진 지시에 따라 최고 품질의 결과물을 생성하세요. 별도 설명이나 주석 없이 요청한 내용만 출력하세요."
+    ].join(" ")
+  }
+
   if (task === "dialogue") {
+    // TASK_WEIGHTS: claude(0.12) > openai(0.08) — claude가 primary, openai가 verifier
     const roleMap: Record<string, string> = {
-      openai: "당신은 주 대화 AI입니다. 간결하고 실용적으로 답하되, 사용자에게 바로 유용한 정보를 제공하세요.",
-      claude: "당신은 비판적 검증 AI입니다. 답변의 논리적 허점이나 누락된 관점을 짚고, 더 나은 대안을 제시하세요.",
+      claude: "당신은 주 대화 AI입니다. 간결하고 실용적으로 답하되, 사용자에게 바로 유용한 정보를 제공하세요.",
+      openai: "당신은 비판적 검증 AI입니다. 답변의 논리적 허점이나 누락된 관점을 짚고, 더 나은 대안을 제시하세요.",
       gemini: "당신은 맥락 분석 AI입니다. 대화의 배경과 숨겨진 의도를 파악해 풍부한 맥락 정보를 제공하세요.",
       perplexity: "당신은 팩트 스카우트 AI입니다. 신뢰할 수 있는 사실과 최신 정보를 근거 중심으로 제공하세요."
     }
-    return [COMMON, roleMap[provider] ?? roleMap.openai].join(" ")
+    return [COMMON, roleMap[provider] ?? roleMap.claude].join(" ")
   }
 
   if (task === "reasoning") {
@@ -502,9 +533,10 @@ function prependSystemMessage(
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
   task: OrxTask,
   provider: string,
-  structuredOutput = false
+  structuredOutput = false,
+  role = "primary"
 ) {
-  const systemPrompt = buildTaskSystemPrompt(task, provider, structuredOutput)
+  const systemPrompt = buildTaskSystemPrompt(task, provider, structuredOutput, role)
 
   if (!systemPrompt.trim()) {
     return messages
@@ -539,7 +571,8 @@ function buildPayload(input: DispatchInput) {
   const provider = normalizeProvider(input?.provider)
   const task = normalizeTask(input?.task ?? input?.input?.task)
   const structuredOutput = Boolean(input?.input?.metadata?.planner_signals?.structured_output)
-  const messages = prependSystemMessage(normalizeMessages(input), task, provider, structuredOutput)
+  const role = String(input?.role ?? "primary")
+  const messages = prependSystemMessage(normalizeMessages(input), task, provider, structuredOutput, role)
 
   return {
     provider,
@@ -553,7 +586,7 @@ function buildPayload(input: DispatchInput) {
     temperature:
       typeof input?.input?.temperature === "number"
         ? input.input.temperature
-        : defaultTemperature(task),
+        : defaultTemperature(task, role),
     max_tokens:
       typeof input?.input?.max_tokens === "number"
         ? input.input.max_tokens

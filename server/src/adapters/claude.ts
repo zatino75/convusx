@@ -15,6 +15,8 @@ function now() {
 
 function isRetriableError(status: number, code?: string): boolean {
   if (status >= 500) return true
+  if (status === 429) return true
+  if (status === 408) return true
   if (code === "overloaded_error") return true
   if (code === "rate_limit_error") return true
   return false
@@ -88,123 +90,171 @@ function extractText(data: any): string {
   return ""
 }
 
-async function callAnthropic(apiKey: string, payload: any) {
+async function callAnthropic(params: {
+  apiKey: string
+  payload: any
+  timeoutMs?: number
+}) {
+  const timeoutMs = typeof params.timeoutMs === "number" && params.timeoutMs > 0
+    ? params.timeoutMs
+    : 60000
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   const start = now()
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  })
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": params.apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(params.payload),
+      signal: controller.signal
+    })
 
-  const latency = now() - start
-  const data = await response.json().catch(() => ({}))
+    const latency = now() - start
+    const data = await response.json().catch(() => ({}))
 
-  return { response, data, latency }
+    return { response, data, latency, timedOut: false }
+  } catch (error: any) {
+    const latency = now() - start
+    const timedOut =
+      error?.name === "AbortError" ||
+      String(error?.message ?? "").toLowerCase().includes("aborted")
+
+    throw { original: error, latency, timedOut }
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 async function streamAnthropic(params: {
   apiKey: string
   payload: any
   onToken?: (chunk: string) => void | Promise<void>
+  timeoutMs?: number
 }) {
+  const timeoutMs = typeof params.timeoutMs === "number" && params.timeoutMs > 0
+    ? params.timeoutMs
+    : 60000
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   const start = now()
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": params.apiKey,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({
-      ...params.payload,
-      stream: true
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": params.apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        ...params.payload,
+        stream: true
+      }),
+      signal: controller.signal
     })
-  })
 
-  const latency = now() - start
+    const latency = now() - start
 
-  if (!response.ok || !response.body) {
-    const data = await response.json().catch(async () => {
-      const text = await response.text().catch(() => "")
-      return { error: { type: "request_failed", message: text } }
-    })
+    if (!response.ok || !response.body) {
+      const data = await response.json().catch(async () => {
+        const text = await response.text().catch(() => "")
+        return { error: { type: "request_failed", message: text } }
+      })
+
+      return {
+        ok: false,
+        latency,
+        text: "",
+        data,
+        errorCode: typeof data?.error?.type === "string" ? data.error.type : "request_failed",
+        timedOut: false
+      }
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+
+    let buffer = ""
+    let fullText = ""
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+
+      while (buffer.includes("\n\n")) {
+        const index = buffer.indexOf("\n\n")
+        const rawEvent = buffer.slice(0, index)
+        buffer = buffer.slice(index + 2)
+
+        const lines = rawEvent
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+
+        const eventLine = lines.find((line) => line.startsWith("event:"))
+        const dataLine = lines.find((line) => line.startsWith("data:"))
+
+        const eventType = eventLine ? eventLine.replace(/^event:\s*/, "") : ""
+        const jsonStr = dataLine ? dataLine.replace(/^data:\s*/, "") : ""
+
+        if (!jsonStr || jsonStr === "[DONE]") continue
+
+        try {
+          const parsed = JSON.parse(jsonStr)
+
+          if (eventType === "content_block_delta" || parsed?.type === "content_block_delta") {
+            const deltaText =
+              typeof parsed?.delta?.text === "string"
+                ? parsed.delta.text
+                : typeof parsed?.text === "string"
+                  ? parsed.text
+                  : ""
+
+            if (deltaText) {
+              fullText += deltaText
+              if (params.onToken) {
+                await params.onToken(deltaText)
+              }
+            }
+          }
+        } catch {
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      latency,
+      text: fullText,
+      data: { usage: {} },
+      errorCode: null,
+      timedOut: false
+    }
+  } catch (error: any) {
+    const latency = now() - start
+    const timedOut =
+      error?.name === "AbortError" ||
+      String(error?.message ?? "").toLowerCase().includes("aborted")
 
     return {
       ok: false,
       latency,
       text: "",
-      data,
-      errorCode: typeof data?.error?.type === "string" ? data.error.type : "request_failed"
+      data: {},
+      errorCode: timedOut ? "timeout" : "network_error",
+      timedOut
     }
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-
-  let buffer = ""
-  let fullText = ""
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-
-    while (buffer.includes("\n\n")) {
-      const index = buffer.indexOf("\n\n")
-      const rawEvent = buffer.slice(0, index)
-      buffer = buffer.slice(index + 2)
-
-      const lines = rawEvent
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)
-
-      const eventLine = lines.find((line) => line.startsWith("event:"))
-      const dataLine = lines.find((line) => line.startsWith("data:"))
-
-      const eventType = eventLine ? eventLine.replace(/^event:\s*/, "") : ""
-      const jsonStr = dataLine ? dataLine.replace(/^data:\s*/, "") : ""
-
-      if (!jsonStr || jsonStr === "[DONE]") continue
-
-      try {
-        const parsed = JSON.parse(jsonStr)
-
-        if (eventType === "content_block_delta" || parsed?.type === "content_block_delta") {
-          const deltaText =
-            typeof parsed?.delta?.text === "string"
-              ? parsed.delta.text
-              : typeof parsed?.text === "string"
-                ? parsed.text
-                : ""
-
-          if (deltaText) {
-            fullText += deltaText
-            if (params.onToken) {
-              await params.onToken(deltaText)
-            }
-          }
-        }
-      } catch {
-      }
-    }
-  }
-
-  return {
-    ok: true,
-    latency,
-    text: fullText,
-    data: {
-      usage: {}
-    },
-    errorCode: null
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -215,6 +265,11 @@ export const claudeAdapter: ModelAdapter = {
     const attempts: ModelAttempt[] = []
     const { system, conversation } = splitSystemAndMessages(req.messages)
     const onToken = typeof (req as any)?.onToken === "function" ? (req as any).onToken : undefined
+
+    const timeoutMs =
+      typeof (req as any).timeout_ms === "number" && (req as any).timeout_ms > 0
+        ? (req as any).timeout_ms
+        : 60000
 
     if (!apiKey) {
       return {
@@ -237,130 +292,182 @@ export const claudeAdapter: ModelAdapter = {
       }))
     }
 
-    try {
-      if (onToken) {
-        const streamed = await streamAnthropic({
-          apiKey,
-          payload,
-          onToken
-        })
+    // ── 스트리밍 경로: 재시도 1회
+    if (onToken) {
+      const maxAttempts = 2
 
+      for (let attemptNo = 1; attemptNo <= maxAttempts; attemptNo += 1) {
+        const streamed = await streamAnthropic({ apiKey, payload, onToken, timeoutMs })
+
+        const isSuccess = streamed.ok && !!streamed.text
         attempts.push({
           provider: req.provider,
           model,
-          status: streamed.ok && streamed.text ? "success" : "error",
+          status: isSuccess ? "success" : "error",
           latency_ms: streamed.latency,
           error: streamed.errorCode,
-          attempt_no: 1,
-          http_status: streamed.ok ? 200 : 500,
+          attempt_no: attemptNo,
+          http_status: isSuccess ? 200 : 500,
           error_code: streamed.errorCode ?? undefined,
-          retriable: streamed.errorCode ? isRetriableError(500, streamed.errorCode) : false
+          retriable: !!streamed.errorCode
         })
 
-        if (!streamed.ok || !streamed.text) {
+        if (isSuccess) {
           return {
             provider: req.provider,
             model,
-            answer: "",
-            attempts,
+            answer: streamed.text,
             usage: streamed?.data?.usage,
-            error: buildError(req.provider, "stream_request_failed", streamed.errorCode ?? "request_failed", true)
-          }
-        }
-
-        return {
-          provider: req.provider,
-          model,
-          answer: streamed.text,
-          usage: streamed?.data?.usage,
-          attempts,
-          streaming_supported: true
-        }
-      }
-
-      const first = await callAnthropic(apiKey, payload)
-      const code = typeof first.data?.error?.type === "string" ? first.data.error.type : undefined
-      const retriable = isRetriableError(first.response.status, code)
-      const answer = extractText(first.data)
-
-      attempts.push({
-        provider: req.provider,
-        model,
-        status: first.response.ok && answer ? "success" : "error",
-        latency_ms: first.latency,
-        error: first.response.ok ? null : (code ?? "request_failed"),
-        attempt_no: 1,
-        http_status: first.response.status,
-        error_code: code,
-        retriable
-      })
-
-      if (!first.response.ok && retriable) {
-        await sleep(400)
-
-        const retry = await callAnthropic(apiKey, payload)
-        const retryCode = typeof retry.data?.error?.type === "string" ? retry.data.error.type : undefined
-        const retryAnswer = extractText(retry.data)
-
-        attempts.push({
-          provider: req.provider,
-          model,
-          status: retry.response.ok && retryAnswer ? "success" : "error",
-          latency_ms: retry.latency,
-          error: retry.response.ok ? null : (retryCode ?? "request_failed"),
-          attempt_no: 2,
-          http_status: retry.response.status,
-          error_code: retryCode,
-          retriable: isRetriableError(retry.response.status, retryCode)
-        })
-
-        if (!retry.response.ok || !retryAnswer) {
-          return {
-            provider: req.provider,
-            model,
-            answer: "",
             attempts,
-            usage: retry.data?.usage,
-            error: buildError(req.provider, "retry_failed", retryCode, true)
+            streaming_supported: true
           }
         }
 
-        return {
-          provider: req.provider,
-          model,
-          answer: retryAnswer,
-          usage: retry.data?.usage,
-          attempts
+        // 재시도 가능 + 남은 시도 있을 때만 대기
+        if (attemptNo < maxAttempts) {
+          await sleep(500 * attemptNo)
+          continue
         }
       }
 
-      if (!first.response.ok || !answer) {
-        return {
-          provider: req.provider,
-          model,
-          answer: "",
-          attempts,
-          usage: first.data?.usage,
-          error: buildError(req.provider, "request_failed", code, retriable)
-        }
-      }
-
-      return {
-        provider: req.provider,
-        model,
-        answer,
-        usage: first.data?.usage,
-        attempts
-      }
-
-    } catch (error: any) {
       return {
         provider: req.provider,
         model,
         answer: "",
         attempts,
-        error: buildError(req.provider, String(error?.message ?? "network_error"), "network_error", true)
+        error: buildError(req.provider, "stream_request_failed", "stream_failed", true)
       }
+    }
+
+    // ── 일반(비스트리밍) 경로: loop 기반 retry
+    const maxAttempts =
+      typeof req.max_retries === "number" && req.max_retries >= 1
+        ? req.max_retries + 1
+        : 2
+
+    for (let attemptNo = 1; attemptNo <= maxAttempts; attemptNo += 1) {
+      try {
+        const { response, data, latency } = await callAnthropic({ apiKey, payload, timeoutMs })
+
+        const code = typeof data?.error?.type === "string" ? data.error.type : undefined
+        const retriable = isRetriableError(response.status, code)
+        const answer = extractText(data)
+
+        if (!response.ok) {
+          attempts.push({
+            provider: req.provider,
+            model,
+            status: "error",
+            latency_ms: latency,
+            error: code ?? "request_failed",
+            attempt_no: attemptNo,
+            http_status: response.status,
+            error_code: code,
+            retriable
+          })
+
+          if (retriable && attemptNo < maxAttempts) {
+            await sleep(500 * attemptNo)
+            continue
+          }
+
+          return {
+            provider: req.provider,
+            model,
+            answer: "",
+            attempts,
+            usage: data?.usage,
+            error: buildError(req.provider, "request_failed", code, retriable)
+          }
+        }
+
+        if (!answer) {
+          attempts.push({
+            provider: req.provider,
+            model,
+            status: "error",
+            latency_ms: latency,
+            error: "empty_response",
+            attempt_no: attemptNo,
+            http_status: response.status,
+            error_code: "empty_response",
+            retriable: attemptNo < maxAttempts
+          })
+
+          if (attemptNo < maxAttempts) {
+            await sleep(400 * attemptNo)
+            continue
+          }
+
+          return {
+            provider: req.provider,
+            model,
+            answer: "",
+            attempts,
+            usage: data?.usage,
+            error: buildError(req.provider, "empty_response", "empty_response", false)
+          }
+        }
+
+        attempts.push({
+          provider: req.provider,
+          model,
+          status: "success",
+          latency_ms: latency,
+          error: null,
+          attempt_no: attemptNo,
+          http_status: response.status,
+          error_code: undefined,
+          retriable: false
+        })
+
+        return {
+          provider: req.provider,
+          model,
+          answer,
+          usage: data?.usage,
+          attempts
+        }
+
+      } catch (wrapped: any) {
+        const latency = typeof wrapped?.latency === "number" ? wrapped.latency : 0
+        const timedOut = wrapped?.timedOut === true
+        const code = timedOut ? "timeout" : "network_error"
+        const message = String(wrapped?.original?.message ?? code)
+
+        attempts.push({
+          provider: req.provider,
+          model,
+          status: "error",
+          latency_ms: latency,
+          error: message,
+          attempt_no: attemptNo,
+          http_status: 0,
+          error_code: code,
+          retriable: true
+        })
+
+        if (attemptNo < maxAttempts) {
+          await sleep(500 * attemptNo)
+          continue
+        }
+
+        return {
+          provider: req.provider,
+          model,
+          answer: "",
+          attempts,
+          error: buildError(req.provider, message, code, true)
+        }
+      }
+    }
+
+    return {
+      provider: req.provider,
+      model,
+      answer: "",
+      attempts,
+      error: buildError(req.provider, "unexpected_fallback", "unexpected_fallback")
     }
   }
 }

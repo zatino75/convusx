@@ -97,10 +97,12 @@ function normalizeMetrics(input: any): DynamicRouterMetrics {
   }
 }
 
-function normalizeTask(task: any): "dialogue" | "reasoning" | "research" | "code" {
+function normalizeTask(task: any): "dialogue" | "reasoning" | "research" | "code" | "writing" | "long_doc" {
   const value = String(task ?? "").trim().toLowerCase()
 
   if (value.includes("code")) return "code"
+  if (value.includes("long_doc") || value.includes("long_document")) return "long_doc"
+  if (value.includes("writing") || value.includes("write")) return "writing"
   if (value.includes("research")) return "research"
   if (value.includes("reasoning")) return "reasoning"
   return "dialogue"
@@ -160,7 +162,7 @@ function costPenaltyScore(avgCostPer1kTokensUsd: number, avgCostUsd: number, tas
   return basePenalty * 0.35
 }
 
-function getTaskWeights(task: "dialogue" | "reasoning" | "research" | "code") {
+function getTaskWeights(task: "dialogue" | "reasoning" | "research" | "code" | "writing" | "long_doc") {
   if (task === "dialogue") {
     return {
       latency: 0.15,
@@ -209,6 +211,40 @@ function getTaskWeights(task: "dialogue" | "reasoning" | "research" | "code") {
       cost_penalty: 0.02,
       freshness: 0.08,
       recent_winner_bonus: 0.04
+    }
+  }
+
+  if (task === "writing") {
+    return {
+      latency: 0.06,
+      success: 0.15,
+      quality: 0.28,
+      claims: 0.02,
+      conflicts: 0.04,
+      decisions: 0.03,
+      fallback: 0.07,
+      confidence: 0.09,
+      cost_efficiency: 0.10,
+      cost_penalty: 0.03,
+      freshness: 0.07,
+      recent_winner_bonus: 0.06
+    }
+  }
+
+  if (task === "long_doc") {
+    return {
+      latency: 0.04,
+      success: 0.16,
+      quality: 0.24,
+      claims: 0.04,
+      conflicts: 0.06,
+      decisions: 0.04,
+      fallback: 0.07,
+      confidence: 0.09,
+      cost_efficiency: 0.12,
+      cost_penalty: 0.02,
+      freshness: 0.06,
+      recent_winner_bonus: 0.06
     }
   }
 

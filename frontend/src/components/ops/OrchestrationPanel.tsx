@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { DashboardResponse, ScoreboardResponse, UsageSummaryResponse } from "../../api/chat";
+import { useState, useEffect } from "react";
+import type { UsageSummaryResponse } from "../../api/chat";
 
 type DebugMeta = {
   winnerProvider: string | null;
@@ -24,11 +24,6 @@ type DebugMeta = {
 
 type Props = {
   debugMeta: DebugMeta;
-  usage: UsageSummaryResponse | null;
-  scoreboard: ScoreboardResponse | null;
-  dashboard: DashboardResponse | null;
-  opsLoading: boolean;
-  opsError: string | null;
   artifactList?: Array<{ id: string; title: string; code: string; language: string }>;
 };
 
@@ -68,7 +63,7 @@ const SYNTHESIS_ROLE_LABEL: Record<string, { label: string; color: string }> = {
   critique:  { label: "크리틱",   color: "#ef4444" }
 };
 
-const PAGES = ["오케스트레이션", "토큰 & 비용", "코드 파일", "응답 미리보기"];
+const PAGES = ["사용량", "코드 파일"];
 
 function pLabel(p: string | null | undefined) {
   const k = String(p ?? "").trim().toLowerCase();
@@ -373,6 +368,62 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
           <Row label="복구"><span style={{ fontSize: 11, color: "#f59e0b" }}>Primary 복구됨</span></Row>
         )}
       </Section>
+
+      {/* Conflict Decision 레코드 — 충돌에서 신뢰 provider 판단 */}
+      {(() => {
+        const decisions: any[] = internalRationale.conflict_decisions ?? [];
+        if (decisions.length === 0) return null;
+        return (
+          <Section title="Conflict Decision">
+            {decisions.slice(0, 4).map((d: any, idx: number) => {
+              const ctype = String(d.conflict_type ?? "").replace(/_conflict$/, "").replace(/_/g, " ");
+              const severityColor = d.severity === "high" ? "#ef4444" : d.severity === "medium" ? "#f59e0b" : "#6b7280";
+              const confidencePct = Math.round(Math.min(1, Math.max(0, Number(d.confidence ?? 0))) * 100);
+              return (
+                <div key={idx} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", marginBottom: 6, background: d.judge_backed ? "#f0fdf4" : "#fafafa" }}>
+                  {/* 헤더 */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                    <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: severityColor + "20", color: severityColor, fontWeight: 700, textTransform: "uppercase" as const }}>
+                      {d.severity}
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--text-sub)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
+                      {ctype}
+                    </span>
+                    {d.judge_backed && (
+                      <span style={{ fontSize: 10, color: "#10b981", fontWeight: 700 }}>⚖ Judge</span>
+                    )}
+                  </div>
+                  {/* Winner / Loser */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
+                    {d.winner_provider && (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, padding: "1px 7px", borderRadius: 10, background: pColor(d.winner_provider) + "18", color: pColor(d.winner_provider), fontWeight: 600 }}>
+                        ✓ {pLabel(d.winner_provider)}
+                      </span>
+                    )}
+                    {d.loser_provider && (
+                      <>
+                        <span style={{ fontSize: 10, color: "var(--text-soft)" }}>vs</span>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, padding: "1px 7px", borderRadius: 10, background: "rgba(0,0,0,0.05)", color: "var(--text-sub)", fontWeight: 500 }}>
+                          {pLabel(d.loser_provider)}
+                        </span>
+                      </>
+                    )}
+                    <span style={{ marginLeft: "auto", fontSize: 10, color: confidencePct >= 70 ? "#10b981" : "var(--text-sub)", fontWeight: 600 }}>
+                      {confidencePct}%
+                    </span>
+                  </div>
+                  {/* 판단 근거 */}
+                  {d.rationale && (
+                    <div style={{ fontSize: 10, color: "var(--text-soft)", lineHeight: 1.5 }}>
+                      {String(d.rationale).slice(0, 100)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </Section>
+        );
+      })()}
     </>
   );
 }
@@ -383,24 +434,38 @@ function PageTokens({ debugMeta }: { debugMeta: DebugMeta }) {
   const totalCost = executedProviders.reduce((sum: number, ep: any) => sum + Number(ep?.usage?.estimated_cost_usd ?? 0), 0);
   const totalTokens = executedProviders.reduce((sum: number, ep: any) => sum + Number(ep?.usage?.total_tokens ?? 0), 0);
 
+  // 누적 통계 (서버 /api/usage → accumulated)
+  const [accumulated, setAccumulated] = useState<Record<string, { total_tokens: number; estimated_cost_usd: number; runs: number; wins: number }>>({});
+  useEffect(() => {
+    fetch("http://localhost:8000/api/usage")
+      .then(r => r.json())
+      .then(data => { if (data?.accumulated) setAccumulated(data.accumulated) })
+      .catch(() => {});
+  }, [hasData]); // 응답 올 때마다 갱신
+
+  const accProviders = Object.keys(accumulated).filter(p => accumulated[p].runs > 0);
+  const accTotalTokens = accProviders.reduce((s, p) => s + accumulated[p].total_tokens, 0);
+  const accTotalCost = accProviders.reduce((s, p) => s + accumulated[p].estimated_cost_usd, 0);
+
   if (!hasData) {
     return <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-soft)", fontSize: 13 }}>대화를 시작하면 토큰 사용량이 표시됩니다</div>;
   }
 
   return (
     <>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
+      {/* 이번 응답 요약 */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
         <div style={{ padding: 12, borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface-1)" }}>
-          <div style={{ fontSize: 11, color: "var(--text-sub)", marginBottom: 4 }}>총 토큰</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-main)" }}>{totalTokens.toLocaleString()}</div>
+          <div style={{ fontSize: 10, color: "var(--text-sub)", marginBottom: 4 }}>이번 응답 토큰</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: "var(--text-main)" }}>{totalTokens.toLocaleString()}</div>
         </div>
         <div style={{ padding: 12, borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface-1)" }}>
-          <div style={{ fontSize: 11, color: "var(--text-sub)", marginBottom: 4 }}>예상 비용</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-main)" }}>${totalCost.toFixed(5)}</div>
+          <div style={{ fontSize: 10, color: "var(--text-sub)", marginBottom: 4 }}>이번 응답 비용</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: "var(--text-main)" }}>${totalCost.toFixed(5)}</div>
         </div>
       </div>
 
-      <Section title="Provider별 사용량">
+      <Section title="이번 응답 — Provider별">
         {executedProviders.map((ep: any, idx: number) => {
           const inputTokens = Number(ep?.usage?.input_tokens ?? 0);
           const outputTokens = Number(ep?.usage?.output_tokens ?? 0);
@@ -429,6 +494,55 @@ function PageTokens({ debugMeta }: { debugMeta: DebugMeta }) {
           );
         })}
       </Section>
+
+      {/* 누적 합계 */}
+      {accProviders.length > 0 && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, margin: "16px 0 12px" }}>
+            <div style={{ padding: 12, borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface-1)" }}>
+              <div style={{ fontSize: 10, color: "var(--text-sub)", marginBottom: 4 }}>전체 누적 토큰</div>
+              <div style={{ fontSize: 17, fontWeight: 700, color: "var(--text-main)" }}>{accTotalTokens.toLocaleString()}</div>
+            </div>
+            <div style={{ padding: 12, borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface-1)" }}>
+              <div style={{ fontSize: 10, color: "var(--text-sub)", marginBottom: 4 }}>전체 누적 비용</div>
+              <div style={{ fontSize: 17, fontWeight: 700, color: "var(--text-main)" }}>${accTotalCost.toFixed(4)}</div>
+            </div>
+          </div>
+
+          <Section title="전체 누적 — Provider별">
+            {accProviders.map(provider => {
+              const acc = accumulated[provider];
+              const billing = BILLING_LINKS[provider.toLowerCase()];
+              return (
+                <div key={provider} style={{ padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <ProviderBadge provider={provider} />
+                    {billing && (
+                      <a href={billing.url} target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: 11, color: pColor(provider), textDecoration: "none", fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: pColor(provider) + "15" }}>
+                        결제 →
+                      </a>
+                    )}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4 }}>
+                    {[
+                      ["총 토큰", acc.total_tokens.toLocaleString()],
+                      ["총 비용", `$${acc.estimated_cost_usd.toFixed(4)}`],
+                      ["실행", `${acc.runs}회`],
+                      ["승리", `${acc.wins}회`]
+                    ].map(([label, val]) => (
+                      <div key={label}>
+                        <div style={{ fontSize: 10, color: "var(--text-sub)", marginBottom: 2 }}>{label}</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)" }}>{val}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </Section>
+        </>
+      )}
     </>
   );
 }
@@ -516,33 +630,21 @@ function PagePreviews({ debugMeta }: { debugMeta: DebugMeta }) {
 
 export default function OrchestrationPanel({ debugMeta, artifactList = [] }: Props) {
   const [pageIndex, setPageIndex] = useState(0);
-  const winner = debugMeta.displayWinner?.provider ?? debugMeta.winnerProvider;
-  const task = debugMeta.routerTask ?? "";
-  const executionStrategy = debugMeta.executionStrategy ?? null;
-  const selectedProviders = debugMeta.selectedProviders ?? [];
-  const requestLatencyMs = debugMeta.requestLatencyMs ?? 0;
-  const hasData = Boolean(
-    winner ||
-    task ||
-    executionStrategy ||
-    selectedProviders.length > 0 ||
-    requestLatencyMs > 0
-  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "linear-gradient(135deg, #fefef9 0%, #fcfaf2 30%, #f9f5ea 55%, #fcfaf3 80%, #fefef9 100%)" }}>
       {/* 헤더 */}
       <div style={{ padding: "12px 16px 0", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)", display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-          <span>🎼</span> 오케스트레이션
+          <span>🎼</span> AI Orchestra
         </div>
         {/* 탭 */}
         <div style={{ display: "flex", alignItems: "center", gap: 1 }}>
           {PAGES.map((label, idx) => (
             <button key={idx} type="button" onClick={() => setPageIndex(idx)}
-              style={{ flexShrink: 0, padding: "5px 9px", border: "none", borderRadius: "6px 6px 0 0", background: "transparent", cursor: "pointer", fontSize: 11, fontWeight: pageIndex === idx ? 700 : 500, color: pageIndex === idx ? "var(--text-main)" : "var(--text-sub)", borderBottom: pageIndex === idx ? "2px solid var(--text-main)" : "2px solid transparent", marginBottom: -1, position: "relative" as const }}>
+              style={{ flexShrink: 0, padding: "5px 12px", border: "none", borderRadius: "6px 6px 0 0", background: "transparent", cursor: "pointer", fontSize: 12, fontWeight: pageIndex === idx ? 700 : 500, color: pageIndex === idx ? "var(--text-main)" : "var(--text-sub)", borderBottom: pageIndex === idx ? "2px solid var(--text-main)" : "2px solid transparent", marginBottom: -1, position: "relative" as const }}>
               {label}
-              {idx === 2 && artifactList.length > 0 && (
+              {idx === 1 && artifactList.length > 0 && (
                 <span style={{ marginLeft: 3, fontSize: 10, fontWeight: 700, padding: "1px 4px", borderRadius: 8, background: "#10a37f", color: "#fff" }}>{artifactList.length}</span>
               )}
             </button>
@@ -552,37 +654,9 @@ export default function OrchestrationPanel({ debugMeta, artifactList = [] }: Pro
 
       {/* 컨텐츠 */}
       <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
-        {!hasData && pageIndex === 0 ? (
-          <div style={{ textAlign: "center", padding: "40px 16px", color: "var(--text-soft)" }}>
-            <div style={{ fontSize: 28, marginBottom: 8 }}>🎼</div>
-            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>대기 중</div>
-            <div style={{ fontSize: 12 }}>메시지를 보내면<br />오케스트레이션 결과가 표시됩니다</div>
-          </div>
-        ) : pageIndex === 0 ? <PageOrchestration debugMeta={debugMeta} />
-        : pageIndex === 1 ? <PageTokens debugMeta={debugMeta} />
-        : pageIndex === 2 ? <PageCodeFiles artifactList={artifactList} />
-        : <PagePreviews debugMeta={debugMeta} />}
-      </div>
-
-      {/* 하단 화살표 */}
-      <div style={{ flexShrink: 0, borderTop: "1px solid var(--border)", padding: "8px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <button type="button" onClick={() => setPageIndex(i => Math.max(0, i - 1))} disabled={pageIndex === 0}
-          style={{ display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", cursor: pageIndex === 0 ? "not-allowed" : "pointer", color: pageIndex === 0 ? "var(--text-soft)" : "var(--text-sub)", fontSize: 12, padding: "4px 8px", borderRadius: 6 }}
-          onMouseEnter={e => { if (pageIndex > 0) (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.05)" }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "none" }}>
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6" /></svg>
-          이전
-        </button>
-
-        <span style={{ fontSize: 11, color: "var(--text-soft)", fontWeight: 600 }}>{pageIndex + 1} / {PAGES.length}</span>
-
-        <button type="button" onClick={() => setPageIndex(i => Math.min(PAGES.length - 1, i + 1))} disabled={pageIndex === PAGES.length - 1}
-          style={{ display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", cursor: pageIndex === PAGES.length - 1 ? "not-allowed" : "pointer", color: pageIndex === PAGES.length - 1 ? "var(--text-soft)" : "var(--text-sub)", fontSize: 12, padding: "4px 8px", borderRadius: 6 }}
-          onMouseEnter={e => { if (pageIndex < PAGES.length - 1) (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.05)" }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "none" }}>
-          다음
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6" /></svg>
-        </button>
+        {pageIndex === 0
+          ? <PageTokens debugMeta={debugMeta} />
+          : <PageCodeFiles artifactList={artifactList} />}
       </div>
     </div>
   );

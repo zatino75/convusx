@@ -1,5 +1,5 @@
 import type { DetectedConflict } from "./conflicts.js"
-import { getProviderRoutingScore } from "./scoreboard.js"
+import { getProviderRoutingScore, recordJudgeOutcome } from "./scoreboard.js"
 
 type JudgeCandidate = {
   provider: string
@@ -49,6 +49,10 @@ function estimateStructure(answer: string): number {
   if (/\n\s*\n/.test(text)) score += 0.10
   if (splitSentences(text).length >= 5) score += 0.10
   if (/#{1,3}\s+\S+/.test(text)) score += 0.08  // 헤더 구조
+  // 멀티섹션 보너스 — numbered/header 섹션 개수
+  const sectionMatches = text.match(/(?:^|\n)\s*(?:#{1,3}\s+\S|(?:\d+[\.\)]\s+|\*{1,2})[가-힣a-zA-Z])[^\n]{3,}/g) ?? []
+  if (sectionMatches.length >= 3) score += 0.10
+  if (sectionMatches.length >= 5) score += 0.10
   return Number(Math.min(1, score).toFixed(4))
 }
 
@@ -122,6 +126,9 @@ function scoreCandidate(
     coverageW = 0.26; structureW = 0.20; specificityW = 0.12
   } else if (normalizedTask === "long_doc") {
     coverageW = 0.24; structureW = 0.24; specificityW = 0.10
+  } else if (normalizedTask === "dialogue") {
+    // dialogue: 길이(coverage)보다 직접성·구체성이 핵심
+    coverageW = 0.10; structureW = 0.10; specificityW = 0.22
   }
 
   let score = 0.45
@@ -188,6 +195,12 @@ function scoreCandidate(
       score += 0.04; reasons.push("executable_code_bonus")
     }
     if (hasPathLike) { score += 0.03; reasons.push("path_specific_bonus") }
+    // rubric 명시 패널티: 코드 없이 설명만 있는 경우
+    if (!hasCodeFence) { score -= 0.10; reasons.push("no_code_fence_penalty") }
+    // TODO/placeholder 패널티 — 미완성 코드 감점
+    if (/(TODO|FIXME|placeholder|your.*here|여기에.*작성|수정.*필요)/i.test(candidate.answer_text)) {
+      score -= 0.06; reasons.push("placeholder_penalty")
+    }
   }
 
   if (normalizedTask === "research" || normalizedTask === "reasoning") {
@@ -196,26 +209,103 @@ function scoreCandidate(
     }
   }
 
+  if (normalizedTask === "research") {
+    // 출처 인용 보너스 — 리서치의 핵심: 사실 근거 명시
+    if (/(출처|참고|source|https?:\/\/|according to|에 따르면|\[\d+\])/i.test(candidate.answer_text)) {
+      score += 0.04; reasons.push("research_citation_bonus")
+    }
+    // 수치/데이터 포함 보너스
+    if (/\d+[\.,]?\d*\s*(?:%|억|만|원|개|건|배|달러|\$|명|회)/i.test(candidate.answer_text)) {
+      score += 0.03; reasons.push("research_data_bonus")
+    }
+  }
+
+  if (normalizedTask === "reasoning") {
+    // 단계별 논리 전개 보너스 — 1. 2. 3. 또는 첫째/둘째/셋째
+    if (/(?:^|\n)\s*(?:\d+[.)\s]|첫째|둘째|셋째|Step\s*\d)/im.test(candidate.answer_text)) {
+      score += 0.04; reasons.push("reasoning_step_bonus")
+    }
+    // 반론 인정 + 극복 패턴 보너스 (논리 완성도)
+    if (/(그러나|반면|하지만|이에 반해|물론.*하지만|비판|한계|단점)/i.test(candidate.answer_text)) {
+      score += 0.03; reasons.push("reasoning_counterpoint_bonus")
+    }
+  }
+
   if (normalizedTask === "writing") {
     const textLen = candidate.answer_text.trim().length
-    if (textLen >= 300) { score += 0.04; reasons.push("writing_length_bonus") }
-    if (/(서론|본론|결론|introduction|paragraph|문단)/i.test(candidate.answer_text)) {
-      score += 0.04; reasons.push("writing_structure_bonus")
+    const writingText = normalizeText(candidate.answer_text)
+    // 길이 보너스 — 3단계
+    if (textLen >= 600) { score += 0.04; reasons.push("writing_length_600_bonus") }
+    if (textLen >= 900) { score += 0.03; reasons.push("writing_length_900_bonus") }
+    // 섹션 구조 보너스
+    const writingSections = writingText.match(/(?:^|\n)\s*(?:#{1,3}\s+\S|(?:\d+[\.\)]\s+|\*{1,2})[가-힣a-zA-Z])[^\n]{3,}/g) ?? []
+    if (writingSections.length >= 3) { score += 0.05; reasons.push("writing_section3_bonus") }
+    if (writingSections.length >= 5) { score += 0.04; reasons.push("writing_section5_bonus") }
+    // 문서 구조 키워드
+    if (/(##\s|^#\s|\*\*[가-힣]{2,}\*\*)/m.test(writingText)) {
+      score += 0.03; reasons.push("writing_header_bonus")
     }
-    if (/(compelling|설득력|자연스럽|readable|engaging|간결)/i.test(candidate.answer_text)) {
+    // 완성도 — 서론/본론/결론 흐름
+    if (/(서론|배경|개요|overview|introduction)/i.test(writingText) &&
+        /(결론|권고|제안|마무리|conclusion|recommendation)/i.test(writingText)) {
+      score += 0.04; reasons.push("writing_completeness_bonus")
+    }
+    // 설득력/품질 키워드
+    if (/(설득력|자연스럽|compelling|engaging|차별화|핵심가치|브랜드|전략|포지셔닝)/i.test(writingText)) {
       score += 0.03; reasons.push("writing_quality_bonus")
     }
   }
 
-  if (normalizedTask === "long_doc") {
-    if (/(핵심|요약|결론|key point|summary|takeaway|실행 항목)/i.test(candidate.answer_text)) {
-      score += 0.05; reasons.push("long_doc_extraction_bonus")
-    }
-    if (/(리스크|의사결정|실행|action|decision|risk)/i.test(candidate.answer_text)) {
-      score += 0.04; reasons.push("long_doc_decision_bonus")
-    }
+  if (normalizedTask === "dialogue") {
     const textLen = candidate.answer_text.trim().length
-    if (textLen >= 400) { score += 0.03; reasons.push("long_doc_depth_bonus") }
+    // 직결·간결 보너스: 150~700자가 dialogue 최적 응답 범위
+    if (textLen >= 150 && textLen <= 700) { score += 0.05; reasons.push("dialogue_concise_bonus") }
+    // 과도하게 긴 답변 패널티: 1200자 초과 시 verbose 응답 감점
+    if (textLen > 1200) { score -= 0.06; reasons.push("dialogue_verbose_penalty") }
+    // 직접 진입 보너스: 인사말/전치사 없이 바로 핵심으로 시작
+    const opener = normalizeText(candidate.answer_text).slice(0, 120).toLowerCase()
+    const hasDirectOpener = !/(안녕하세요|반갑습니다|좋은 질문|흥미로운|도움이|물론이죠|네,\s*이에|알겠습니다|도와드리겠)/.test(opener)
+    if (hasDirectOpener) { score += 0.04; reasons.push("dialogue_direct_entry_bonus") }
+    // 실용 정보 보너스: 바로 쓸 수 있는 답변 패턴
+    const dialogueText = normalizeText(candidate.answer_text)
+    if (/(예를 들어|예시|구체적으로|방법은|방법:|예:|\bexample\b|\bfor instance\b)/i.test(dialogueText)) {
+      score += 0.03; reasons.push("dialogue_example_bonus")
+    }
+  }
+
+  if (normalizedTask === "long_doc") {
+    const longText = normalizeText(candidate.answer_text)
+    const textLen = candidate.answer_text.trim().length
+    // 길이 보너스 — 3단계
+    if (textLen >= 600) { score += 0.03; reasons.push("long_doc_depth_600_bonus") }
+    if (textLen >= 1000) { score += 0.03; reasons.push("long_doc_depth_1000_bonus") }
+    // 핵심 추출 보너스
+    if (/(핵심|요약|결론|key point|summary|takeaway|실행 항목|주요 발견)/i.test(longText)) {
+      score += 0.04; reasons.push("long_doc_extraction_bonus")
+    }
+    // 리스크 분석 보너스
+    if (/(리스크|위험|독소조항|불리한|risk|취약|문제점|주의사항)/i.test(longText)) {
+      score += 0.04; reasons.push("long_doc_risk_bonus")
+    }
+    // 실행 항목 보너스
+    if (/(즉시\s*실행|실행\s*방안|액션|action item|다음\s*단계|next step|권고안|개선안)/i.test(longText)) {
+      score += 0.04; reasons.push("long_doc_action_bonus")
+    }
+    // 시나리오 분석 보너스
+    if (/(낙관|비관|시나리오|최선|최악|기대|scenario|optimistic|pessimistic)/i.test(longText)) {
+      score += 0.03; reasons.push("long_doc_scenario_bonus")
+    }
+    // 데이터 근거 보너스
+    if (/\d+[\.,]?\d*\s*(?:%|억|만|천|원|개|건|배|위|점|명|회|달러|\$)/.test(longText)) {
+      score += 0.03; reasons.push("long_doc_data_evidence_bonus")
+    }
+    // 섹션 구조 보너스
+    const longSections = longText.match(/(?:^|\n)\s*(?:#{1,3}\s+\S|(?:\d+[\.\)]\s+|\*{1,2})[가-힣a-zA-Z])[^\n]{3,}/g) ?? []
+    if (longSections.length >= 3) { score += 0.04; reasons.push("long_doc_section3_bonus") }
+    // 의사결정 지원 키워드
+    if (/(의사결정|판단근거|선택|decision|전략방향|우선순위)/i.test(longText)) {
+      score += 0.03; reasons.push("long_doc_decision_bonus")
+    }
   }
 
   // 패널티
@@ -277,8 +367,27 @@ const TASK_RUBRIC: Record<string, string> = {
 
 감점 요소: "경우에 따라 다릅니다" 등 결론 회피, 반복적 내용`,
 
-  writing: "문체 자연스러움(25%), 구조와 흐름(20%), 창의성(20%), 독자 관점(20%), 완성도(15%)를 기준으로 평가.",
-  long_doc: "정보 밀도(25%), 구조화(25%), 핵심 추출(25%), 누락 여부(25%)를 기준으로 평가.",
+  writing: `
+평가 기준 (각 항목 0-10점):
+1. 완성도: 요청된 모든 섹션/항목이 빠짐없이 작성되었는가? 섹션 생략이나 "이하 생략" 표현이 없는가?
+2. 구조와 흐름: 서론-본론-결론 흐름이 명확하고 ## 헤더 또는 번호 체계로 섹션이 구분되는가?
+3. 내용 깊이: 표면적 나열을 넘어 전략적 인사이트, 차별화 포인트, 구체적 근거가 포함되는가?
+4. 설득력: 독자(투자자/파트너/고객) 관점에서 납득 가능한 논거와 언어로 작성되었는가?
+5. 실행 가능성: 즉시 활용 가능한 수준의 권고안, 다음 단계, 실행 방향이 포함되는가?
+
+가점 요소: 900자 이상, 5개 이상 섹션, 구체적 수치/데이터 포함
+감점 요소: 섹션 누락, "간략히 설명", "이하 생략" 등 약식 처리`,
+
+  long_doc: `
+평가 기준 (각 항목 0-10점):
+1. 핵심 추출: 원문에서 중요한 사실, 수치, 조항을 정확히 식별하고 요약했는가?
+2. 리스크 분석: 위험 요소, 독소조항, 불리한 조건을 명시적으로 지적했는가?
+3. 구조화: 섹션 번호/헤더로 체계적으로 정리되어 있고 정보 위계가 명확한가?
+4. 실행 권고: 즉시 실행 가능한 액션 아이템, 다음 단계, 협상 포인트가 포함되는가?
+5. 완결성: 요청된 분석 항목이 모두 다뤄졌고 결론/권고로 마무리되는가?
+
+가점 요소: 1000자 이상, 리스크+액션 동시 포함, 데이터 수치 인용, 시나리오 분석
+감점 요소: 원문 단순 재인용, 분석 없는 나열, 결론 부재`,
 
   legal_review: `
 평가 기준 (각 항목 0-10점):
@@ -498,6 +607,22 @@ export async function judge(params: {
   )
 
   const selected = candidates.find(c => c.provider === winner.provider) ?? candidates[0]
+
+  // Judge 결과 → bandit_score 자동 학습
+  if (task && selected.provider) {
+    const losers = candidates
+      .filter((c) => c.provider !== selected.provider)
+      .map((c) => c.provider)
+    try {
+      recordJudgeOutcome({
+        winner: selected.provider,
+        losers,
+        task,
+        judge_confidence: confidence,
+        source: "judge_auto"
+      })
+    } catch {}
+  }
 
   return {
     ...selected,

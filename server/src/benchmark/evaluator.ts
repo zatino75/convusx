@@ -29,6 +29,7 @@ type PairwisePreference = {
 
 type EvalOutput = {
   quality_score: number
+  text_quality_score: number   // orchestration 보너스 제외 — fair comparison 기준
   quality_reasons: string[]
   text_length: number
   detected_task: BenchmarkTaskType
@@ -696,9 +697,36 @@ export function evaluateBenchmarkResult(input: EvalInput): EvalOutput {
   const finalAnswer = input?.final_answer ?? {}
   const text = textOf(finalAnswer)
   const detectedTask = detectTaskType(input, text)
+  const signals = getSignals(text, finalAnswer)
+
+  // ── 1. text_quality_score: 오케스트레이션 구조 신호 제외, 순수 텍스트 품질만 평가
+  //    single vs orchestra fair comparison 기준
+  const textRubric = buildEmptyRubric()
+  const textReasons: string[] = []
+
+  if (detectedTask === "dialogue") {
+    scoreDialogue(text, textRubric, textReasons)
+  } else if (detectedTask === "reasoning") {
+    scoreReasoning(text, signals, textRubric, textReasons)
+  } else if (detectedTask === "research") {
+    scoreResearch(text, signals, textRubric, textReasons)
+  } else if (detectedTask === "writing") {
+    scoreWriting(text, signals, textRubric, textReasons)
+  } else if (detectedTask === "long_doc") {
+    scoreLongDoc(text, signals, textRubric, textReasons)
+  } else {
+    scoreCode(text, signals, textRubric, textReasons)
+  }
+
+  if (text.trim().length < 40) {
+    textRubric.penalty -= 2
+  }
+
+  const textQualityScore = totalScore(detectedTask, textRubric)
+
+  // ── 2. quality_score: orchestration 신호 포함한 전체 평가 (orchestra run 가치 측정용)
   const rubric = buildEmptyRubric()
   const reasons: string[] = []
-  const signals = getSignals(text, finalAnswer)
 
   scoreOrchestration(signals, rubric, reasons)
 
@@ -723,6 +751,7 @@ export function evaluateBenchmarkResult(input: EvalInput): EvalOutput {
 
   return {
     quality_score: totalScore(detectedTask, rubric),
+    text_quality_score: textQualityScore,
     quality_reasons: unique(reasons),
     text_length: text.length,
     detected_task: detectedTask,

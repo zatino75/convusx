@@ -1,5 +1,6 @@
 import { readRoutingScores, readScoreboard, readTaskRoutingScores } from "../orchestra/scoreboard.js"
 import { resolveAdaptiveRoute } from "../orchestra/adaptiveRouter.js"
+import { readModelScoreboard } from "../orchestra/modelScoreboard.js"
 
 function safeNumber(value: any, fallback = 0) {
   const n = Number(value)
@@ -67,6 +68,38 @@ function buildTaskRoutingSummary() {
   }, {})
 }
 
+// Provider별 누적 토큰/비용 집계 (모든 task 합산)
+function buildAccumulatedModelStats() {
+  const board = readModelScoreboard()
+  const result: Record<string, { total_tokens: number; estimated_cost_usd: number; runs: number; wins: number }> = {}
+
+  for (const [provider, taskMap] of Object.entries(board)) {
+    let totalTokens = 0
+    let totalCost = 0
+    let totalRuns = 0
+    let totalWins = 0
+
+    for (const [, modelMap] of Object.entries(taskMap as Record<string, any>)) {
+      for (const [, node] of Object.entries(modelMap as Record<string, any>)) {
+        const n = node as any
+        totalTokens += Number(n?.total_tokens ?? 0)
+        totalCost += Number(n?.estimated_cost_usd ?? 0)
+        totalRuns += Number(n?.runs ?? 0)
+        totalWins += Number(n?.wins ?? 0)
+      }
+    }
+
+    result[provider] = {
+      total_tokens: totalTokens,
+      estimated_cost_usd: totalCost,
+      runs: totalRuns,
+      wins: totalWins
+    }
+  }
+
+  return result
+}
+
 // Dynamic chooseRoles 결과를 태스크별로 계산 → 현재 실제 배정 상태 반환
 const ROUTE_TASKS = ["dialogue", "reasoning", "research", "code", "writing", "long_doc"] as const
 
@@ -90,7 +123,8 @@ export async function runUsageRoute(_req: any, res: any) {
   return res.json({
     ok: true,
     providers: buildProviderUsageSummary(),
-    task_routing_scores: buildTaskRoutingSummary()
+    task_routing_scores: buildTaskRoutingSummary(),
+    accumulated: buildAccumulatedModelStats()
   })
 }
 
