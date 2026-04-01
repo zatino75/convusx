@@ -86,9 +86,11 @@ const PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
 
 const TASK_PRIOR_WIN_RATE: Record<string, number> = {
   dialogue: 0.55,
-  reasoning: 0.6,
+  reasoning: 0.60,
   research: 0.58,
-  code: 0.57
+  code: 0.57,
+  writing: 0.60,
+  long_doc: 0.58
 }
 
 const CONFLICT_TYPE_WEIGHTS: Record<string, number> = {
