@@ -37,8 +37,8 @@ export async function runSlidesGenerateRoute(req: RouteRequest, res: RouteRespon
   const slideData = body?.slide_data ?? body
   console.log("[SLIDES] slideData title:", slideData?.title, "slides count:", slideData?.slides?.length)
 
-  console.error("[SLIDES] Invalid structure:", JSON.stringify(slideData).slice(0, 200))
   if (!slideData?.slides || !Array.isArray(slideData.slides)) {
+    console.error("[SLIDES] Invalid structure:", JSON.stringify(slideData).slice(0, 200))
     res.status?.(400).json?.({ ok: false, error: "slide_data.slides is required" })
     return
   }
