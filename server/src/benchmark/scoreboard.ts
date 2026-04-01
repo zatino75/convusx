@@ -83,8 +83,14 @@ function getTask(run: BenchmarkRunResult | undefined): string {
 
 function getWinnerProvider(run: BenchmarkRunResult | undefined): string | null {
   return (
+    run?.raw_result?.final_answer?.provider ??
+    run?.raw_result?.winner?.provider ??
     run?.raw_result?.final_answer?.winner_snapshot?.provider ??
     run?.raw_result?.winner_provider ??
+    // single_openai / single_claude 등 mode에서 provider 추출 (fallback)
+    (typeof run?.mode === "string" && run.mode.startsWith("single_")
+      ? run.mode.replace(/^single_/, "")
+      : null) ??
     null
   )
 }
@@ -479,32 +485,42 @@ export function buildBenchmarkComparison(
             : "scores are tied",
       winner_snapshot:
         benchmarkWinner === "orchestra"
-          ? orchestraRun?.raw_result?.final_answer?.winner_snapshot ?? null
-          : bestSingle?.raw_result?.final_answer?.winner_snapshot ?? null,
-      runner_up_snapshot:
-        benchmarkWinner === "orchestra"
-          ? orchestraRun?.raw_result?.final_answer?.runner_up_snapshot ?? null
-          : bestSingle?.raw_result?.final_answer?.runner_up_snapshot ?? null,
+          ? {
+              provider: getWinnerProvider(orchestraRun),
+              text: String(orchestraRun?.raw_result?.final_answer?.text ?? "").slice(0, 300)
+            }
+          : {
+              provider: getWinnerProvider(bestSingle),
+              text: String(bestSingle?.raw_result?.final_answer?.text ?? "").slice(0, 300)
+            },
+      runner_up_snapshot: (() => {
+        const runnerUpResult = orchestraRun?.raw_result?.raw?.find(
+          (r: any) => r.provider !== getWinnerProvider(orchestraRun) && r.ok && r.text
+        )
+        return runnerUpResult
+          ? { provider: runnerUpResult.provider, text: String(runnerUpResult.text ?? "").slice(0, 300) }
+          : null
+      })(),
       scoreboard_summary:
         benchmarkWinner === "orchestra"
-          ? orchestraRun?.raw_result?.final_answer?.scoreboard_summary ?? null
-          : bestSingle?.raw_result?.final_answer?.scoreboard_summary ?? null,
+          ? orchestraRun?.raw_result?.internal_rationale?.executed_providers ?? null
+          : null,
       provider_chain:
         benchmarkWinner === "orchestra"
-          ? orchestraRun?.raw_result?.final_answer?.provider_chain ?? orchestraRun?.raw_result?.provider_chain ?? []
-          : bestSingle?.raw_result?.final_answer?.provider_chain ?? bestSingle?.raw_result?.provider_chain ?? [],
+          ? (orchestraRun?.raw_result?.internal_rationale?.executed_providers ?? []).map((p: any) => p.provider).filter(Boolean)
+          : [getWinnerProvider(bestSingle)].filter(Boolean),
       orchestra_provider_chain:
-        orchestraRun?.raw_result?.final_answer?.provider_chain ?? orchestraRun?.raw_result?.provider_chain ?? [],
+        (orchestraRun?.raw_result?.internal_rationale?.executed_providers ?? []).map((p: any) => p.provider).filter(Boolean),
       best_single_provider_chain:
-        bestSingle?.raw_result?.final_answer?.provider_chain ?? bestSingle?.raw_result?.provider_chain ?? [],
+        [getWinnerProvider(bestSingle)].filter(Boolean),
       judge_trace:
         benchmarkWinner === "orchestra"
-          ? orchestraRun?.raw_result?.final_answer?.judge_trace ?? orchestraRun?.raw_result?.judge_trace ?? null
-          : bestSingle?.raw_result?.final_answer?.judge_trace ?? bestSingle?.raw_result?.judge_trace ?? null,
+          ? (orchestraRun?.raw_result?.internal_rationale?.judge ?? null)
+          : null,
       decision_rationale:
         benchmarkWinner === "orchestra"
-          ? orchestraRun?.raw_result?.final_answer?.decision_rationale ?? null
-          : bestSingle?.raw_result?.final_answer?.decision_rationale ?? null,
+          ? orchestraRun?.raw_result?.internal_rationale?.judge?.rationale ?? null
+          : null,
       single_evaluations: rankedSingles.map((run) => ({
         mode: run.mode,
         provider: getWinnerProvider(run),

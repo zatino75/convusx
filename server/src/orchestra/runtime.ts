@@ -1083,7 +1083,8 @@ export async function executeOrchestra(input: any, stream?: any) {
     benchmark_mode: Boolean(effectiveInput?.benchmark_mode || plannerSignals?.benchmark_mode),
     deep_analysis: Boolean(effectiveInput?.deep_analysis || plannerSignals?.deep_analysis),
     deep_research: Boolean(effectiveInput?.deep_research || plannerSignals?.deep_research),
-    force_pro: Boolean(effectiveInput?.force_pro || plannerSignals?.force_pro)
+    force_pro: Boolean(effectiveInput?.force_pro || plannerSignals?.force_pro),
+    structured_output: Boolean(effectiveInput?.structured_output || plannerSignals?.structured_output)
   })
 
   const selectedProviders = Array.isArray(route?.selected_providers) ? route.selected_providers : []

@@ -114,7 +114,9 @@ function buildDynamicMetrics(
       claims: 0,
       conflicts: (routingRow?.context_conflicts_recent ?? 0) + (routingRow?.provider_conflicts_recent ?? 0),
       decisions: 0,
-      fallback_rate: 0.1,
+      fallback_rate: routingRow?.recent_uses > 0
+        ? Math.max(0, 1 - (routingRow.recent_wins ?? 0) / routingRow.recent_uses)
+        : 0.1,
       runs: 0,
       cost_efficiency: 0.5,
       avg_cost_usd: 0,
@@ -156,7 +158,9 @@ function buildDynamicMetrics(
     claims: wavg("avg_claims", 0),
     conflicts: (routingRow?.context_conflicts_recent ?? 0) + (routingRow?.provider_conflicts_recent ?? 0),
     decisions: wavg("avg_decisions", 0),
-    fallback_rate: 0.1,
+    fallback_rate: routingRow?.recent_uses > 0
+      ? Math.max(0, 1 - (routingRow.recent_wins ?? 0) / routingRow.recent_uses)
+      : 0.1,
     runs: totalRuns,
     cost_efficiency: wavg("cost_efficiency", 0.5),
     avg_cost_usd: wavg("avg_cost_usd", 0),
@@ -270,7 +274,11 @@ function fallbackOrder(ranked: any[], excluded: string[], preferFast: boolean): 
 // 예외: research → perplexity 고정 primary (실시간 검색 전용)
 function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
   const allowOptional = Boolean(
-    params?.benchmark_mode || params?.deep_analysis || params?.deep_research || params?.force_pro
+    params?.benchmark_mode ||
+    params?.deep_analysis ||
+    params?.deep_research ||
+    params?.force_pro ||
+    params?.structured_output
   )
 
   if (task === "research") {

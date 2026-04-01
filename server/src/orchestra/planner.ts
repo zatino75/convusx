@@ -41,7 +41,21 @@ export function extractPlanningSignals(input: string): PlannerSignals {
     "심층분석",
     "깊게 분석",
     "정밀 분석",
-    "자세히 분석"
+    "자세히 분석",
+    "종합 분석",
+    "전체적으로 분석",
+    "다각도로",
+    "다방면으로",
+    "종합적으로",
+    "철저하게",
+    "상세히",
+    "자세하게",
+    "완전히 분석",
+    "분석해줘",
+    "분석해 줘",
+    "분석 부탁",
+    "치밀하게",
+    "면밀히"
   ])
 
   const deep_research = includesAny(text, [
@@ -50,7 +64,20 @@ export function extractPlanningSignals(input: string): PlannerSignals {
     "심층 리서치",
     "깊은 리서치",
     "정밀 리서치",
-    "깊게 조사"
+    "깊게 조사",
+    "철저히 조사",
+    "상세 조사",
+    "자세히 조사",
+    "종합적으로 조사",
+    "전반적으로 조사",
+    "리서치해줘",
+    "리서치 해줘",
+    "조사해줘",
+    "조사 부탁",
+    "최신 정보 조사",
+    "최신 동향",
+    "시장 조사",
+    "트렌드 조사"
   ])
 
   const force_pro = includesAny(text, [
