@@ -51,10 +51,17 @@ function stripMarkdown(text: string): string {
 
 function LogoIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <circle cx="12" cy="12" r="8.2" />
-      <path d="M12 6.5v11M6.5 12h11" />
-    </svg>
+    <img
+      src="/corvus-logo.png"
+      alt="CORVUS X"
+      width="26"
+      height="26"
+      style={{ objectFit: "contain", display: "block" }}
+      onError={(e) => {
+        // fallback: crow SVG if image not found
+        (e.currentTarget as HTMLImageElement).style.display = "none";
+      }}
+    />
   );
 }
 
@@ -865,7 +872,7 @@ export default function Sidebar({
               <span className="sidebar-logo__icon">
                 <LogoIcon />
               </span>
-              <span className="sidebar-logo__text">AI ORCHESTRA</span>
+              <span className="sidebar-logo__text">CORVUS X</span>
             </button>
           </div>
 

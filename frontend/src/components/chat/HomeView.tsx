@@ -352,6 +352,18 @@ function GeneralHome({
       }}
     >
       <div className="general-home__center">
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 18 }}>
+          <img
+            src="/corvus-logo.png"
+            alt="CORVUS X"
+            style={{ width: 52, height: 52, objectFit: "contain", marginBottom: 8, opacity: 0.85 }}
+            onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+          />
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "0.08em", color: "var(--text-main)" }}>CORVUS X</span>
+            <span style={{ fontSize: 11, color: "var(--text-sub)", letterSpacing: "0.18em", fontWeight: 500 }}>SEE · CHOOSE · GO</span>
+          </div>
+        </div>
         <h1 className="general-home__title">Mr.T 님, 어떻게 도와드릴까요?</h1>
         <HomeComposer
           placeholder="무엇이든 물어보세요"

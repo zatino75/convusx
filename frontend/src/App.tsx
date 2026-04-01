@@ -1062,13 +1062,13 @@ function ProjectCreateModal({
               }
             }}
             className="project-modal__input"
-            placeholder="예: AI ORCHESTRA UI 리디자인"
+            placeholder="예: CORVUS X 분석 리서치"
           />
         </div>
 
         <div className="project-modal__chips">
-          <button type="button" className="project-modal__chip" onClick={() => onChange("AI ORCHESTRA")}>
-            AI ORCHESTRA
+          <button type="button" className="project-modal__chip" onClick={() => onChange("CORVUS X")}>
+            CORVUS X
           </button>
           <button type="button" className="project-modal__chip" onClick={() => onChange("멀티 AI 리서치")}>
             멀티 AI 리서치
@@ -2165,7 +2165,7 @@ export default function App() {
                   ? "이미지"
                   : sidebarView === "benchmark"
                     ? "벤치마크"
-                    : workspace.activeProject?.title ?? "AI Orchestra"
+                    : workspace.activeProject?.title ?? "CORVUS X"
             }
             threadTitle={workspace.activeThread?.title ?? undefined}
             projectMemoryEnabled={Boolean(workspace.activeProject?.meta?.memoryEnabled)}

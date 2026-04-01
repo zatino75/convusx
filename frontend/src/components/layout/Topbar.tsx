@@ -98,7 +98,7 @@ export default function Topbar({
         {!isProject && !isThread && (
           <>
             <span style={sepStyle}><ChevronIcon /></span>
-            <span style={crumbActiveStyle}>AI Orchestra</span>
+            <span style={crumbActiveStyle}>CORVUS X</span>
           </>
         )}
       </div>

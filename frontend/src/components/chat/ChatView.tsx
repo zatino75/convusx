@@ -1168,7 +1168,7 @@ export default function ChatView({
               />
             </div>
 
-            <div className="chat-footer-note">AI Orchestra는 실수를 할 수 있습니다. 중요한 정보는 확인하십시오.</div>
+            <div className="chat-footer-note">CORVUS X는 실수를 할 수 있습니다. 중요한 정보는 확인하십시오.</div>
           </div>
         </div>
       </div>
@@ -1277,7 +1277,7 @@ export default function ChatView({
             onAttachFile={onAttachFile}
           />
 
-          <div className="chat-footer-note">AI Orchestra는 실수를 할 수 있습니다. 중요한 정보는 확인하십시오.</div>
+          <div className="chat-footer-note">CORVUS X는 실수를 할 수 있습니다. 중요한 정보는 확인하십시오.</div>
         </div>
       </div>
     </div>
