@@ -1,4 +1,4 @@
-﻿import fs from "node:fs"
+import fs from "node:fs"
 import path from "node:path"
 
 type ThreadMessage = {
@@ -94,24 +94,52 @@ function loadStore(): ThreadStoreType {
   }
 }
 
-function tokenize(text: string): Set<string> {
-  return new Set(
-    normalizeText(text)
-      .toLowerCase()
-      .split(/[\s\.,!?;:()\[\]{}"']+/)
-      .map((t) => t.replace(/[^a-z0-9가-힣]/g, ""))
-      .filter((t) => t.length >= 2)
-  )
+// 한국어 문자 바이그램 — 형태소 없이 변형어 매칭 (분석해줘 ≈ 분석)
+function koreanCharBigrams(text: string): string[] {
+  const korean = text.replace(/[^가-힣]/g, "")
+  const bigrams: string[] = []
+  for (let i = 0; i < korean.length - 1; i++) {
+    bigrams.push(korean.slice(i, i + 2))
+  }
+  return bigrams
 }
 
-function jaccardScore(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 || b.size === 0) return 0
+// 단어 토큰 + 한국어 문자 바이그램 혼합
+function tokenize(text: string): Set<string> {
+  const normalized = normalizeText(text).toLowerCase()
+
+  const wordTokens = normalized
+    .split(/[\s\.,!?;:()\[\]{}"'\/]+/)
+    .map((t) => t.replace(/[^a-z0-9가-힣]/g, ""))
+    .filter((t) => t.length >= 2)
+
+  const bigrams = koreanCharBigrams(normalized)
+
+  return new Set([...wordTokens, ...bigrams])
+}
+
+// Overlap Coefficient: intersection / min(|A|, |B|)
+// Jaccard보다 쿼리-문서 비대칭에 강건 (짧은 쿼리 → 높은 재현율)
+function overlapScore(query: Set<string>, doc: Set<string>): number {
+  if (query.size === 0 || doc.size === 0) return 0
   let intersection = 0
-  for (const token of a) {
-    if (b.has(token)) intersection++
+  for (const token of query) {
+    if (doc.has(token)) intersection++
   }
-  const union = a.size + b.size - intersection
-  return union === 0 ? 0 : intersection / union
+  const minSize = Math.min(query.size, doc.size)
+  return minSize === 0 ? 0 : intersection / minSize
+}
+
+// TF 보정: 쿼리 토큰이 문서에 여러 번 등장할수록 가중치
+function tfBonus(queryTokens: Set<string>, text: string): number {
+  const words = text.toLowerCase().split(/\s+/)
+  const k1 = 1.2
+  let score = 0
+  for (const token of queryTokens) {
+    const tf = words.filter((w) => w.includes(token)).length
+    if (tf > 0) score += (tf * (k1 + 1)) / (tf + k1)
+  }
+  return (score / (queryTokens.size || 1)) * 0.15
 }
 
 export function findSimilarQuery(
@@ -119,7 +147,7 @@ export function findSimilarQuery(
   projectId: string,
   options?: { threshold?: number; limit?: number }
 ): SimilarQueryResult[] {
-  const threshold = options?.threshold ?? 0.25
+  const threshold = options?.threshold ?? 0.18
   const limit = options?.limit ?? 5
 
   const queryTokens = tokenize(query)
@@ -129,27 +157,38 @@ export function findSimilarQuery(
     (entry) => entry.project_id === projectId
   )
 
-  const results: SimilarQueryResult[] = []
-  const seen = new Set<string>()
+  // 스레드별 최고점 결과만 유지 (중복 제거)
+  const bestPerThread = new Map<string, SimilarQueryResult>()
 
   for (const entry of projectEntries) {
     const userMessages = entry.messages.filter((m) => m.role === "user")
     const assistantMessages = entry.messages.filter((m) => m.role === "assistant")
 
-    // 스레드 제목도 매칭 대상에 포함
-    const titleTokens = entry.title ? tokenize(entry.title) : new Set<string>()
-    const titleScore = titleTokens.size > 0 ? jaccardScore(queryTokens, titleTokens) * 0.7 : 0
+    // 스레드 제목 (가중치 1.5)
+    const titleScore = entry.title
+      ? overlapScore(queryTokens, tokenize(entry.title)) * 1.5
+      : 0
+
+    // structured summary (가중치 0.6)
+    const summaryScore = entry.structured?.summary
+      ? overlapScore(queryTokens, tokenize(entry.structured.summary)) * 0.6
+      : 0
+
+    // entities + decisions 복합 매칭 (가중치 0.8)
+    const structuredText = [
+      ...(entry.structured?.entities ?? []),
+      ...(entry.structured?.decisions ?? [])
+    ].join(" ")
+    const structuredScore = structuredText
+      ? overlapScore(queryTokens, tokenize(structuredText)) * 0.8
+      : 0
 
     for (let i = 0; i < userMessages.length; i++) {
       const userMsg = userMessages[i]
-      const msgScore = jaccardScore(queryTokens, tokenize(userMsg.content))
-      
-      // structured summary도 점수에 반영
-      const summaryScore = entry.structured?.summary
-        ? jaccardScore(queryTokens, tokenize(entry.structured.summary)) * 0.5
-        : 0
+      const msgScore = overlapScore(queryTokens, tokenize(userMsg.content))
+      const tf = tfBonus(queryTokens, userMsg.content)
 
-      const score = Math.max(msgScore, titleScore, summaryScore)
+      const score = Math.max(msgScore + tf, titleScore, summaryScore, structuredScore)
 
       if (score < threshold) continue
 
@@ -160,23 +199,21 @@ export function findSimilarQuery(
 
       if (!matchedAnswer) continue
 
-      // 같은 스레드에서 중복 제거 (가장 높은 점수만)
-      const key = `${entry.thread_id}:${i}`
-      if (seen.has(key)) continue
-      seen.add(key)
-
-      results.push({
-        thread_id: entry.thread_id,
-        score,
-        matched_query: userMsg.content,
-        matched_answer: matchedAnswer,
-        winner_provider: null,
-        updated_at: Number(entry.structured?.updated_at ?? 0)
-      })
+      const current = bestPerThread.get(entry.thread_id)
+      if (!current || score > current.score) {
+        bestPerThread.set(entry.thread_id, {
+          thread_id: entry.thread_id,
+          score,
+          matched_query: userMsg.content,
+          matched_answer: matchedAnswer,
+          winner_provider: null,
+          updated_at: Number(entry.structured?.updated_at ?? 0)
+        })
+      }
     }
   }
 
-  return results
+  return Array.from(bestPerThread.values())
     .sort((a, b) => b.score - a.score || b.updated_at - a.updated_at)
     .slice(0, limit)
 }

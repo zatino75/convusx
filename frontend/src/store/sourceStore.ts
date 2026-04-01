@@ -173,6 +173,20 @@ export async function persistAsset(projectId: string, asset: SourceAsset): Promi
   upsertLocalAsset(normalized);
 }
 
+export async function deleteAssetFromServer(projectId: string, assetId: string): Promise<void> {
+  const url = new URL(`/api/project-sources/${assetId}`, API_BASE);
+  url.searchParams.set("projectId", projectId);
+  await fetch(url.toString(), { method: "DELETE" }).catch(() => {});
+}
+
+export async function patchAssetOnServer(projectId: string, assetId: string, patch: Partial<SourceAsset>): Promise<void> {
+  await fetch(`${API_BASE}/api/project-sources/${assetId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectId, ...patch })
+  }).catch(() => {});
+}
+
 export async function refreshProjectAssets(projectId: string): Promise<SourceAsset[]> {
   return fetchProjectAssets(projectId);
 }

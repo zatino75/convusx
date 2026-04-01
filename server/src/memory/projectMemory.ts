@@ -219,15 +219,22 @@ export function getProjectMemory(projectId: string) {
 export function addProjectSourceAsset(projectId: string, asset: ProjectSourceAsset) {
   const state = ensureProjectState(projectId)
 
-  state.source_assets.push({
+  const normalized = {
     ...asset,
     status: asset?.status ?? "draft",
     created_at: Number(asset?.created_at ?? Date.now()),
     updated_at: Number(asset?.updated_at ?? Date.now())
-  })
+  }
 
-  if (state.source_assets.length > 300) {
-    state.source_assets.shift()
+  // upsert: 동일 id가 있으면 교체 (push → 중복 방지)
+  const existingIdx = state.source_assets.findIndex((item) => item.id === normalized.id)
+  if (existingIdx !== -1) {
+    state.source_assets[existingIdx] = { ...state.source_assets[existingIdx], ...normalized, updated_at: Date.now() }
+  } else {
+    state.source_assets.push(normalized)
+    if (state.source_assets.length > 300) {
+      state.source_assets.shift()
+    }
   }
 
   saveStore()
@@ -268,23 +275,44 @@ export function getConfirmedProjectSourceAssets(projectId: string) {
 
 // ------- query-aware source asset retrieval -------
 
-function tokenizeSource(text: string): Set<string> {
-  return new Set(
-    String(text ?? "").toLowerCase()
-      .split(/[\s\.,!?;:()\[\]{}"'가-힣]+/)
-      .map((t) => t.replace(/[^a-z0-9가-힣]/g, ""))
-      .filter((t) => t.length >= 2)
-  )
+// 한국어 문자 바이그램 — 형태소 없이 한국어 매칭
+function koreanBigrams(text: string): string[] {
+  const korean = text.replace(/[^가-힣]/g, "")
+  const bigrams: string[] = []
+  for (let i = 0; i < korean.length - 1; i++) {
+    bigrams.push(korean.slice(i, i + 2))
+  }
+  return bigrams
 }
 
-function jaccardSourceScore(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 || b.size === 0) return 0
+// 수정: 가-힣을 구분자에서 제거, 한국어 바이그램 추가
+function tokenizeSource(text: string): Set<string> {
+  const normalized = String(text ?? "").toLowerCase()
+  const wordTokens = normalized
+    .split(/[\s\.,!?;:()\[\]{}"'\/\\]+/)
+    .map((t) => t.replace(/[^a-z0-9가-힣\-]/g, ""))
+    .filter((t) => t.length >= 2)
+  const bigrams = koreanBigrams(normalized)
+  return new Set([...wordTokens, ...bigrams])
+}
+
+// Overlap Coefficient: 짧은 쿼리-긴 문서 매칭에 강건
+function overlapSourceScore(query: Set<string>, doc: Set<string>): number {
+  if (query.size === 0 || doc.size === 0) return 0
   let intersection = 0
-  for (const token of a) {
-    if (b.has(token)) intersection++
+  for (const token of query) {
+    if (doc.has(token)) intersection++
   }
-  const union = a.size + b.size - intersection
-  return union === 0 ? 0 : intersection / union
+  return intersection / Math.min(query.size, doc.size)
+}
+
+// 긴 소스: 앞 1000자 + 뒤 500자 혼합 스코어링 (중간 내용 손실 완화)
+function scoreSourceContent(queryTokens: Set<string>, content: string): number {
+  const head = content.slice(0, 1000)
+  const tail = content.length > 1000 ? content.slice(-500) : ""
+  const headScore = overlapSourceScore(queryTokens, tokenizeSource(head))
+  const tailScore = tail ? overlapSourceScore(queryTokens, tokenizeSource(tail)) * 0.7 : 0
+  return Math.max(headScore, tailScore)
 }
 
 export function findRelevantSourceAssets(
@@ -292,7 +320,7 @@ export function findRelevantSourceAssets(
   query: string,
   options?: { threshold?: number; limit?: number; includeAll?: boolean }
 ) {
-  const threshold = options?.threshold ?? 0.06
+  const threshold = options?.threshold ?? 0.12
   const limit = options?.limit ?? 6
   const includeAll = options?.includeAll ?? false
 
@@ -308,11 +336,10 @@ export function findRelevantSourceAssets(
     : getConfirmedProjectSourceAssets(projectId)
 
   const scored = assets.map((asset) => {
-    const titleTokens = tokenizeSource(asset.title ?? "")
-    const contentTokens = tokenizeSource((asset.content ?? "").slice(0, 2000))
-    // 제목은 1.5배 가중치 (짧지만 핵심 키워드 포함)
-    const titleScore = jaccardSourceScore(queryTokens, titleTokens) * 1.5
-    const contentScore = jaccardSourceScore(queryTokens, contentTokens)
+    // 제목: 가중치 1.8 (핵심 키워드 집약)
+    const titleScore = overlapSourceScore(queryTokens, tokenizeSource(asset.title ?? "")) * 1.8
+    // 내용: 앞+뒤 혼합 스코어링
+    const contentScore = scoreSourceContent(queryTokens, asset.content ?? "")
     return { asset, score: Math.max(titleScore, contentScore) }
   })
 
@@ -336,30 +363,57 @@ export function getLatestProjectContext(projectId: string, query?: string) {
   const entries = [...state.entries].sort((a, b) => Number(b?.timestamp ?? 0) - Number(a?.timestamp ?? 0))
   const latest = entries.length > 0 ? entries[0] : null
 
-  const summaries = uniqueStrings(
-    entries
-      .map((entry) => normalizeText(entry?.summary))
-      .filter(Boolean)
-  ).slice(0, 5)
+  const hasQuery = query && query.trim().length >= 10
+  const queryTokens = hasQuery ? tokenizeSource(query!) : null
+
+  // query 있을 때: 관련도 높은 entry의 summary 우선, 없으면 최신 순
+  const summaries = hasQuery && queryTokens
+    ? uniqueStrings(
+        entries
+          .map((entry) => {
+            const text = normalizeText(entry?.summary)
+            if (!text) return null
+            const score = overlapSourceScore(queryTokens!, tokenizeSource(text))
+            return { text, score }
+          })
+          .filter(Boolean)
+          .sort((a, b) => (b as any).score - (a as any).score)
+          .map((item) => (item as any).text)
+      ).slice(0, 4)
+    : uniqueStrings(
+        entries.map((entry) => normalizeText(entry?.summary)).filter(Boolean)
+      ).slice(0, 4)
+
+  // decisions/facts: 최신 20개 entry에서 집계 (너무 오래된 것 제외)
+  const recentEntries = entries.slice(0, 20)
 
   const decisions = uniqueStrings(
-    entries.flatMap((entry) => Array.isArray(entry?.decisions) ? entry.decisions : [])
+    recentEntries.flatMap((entry) => Array.isArray(entry?.decisions) ? entry.decisions : [])
   ).slice(0, 8)
 
   const facts = uniqueStrings(
-    entries.flatMap((entry) => Array.isArray(entry?.facts) ? entry.facts : [])
-  ).slice(0, 12)
+    recentEntries.flatMap((entry) => Array.isArray(entry?.facts) ? entry.facts : [])
+  ).slice(0, 10)
 
   // query가 있으면 관련성 높은 소스만, 없으면 confirmed 전체
-  const relevantAssets = query && query.trim().length >= 10
-    ? findRelevantSourceAssets(projectId, query)
+  const relevantAssets = hasQuery
+    ? findRelevantSourceAssets(projectId, query!)
     : getConfirmedProjectSourceAssets(projectId)
 
+  // 소스 내용: 각 asset에서 핵심 부분만 추출 (1200자 캡)
   const sources = uniqueStrings(
     relevantAssets
-      .map((asset) => normalizeText(asset?.content))
-      .filter(Boolean)
-  ).slice(0, 8)
+      .map((asset) => {
+        const content = normalizeText(asset?.content)
+        if (!content) return null
+        // 긴 소스: 앞 800자 + 뒤 400자 합산 (중간 손실 완화)
+        if (content.length > 1200) {
+          return content.slice(0, 800).trim() + "\n…\n" + content.slice(-400).trim()
+        }
+        return content
+      })
+      .filter(Boolean) as string[]
+  ).slice(0, 6)
 
   return {
     project_id: projectId,

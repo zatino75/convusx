@@ -6,6 +6,8 @@ import {
   removeAsset,
   updateAsset,
   getAssetsByProject,
+  deleteAssetFromServer,
+  patchAssetOnServer,
   type SourceAsset
 } from "../../store/sourceStore";
 import ProjectThreadList from "./ProjectThreadList";
@@ -238,14 +240,13 @@ function SourcesTab({ project }: { project: ProjectGroup }) {
   async function handleDelete(id: string) {
     removeAsset(id);
     setAssets(prev => prev.filter(a => a.id !== id));
-    try { await fetch(`http://localhost:8000/api/project-sources/${id}`, { method: "DELETE" }); } catch {}
+    await deleteAssetFromServer(project.id, id);
   }
 
   async function handleToggleConfirmed(id: string, status: "draft" | "confirmed") {
     updateAsset(id, { status });
     setAssets(prev => prev.map(a => a.id === id ? { ...a, status } : a));
-    const asset = assets.find(a => a.id === id);
-    if (asset) { try { await persistAsset(project.id, { ...asset, status }); } catch {} }
+    await patchAssetOnServer(project.id, id, { status });
   }
 
   const confirmed = assets.filter(a => a.status === "confirmed");

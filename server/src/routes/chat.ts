@@ -284,7 +284,13 @@ function buildStructuredMemory(result: any) {
       .slice(0, 20)
   )
 
-  return { summary: finalAnswerText, decisions, facts, open_questions: openQuestions, entities }
+  // summary: 첫 3문장 또는 400자 이내 (전체 저장 시 retrieval 노이즈 증가 방지)
+  const summarySentences = sentences.slice(0, 3).join(" ").trim()
+  const summaryText = summarySentences.length > 0
+    ? (summarySentences.length > 400 ? summarySentences.slice(0, 400).trim() + "…" : summarySentences)
+    : finalAnswerText.slice(0, 400).trim()
+
+  return { summary: summaryText, decisions, facts, open_questions: openQuestions, entities }
 }
 
 function buildThreadMessages(input: any, result: any) {

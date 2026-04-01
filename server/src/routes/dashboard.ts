@@ -1,5 +1,6 @@
 import fs from "fs"
 import { readRoutingScores, readScoreboard, readTaskRoutingScores } from "../orchestra/scoreboard.js"
+import { readModelScoreboard } from "../orchestra/modelScoreboard.js"
 
 const BENCH_PATH = "server/data/benchmark.jsonl"
 
@@ -170,6 +171,7 @@ export async function runDashboardRoute(_req: any, res: any) {
     scoreboard: readScoreboard(),
     bandit: buildBanditBoard(),
     task_bandit: buildTaskBanditBoard(),
+    model_scoreboard: readModelScoreboard(),
     recent: buildRecentRecords(records)
   })
 }

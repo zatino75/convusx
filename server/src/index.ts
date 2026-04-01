@@ -19,7 +19,9 @@ import {
   getProjectMemory,
   getLatestProjectContext,
   getProjectSourceAssets,
-  addProjectSourceAsset
+  addProjectSourceAsset,
+  updateProjectSourceAsset,
+  removeProjectSourceAsset
 } from "./memory/projectMemory.js"
 import {
   getThreadMemory,
@@ -33,7 +35,7 @@ function setJson(res: ServerResponse, statusCode: number) {
   res.setHeader("Content-Type", "application/json; charset=utf-8")
   res.setHeader("Access-Control-Allow-Origin", "*")
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization")
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 }
 
 function endJson(res: ServerResponse, statusCode: number, body: unknown) {
@@ -97,7 +99,7 @@ async function handlePostRoute(req: IncomingMessage, res: ServerResponse, handle
 const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
   res.setHeader("Access-Control-Allow-Origin", "*")
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization")
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 
   const method = String(req.method ?? "GET").toUpperCase()
   const path = normalizePath(req.url)
@@ -258,6 +260,38 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         return
       }
       addProjectSourceAsset(projectId, asset)
+      endJson(res, 200, { ok: true })
+      return
+    }
+
+    // PATCH /api/project-sources/:id — status 변경 (confirmed ↔ draft) 또는 내용 업데이트
+    if (method === "PATCH" && path.startsWith("/api/project-sources/")) {
+      const assetId = path.replace("/api/project-sources/", "").split("?")[0]
+      const body = await readJsonBody(req)
+      const projectId = String(body?.projectId ?? "")
+      if (!assetId || !projectId) {
+        endJson(res, 400, { ok: false, error: "invalid_input" })
+        return
+      }
+      const patch: Record<string, any> = {}
+      if (body?.status !== undefined) patch.status = String(body.status)
+      if (body?.title !== undefined) patch.title = String(body.title)
+      if (body?.content !== undefined) patch.content = String(body.content)
+      updateProjectSourceAsset(projectId, assetId, patch)
+      endJson(res, 200, { ok: true })
+      return
+    }
+
+    // DELETE /api/project-sources/:id — 소스 삭제 (서버 영구 반영)
+    if (method === "DELETE" && path.startsWith("/api/project-sources/")) {
+      const assetId = path.replace("/api/project-sources/", "").split("?")[0]
+      const url2 = new URL(req.url ?? "/", "http://localhost:8000")
+      const projectId = url2.searchParams.get("projectId") ?? ""
+      if (!assetId || !projectId) {
+        endJson(res, 400, { ok: false, error: "invalid_input" })
+        return
+      }
+      removeProjectSourceAsset(projectId, assetId)
       endJson(res, 200, { ok: true })
       return
     }

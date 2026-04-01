@@ -60,22 +60,40 @@ function extractInboundMessage(input: any) {
   return ""
 }
 
+// 문장 경계에서 트런케이션 (하드 잘라내기 방지)
+function smartTruncate(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text
+  const cut = text.slice(0, maxChars)
+  const lastBreak = Math.max(
+    cut.lastIndexOf(". "),
+    cut.lastIndexOf(".\n"),
+    cut.lastIndexOf("다. "),
+    cut.lastIndexOf("다.\n"),
+    cut.lastIndexOf("\n\n")
+  )
+  return lastBreak > maxChars * 0.5
+    ? cut.slice(0, lastBreak + 1).trim() + "…"
+    : cut.trim() + "…"
+}
+
 function buildThreadFusionBlock(
   projectId: string,
   currentThreadId: string,
   query: string
-): string {
-  if (!projectId || !query || query.length < 10) return ""
+): { block: string; matchedCount: number } {
+  if (!projectId || !query || query.length < 10) return { block: "", matchedCount: 0 }
+
+  const FUSION_TOTAL_CAP = 1400 // 전체 fusion block 최대 문자 수
 
   // 같은 프로젝트의 다른 스레드 전체 로드
   const allThreads = getProjectThreadMemories(projectId)
     .filter((t) => t.thread_id !== currentThreadId)
 
-  if (allThreads.length === 0) return ""
+  if (allThreads.length === 0) return { block: "", matchedCount: 0 }
 
-  // 1. 유사 쿼리 검색 (threshold 낮춰서 더 많이 잡기)
+  // 1. 유사 쿼리 검색 (BM25-lite + 한국어 바이그램 scoring)
   const similarResults = findSimilarQuery(query, projectId, {
-    threshold: 0.20,
+    threshold: 0.18,
     limit: 5
   })
 
@@ -100,65 +118,67 @@ function buildThreadFusionBlock(
     return queryEntities.filter((e) => threadText.includes(e)).length >= 2
   }).slice(0, 2)
 
-  // 3. 최신 스레드 structured memory (항상 주입 — 유사도 무관)
-  const recentThreads = allThreads.slice(0, 5)
+  // 3. 최신 스레드 decisions/facts — 유사 쿼리가 있을 때만 주입 (노이즈 방지)
+  const hasRelevance = relevantThreads.length > 0 || entityMatchThreads.length > 0
+  const recentThreads = hasRelevance ? allThreads.slice(0, 3) : []
 
   const threadDecisions: string[] = []
   const threadFacts: string[] = []
-  const threadEntities: string[] = []
 
   for (const thread of recentThreads) {
-    threadDecisions.push(...(thread.structured?.decisions ?? []).slice(0, 3))
-    threadFacts.push(...(thread.structured?.facts ?? []).slice(0, 3))
-    threadEntities.push(...(thread.structured?.entities ?? []).slice(0, 5))
+    threadDecisions.push(...(thread.structured?.decisions ?? []).slice(0, 2))
+    threadFacts.push(...(thread.structured?.facts ?? []).slice(0, 2))
   }
 
-  const uniqueDecisions = [...new Set(threadDecisions)].slice(0, 6)
-  const uniqueFacts = [...new Set(threadFacts)].slice(0, 6)
+  const uniqueDecisions = [...new Set(threadDecisions)].slice(0, 4)
+  const uniqueFacts = [...new Set(threadFacts)].slice(0, 4)
 
-  // 아무것도 없으면 빈 문자열
-  const hasContent =
-    relevantThreads.length > 0 ||
-    entityMatchThreads.length > 0 ||
-    uniqueDecisions.length > 0 ||
-    uniqueFacts.length > 0
+  if (!hasRelevance && uniqueDecisions.length === 0 && uniqueFacts.length === 0) return { block: "", matchedCount: 0 }
 
-  if (!hasContent) return ""
-
+  const matchedCount = relevantThreads.length + entityMatchThreads.length
   const lines: string[] = ["[THREAD MEMORY]", ""]
+  let charBudget = FUSION_TOTAL_CAP
 
-  // 유사 쿼리 매칭 결과
+  // 유사 쿼리 매칭 결과 (스레드당 400자 캡)
   for (const result of relevantThreads.slice(0, 3)) {
+    if (charBudget <= 0) break
     const title = allThreads.find((t) => t.thread_id === result.thread_id)?.title
-    lines.push(`[관련 스레드${title ? ` — ${title}` : ""}]`)
-    lines.push(result.matched_answer.slice(0, 500))
+    const header = `[관련 스레드${title ? ` — ${title}` : ""}]`
+    const body = smartTruncate(result.matched_answer, Math.min(400, charBudget))
+    lines.push(header)
+    lines.push(body)
     lines.push("")
+    charBudget -= header.length + body.length
   }
 
-  // 엔티티 매칭 스레드
+  // 엔티티 매칭 스레드 (300자 캡)
   for (const thread of entityMatchThreads) {
-    const summary = thread.structured?.summary?.slice(0, 300) ?? ""
-    if (summary) {
-      lines.push(`[관련 스레드${thread.title ? ` — ${thread.title}` : ""}]`)
-      lines.push(summary)
-      lines.push("")
-    }
+    if (charBudget <= 0) break
+    const summary = thread.structured?.summary ?? ""
+    if (!summary) continue
+    const header = `[관련 스레드${thread.title ? ` — ${thread.title}` : ""}]`
+    const body = smartTruncate(summary, Math.min(300, charBudget))
+    lines.push(header)
+    lines.push(body)
+    lines.push("")
+    charBudget -= header.length + body.length
   }
 
-  // 프로젝트 전체 결정사항/사실 (항상 주입)
-  if (uniqueDecisions.length > 0) {
+  // 프로젝트 결정사항/사실 (유사 쿼리 있을 때만)
+  if (charBudget > 100 && uniqueDecisions.length > 0) {
     lines.push("[프로젝트 주요 결정사항]")
     lines.push(...uniqueDecisions)
     lines.push("")
+    charBudget -= uniqueDecisions.join("\n").length
   }
 
-  if (uniqueFacts.length > 0) {
+  if (charBudget > 100 && uniqueFacts.length > 0) {
     lines.push("[프로젝트 핵심 사실]")
     lines.push(...uniqueFacts)
     lines.push("")
   }
 
-  return lines.join("\n").trim()
+  return { block: lines.join("\n").trim(), matchedCount }
 }
 
 function buildProjectContextBlock(projectContext: any) {
@@ -250,7 +270,7 @@ function buildInputWithRetrievalContext(input: any, rawInboundMessage: string) {
 
   // Thread fusion: 같은 프로젝트의 다른 스레드 자동 검색/주입
   const currentThreadId = String(input?.thread_id ?? "").trim()
-  const threadFusionBlock = buildThreadFusionBlock(projectId, currentThreadId, rawText)
+  const { block: threadFusionBlock, matchedCount: fusionMatchedCount } = buildThreadFusionBlock(projectId, currentThreadId, rawText)
 
   const fullContextBlock = threadFusionBlock
     ? `${contextBlock}\n\n${threadFusionBlock}`
@@ -291,7 +311,7 @@ ${rawText}`.trim()
     project_facts: (projectContext?.retrieval_context?.facts?.length ?? 0),
     project_decisions: (projectContext?.retrieval_context?.decisions?.length ?? 0),
     matched_sources: Number(projectContext?.matched_source_count ?? 0),
-    thread_fusions: threadFusionBlock.length > 0 ? 1 : 0,
+    thread_fusions: fusionMatchedCount,
     query_matched: rawText.length >= 10
   }
 
