@@ -20,6 +20,11 @@ export type ProjectMeta = {
   description?: string | null;
   tags?: string[];
   memoryEnabled?: boolean;
+  instruction?: string | null;  // 프로젝트별 지침
+};
+
+export type GlobalSettings = {
+  globalInstruction?: string | null;  // 전체 지침
 };
 
 /* 🔥 핵심 확장 */
@@ -30,6 +35,7 @@ export type Message = {
   createdAt: string;
   status?: MessageStatus;
   requestMeta?: any;
+  attachedFiles?: { name: string; type: string; size: number }[];
 
   // NEW
   versionGroupId?: string;     // 같은 질문 묶음

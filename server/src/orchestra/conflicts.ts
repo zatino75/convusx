@@ -1,4 +1,4 @@
-import type { ExtractedClaim } from "./claims.js"
+﻿import type { ExtractedClaim } from "./claims.js"
 import { extractClaims } from "./claims.js"
 
 export type DetectedConflict = {
@@ -45,13 +45,32 @@ function textSimilarity(a: string, b: string): number {
   return union === 0 ? 0 : intersection / union
 }
 
+// 한국어 숫자 단위를 실제 수치로 변환 (억=1e8, 조=1e12, 만=1e4)
+function parseKoreanNumber(text: string): number[] {
+  const results: number[] = []
+  // "1조 2천억", "3억 5천만" 등 복합 패턴
+  const pattern = /(-?[\d,]+(?:\.\d+)?)\s*(조|억|만|천)?/g
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(text)) !== null) {
+    const num = parseFloat(match[1].replace(/,/g, ""))
+    const unit = match[2] ?? ""
+    const multiplier = unit === "조" ? 1e12 : unit === "억" ? 1e8 : unit === "만" ? 1e4 : unit === "천" ? 1e3 : 1
+    if (Number.isFinite(num)) results.push(num * multiplier)
+  }
+  return results
+}
+
 function numericConflict(a: ExtractedClaim, b: ExtractedClaim): number {
   if (!a.numeric_values || !b.numeric_values) return 0
 
+  // 한국어 단위 변환 값 추가
+  const aValues = [...a.numeric_values, ...parseKoreanNumber(a.text)]
+  const bValues = [...b.numeric_values, ...parseKoreanNumber(b.text)]
+
   let maxRatio = 0
 
-  for (const x of a.numeric_values) {
-    for (const y of b.numeric_values) {
+  for (const x of aValues) {
+    for (const y of bValues) {
       const diff = Math.abs(x - y)
       const denom = Math.max(Math.abs(x), Math.abs(y), 1)
       const ratio = diff / denom

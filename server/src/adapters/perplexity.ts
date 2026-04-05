@@ -1,4 +1,4 @@
-import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
+﻿import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
 
 function env(name: string): string {
   const value = (globalThis as any)?.process?.env?.[name]
@@ -90,7 +90,7 @@ export const perplexityAdapter: ModelAdapter = {
     const body = {
       model,
       messages,
-      max_tokens: req.max_tokens ?? 2048,
+      max_tokens: req.max_tokens ?? 16384,
       temperature: 0.2,
       return_citations: true,
       search_recency_filter: "month"

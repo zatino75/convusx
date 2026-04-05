@@ -1,947 +1,15 @@
-import { runAdapter } from "./adapterDispatcher.js"
+﻿import { runAdapter } from "./adapterDispatcher.js"
 import { resolveAdaptiveRoute } from "./adaptiveRouter.js"
 import { judge } from "./judge.js"
 import { detectTaskType, planRequest } from "./planner.js"
 import { extractClaims } from "./claims.js"
 import { detectConflicts, resolveConflictDecisions } from "./conflicts.js"
 import { readScoreboard, recordProviderExecution, recordProviderConflict } from "./scoreboard.js"
-import { updateModelScoreboard } from "./modelScoreboard.js"
-import { getLatestProjectContext } from "../memory/projectMemory.js"
-import { getProjectThreadMemories, findSimilarQuery } from "../memory/threadMemory.js"
+import { updateModelScoreboard } from "./scoreboard.js"
+import { runJudgeStep, sanitizeProviderStreamSummary } from "./runtimePipeline.js"
+import { applyFinalProviderPreview, buildInputWithRetrievalContext, buildOrchestrationMeta, buildOutcomeMeta, buildProviderInput, buildProviderStatusMap, buildRoleMap, buildSelectionTrace, buildWinnerReason, calculateConflictScore, clipText, createRecoveryMeta, emit, enforcePrimaryWinner, ensureProviderStreamSummary, extractInboundMessage, getJudgeScore, getProviderRole, hasText, normalizeChunkPreview, normalizePreviewText, normalizeProvider, pickText, shouldEscalateAfterEval, shouldKeepPrimaryWinner, summarizeConflictBuckets, summarizeProviderConflictLearning, summarizeProviderUsage, uniqueProviders } from "./runtimeHelpers.js"
+import { upsertThreadMemory } from "../memory/threadMemory.js"
 
-function hasText(value: any) {
-  return typeof value === "string" && value.trim().length > 0
-}
-
-function normalizeProvider(value: any) {
-  return String(value ?? "").trim().toLowerCase()
-}
-
-function uniqueProviders(values: any[]) {
-  const seen = new Set<string>()
-  const out: string[] = []
-
-  for (const value of values ?? []) {
-    const normalized = normalizeProvider(value)
-    if (!normalized) continue
-    if (seen.has(normalized)) continue
-    seen.add(normalized)
-    out.push(normalized)
-  }
-
-  return out
-}
-
-function extractInboundMessage(input: any) {
-  if (hasText(input?.message)) {
-    return String(input.message).trim()
-  }
-
-  if (Array.isArray(input?.messages)) {
-    return input.messages
-      .filter((item: any) => String(item?.role ?? "user").trim().toLowerCase() === "user")
-      .map((item: any) => {
-        if (typeof item?.content === "string") return item.content
-        if (Array.isArray(item?.content)) {
-          return item.content
-            .map((part: any) => {
-              if (typeof part === "string") return part
-              if (typeof part?.text === "string") return part.text
-              return ""
-            })
-            .join("\n")
-        }
-        return ""
-      })
-      .join("\n\n")
-      .trim()
-  }
-
-  return ""
-}
-
-// 문장 경계에서 트런케이션 (하드 잘라내기 방지)
-function smartTruncate(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text
-  const cut = text.slice(0, maxChars)
-  const lastBreak = Math.max(
-    cut.lastIndexOf(". "),
-    cut.lastIndexOf(".\n"),
-    cut.lastIndexOf("다. "),
-    cut.lastIndexOf("다.\n"),
-    cut.lastIndexOf("\n\n")
-  )
-  return lastBreak > maxChars * 0.5
-    ? cut.slice(0, lastBreak + 1).trim() + "…"
-    : cut.trim() + "…"
-}
-
-function buildThreadFusionBlock(
-  projectId: string,
-  currentThreadId: string,
-  query: string
-): { block: string; matchedCount: number } {
-  if (!projectId || !query || query.length < 10) return { block: "", matchedCount: 0 }
-
-  const FUSION_TOTAL_CAP = 1400 // 전체 fusion block 최대 문자 수
-
-  // 같은 프로젝트의 다른 스레드 전체 로드
-  const allThreads = getProjectThreadMemories(projectId)
-    .filter((t) => t.thread_id !== currentThreadId)
-
-  if (allThreads.length === 0) return { block: "", matchedCount: 0 }
-
-  // 1. 유사 쿼리 검색 (BM25-lite + 한국어 바이그램 scoring)
-  const similarResults = findSimilarQuery(query, projectId, {
-    threshold: 0.18,
-    limit: 5
-  })
-
-  const relevantThreads = similarResults.filter(
-    (r) => r.thread_id !== currentThreadId && r.matched_answer?.trim()
-  )
-
-  // 2. 엔티티 기반 추가 매칭 — 고유명사/핵심어 겹치는 스레드 찾기
-  const queryEntities = query
-    .split(/[\s,./!?:;]+/)
-    .filter((w) => w.length >= 2 && /[A-Z가-힣]/.test(w))
-    .map((w) => w.toLowerCase())
-
-  const entityMatchThreads = allThreads.filter((t) => {
-    if (relevantThreads.some((r) => r.thread_id === t.thread_id)) return false
-    const threadText = [
-      t.title ?? "",
-      ...(t.structured?.decisions ?? []),
-      ...(t.structured?.facts ?? []),
-      ...(t.structured?.entities ?? [])
-    ].join(" ").toLowerCase()
-    return queryEntities.filter((e) => threadText.includes(e)).length >= 2
-  }).slice(0, 2)
-
-  // 3. 최신 스레드 decisions/facts — 유사 쿼리가 있을 때만 주입 (노이즈 방지)
-  const hasRelevance = relevantThreads.length > 0 || entityMatchThreads.length > 0
-  const recentThreads = hasRelevance ? allThreads.slice(0, 3) : []
-
-  const threadDecisions: string[] = []
-  const threadFacts: string[] = []
-
-  for (const thread of recentThreads) {
-    threadDecisions.push(...(thread.structured?.decisions ?? []).slice(0, 2))
-    threadFacts.push(...(thread.structured?.facts ?? []).slice(0, 2))
-  }
-
-  const uniqueDecisions = [...new Set(threadDecisions)].slice(0, 4)
-  const uniqueFacts = [...new Set(threadFacts)].slice(0, 4)
-
-  if (!hasRelevance && uniqueDecisions.length === 0 && uniqueFacts.length === 0) return { block: "", matchedCount: 0 }
-
-  const matchedCount = relevantThreads.length + entityMatchThreads.length
-  const lines: string[] = ["[THREAD MEMORY]", ""]
-  let charBudget = FUSION_TOTAL_CAP
-
-  // 유사 쿼리 매칭 결과 (스레드당 400자 캡)
-  for (const result of relevantThreads.slice(0, 3)) {
-    if (charBudget <= 0) break
-    const title = allThreads.find((t) => t.thread_id === result.thread_id)?.title
-    const header = `[관련 스레드${title ? ` — ${title}` : ""}]`
-    const body = smartTruncate(result.matched_answer, Math.min(400, charBudget))
-    lines.push(header)
-    lines.push(body)
-    lines.push("")
-    charBudget -= header.length + body.length
-  }
-
-  // 엔티티 매칭 스레드 (300자 캡)
-  for (const thread of entityMatchThreads) {
-    if (charBudget <= 0) break
-    const summary = thread.structured?.summary ?? ""
-    if (!summary) continue
-    const header = `[관련 스레드${thread.title ? ` — ${thread.title}` : ""}]`
-    const body = smartTruncate(summary, Math.min(300, charBudget))
-    lines.push(header)
-    lines.push(body)
-    lines.push("")
-    charBudget -= header.length + body.length
-  }
-
-  // 프로젝트 결정사항/사실 (유사 쿼리 있을 때만)
-  if (charBudget > 100 && uniqueDecisions.length > 0) {
-    lines.push("[프로젝트 주요 결정사항]")
-    lines.push(...uniqueDecisions)
-    lines.push("")
-    charBudget -= uniqueDecisions.join("\n").length
-  }
-
-  if (charBudget > 100 && uniqueFacts.length > 0) {
-    lines.push("[프로젝트 핵심 사실]")
-    lines.push(...uniqueFacts)
-    lines.push("")
-  }
-
-  return { block: lines.join("\n").trim(), matchedCount }
-}
-
-function buildProjectContextBlock(projectContext: any) {
-  const retrieval = projectContext?.retrieval_context ?? {}
-
-  const summary = Array.isArray(retrieval?.summary) ? retrieval.summary : []
-  const decisions = Array.isArray(retrieval?.decisions) ? retrieval.decisions : []
-  const facts = Array.isArray(retrieval?.facts) ? retrieval.facts : []
-  const sources = Array.isArray(retrieval?.sources) ? retrieval.sources : []
-
-  const hasAny =
-    summary.length > 0 ||
-    decisions.length > 0 ||
-    facts.length > 0 ||
-    sources.length > 0
-
-  if (!hasAny) return ""
-
-  return [
-    "[PROJECT CONTEXT]",
-    "",
-    "[SUMMARY]",
-    ...summary,
-    "",
-    "[DECISIONS]",
-    ...decisions,
-    "",
-    "[FACTS]",
-    ...facts,
-    "",
-    "[SOURCES]",
-    ...sources
-  ].join("\n").trim()
-}
-
-function buildInputWithRetrievalContext(input: any, rawInboundMessage: string) {
-  const projectId = String(input?.project_id ?? "").trim()
-  if (!projectId) {
-    return {
-      effectiveInput: input,
-      retrievalContext: null,
-      enrichedInboundMessage: rawInboundMessage
-    }
-  }
-
-  const rawText = String(rawInboundMessage ?? "").trim()
-
-  const skipContextPatterns = [
-    "안녕", "hi", "hello", "반가워", "잘 부탁",
-    "감사합니다", "고마워", "thanks"
-  ]
-  const shouldSkipContext =
-    rawText.length < 20 ||
-    skipContextPatterns.some((p) => rawText.toLowerCase().includes(p))
-
-  // query-aware: rawText를 전달해 관련 소스만 검색
-  const projectContext = getLatestProjectContext(projectId, shouldSkipContext ? undefined : rawText)
-  const contextBlock = buildProjectContextBlock(projectContext)
-
-  if (!contextBlock) {
-    return {
-      effectiveInput: input,
-      retrievalContext: projectContext,
-      enrichedInboundMessage: rawInboundMessage
-    }
-  }
-
-  if (shouldSkipContext) {
-    return {
-      effectiveInput: input,
-      retrievalContext: projectContext,
-      enrichedInboundMessage: rawText
-    }
-  }
-
-  if (rawText.includes("[PROJECT CONTEXT]")) {
-    return {
-      effectiveInput: {
-        ...input,
-        metadata: {
-          ...(input?.metadata ?? {}),
-          retrieval_context: projectContext?.retrieval_context ?? null
-        }
-      },
-      retrievalContext: projectContext,
-      enrichedInboundMessage: rawText
-    }
-  }
-
-  // Thread fusion: 같은 프로젝트의 다른 스레드 자동 검색/주입
-  const currentThreadId = String(input?.thread_id ?? "").trim()
-  const { block: threadFusionBlock, matchedCount: fusionMatchedCount } = buildThreadFusionBlock(projectId, currentThreadId, rawText)
-
-  const fullContextBlock = threadFusionBlock
-    ? `${contextBlock}\n\n${threadFusionBlock}`
-    : contextBlock
-
-  const enrichedInboundMessage = `${fullContextBlock}
-
-[USER INPUT]
-${rawText}`.trim()
-
-  // messages 배열이 있을 경우 마지막 user 메시지를 enrichedInboundMessage로 교체
-  // 그렇지 않으면 adapterDispatcher가 messages 배열을 우선 사용하여 PROJECT CONTEXT가 무시됨
-  const inputMessages = Array.isArray(input?.messages) ? input.messages : []
-  let updatedMessages: typeof inputMessages | undefined = undefined
-
-  if (inputMessages.length > 0) {
-    // 마지막 user 메시지 인덱스 찾기
-    let lastUserIdx = -1
-    for (let i = inputMessages.length - 1; i >= 0; i--) {
-      if (String(inputMessages[i]?.role ?? "").trim().toLowerCase() === "user") {
-        lastUserIdx = i
-        break
-      }
-    }
-
-    if (lastUserIdx >= 0) {
-      updatedMessages = inputMessages.map((msg: any, idx: number) => {
-        if (idx !== lastUserIdx) return msg
-        return {
-          ...msg,
-          content: enrichedInboundMessage
-        }
-      })
-    }
-  }
-
-  const retrievalMeta = {
-    project_facts: (projectContext?.retrieval_context?.facts?.length ?? 0),
-    project_decisions: (projectContext?.retrieval_context?.decisions?.length ?? 0),
-    matched_sources: Number(projectContext?.matched_source_count ?? 0),
-    thread_fusions: fusionMatchedCount,
-    query_matched: rawText.length >= 10
-  }
-
-  return {
-    effectiveInput: {
-      ...input,
-      message: enrichedInboundMessage,
-      ...(updatedMessages ? { messages: updatedMessages } : {}),
-      metadata: {
-        ...(input?.metadata ?? {}),
-        retrieval_context: projectContext?.retrieval_context ?? null,
-        retrieval_meta: retrievalMeta,
-        thread_fusion_applied: threadFusionBlock.length > 0
-      }
-    },
-    retrievalContext: projectContext,
-    retrievalMeta,
-    enrichedInboundMessage
-  }
-}
-
-function pickText(result: any, partialText: string) {
-  if (hasText(partialText)) return String(partialText)
-  if (hasText(result?.answer_text)) return String(result.answer_text)
-  if (hasText(result?.text)) return String(result.text)
-  if (hasText(result?.answer)) return String(result.answer)
-  if (hasText(result?.output_text)) return String(result.output_text)
-  return ""
-}
-
-function buildProviderInput(params: any, task: string, route: any, provider: string, plannerSignals: any, usePro: boolean) {
-  const explicitModel =
-    typeof params?.model === "string" && params.model.trim().length > 0
-      ? params.model
-      : provider === "openai" && usePro
-        ? "gpt-5.4-pro"
-        : undefined
-
-  return {
-    ...params,
-    task,
-    model: explicitModel,
-    benchmark_mode: Boolean(params?.benchmark_mode || plannerSignals?.benchmark_mode),
-    deep_analysis: Boolean(params?.deep_analysis || plannerSignals?.deep_analysis),
-    deep_research: Boolean(params?.deep_research || plannerSignals?.deep_research),
-    force_pro: Boolean(params?.force_pro || plannerSignals?.force_pro || usePro),
-    metadata: {
-      ...(params?.metadata ?? {}),
-      routing: route,
-      planner_signals: plannerSignals
-    }
-  }
-}
-
-function buildCandidates(results: any[]) {
-  return results
-    .filter((item) => Boolean(item?.ok) && hasText(item?.text))
-    .map((item) => ({
-      provider: item.provider,
-      answer_text: item.text,
-      raw: {
-        role: item.role,
-        model: item.model ?? null,
-        latency_ms: Number(item?.latency_ms ?? 0),
-        usage: item?.usage ?? null
-      }
-    }))
-}
-
-function getConflictWeight(type: string) {
-  const normalized = String(type ?? "").trim().toLowerCase()
-
-  if (normalized === "numeric_conflict") return 1
-  if (normalized === "feasibility_conflict") return 0.9
-  if (normalized === "risk_conflict") return 0.85
-  if (normalized === "direction_conflict") return 0.8
-  if (normalized === "recommendation_conflict") return 0.6
-  if (normalized === "recommendation_mismatch") return 0.6
-  if (normalized === "risk_mismatch") return 0.5
-  if (normalized === "comparison_mismatch") return 0.35
-  return 0.4
-}
-
-function getSeverityMultiplier(severity: string) {
-  const normalized = String(severity ?? "").trim().toLowerCase()
-  if (normalized === "high") return 1.15
-  if (normalized === "medium") return 1
-  return 0.85
-}
-
-function calculateConflictScore(conflicts: any[]) {
-  let total = 0
-
-  for (const conflict of conflicts ?? []) {
-    const explicitWeight = Number(conflict?.weight)
-    const weight = Number.isFinite(explicitWeight)
-      ? explicitWeight
-      : getConflictWeight(String(conflict?.type ?? ""))
-
-    const severityMultiplier = getSeverityMultiplier(String(conflict?.severity ?? "medium"))
-    total += weight * severityMultiplier
-  }
-
-  return Number(total.toFixed(4))
-}
-
-function summarizeConflictBuckets(conflicts: any[]) {
-  const rows = Array.isArray(conflicts) ? conflicts : []
-
-  const contextConflicts = rows.filter((item) =>
-    Array.isArray(item?.providers) && item.providers.includes("context")
-  )
-
-  const providerConflicts = rows.filter((item) =>
-    !(Array.isArray(item?.providers) && item.providers.includes("context"))
-  )
-
-  return {
-    total: rows.length,
-    context_conflicts: contextConflicts.length,
-    provider_conflicts: providerConflicts.length,
-    high: rows.filter((item) => String(item?.severity ?? "") === "high").length,
-    medium: rows.filter((item) => String(item?.severity ?? "") === "medium").length,
-    low: rows.filter((item) => String(item?.severity ?? "") === "low").length
-  }
-}
-
-function buildSelectionTrace(judged: any, finalProvider: string, finalRole: string, finalConflicts: any[]) {
-  const scores = Array.isArray(judged?.meta?.judge_scores) ? judged.meta.judge_scores : []
-  const selected = scores.find((row: any) => normalizeProvider(row?.provider) === normalizeProvider(finalProvider)) ?? null
-  const buckets = summarizeConflictBuckets(finalConflicts)
-
-  return {
-    selected_provider: finalProvider,
-    selected_role: finalRole,
-    judge_rationale: judged?.meta?.judge_rationale ?? null,
-    judge_confidence: Number(
-      judged?.meta?.judge_confidence ??
-      judged?.meta?.judge_scores?.[0]?.score ??
-      1
-    ),
-    selected_score: Number(selected?.score ?? 0),
-    selected_reasons: Array.isArray(selected?.reasons) ? selected.reasons : [],
-    conflict_buckets: buckets
-  }
-}
-
-function buildWinnerReason(trace: any) {
-  const reasons = Array.isArray(trace?.selected_reasons) ? trace.selected_reasons : []
-  const topReasons = reasons.slice(0, 6)
-
-  return {
-    provider: trace?.selected_provider ?? null,
-    role: trace?.selected_role ?? null,
-    rationale: trace?.judge_rationale ?? null,
-    confidence: Number(trace?.judge_confidence ?? 0),
-    top_reasons: topReasons,
-    context_conflicts: Number(trace?.conflict_buckets?.context_conflicts ?? 0),
-    provider_conflicts: Number(trace?.conflict_buckets?.provider_conflicts ?? 0)
-  }
-}
-
-function summarizeProviderConflictLearning(conflicts: any[], providerInput: string) {
-  const provider = normalizeProvider(providerInput)
-  if (!provider) {
-    return {
-      context_conflicts: 0,
-      provider_conflicts: 0,
-      penalty: 0,
-      conflict_types: []
-    }
-  }
-
-  const rows = Array.isArray(conflicts) ? conflicts : []
-  const related = rows.filter((row) =>
-    Array.isArray(row?.providers) && row.providers.map(normalizeProvider).includes(provider)
-  )
-
-  const contextConflicts = related.filter((row) =>
-    Array.isArray(row?.providers) && row.providers.map(normalizeProvider).includes("context")
-  )
-
-  const providerOnlyConflicts = related.filter((row) =>
-    !(Array.isArray(row?.providers) && row.providers.map(normalizeProvider).includes("context"))
-  )
-
-  const penalty = related.reduce((sum, row) => {
-    const weight = Number(row?.weight)
-    return sum + (Number.isFinite(weight) ? weight : 0)
-  }, 0)
-
-  const typeMap = new Map<string, { type: string; count: number; weight: number }>()
-
-  for (const row of related) {
-    const rawType = String(row?.type ?? "").trim().toLowerCase() || "other"
-    const existing = typeMap.get(rawType)
-
-    const nextCount = (existing?.count ?? 0) + 1
-    const nextWeight = (existing?.weight ?? 0) + (Number.isFinite(Number(row?.weight)) ? Number(row?.weight) : 0)
-
-    typeMap.set(rawType, {
-      type: rawType,
-      count: nextCount,
-      weight: Number(nextWeight.toFixed(4))
-    })
-  }
-
-  return {
-    context_conflicts: contextConflicts.length,
-    provider_conflicts: providerOnlyConflicts.length,
-    penalty: Number(penalty.toFixed(4)),
-    conflict_types: Array.from(typeMap.values())
-  }
-}
-
-function shouldEscalateAfterEval(params: {
-  task: string
-  weighted_conflict_score: number
-  verifier_disagreement: boolean
-  judge_confidence: number
-  conflict_count: number
-  planner_signals: {
-    benchmark_mode: boolean
-    deep_analysis: boolean
-    deep_research: boolean
-    force_pro: boolean
-  }
-}) {
-  const task = String(params?.task ?? "").trim().toLowerCase()
-  if (task !== "reasoning" && task !== "research") return false
-
-  if (Boolean(params?.planner_signals?.force_pro)) return true
-  if (Boolean(params?.planner_signals?.benchmark_mode)) return true
-  if (Boolean(params?.planner_signals?.deep_analysis)) return true
-  if (Boolean(params?.planner_signals?.deep_research)) return true
-
-  if (params.conflict_count >= 2) return true
-  if (params.weighted_conflict_score >= 1.05) return true
-  if (params.verifier_disagreement) return true
-  if (params.judge_confidence < 0.55) return true
-
-  return false
-}
-
-function summarizeProviderUsage(results: any[]) {
-  return results.map((item) => ({
-    provider: item.provider,
-    role: item.role ?? "optional",
-    success: Boolean(item?.ok),
-    latency_ms: Number(item?.latency_ms ?? 0),
-    model: item?.model ?? null,
-    usage: {
-      input_tokens: Number(item?.usage?.input_tokens ?? 0),
-      output_tokens: Number(item?.usage?.output_tokens ?? 0),
-      total_tokens: Number(item?.usage?.total_tokens ?? 0),
-      estimated_cost_usd: Number(item?.usage?.estimated_cost_usd ?? 0)
-    },
-    error_code: item?.error_code ?? null
-  }))
-}
-
-function buildProviderStatusMap(results: any[], finalProvider: string) {
-  const map: Record<string, {
-    provider: string
-    role: string
-    status: "winner" | "survived" | "failed"
-    ok: boolean
-    latency_ms: number
-    model: string | null
-    error_code: string | null
-    estimated_cost_usd: number
-  }> = {}
-
-  for (const item of results ?? []) {
-    const provider = normalizeProvider(item?.provider)
-    if (!provider) continue
-
-    map[provider] = {
-      provider,
-      role: String(item?.role ?? "optional"),
-      status:
-        provider === finalProvider
-          ? "winner"
-          : Boolean(item?.ok) && hasText(item?.text)
-            ? "survived"
-            : "failed",
-      ok: Boolean(item?.ok),
-      latency_ms: Number(item?.latency_ms ?? 0),
-      model: item?.model ?? null,
-      error_code: item?.error_code ?? null,
-      estimated_cost_usd: Number(item?.usage?.estimated_cost_usd ?? 0)
-    }
-  }
-
-  return map
-}
-
-function buildOutcomeMeta(results: any[], finalProvider: string) {
-  const winner = results.find((item) => normalizeProvider(item?.provider) === finalProvider) ?? null
-  const survivedCandidates = results
-    .filter((item) => Boolean(item?.ok) && hasText(item?.text))
-    .map((item) => ({
-      provider: item.provider,
-      role: item.role,
-      ok: item.ok
-    }))
-
-  const failedCandidates = results
-    .filter((item) => !Boolean(item?.ok) || !hasText(item?.text))
-    .map((item) => ({
-      provider: item.provider,
-      role: item.role,
-      ok: item.ok,
-      error_code: item?.error_code ?? null
-    }))
-
-  const loserProviders = survivedCandidates
-    .map((item) => normalizeProvider(item.provider))
-    .filter((provider) => provider && provider !== finalProvider)
-
-  const collapsedProviders = results
-    .map((item) => normalizeProvider(item?.provider))
-    .filter((provider) => provider && provider !== finalProvider)
-
-  return {
-    winner_provider: finalProvider,
-    winner_role: winner?.role ?? null,
-    loser_providers: loserProviders,
-    collapsed_providers: collapsedProviders,
-    survived_candidates: survivedCandidates,
-    failed_candidates: failedCandidates
-  }
-}
-
-function buildOrchestrationMeta(params: {
-  startedAt: number
-  route: any
-  executed: any[]
-  judged: any
-  finalProvider: string
-  conflictCount: number
-  finalConflicts: any[]
-  postEvalTriggered: boolean
-  recoveryMeta: any
-  transientFailures: any[]
-  timelineEvents: any[]
-  providerStreamSummary: Record<string, any>
-  retrievalContext: any
-}) {
-  const providerUsage = summarizeProviderUsage(params.executed)
-  const estimatedCostUsd = providerUsage.reduce(
-    (sum, row) => sum + Number(row?.usage?.estimated_cost_usd ?? 0),
-    0
-  )
-
-  const outcome = buildOutcomeMeta(params.executed, params.finalProvider)
-  const providerStatusMap = buildProviderStatusMap(params.executed, params.finalProvider)
-  const hiddenFailedProviders = Array.from(
-    new Set(
-      (params.transientFailures ?? [])
-        .map((item: any) => normalizeProvider(item?.provider))
-        .filter(Boolean)
-    )
-  )
-
-  const conflictBuckets = summarizeConflictBuckets(params.finalConflicts)
-  const selectionTrace = buildSelectionTrace(
-    params.judged,
-    params.finalProvider,
-    outcome.winner_role ?? null,
-    params.finalConflicts
-  )
-
-  return {
-    primary_provider: Array.isArray(params?.route?.selected_providers) ? params.route.selected_providers[0] ?? null : null,
-    effective_primary_provider: params.recoveryMeta?.effective_primary_provider ?? (Array.isArray(params?.route?.selected_providers) ? params.route.selected_providers[0] ?? null : null),
-    verifier_providers: Array.isArray(params?.route?.verifier_providers) ? params.route.verifier_providers : [],
-    optional_providers: Array.isArray(params?.route?.optional_providers) ? params.route.optional_providers : [],
-    scout_providers: Array.isArray(params?.route?.scout_providers) ? params.route.scout_providers : [],
-    selected_providers: Array.isArray(params?.route?.selected_providers) ? params.route.selected_providers : [],
-    fallback_providers: Array.isArray(params?.route?.fallback_providers) ? params.route.fallback_providers : [],
-    parallel_providers: Array.isArray(params?.route?.parallel_providers) ? params.route.parallel_providers : [],
-    executed_providers: providerUsage.map((row) => row.provider),
-    selected_models: providerUsage
-      .filter((row) => hasText(row?.model))
-      .map((row) => ({
-        provider: row.provider,
-        model: row.model
-      })),
-    latency_ms: Date.now() - params.startedAt,
-    estimated_cost_usd: Number(estimatedCostUsd.toFixed(8)),
-    raw_cost_usd: Number((estimatedCostUsd + (params.recoveryMeta?.recovery_from_cost_usd ?? 0)).toFixed(8)),
-    conflict_count: Number(params.conflictCount ?? 0),
-    conflict_buckets: conflictBuckets,
-    judge_confidence: Number(
-      params?.judged?.meta?.judge_confidence ??
-      params?.judged?.meta?.judge_scores?.[0]?.score ??
-      1
-    ),
-    final_provider: params.finalProvider,
-    post_eval_triggered: Boolean(params.postEvalTriggered),
-    execution_policy: params?.route?.execution_policy ?? null,
-    provider_usage: providerUsage,
-    provider_status_map: providerStatusMap,
-    provider_stream_summary: params.providerStreamSummary,
-    hidden_failed_providers: hiddenFailedProviders,
-    router_policy: params?.route?.router_policy ?? null,
-    parallel_width: Number(params?.route?.parallel_width ?? providerUsage.length),
-    primary_recovered: Boolean(params.recoveryMeta?.primary_recovered),
-    recovery_from_model: params.recoveryMeta?.recovery_from_model ?? null,
-    recovery_to_model: params.recoveryMeta?.recovery_to_model ?? null,
-    recovery_reason: params.recoveryMeta?.recovery_reason ?? null,
-    display_winner: {
-      provider: outcome.winner_provider,
-      role: outcome.winner_role
-    },
-    display_losers: outcome.loser_providers,
-    selection_trace: selectionTrace,
-    winner_reason: buildWinnerReason(selectionTrace),
-    retrieval_context: params.retrievalContext?.retrieval_context ?? null,
-    timeline_events: params.timelineEvents ?? [],
-    ...outcome
-  }
-}
-
-function createRecoveryMeta() {
-  return {
-    primary_recovered: false,
-    recovery_reason: null as string | null,
-    recovery_from_model: null as string | null,
-    recovery_to_model: null as string | null,
-    recovery_from_cost_usd: 0,
-    effective_primary_provider: "openai"
-  }
-}
-
-function normalizeChunkPreview(value: any) {
-  return String(value ?? "")
-    .replace(/\s+/g, " ")
-    .trim()
-}
-
-function normalizePreviewText(value: any) {
-  return String(value ?? "")
-    .replace(/\r/g, " ")
-    .replace(/\n+/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.:;!?%])/g, "$1")
-    .replace(/([(])\s+/g, "$1")
-    .replace(/\s+([)\]])/g, "$1")
-    .trim()
-}
-
-function clipText(value: string, max = 220) {
-  const normalized = String(value ?? "").trim()
-  if (normalized.length <= max) return normalized
-  return `${normalized.slice(0, max)}...`
-}
-
-function ensureProviderStreamSummary(
-  providerStreamSummary: Record<string, any>,
-  provider: string,
-  role: string | null | undefined
-) {
-  if (!providerStreamSummary[provider]) {
-    providerStreamSummary[provider] = {
-      provider,
-      role: role ?? null,
-      chunk_count: 0,
-      preview_text: "",
-      preview_excerpt: "",
-      last_non_empty_chunk: "",
-      total_chars: 0
-    }
-  }
-
-  providerStreamSummary[provider].role = role ?? providerStreamSummary[provider].role
-  return providerStreamSummary[provider]
-}
-
-function applyFinalProviderPreview(
-  providerStreamSummary: Record<string, any>,
-  item: {
-    provider: string
-    role?: string | null
-    text?: string
-  }
-) {
-  const provider = normalizeProvider(item?.provider)
-  if (!provider) return
-
-  const row = ensureProviderStreamSummary(providerStreamSummary, provider, item?.role ?? null)
-  const finalPreview = normalizePreviewText(item?.text ?? "")
-
-  if (!finalPreview) return
-
-  row.preview_text = clipText(finalPreview, 420)
-  row.preview_excerpt = clipText(finalPreview, 160)
-  row.last_non_empty_chunk = clipText(finalPreview.slice(-120), 120)
-  row.total_chars = Math.max(Number(row.total_chars ?? 0), finalPreview.length)
-}
-
-function getProviderRole(route: any, provider: string) {
-  const normalized = normalizeProvider(provider)
-  if (Array.isArray(route?.selected_providers) && route.selected_providers.map(normalizeProvider).includes(normalized)) return "primary"
-  if (Array.isArray(route?.verifier_providers) && route.verifier_providers.map(normalizeProvider).includes(normalized)) return "verifier"
-  if (Array.isArray(route?.optional_providers) && route.optional_providers.map(normalizeProvider).includes(normalized)) return "optional"
-  if (Array.isArray(route?.scout_providers) && route.scout_providers.map(normalizeProvider).includes(normalized)) return "scout"
-  return "fallback"
-}
-
-function getJudgeScore(judged: any, provider: string) {
-  const scores = Array.isArray(judged?.meta?.judge_scores) ? judged.meta.judge_scores : []
-  const row = scores.find((item: any) => normalizeProvider(item?.provider) === normalizeProvider(provider))
-  return Number(row?.score ?? 0)
-}
-
-function shouldKeepPrimaryWinner(params: {
-  route: any
-  judged: any
-  executed: any[]
-  primaryProvider: string
-}) {
-  const primaryProvider = normalizeProvider(params.primaryProvider)
-  if (!primaryProvider) return false
-
-  const selectedByJudge = normalizeProvider(
-    params?.judged?.meta?.judge_selected_provider ??
-    params?.judged?.provider ??
-    ""
-  )
-
-  if (!selectedByJudge) return false
-  if (selectedByJudge === primaryProvider) return false
-
-  const primaryRow = params.executed.find((item) => normalizeProvider(item?.provider) === primaryProvider)
-  const selectedRow = params.executed.find((item) => normalizeProvider(item?.provider) === selectedByJudge)
-
-  if (!primaryRow?.ok || !hasText(primaryRow?.text)) return false
-  if (!selectedRow?.ok || !hasText(selectedRow?.text)) return false
-
-  const selectedRole = getProviderRole(params.route, selectedByJudge)
-  if (selectedRole !== "verifier" && selectedRole !== "optional") return false
-
-  const primaryScore = getJudgeScore(params.judged, primaryProvider)
-  const selectedScore = getJudgeScore(params.judged, selectedByJudge)
-  const gap = selectedScore - primaryScore
-  const confidence = Number(params?.judged?.meta?.judge_confidence ?? 0)
-
-  if (selectedRole === "optional") {
-    return gap < 0.08 || confidence < 0.72
-  }
-
-  if (selectedRole === "verifier") {
-    return false  // verifier가 더 좋으면 verifier 선택
-  }
-
-  return false
-}
-
-function enforcePrimaryWinner(params: {
-  judged: any
-  primaryProvider: string
-}) {
-  const primaryProvider = normalizeProvider(params.primaryProvider)
-  if (!primaryProvider) return params.judged
-
-  const scores = Array.isArray(params?.judged?.meta?.judge_scores)
-    ? params.judged.meta.judge_scores
-    : []
-
-  return {
-    ...params.judged,
-    provider: primaryProvider,
-    meta: {
-      ...(params?.judged?.meta ?? {}),
-      judge_selected_provider: primaryProvider,
-      judge_rationale: `primary_survival_bias:${params?.judged?.meta?.judge_rationale ?? "override"}`,
-      judge_scores: scores.map((row: any) =>
-        normalizeProvider(row?.provider) === primaryProvider
-          ? {
-              ...row,
-              reasons: Array.isArray(row?.reasons)
-                ? [...row.reasons, "primary_survival_bias"]
-                : ["primary_survival_bias"]
-            }
-          : row
-      )
-    }
-  }
-}
-
-async function emit(stream: any, event: any) {
-  if (typeof stream !== "function") return
-  await stream(event)
-}
-
-function buildRoleMap(route: any) {
-  const roleMap = new Map<string, string>()
-
-  for (const provider of route?.selected_providers ?? []) {
-    roleMap.set(normalizeProvider(provider), "primary")
-  }
-
-  for (const provider of route?.verifier_providers ?? []) {
-    roleMap.set(normalizeProvider(provider), "verifier")
-  }
-
-  for (const provider of route?.optional_providers ?? []) {
-    roleMap.set(normalizeProvider(provider), "optional")
-  }
-
-  for (const provider of route?.scout_providers ?? []) {
-    roleMap.set(normalizeProvider(provider), "scout")
-  }
-
-  return roleMap
-}
-
-function shouldRecoverOpenAIPrimary(result: any, route: any) {
-  if (normalizeProvider(result?.provider) !== "openai") return false
-  if (String(result?.role ?? "") !== "primary") return false
-  if (!Boolean(route?.escalation?.use_pro)) return false
-
-  const errorCode = String(result?.error_code ?? "").trim().toLowerCase()
-  if (errorCode === "timeout") return true
-  if (errorCode === "empty_response") return true
-
-  return false
-}
 
 async function executeProvider(params: {
   provider: string
@@ -1033,6 +101,25 @@ async function executeProvider(params: {
   return normalizedResult
 }
 
+function buildCandidates(results: any[]) {
+  return results.map((item: any) => ({
+    provider: item.provider,
+    answer_text: item.text ?? "",
+    role: item.role ?? "primary"
+  }))
+}
+
+function shouldRecoverOpenAIPrimary(result: any, _route: any): boolean {
+  if (!result) return false
+  // error_code가 있는 명확한 실패만 복구 (짧은 답변은 복구 대상 아님)
+  const errorCode = String(result.error_code ?? "").trim().toLowerCase()
+  const text = String(result.text ?? "").trim()
+  if (!text && errorCode) return true   // 텍스트 없고 에러 있을 때만 복구
+  if (!text) return true                // 텍스트 완전히 없을 때
+  return false                          // 텍스트가 있으면 복구 안 함
+}
+
+
 export async function executeOrchestra(input: any, stream?: any) {
   const startedAt = Date.now()
   const rawInboundMessage = extractInboundMessage(input)
@@ -1072,7 +159,7 @@ export async function executeOrchestra(input: any, stream?: any) {
           row.total_chars += cleanChunk.length
 
           const merged = normalizePreviewText(`${row.preview_text} ${cleanChunk}`.trim())
-          row.preview_text = clipText(merged, 420)
+          row.preview_text = merged
           row.preview_excerpt = clipText(row.preview_text, 160)
         }
       } else {
@@ -1090,10 +177,38 @@ export async function executeOrchestra(input: any, stream?: any) {
     await emit(stream, event)
   }
 
-  const task =
+  const rawTask =
     String(effectiveInput?.task ?? planner?.task ?? detectTaskType(rawInboundMessage))
       .trim()
       .toLowerCase() || "dialogue"
+
+  // writing 서브태스크 자동 감지 — 메시지 내용 기반으로 creative/business 분류
+  const task = (() => {
+    if (rawTask !== "writing") return rawTask
+
+    const msg = rawInboundMessage.toLowerCase()
+
+    // creative 키워드: 소설, 시, 스크립트, 광고 카피, 스토리, 창작, 가사 등
+    const creativePatterns = [
+      "소설", "단편", "시 ", "시를", "스크립트", "대본", "광고 카피", "카피라이팅",
+      "스토리", "창작", "가사", "동화", "판타지", "sf", "호러", "로맨스", "에피소드",
+      "creative", "fiction", "story", "poem", "lyrics", "screenplay", "copywriting"
+    ]
+
+    // business 키워드: 보고서, 기획서, 이메일, 제안서, 계약서, 분석, 공문 등
+    const businessPatterns = [
+      "보고서", "기획서", "제안서", "계약서", "이메일", "메일", "공문", "분석", "정리",
+      "요약", "발표", "프레젠테이션", "사업계획", "마케팅", "전략", "업무", "회의록",
+      "report", "proposal", "email", "analysis", "summary", "business", "strategy", "memo"
+    ]
+
+    const creativeScore = creativePatterns.filter(p => msg.includes(p)).length
+    const businessScore = businessPatterns.filter(p => msg.includes(p)).length
+
+    if (creativeScore > businessScore) return "writing_creative"
+    if (businessScore >= creativeScore) return "writing_business"
+    return "writing_creative"
+  })()
 
   const scoreboardBefore = readScoreboard()
 
@@ -1108,8 +223,15 @@ export async function executeOrchestra(input: any, stream?: any) {
   })
 
   const selectedProviders = Array.isArray(route?.selected_providers) ? route.selected_providers : []
-  const verifierProviders = Array.isArray(route?.verifier_providers) ? route.verifier_providers : []
+  let verifierProviders = Array.isArray(route?.verifier_providers) ? route.verifier_providers : []
   const optionalProviders = Array.isArray(route?.optional_providers) ? route.optional_providers : []
+
+  // D12: research 단순 질문 → verifier 조건부 스킵 (비용 절감)
+  if (task === "research") {
+    const msgLen = extractInboundMessage(effectiveInput).length
+    const isSimple = msgLen < 120 && !effectiveInput?.deep_research
+    if (isSimple) verifierProviders = []
+  }
   const scoutProviders = Array.isArray(route?.scout_providers) ? route.scout_providers : []
   const fallbackProviders = Array.isArray(route?.fallback_providers) ? route.fallback_providers : []
 
@@ -1135,20 +257,50 @@ export async function executeOrchestra(input: any, stream?: any) {
     }
   })
 
-  let executed = await Promise.all(
-    firstWaveProviders.map((provider) =>
-      executeProvider({
-        provider,
-        role: roleMap.get(normalizeProvider(provider)) ?? "optional",
-        input: effectiveInput,
-        task,
-        route,
-        plannerSignals,
-        usePro: Boolean(route?.escalation?.use_pro) && normalizeProvider(provider) === "openai",
-        emitEvent: emitTracked
+  // research: primary 완료 후 verifier에 추가 15초만 허용 (전체 대기 방지)
+  let executed: Awaited<ReturnType<typeof executeProvider>>[]
+  if (task === "research" && firstWaveProviders.length > 1) {
+    const [primaryProvider, ...verifierProviders] = firstWaveProviders
+    const primaryRes = await executeProvider({
+      provider: primaryProvider,
+      role: roleMap.get(normalizeProvider(primaryProvider)) ?? "primary",
+      input: effectiveInput, task, route, plannerSignals,
+      usePro: Boolean(route?.escalation?.use_pro) && normalizeProvider(primaryProvider) === "openai",
+      emitEvent: emitTracked
+    })
+    const verifierResults = await Promise.all(
+      verifierProviders.map(async (provider: any) => {
+        const timeoutMs = 15000
+        const result = await Promise.race([
+          executeProvider({
+            provider,
+            role: roleMap.get(normalizeProvider(provider)) ?? "verifier",
+            input: effectiveInput, task, route, plannerSignals,
+            usePro: false, emitEvent: emitTracked
+          }),
+          new Promise<Awaited<ReturnType<typeof executeProvider>>>((resolve) =>
+            setTimeout(() => resolve({ provider, ok: false, text: "", role: "verifier",
+              latency_ms: timeoutMs, model: null, usage: null } as any), timeoutMs)
+          )
+        ])
+        return result
       })
     )
-  )
+    executed = [primaryRes, ...verifierResults]
+  } else {
+    executed = await Promise.all(
+      firstWaveProviders.map((provider: any) =>
+        executeProvider({
+          provider,
+          role: roleMap.get(normalizeProvider(provider)) ?? "optional",
+          input: effectiveInput,
+          task, route, plannerSignals,
+          usePro: Boolean(route?.escalation?.use_pro) && normalizeProvider(provider) === "openai",
+          emitEvent: emitTracked
+        })
+      )
+    )
+  }
 
   for (const item of executed) {
     applyFinalProviderPreview(providerStreamSummary, item)
@@ -1182,7 +334,7 @@ export async function executeOrchestra(input: any, stream?: any) {
       role: "primary",
       input: {
         ...effectiveInput,
-        model: "gpt-5.4",
+        model: "gpt-5.2",
         force_pro: false,
         use_pro: false,
         benchmark_mode: false,
@@ -1213,7 +365,7 @@ export async function executeOrchestra(input: any, stream?: any) {
       emitEvent: emitTracked
     })
 
-    recoveryMeta.recovery_to_model = recoveredPrimary.model ?? "gpt-5.4"
+    recoveryMeta.recovery_to_model = recoveredPrimary.model ?? "gpt-5.2"
     recoveryMeta.effective_primary_provider = recoveredPrimary.ok ? "openai" : (selectedProviders[0] ?? "openai")
 
     executed = [
@@ -1238,19 +390,23 @@ export async function executeOrchestra(input: any, stream?: any) {
   const primaryProvider = normalizeProvider(selectedProviders[0] ?? "openai")
   const successfulInitial = executed.filter((item) => item.ok && hasText(item.text))
 
+  // research/dialogue 단순 질문은 fallback 차단 (불필요한 추가 호출 방지)
+  const noFallbackTasks = ["research", "dialogue"]
   const shouldRunFallback =
-    !primaryResultInitial?.ok ||
-    !hasText(primaryResultInitial?.text) ||
-    (successfulInitial.length === 0 && fallbackProviders.length > 0)
+    !noFallbackTasks.includes(task) && (
+      !primaryResultInitial?.ok ||
+      !hasText(primaryResultInitial?.text) ||
+      (successfulInitial.length === 0 && fallbackProviders.length > 0)
+    )
 
   if (shouldRunFallback && fallbackProviders.length > 0) {
     const additionalProviders = uniqueProviders(fallbackProviders).filter(
       (provider) => !executed.some((item) => item.provider === provider)
-    ).slice(0, 2)
+    ).slice(0, 1)  // 최대 1개로 제한
 
     if (additionalProviders.length > 0) {
       const fallbackResults = await Promise.all(
-        additionalProviders.map((provider) =>
+        additionalProviders.map((provider: any) =>
           executeProvider({
             provider,
             role: "fallback",
@@ -1276,7 +432,7 @@ export async function executeOrchestra(input: any, stream?: any) {
 
   // conflict detection — reasoning/research 한정 활성화 (threshold 강화로 오탐 방지)
   // code/long_doc 포함: 구현 방식·분석 결론 이견도 claims/conflict 감지 대상
-  const CONFLICT_TASKS = ["reasoning", "research", "code", "long_doc"]
+  const CONFLICT_TASKS = ["dialogue", "reasoning", "research", "code", "code_implement", "code_debug", "code_refactor_review", "writing_creative", "writing_business", "long_doc", "word", "pdf", "excel", "ppt", "legal_review", "data_analysis", "finance_analysis", "product_development"]
   let candidateClaims: any[] = []
   let detectedConflicts: any[] = []
 
@@ -1299,14 +455,20 @@ export async function executeOrchestra(input: any, stream?: any) {
   let candidates = buildCandidates(successfulResults)
   let judged: any = null
 
-  if (candidates.length > 1) {
-    judged = await judge({
-      candidates,
-      task,
-      conflicts: detectedConflicts,
-      question: rawInboundMessage
+  if (candidates.length > 0) {
+    const evaluation1 = await runJudgeStep({
+      task, message: rawInboundMessage,
+      candidates: candidates.map((c: any) => ({ provider: c.provider, answer_text: c.answer_text, raw: c.raw })),
+      primaryProvider
     })
-  } else if (candidates.length === 1) {
+    candidateClaims = evaluation1.claims
+    detectedConflicts = evaluation1.conflicts
+    judged = evaluation1.judged ?? (evaluation1.winnerCandidate ? {
+      ...evaluation1.winnerCandidate, ok: true,
+      meta: { judge_selected_provider: evaluation1.winner, judge_scores: evaluation1.scoreRows,
+               judge_rationale: "evaluation_pipeline", conflict_count: evaluation1.conflicts.length }
+    } : null)
+  } else if (false) {  // legacy branch preserved
     judged = {
       ...candidates[0],
       ok: true,
@@ -1420,14 +582,20 @@ export async function executeOrchestra(input: any, stream?: any) {
 
       candidates = buildCandidates(nextSuccessful)
 
-      if (candidates.length > 1) {
-        judged = await judge({
-          candidates,
-          task,
-          conflicts: nextDetectedConflicts,
-          question: rawInboundMessage
+      if (candidates.length > 0) {
+        const evaluation2 = await runJudgeStep({
+          task, message: rawInboundMessage,
+          candidates: candidates.map((c: any) => ({ provider: c.provider, answer_text: c.answer_text, raw: c.raw })),
+          primaryProvider
         })
-      } else if (candidates.length === 1) {
+        candidateClaims = [...candidateClaims, ...evaluation2.claims]
+        nextDetectedConflicts = evaluation2.conflicts
+        judged = evaluation2.judged ?? (evaluation2.winnerCandidate ? {
+          ...evaluation2.winnerCandidate, ok: true,
+          meta: { judge_selected_provider: evaluation2.winner, judge_scores: evaluation2.scoreRows,
+                   judge_rationale: "evaluation_pipeline", conflict_count: evaluation2.conflicts.length }
+        } : null)
+      } else if (false) {  // legacy branch
         judged = {
           ...candidates[0],
           ok: true,
@@ -1464,9 +632,31 @@ export async function executeOrchestra(input: any, stream?: any) {
   }
 
   const refreshedSuccessful = executed.filter((item) => item.ok && hasText(item.text))
-  // 최종 conflict — detectedConflicts 재사용 (reasoning/research에서만 유효)
-  const finalClaimMap: any[] = candidateClaims
-  const finalDetectedConflicts: any[] = detectedConflicts
+
+  // 최종 conflict/claims — post-eval escalation 이후 nextCandidateClaims/nextDetectedConflicts가
+  // 존재하면 그것을 사용, 없으면 초기 값 fallback (stale 방지)
+  let finalClaimMap: any[] = candidateClaims
+  let finalDetectedConflicts: any[] = detectedConflicts
+
+  if (postEvalTriggered) {
+    // post-eval escalation이 실제 실행된 경우 — refreshedSuccessful 기준 재추출
+    if (CONFLICT_TASKS.includes(task) && refreshedSuccessful.length >= 2) {
+      try {
+        const postEvalProviderClaims = refreshedSuccessful.map((item) => ({
+          provider: item.provider,
+          claims: extractClaims(item.text)
+        }))
+        finalClaimMap = postEvalProviderClaims.flatMap((pc) => pc.claims)
+        finalDetectedConflicts = detectConflicts(postEvalProviderClaims, rawInboundMessage)
+      } catch {
+        // 재추출 실패 시 초기 값 유지
+      }
+    } else {
+      // CONFLICT_TASKS 외 task이거나 provider 1개 — claims/conflicts 빈 배열이 맞음
+      finalClaimMap = []
+      finalDetectedConflicts = []
+    }
+  }
 
   let finalResult =
     (judged?.provider
@@ -1603,7 +793,7 @@ export async function executeOrchestra(input: any, stream?: any) {
             }]
           }
           const critiqueResult = await executeProvider({
-            provider: critiqueBy, role: "synthesis", input: critiqueInput,
+            provider: critiqueBy, role: "verifier", input: critiqueInput,
             task, route, plannerSignals, usePro: false, emitEvent: emitTracked
           })
           if (critiqueResult.ok && hasText(critiqueResult.text)) {
@@ -1627,7 +817,7 @@ export async function executeOrchestra(input: any, stream?: any) {
 
   // ===== WRITING EDITORIAL REVIEW =====
   // judge winner 글 → 다른 provider가 편집 검토 (routing 변경에 강건)
-  if (task === "writing") {
+  if (task === "writing" || task === "writing_creative" || task === "writing_business") {
     const winnerText = executed.find((item) => normalizeProvider(item.provider) === normalizeProvider(judgeWinner) && item.ok && hasText(item.text))
     if (winnerText) {
       const editBy = getSynthProvider(judgeWinner, ["openai", "claude", "gemini"])
@@ -1940,6 +1130,35 @@ export async function executeOrchestra(input: any, stream?: any) {
       judge_confidence: finalJudgeConfidence
     }
   })
+
+  // post-eval — threadMemory 자동 저장 (fire & forget)
+  const _threadId = String(input?.thread_id ?? input?.threadId ?? "").trim()
+  const _projectId = String(input?.project_id ?? input?.projectId ?? "").trim()
+  if (_threadId && _projectId && finalProvider && finalResult?.text) {
+    try {
+      const _summary = String(finalResult.text).slice(0, 300)
+      const _facts = Object.values(finalClaimMap)
+        .flat()
+        .filter((c: any) => c?.type === "fact" || c?.type === "recommendation")
+        .map((c: any) => String(c?.text ?? "").slice(0, 100))
+        .filter(Boolean)
+        .slice(0, 6)
+      upsertThreadMemory({
+        thread_id: _threadId,
+        project_id: _projectId,
+        messages: [],
+        winner_provider: finalProvider,
+        structured: {
+          summary: _summary,
+          facts: _facts,
+          decisions: [],
+          open_questions: [],
+          entities: [],
+          updated_at: Date.now()
+        }
+      })
+    } catch { /* 저장 실패 시 무시 */ }
+  }
 
   return {
     final_answer: {

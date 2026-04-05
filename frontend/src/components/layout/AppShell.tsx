@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from "react";
+﻿import { useCallback, useRef, useState, type ReactNode } from "react";
 
 type Props = {
   sidebar: ReactNode;
@@ -70,10 +70,10 @@ export default function AppShell({ sidebar, topbar, main, artifact, showPanel = 
   return (
     <div className={"app-shell" + (hasPanel ? " app-shell--with-artifact" : "")}>
       <aside className={"app-shell__sidebar" + (sidebarOpen ? "" : " is-collapsed")} style={{ position: "relative" }}>
-        <div style={{ position: "absolute", top: 8, right: 4, zIndex: 10 }}>
+        {sidebar}
+        <div style={{ position: "absolute", top: 8, right: 6, zIndex: 10 }}>
           <HamburgerButton onClick={() => setSidebarOpen(false)} title="사이드바 닫기" />
         </div>
-        {sidebar}
       </aside>
 
       <main className="app-shell__main">

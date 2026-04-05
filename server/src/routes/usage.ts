@@ -1,6 +1,6 @@
-import { readRoutingScores, readScoreboard, readTaskRoutingScores } from "../orchestra/scoreboard.js"
+﻿import { readRoutingScores, readScoreboard, readTaskRoutingScores } from "../orchestra/scoreboard.js"
 import { resolveAdaptiveRoute } from "../orchestra/adaptiveRouter.js"
-import { readModelScoreboard } from "../orchestra/modelScoreboard.js"
+import { readModelScoreboard } from "../orchestra/scoreboard.js"
 
 function safeNumber(value: any, fallback = 0) {
   const n = Number(value)
@@ -123,7 +123,7 @@ function buildCurrentRoles(): Record<string, {
         primary: route.selected_providers[0] ?? null,
         verifier: route.verifier_providers[0] ?? null,
         optional: route.optional_providers[0] ?? null,
-        dynamic_scores: route.dynamic_scores ?? {},
+        dynamic_scores: (route as any).dynamic_scores ?? {},
         router_policy: route.router_policy ?? ""
       }
     } catch {
@@ -161,4 +161,27 @@ export const usageRoute = {
 export const scoreboardRoute = {
   path: "/api/scoreboard",
   handler: runScoreboardRoute
+}
+
+export async function runUsageResetRoute(req: any, res: any) {
+  try {
+    const body = req?.body ?? {}
+    const provider = String(body?.provider ?? "").toLowerCase().trim()
+    if (!provider) return res.json({ ok: false, error: "provider required" })
+
+    const { readModelScoreboard, saveModelScoreboard } = await import("../orchestra/scoreboard.js")
+    const board = readModelScoreboard() as any
+    if (board[provider]) {
+      delete board[provider]
+      saveModelScoreboard(board)
+    }
+    res.json({ ok: true, provider })
+  } catch (e: any) {
+    res.json({ ok: false, error: String(e?.message ?? e) })
+  }
+}
+
+export const usageResetRoute = {
+  path: "/api/usage/reset",
+  handler: runUsageResetRoute
 }

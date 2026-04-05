@@ -1,4 +1,4 @@
-export type ExtractedClaimType =
+﻿export type ExtractedClaimType =
   | "recommendation"
   | "risk"
   | "comparison"
@@ -89,12 +89,78 @@ function includesAny(text: string, terms: string[]): boolean {
 }
 
 function extractNumericValues(text: string): number[] {
-  const matches = String(text ?? "").match(/-?\d+(?:\.\d+)?/g) ?? []
-  const values = matches
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value))
+  const raw = String(text ?? "")
+  const results: number[] = []
 
-  return [...new Set(values)]
+  // 한국어 복합 수치 — "1조 2천억", "3억 5천만", "2천5백만" 등
+  const koreanPattern = /(-?[\d,]+(?:\.\d+)?)\s*(조|억|만|천)?/g
+  const unitMap: Record<string, number> = { 조: 1e12, 억: 1e8, 만: 1e4, 천: 1e3 }
+
+  // 조+억, 억+만, 만+천 복합 패턴 먼저 처리 (우선순위: 큰 단위 → 작은 단위)
+  // "1조 2천억" → 1*1e12 + 2000*1e8 = 1.2조
+  // "3억 5천만" → 3*1e8 + 5000*1e4 = 3.5억
+  // 복합 한국어 수치 — "1조 2천억", "3억 5천만", "2조 5천억"
+  // "N천억" = N*1000*1e8, "N천만" = N*1000*1e4
+  const complexPairs: Array<{ pat: RegExp; fn: (a: number, b: number) => number }> = [
+    { pat: /(-?[\d,]+)\s*조\s*([\d,]+)\s*천억/g, fn: (a, b) => a * 1e12 + b * 1e11 },
+    { pat: /(-?[\d,]+)\s*조\s*([\d,]+)\s*억/g,   fn: (a, b) => a * 1e12 + b * 1e8  },
+    { pat: /(-?[\d,]+)\s*억\s*([\d,]+)\s*천만/g, fn: (a, b) => a * 1e8  + b * 1e7  },
+    { pat: /(-?[\d,]+)\s*억\s*([\d,]+)\s*만/g,   fn: (a, b) => a * 1e8  + b * 1e4  },
+    { pat: /(-?[\d,]+)\s*만\s*([\d,]+)\s*천/g,   fn: (a, b) => a * 1e4  + b * 1e3  },
+  ]
+  for (const { pat, fn } of complexPairs) {
+    let cm: RegExpExecArray | null
+    while ((cm = pat.exec(raw)) !== null) {
+      const a = parseFloat(cm[1].replace(/,/g, ""))
+      const b = parseFloat(cm[2].replace(/,/g, ""))
+      const val = fn(a, b)
+      if (Number.isFinite(val)) results.push(val)
+    }
+  }
+  // "N천억" 단독 — "2천억" = 2000억
+  const prefixPairs: Array<[RegExp, number]> = [
+    [/([\d,]+)\s*천억/g, 1e11],
+    [/([\d,]+)\s*천만/g, 1e7],
+    [/([\d,]+)\s*백만/g, 1e6],
+    [/([\d,]+)\s*백억/g, 1e10],
+  ]
+  for (const [pp, unit] of prefixPairs) {
+    let pm2: RegExpExecArray | null
+    while ((pm2 = pp.exec(raw)) !== null) {
+      const val = parseFloat(pm2[1].replace(/,/g, "")) * unit
+      if (Number.isFinite(val)) results.push(val)
+    }
+  }
+
+  // 단순 한국어 단위 — "5억", "3만" 등
+  let km: RegExpExecArray | null
+  while ((km = koreanPattern.exec(raw)) !== null) {
+    const numStr = km[1]?.replace(/,/g, "")
+    const unit = km[2]
+    if (!numStr) continue
+    const base = parseFloat(numStr)
+    if (!Number.isFinite(base)) continue
+    const val = unit ? base * unitMap[unit] : base
+    if (Number.isFinite(val)) results.push(val)
+  }
+
+  // % 수치 — "2.1%", "30%" → 그대로 수치 추출
+  const pctPattern = /(-?[\d]+(?:\.\d+)?)\s*%/g
+  let pm: RegExpExecArray | null
+  while ((pm = pctPattern.exec(raw)) !== null) {
+    const val = parseFloat(pm[1])
+    if (Number.isFinite(val)) results.push(val)
+  }
+
+  // 일반 숫자 (콤마 포함) — "1,234", "3.14"
+  const numPattern = /-?[\d,]+(?:\.\d+)?/g
+  let nm: RegExpExecArray | null
+  while ((nm = numPattern.exec(raw)) !== null) {
+    const val = parseFloat(nm[0].replace(/,/g, ""))
+    if (Number.isFinite(val)) results.push(val)
+  }
+
+  return [...new Set(results)]
 }
 
 function hasConditionPattern(text: string): boolean {

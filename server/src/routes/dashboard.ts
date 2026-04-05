@@ -1,6 +1,6 @@
 import fs from "fs"
 import { readRoutingScores, readScoreboard, readTaskRoutingScores } from "../orchestra/scoreboard.js"
-import { readModelScoreboard } from "../orchestra/modelScoreboard.js"
+import { readModelScoreboard } from "../orchestra/scoreboard.js"
 
 const BENCH_PATH = "server/data/benchmark.jsonl"
 

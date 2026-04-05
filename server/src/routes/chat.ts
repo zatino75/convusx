@@ -2,6 +2,9 @@ import { executeOrchestra } from "../orchestra/runtime.js"
 import { runAdapter } from "../orchestra/adapterDispatcher.js"
 import { generateImage } from "../adapters/openai.js"
 import { generateImageImagen } from "../adapters/gemini.js"
+import { generateImageMidjourney } from "../adapters/midjourney.js"
+import { generateVideoRunway } from "../adapters/runway.js"
+import { generateVideoVeo } from "../adapters/veo.js"
 import { logBenchmark } from "../orchestra/benchmark.js"
 import { appendProjectMemory, getLatestProjectContext, findPastWinner, addProjectSourceAsset } from "../memory/projectMemory.js"
 import { upsertThreadMemory, findSimilarQuery, getThreadMemory } from "../memory/threadMemory.js"
@@ -18,8 +21,8 @@ type RouteResponse = {
   end?: () => void
 }
 
-const REUSE_SIMILARITY_THRESHOLD = 1.1
-const REUSE_PAST_WINNER_CONFIDENCE = 1.1
+const REUSE_SIMILARITY_THRESHOLD = 999
+const REUSE_PAST_WINNER_CONFIDENCE = 999
 
 function safeArray(value: any): any[] {
   return Array.isArray(value) ? value : []
@@ -32,6 +35,11 @@ function safeObject(value: any): Record<string, any> {
 function safeString(value: any): string {
   return String(value ?? "").trim()
 }
+function safeNumber(value: any, fallback = 0): number {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -85,12 +93,12 @@ function buildDerived(result: any) {
     parallel_providers: safeArray(route?.parallel_providers),
     winner: winnerProvider,
     runner_up: runnerUpProvider,
-    conflict_count: Number(result?.internal_rationale?.conflict_count ?? conflicts.length ?? 0),
+    conflict_count: safeNumber(result?.internal_rationale?.conflict_count, conflicts.length),
     executed_provider_count: executedProviders.length,
-    latency_ms: Number(orchestration?.latency_ms ?? 0),
-    estimated_cost_usd: Number(orchestration?.estimated_cost_usd ?? 0),
+    latency_ms: safeNumber(orchestration?.latency_ms),
+    estimated_cost_usd: safeNumber(orchestration?.estimated_cost_usd),
     fallback_used: Boolean(orchestration?.fallback_used),
-    judge_confidence: Number(orchestration?.judge_confidence ?? judge?.confidence ?? 0)
+    judge_confidence: safeNumber(orchestration?.judge_confidence, safeNumber(judge?.confidence))
   }
 }
 
@@ -123,12 +131,12 @@ function buildBenchmarkPayload(result: any, input: any) {
     fallback_used: Boolean(orchestration?.fallback_used),
     judge_rationale: judge?.rationale ?? null,
     judge_scores: safeArray(judge?.scores),
-    judge_confidence: Number(orchestration?.judge_confidence ?? judge?.confidence ?? 0),
-    conflict_count: Number(orchestration?.conflict_count ?? result?.internal_rationale?.conflict_count ?? 0),
+    judge_confidence: safeNumber(orchestration?.judge_confidence, safeNumber(judge?.confidence)),
+    conflict_count: safeNumber(orchestration?.conflict_count, safeNumber(result?.internal_rationale?.conflict_count)),
     conflicts,
     provider_usage: safeArray(orchestration?.provider_usage),
-    latency_ms: Number(orchestration?.latency_ms ?? 0),
-    estimated_cost_usd: Number(orchestration?.estimated_cost_usd ?? 0),
+    latency_ms: safeNumber(orchestration?.latency_ms),
+    estimated_cost_usd: safeNumber(orchestration?.estimated_cost_usd),
     input_message_count: messages.length,
     input_size: JSON.stringify(input ?? {}).length,
     output_size: JSON.stringify(finalAnswer ?? {}).length
@@ -161,13 +169,8 @@ function buildChatPayload(result: any) {
   const bandit = safeObject(result?.internal_rationale?.bandit)
 
   const finalAnswer = result?.final_answer ?? { provider: null, text: "", ok: false }
-  if (!safeString(finalAnswer?.text)) {
-    const streamSummary = safeObject(result?.response_meta?.orchestration?.provider_stream_summary)
-    const finalProvider = safeString(finalAnswer?.provider) || safeString(orchestration?.final_provider)
-    const summaryText = safeString(streamSummary?.[finalProvider]?.preview_text) ||
-      Object.values(streamSummary).map((s: any) => safeString(s?.preview_text)).filter(Boolean)[0] || ""
-    if (summaryText) finalAnswer.text = summaryText
-  }
+  // preview_text 폴백 제거 — final_answer.text가 항상 완전한 텍스트
+  // (preview_text는 420자로 잘려있어 답이 중간에 끊기는 원인이었음)
 
   return {
     ok: true,
@@ -319,6 +322,33 @@ function buildThreadMessages(input: any, result: any) {
   ]
 }
 
+async function generateThreadTitle(query: string, answerText: string): Promise<string | null> {
+  const openaiKey = String((globalThis as any)?.process?.env?.OPENAI_API_KEY ?? "").trim()
+  if (!openaiKey) return null
+  const sample = answerText.slice(0, 400)
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiKey}` },
+      signal: AbortSignal.timeout(8000),
+      body: JSON.stringify({
+        model: "gpt-5.2",
+        max_tokens: 20,
+        messages: [
+          { role: "system", content: "대화 내용을 보고 스레드 제목을 한국어로 15자 이내로 만드세요. 명사/동사 위주로. 마침표 없이 단어나 짧은 구문만 출력하세요." },
+          { role: "user", content: `질문: ${query.slice(0, 200)}
+답변 요약: ${sample}` }
+        ]
+      })
+    })
+    const d = await res.json() as any
+    const title = String(d?.choices?.[0]?.message?.content ?? "").trim().slice(0, 32)
+    return title || null
+  } catch {
+    return null
+  }
+}
+
 function persistRuntimeMemory(input: any, result: any) {
   const projectId = safeString(input?.project_id) || "chat_project"
   const threadId = safeString(input?.thread_id) || "chat_thread"
@@ -344,7 +374,10 @@ function persistRuntimeMemory(input: any, result: any) {
     title: safeString(input?.title) || null,
     messages: buildThreadMessages(input, result),
     structured: { summary: structured.summary, decisions: structured.decisions, facts: structured.facts, open_questions: structured.open_questions, entities: structured.entities, updated_at: Date.now() },
-    retrieval_preview: projectContext?.retrieval_context ?? { summary: [], decisions: [], facts: [], sources: [] }
+    retrieval_preview: projectContext?.retrieval_context ?? { summary: [], decisions: [], facts: [], sources: [] },
+    winner_provider: result?.final_answer?.provider ??
+      result?.internal_rationale?.final_provider ??
+      result?.response_meta?.orchestration?.final_provider ?? null
   })
 }
 
@@ -379,7 +412,7 @@ Rules:
     const result = await runAdapter({
       provider: "claude", task: "code",
       messages: [{ role: "system", content: SLIDE_SYSTEM_PROMPT }, { role: "user", content: rawMessage }],
-      input: { model: "claude-sonnet-4-6", max_tokens: 2000, temperature: 0.3 }
+      input: { model: "claude-sonnet-4-6", max_tokens: 16384, temperature: 0.3 }
     })
     const text = safeString(result?.text ?? result?.answer_text ?? result?.output?.text)
     if (!text) throw new Error("empty response")
@@ -431,6 +464,68 @@ async function handleGeminiImageCommand(rawMessage: string): Promise<{ ok: boole
   return { ok: true, url: result.url, message: "🎨 Gemini Imagen으로 이미지가 생성됐습니다.", provider: "gemini" }
 }
 
+// ── Midjourney ──
+const MIDJOURNEY_PATTERNS = [
+  "midjourney로", "midjourney 그려줘", "midjourney로 그려줘", "mj로", "mj 그려줘",
+  "미드저니로", "미드저니 그려줘", "midjourney image", "midjourney로 이미지"
+]
+function detectMidjourneyCommand(message: string): boolean {
+  const lower = String(message ?? "").toLowerCase()
+  return MIDJOURNEY_PATTERNS.some((p) => lower.includes(p))
+}
+async function handleMidjourneyCommand(rawMessage: string): Promise<{ ok: boolean; url?: string; image_urls?: string[]; message: string }> {
+  const cleaned = rawMessage
+    .replace(/midjourney(로|로\s*이미지|로\s*그려줘)?/gi, "")
+    .replace(/미드저니(로|로\s*이미지|로\s*그려줘)?/gi, "")
+    .replace(/mj(로|로\s*이미지|로\s*그려줘)?/gi, "")
+    .replace(/이미지\s*(만들어줘|그려줘|생성해줘)/g, "").replace(/그려줘/g, "").trim()
+  const prompt = cleaned || rawMessage
+  const result = await generateImageMidjourney({ prompt, aspect: "1:1", version: "6.1" })
+  if (!result.ok) return { ok: false, message: `Midjourney 생성 실패: ${result.error ?? "알 수 없는 오류"}` }
+  return { ok: true, url: result.image_url, image_urls: result.image_urls, message: "🎨 Midjourney로 이미지가 생성됐습니다." }
+}
+
+// ── Runway Gen4 Turbo ──
+const RUNWAY_PATTERNS = [
+  "runway로", "runway 비디오", "runway로 만들어줘", "runway gen", "런웨이로",
+  "런웨이 비디오", "runway video", "gen4로", "gen4 turbo"
+]
+function detectRunwayCommand(message: string): boolean {
+  const lower = String(message ?? "").toLowerCase()
+  return RUNWAY_PATTERNS.some((p) => lower.includes(p))
+}
+async function handleRunwayCommand(rawMessage: string): Promise<{ ok: boolean; video_url?: string; message: string }> {
+  const cleaned = rawMessage
+    .replace(/runway(로|로\s*만들어줘|로\s*비디오)?/gi, "")
+    .replace(/런웨이(로|로\s*만들어줘|로\s*비디오)?/gi, "")
+    .replace(/gen4(\s*turbo)?(로|로\s*만들어줘)?/gi, "")
+    .replace(/비디오\s*(만들어줘|생성해줘)/g, "").trim()
+  const prompt = cleaned || rawMessage
+  const result = await generateVideoRunway({ prompt, duration: 5, ratio: "16:9", model: "gen4_turbo" })
+  if (!result.ok) return { ok: false, message: `Runway 비디오 생성 실패: ${result.error ?? "알 수 없는 오류"}` }
+  return { ok: true, video_url: result.video_url, message: "🎬 Runway Gen4 Turbo로 비디오가 생성됐습니다." }
+}
+
+// ── Gemini Veo 3.1 ──
+const VEO_PATTERNS = [
+  "veo로", "veo 비디오", "veo로 만들어줘", "veo 만들어줘", "gemini 비디오",
+  "gemini로 비디오", "veo3", "veo 3", "비오로"
+]
+function detectVeoCommand(message: string): boolean {
+  const lower = String(message ?? "").toLowerCase()
+  return VEO_PATTERNS.some((p) => lower.includes(p))
+}
+async function handleVeoCommand(rawMessage: string): Promise<{ ok: boolean; video_url?: string; message: string }> {
+  const cleaned = rawMessage
+    .replace(/veo(\s*3(\.\s*\d)?)?(로|로\s*만들어줘|로\s*비디오)?/gi, "")
+    .replace(/gemini(로)?\s*비디오(로|로\s*만들어줘)?/gi, "")
+    .replace(/비디오\s*(만들어줘|생성해줘)/g, "").trim()
+  const prompt = cleaned || rawMessage
+  const result = await generateVideoVeo({ prompt, duration: 5, aspectRatio: "16:9" })
+  if (!result.ok) return { ok: false, message: `Veo 비디오 생성 실패: ${result.error ?? "알 수 없는 오류"}` }
+  return { ok: true, video_url: result.video_url, message: "🎬 Gemini Veo 3.1로 비디오가 생성됐습니다." }
+}
+
 const HANDOFF_PATTERNS = ["세션 정리해줘","핸드오프 파일","대화 요약해줘","세션 요약","다음 세션에 넘겨줘","컨텍스트 정리","지금까지 정리해줘","handoff","session summary","summarize session"]
 function detectHandoffCommand(message: string): boolean {
   const lower = String(message ?? "").toLowerCase()
@@ -449,12 +544,12 @@ async function runHandoffSummary(threadMessages: any[], query: string): Promise<
       method: "POST",
       headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model: "gpt-5.2",
         messages: [
           { role: "system", content: `당신은 AI 세션 요약 전문가입니다. 대화 내용을 다음 구조로 요약하세요:\n\n## 세션 요약\n### 1. 핵심 작업 목록\n### 2. 완료된 항목\n### 3. 미완료/진행 중 항목\n### 4. 주요 결정사항\n### 5. 다음 세션 시작 시 참고사항\n\n간결하고 구조적으로 작성하세요.` },
           { role: "user", content: `다음 대화를 요약해줘:\n\n${contentToSummarize}` }
         ],
-        max_tokens: 2000
+        max_tokens: 16384
       }),
       signal: AbortSignal.timeout(30000)
     })
@@ -485,7 +580,7 @@ async function runWebSearch(query: string): Promise<{ ok: boolean; answer: strin
       const resp = await fetch("https://api.perplexity.ai/chat/completions", {
         method: "POST",
         headers: { "Authorization": `Bearer ${perplexityKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "You are a search assistant. Provide accurate, up-to-date information with sources. Respond in the same language as the user's query." }, { role: "user", content: query }], max_tokens: 2000, return_citations: true, return_related_questions: false }),
+        body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "You are a search assistant. Provide accurate, up-to-date information with sources. Respond in the same language as the user's query." }, { role: "user", content: query }], max_tokens: 16384, return_citations: true, return_related_questions: false }),
         signal: AbortSignal.timeout(20000)
       })
       const data = await resp.json().catch(() => ({}))
@@ -500,7 +595,7 @@ async function runWebSearch(query: string): Promise<{ ok: boolean; answer: strin
       const resp = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "Provide current information about the topic. Be factual and concise." }, { role: "user", content: query }], max_tokens: 1500 }),
+        body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "Provide current information about the topic. Be factual and concise." }, { role: "user", content: query }], max_tokens: 16384 }),
         signal: AbortSignal.timeout(20000)
       })
       const data = await resp.json().catch(() => ({}))
@@ -535,7 +630,7 @@ async function runDeepResearch(query: string, onProgress: (step: string, text: s
   let searchResult = ""
   if (perplexityKey) {
     try {
-      const pResp = await fetch("https://api.perplexity.ai/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${perplexityKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "You are a research assistant. Provide comprehensive, factual information with sources." }, { role: "user", content: query }], max_tokens: 2000 }) })
+      const pResp = await fetch("https://api.perplexity.ai/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${perplexityKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "You are a research assistant. Provide comprehensive, factual information with sources." }, { role: "user", content: query }], max_tokens: 16384 }) })
       searchResult = String((await pResp.json().catch(() => ({})))?.choices?.[0]?.message?.content ?? "")
     } catch {}
   }
@@ -545,14 +640,14 @@ async function runDeepResearch(query: string, onProgress: (step: string, text: s
   if (openaiKey) {
     try {
       const analyzePrompt = searchResult ? `다음 검색 결과를 바탕으로 "${query}"에 대해 핵심 인사이트를 분석해줘:\n\n${searchResult.slice(0, 3000)}` : `"${query}"에 대해 핵심 인사이트를 분석해줘`
-      const oResp = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "You are an expert analyst. Analyze information critically and provide key insights." }, { role: "user", content: analyzePrompt }], max_tokens: 1500 }) })
+      const oResp = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "You are an expert analyst. Analyze information critically and provide key insights." }, { role: "user", content: analyzePrompt }], max_tokens: 16384 }) })
       analysisResult = String((await oResp.json().catch(() => ({})))?.choices?.[0]?.message?.content ?? "")
     } catch {}
   }
 
   onProgress("report", "📝 Claude로 최종 리포트 작성 중...")
   try {
-    const reportResult = await runAdapter({ provider: "claude", task: "research", messages: [{ role: "system", content: "당신은 전문 리서치 작가입니다. 수집된 정보를 바탕으로 구조화된 심층 리포트를 작성하세요. 마크다운 형식으로 작성하고, 핵심 발견사항, 분석, 결론을 명확하게 구분하세요." }, { role: "user", content: `"${query}"에 대한 심층 리포트를 작성해줘.\n\n[검색 결과]\n${searchResult.slice(0, 2000) || "검색 결과 없음"}\n\n[분석 결과]\n${analysisResult.slice(0, 1500) || "분석 결과 없음"}\n\n위 정보를 종합하여 다음 구조로 리포트를 작성해줘:\n1. 핵심 요약 (Executive Summary)\n2. 주요 발견사항\n3. 심층 분석\n4. 결론 및 시사점` }], input: { model: "claude-sonnet-4-6", max_tokens: 3000, temperature: 0.3 } })
+    const reportResult = await runAdapter({ provider: "claude", task: "research", messages: [{ role: "system", content: "당신은 전문 리서치 작가입니다. 수집된 정보를 바탕으로 구조화된 심층 리포트를 작성하세요. 마크다운 형식으로 작성하고, 핵심 발견사항, 분석, 결론을 명확하게 구분하세요." }, { role: "user", content: `"${query}"에 대한 심층 리포트를 작성해줘.\n\n[검색 결과]\n${searchResult || "검색 결과 없음"}\n\n[분석 결과]\n${analysisResult || "분석 결과 없음"}\n\n위 정보를 종합하여 다음 구조로 리포트를 작성해줘:\n1. 핵심 요약 (Executive Summary)\n2. 주요 발견사항\n3. 심층 분석\n4. 결론 및 시사점` }], input: { model: "claude-sonnet-4-6", max_tokens: 16384, temperature: 0.3 } })
     const reportText = String(reportResult?.text ?? reportResult?.answer_text ?? "")
     if (!reportText) throw new Error("empty report")
     return { ok: true, report: reportText }
@@ -569,24 +664,24 @@ function detectLegalReviewCommand(message: string): boolean { return LEGAL_REVIE
 async function runLegalReview(query: string, attachedText: string, onProgress: (step: string, text: string) => void): Promise<{ ok: boolean; report: string; error?: string }> {
   const openaiKey = String((globalThis as any)?.process?.env?.OPENAI_API_KEY ?? "").trim()
   const perplexityKey = String((globalThis as any)?.process?.env?.PERPLEXITY_API_KEY ?? "").trim()
-  const docContext = attachedText ? `\n\n[첨부 문서 내용]\n${attachedText.slice(0, 4000)}` : ""
+  const docContext = attachedText ? `\n\n[첨부 문서 내용]\n${attachedText.slice(0, 8000)}` : ""
   onProgress("search", "⚖️ 관련 법령 및 판례 검색 중...")
   let legalSearchResult = ""
   if (perplexityKey) {
     try {
-      const pResp = await fetch("https://api.perplexity.ai/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${perplexityKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "한국 법률 전문가로서 관련 법령, 판례, 규정을 검색하여 제공하세요." }, { role: "user", content: `다음 법률 검토 요청과 관련된 법령, 판례를 검색해줘:\n\n${query}${docContext}` }], max_tokens: 2000 }), signal: AbortSignal.timeout(30000) })
+      const pResp = await fetch("https://api.perplexity.ai/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${perplexityKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "한국 법률 전문가로서 관련 법령, 판례, 규정을 검색하여 제공하세요." }, { role: "user", content: `다음 법률 검토 요청과 관련된 법령, 판례를 검색해줘:\n\n${query}${docContext}` }], max_tokens: 16384 }), signal: AbortSignal.timeout(30000) })
       legalSearchResult = String((await pResp.json().catch(() => ({})))?.choices?.[0]?.message?.content ?? "")
     } catch {}
   }
   onProgress("analyze", "📋 Claude가 핵심 조항 및 위험 요소 분석 중...")
   let clauseAnalysis = ""
   try {
-    const cr = await runAdapter({ provider: "claude", task: "research", messages: [{ role: "system", content: "계약법 전문 법률 분석가입니다. 불리한 조항, 위험 요소를 HIGH/MEDIUM/LOW로 분류하고 수정 권고안을 제시하세요." }, { role: "user", content: `다음 내용을 법률적으로 분석해줘:\n\n${query}${docContext}\n\n[참고 법령]\n${legalSearchResult.slice(0, 2000) || "없음"}` }], input: { model: "claude-sonnet-4-6", max_tokens: 2500, temperature: 0.1 } })
+    const cr = await runAdapter({ provider: "claude", task: "research", messages: [{ role: "system", content: "계약법 전문 법률 분석가입니다. 불리한 조항, 위험 요소를 HIGH/MEDIUM/LOW로 분류하고 수정 권고안을 제시하세요." }, { role: "user", content: `다음 내용을 법률적으로 분석해줘:\n\n${query}${docContext}\n\n[참고 법령]\n${legalSearchResult || "없음"}` }], input: { model: "claude-sonnet-4-6", max_tokens: 16384, temperature: 0.1 } })
     clauseAnalysis = String(cr?.text ?? cr?.answer_text ?? "")
   } catch {}
   onProgress("report", "🔍 OpenAI가 최종 법률 검토 보고서 작성 중...")
   try {
-    const oData = await (await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "기업법무 전문가로서 구조화된 법률 검토 보고서를 작성하세요. 형식: ## ⚖️ 법률 검토 보고서 / ### 1.검토개요 / ### 2.핵심위험항목(HIGH/MEDIUM/LOW) / ### 3.조항별분석 / ### 4.관련법령 / ### 5.수정권고사항 / ### 6.종합의견 / ※참고용이며 법적구속력없음" }, { role: "user", content: `법률 검토 대상: ${query}${docContext}\n\n[Claude 분석]\n${clauseAnalysis.slice(0, 2000) || "없음"}\n\n[관련 법령]\n${legalSearchResult.slice(0, 1500) || "없음"}\n\n최종 보고서 작성해줘.` }], max_tokens: 3000 }), signal: AbortSignal.timeout(60000) })).json().catch(() => ({}))
+    const oData = await (await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "기업법무 전문가로서 구조화된 법률 검토 보고서를 작성하세요. 형식: ## ⚖️ 법률 검토 보고서 / ### 1.검토개요 / ### 2.핵심위험항목(HIGH/MEDIUM/LOW) / ### 3.조항별분석 / ### 4.관련법령 / ### 5.수정권고사항 / ### 6.종합의견 / ※참고용이며 법적구속력없음" }, { role: "user", content: `법률 검토 대상: ${query}${docContext}\n\n[Claude 분석]\n${clauseAnalysis || "없음"}\n\n[관련 법령]\n${legalSearchResult || "없음"}\n\n최종 보고서 작성해줘.` }], max_tokens: 16384 }), signal: AbortSignal.timeout(60000) })).json().catch(() => ({}))
     const report = String(oData?.choices?.[0]?.message?.content ?? "").trim()
     if (!report) throw new Error("empty")
     return { ok: true, report }
@@ -602,12 +697,12 @@ function detectDataAnalysisCommand(message: string): boolean { return DATA_ANALY
 async function runDataAnalysis(query: string, attachedText: string, onProgress: (step: string, text: string) => void): Promise<{ ok: boolean; report: string; error?: string }> {
   const openaiKey = String((globalThis as any)?.process?.env?.OPENAI_API_KEY ?? "").trim()
   const perplexityKey = String((globalThis as any)?.process?.env?.PERPLEXITY_API_KEY ?? "").trim()
-  const dataContext = attachedText ? `\n\n[데이터]\n${attachedText.slice(0, 5000)}` : ""
+  const dataContext = attachedText ? `\n\n[데이터]\n${attachedText.slice(0, 8000)}` : ""
   onProgress("search", "📊 관련 업계 기준 및 벤치마크 검색 중...")
   let benchmarkResult = ""
   if (perplexityKey && !attachedText) {
     try {
-      const pResp = await fetch("https://api.perplexity.ai/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${perplexityKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "데이터 분석 전문가로서 관련 업계 기준, 벤치마크, 평균 지표를 제공하세요." }, { role: "user", content: `다음 데이터 분석 요청과 관련된 업계 기준을 검색해줘:\n\n${query}` }], max_tokens: 1500 }), signal: AbortSignal.timeout(25000) })
+      const pResp = await fetch("https://api.perplexity.ai/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${perplexityKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "데이터 분석 전문가로서 관련 업계 기준, 벤치마크, 평균 지표를 제공하세요." }, { role: "user", content: `다음 데이터 분석 요청과 관련된 업계 기준을 검색해줘:\n\n${query}` }], max_tokens: 16384 }), signal: AbortSignal.timeout(25000) })
       benchmarkResult = String((await pResp.json().catch(() => ({})))?.choices?.[0]?.message?.content ?? "")
     } catch {}
   }
@@ -615,13 +710,13 @@ async function runDataAnalysis(query: string, attachedText: string, onProgress: 
   let analysisResult = ""
   if (openaiKey) {
     try {
-      const oData = await (await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "데이터 사이언티스트로서 핵심지표요약, 트렌드/패턴식별, 상관관계분석, 이상치, 비즈니스해석을 제공하세요." }, { role: "user", content: `다음 데이터를 분석해줘:\n\n${query}${dataContext}\n\n${benchmarkResult ? `[벤치마크]\n${benchmarkResult.slice(0, 1000)}` : ""}` }], max_tokens: 2500 }), signal: AbortSignal.timeout(60000) })).json().catch(() => ({}))
+      const oData = await (await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "데이터 사이언티스트로서 핵심지표요약, 트렌드/패턴식별, 상관관계분석, 이상치, 비즈니스해석을 제공하세요." }, { role: "user", content: `다음 데이터를 분석해줘:\n\n${query}${dataContext}\n\n${benchmarkResult ? `[벤치마크]\n${benchmarkResult.slice(0, 1000)}` : ""}` }], max_tokens: 16384 }), signal: AbortSignal.timeout(60000) })).json().catch(() => ({}))
       analysisResult = String(oData?.choices?.[0]?.message?.content ?? "").trim()
     } catch {}
   }
   onProgress("report", "📝 Claude가 분석 보고서 작성 중...")
   try {
-    const cr = await runAdapter({ provider: "claude", task: "research", messages: [{ role: "system", content: "데이터 분석 보고서 전문가입니다. 형식: ## 📊 데이터 분석 보고서 / ###1.분석개요 / ###2.핵심지표요약 / ###3.주요발견사항 / ###4.트렌드및패턴 / ###5.인사이트 / ###6.시각화제안 / ###7.권고사항" }, { role: "user", content: `보고서 작성:\n[요청] ${query}${dataContext}\n[OpenAI분석]\n${analysisResult.slice(0, 2000) || "없음"}\n[벤치마크]\n${benchmarkResult.slice(0, 800) || "없음"}` }], input: { model: "claude-sonnet-4-6", max_tokens: 3000, temperature: 0.2 } })
+    const cr = await runAdapter({ provider: "claude", task: "research", messages: [{ role: "system", content: "데이터 분석 보고서 전문가입니다. 형식: ## 📊 데이터 분석 보고서 / ###1.분석개요 / ###2.핵심지표요약 / ###3.주요발견사항 / ###4.트렌드및패턴 / ###5.인사이트 / ###6.시각화제안 / ###7.권고사항" }, { role: "user", content: `보고서 작성:\n[요청] ${query}${dataContext}\n[OpenAI분석]\n${analysisResult || "없음"}\n[벤치마크]\n${benchmarkResult || "없음"}` }], input: { model: "claude-sonnet-4-6", max_tokens: 16384, temperature: 0.2 } })
     const report = String(cr?.text ?? cr?.answer_text ?? "").trim()
     if (!report) throw new Error("empty")
     return { ok: true, report }
@@ -637,12 +732,12 @@ function detectFinanceCommand(message: string): boolean { return FINANCE_PATTERN
 async function runFinanceAnalysis(query: string, attachedText: string, onProgress: (step: string, text: string) => void): Promise<{ ok: boolean; report: string; error?: string }> {
   const openaiKey = String((globalThis as any)?.process?.env?.OPENAI_API_KEY ?? "").trim()
   const perplexityKey = String((globalThis as any)?.process?.env?.PERPLEXITY_API_KEY ?? "").trim()
-  const docContext = attachedText ? `\n\n[첨부 재무 문서]\n${attachedText.slice(0, 5000)}` : ""
+  const docContext = attachedText ? `\n\n[첨부 재무 문서]\n${attachedText.slice(0, 8000)}` : ""
   onProgress("search", "📈 최신 재무 데이터 및 업계 비교 검색 중...")
   let financeSearch = ""
   if (perplexityKey) {
     try {
-      const pResp = await fetch("https://api.perplexity.ai/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${perplexityKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "기업 재무 분석 전문가로서 최신 재무 데이터, 공시, 업계 평균 지표를 제공하세요." }, { role: "user", content: `다음 재무 분석 요청 관련 최신 데이터를 검색해줘:\n\n${query}` }], max_tokens: 2000 }), signal: AbortSignal.timeout(30000) })
+      const pResp = await fetch("https://api.perplexity.ai/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${perplexityKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "기업 재무 분석 전문가로서 최신 재무 데이터, 공시, 업계 평균 지표를 제공하세요." }, { role: "user", content: `다음 재무 분석 요청 관련 최신 데이터를 검색해줘:\n\n${query}` }], max_tokens: 16384 }), signal: AbortSignal.timeout(30000) })
       financeSearch = String((await pResp.json().catch(() => ({})))?.choices?.[0]?.message?.content ?? "")
     } catch {}
   }
@@ -650,13 +745,13 @@ async function runFinanceAnalysis(query: string, attachedText: string, onProgres
   let financeAnalysis = ""
   if (openaiKey) {
     try {
-      const oData = await (await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "CFA 수준의 재무 분석가로서 PER/PBR/ROE/EBITDA 계산, 수익성/안정성/성장성 분석, 업계 비교, 리스크 요인을 분석하세요. ※투자 권유 아님" }, { role: "user", content: `재무 정보 분석:\n\n${query}${docContext}\n\n[검색 데이터]\n${financeSearch.slice(0, 2000) || "없음"}` }], max_tokens: 2500 }), signal: AbortSignal.timeout(60000) })).json().catch(() => ({}))
+      const oData = await (await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "CFA 수준의 재무 분석가로서 PER/PBR/ROE/EBITDA 계산, 수익성/안정성/성장성 분석, 업계 비교, 리스크 요인을 분석하세요. ※투자 권유 아님" }, { role: "user", content: `재무 정보 분석:\n\n${query}${docContext}\n\n[검색 데이터]\n${financeSearch || "없음"}` }], max_tokens: 16384 }), signal: AbortSignal.timeout(60000) })).json().catch(() => ({}))
       financeAnalysis = String(oData?.choices?.[0]?.message?.content ?? "").trim()
     } catch {}
   }
   onProgress("report", "📋 Claude가 재무 분석 보고서 작성 중...")
   try {
-    const cr = await runAdapter({ provider: "claude", task: "research", messages: [{ role: "system", content: "기업 재무 보고서 전문가입니다. 형식: ## 💹 기업 재무 분석 보고서 / ###1.분석개요 / ###2.핵심재무지표요약(표) / ###3.수익성분석 / ###4.안정성분석 / ###5.성장성분석 / ###6.주요리스크 / ###7.종합평가 / ※참고용, 투자권유아님" }, { role: "user", content: `재무 보고서 작성:\n[대상] ${query}${docContext}\n[OpenAI분석]\n${financeAnalysis.slice(0, 2000) || "없음"}\n[시장데이터]\n${financeSearch.slice(0, 1500) || "없음"}` }], input: { model: "claude-sonnet-4-6", max_tokens: 3000, temperature: 0.15 } })
+    const cr = await runAdapter({ provider: "claude", task: "research", messages: [{ role: "system", content: "기업 재무 보고서 전문가입니다. 형식: ## 💹 기업 재무 분석 보고서 / ###1.분석개요 / ###2.핵심재무지표요약(표) / ###3.수익성분석 / ###4.안정성분석 / ###5.성장성분석 / ###6.주요리스크 / ###7.종합평가 / ※참고용, 투자권유아님" }, { role: "user", content: `재무 보고서 작성:\n[대상] ${query}${docContext}\n[OpenAI분석]\n${financeAnalysis || "없음"}\n[시장데이터]\n${financeSearch || "없음"}` }], input: { model: "claude-sonnet-4-6", max_tokens: 16384, temperature: 0.15 } })
     const report = String(cr?.text ?? cr?.answer_text ?? "").trim()
     if (!report) throw new Error("empty")
     return { ok: true, report }
@@ -672,12 +767,12 @@ function detectProductDevCommand(message: string): boolean { return PRODUCT_DEV_
 async function runProductDevelopment(query: string, attachedText: string, onProgress: (step: string, text: string) => void): Promise<{ ok: boolean; report: string; error?: string }> {
   const openaiKey = String((globalThis as any)?.process?.env?.OPENAI_API_KEY ?? "").trim()
   const perplexityKey = String((globalThis as any)?.process?.env?.PERPLEXITY_API_KEY ?? "").trim()
-  const docContext = attachedText ? `\n\n[첨부 문서]\n${attachedText.slice(0, 4000)}` : ""
+  const docContext = attachedText ? `\n\n[첨부 문서]\n${attachedText.slice(0, 8000)}` : ""
   onProgress("search", "🔍 시장 트렌드 및 경쟁사 현황 검색 중...")
   let marketSearch = ""
   if (perplexityKey) {
     try {
-      const pResp = await fetch("https://api.perplexity.ai/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${perplexityKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "시장 조사 전문가로서 최신 시장 트렌드, 경쟁사 동향, 소비자 인사이트를 제공하세요." }, { role: "user", content: `다음 상품/브랜드 기획 관련 시장 동향을 검색해줘:\n\n${query}${docContext}` }], max_tokens: 2000 }), signal: AbortSignal.timeout(30000) })
+      const pResp = await fetch("https://api.perplexity.ai/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${perplexityKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "시장 조사 전문가로서 최신 시장 트렌드, 경쟁사 동향, 소비자 인사이트를 제공하세요." }, { role: "user", content: `다음 상품/브랜드 기획 관련 시장 동향을 검색해줘:\n\n${query}${docContext}` }], max_tokens: 16384 }), signal: AbortSignal.timeout(30000) })
       marketSearch = String((await pResp.json().catch(() => ({})))?.choices?.[0]?.message?.content ?? "")
     } catch {}
   }
@@ -685,13 +780,13 @@ async function runProductDevelopment(query: string, attachedText: string, onProg
   let strategyResult = ""
   if (openaiKey) {
     try {
-      const oData = await (await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "브랜딩 및 상품 전략 전문가로서 SWOT분석, 타겟고객페르소나(2-3개), 포지셔닝전략, USP, GTM전략, 리스크를 분석하세요." }, { role: "user", content: `상품/브랜드 기획 분석:\n\n${query}${docContext}\n\n[시장조사]\n${marketSearch.slice(0, 2000) || "없음"}` }], max_tokens: 2500 }), signal: AbortSignal.timeout(60000) })).json().catch(() => ({}))
+      const oData = await (await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "브랜딩 및 상품 전략 전문가로서 SWOT분석, 타겟고객페르소나(2-3개), 포지셔닝전략, USP, GTM전략, 리스크를 분석하세요." }, { role: "user", content: `상품/브랜드 기획 분석:\n\n${query}${docContext}\n\n[시장조사]\n${marketSearch || "없음"}` }], max_tokens: 16384 }), signal: AbortSignal.timeout(60000) })).json().catch(() => ({}))
       strategyResult = String(oData?.choices?.[0]?.message?.content ?? "").trim()
     } catch {}
   }
   onProgress("report", "📦 Claude가 상품 기획서 작성 중...")
   try {
-    const cr = await runAdapter({ provider: "claude", task: "research", messages: [{ role: "system", content: "상품 기획 전문가입니다. 형식: ## 📦 상품 개발 기획서 / ###1.상품개요 / ###2.시장분석(표) / ###3.타겟고객페르소나 / ###4.SWOT분석 / ###5.포지셔닝전략및USP / ###6.GTM전략 / ###7.마일스톤및실행계획 / ###8.예상리스크및대응" }, { role: "user", content: `기획서 작성:\n[기획] ${query}${docContext}\n[전략분석]\n${strategyResult.slice(0, 2000) || "없음"}\n[시장데이터]\n${marketSearch.slice(0, 1500) || "없음"}` }], input: { model: "claude-sonnet-4-6", max_tokens: 3000, temperature: 0.3 } })
+    const cr = await runAdapter({ provider: "claude", task: "research", messages: [{ role: "system", content: "상품 기획 전문가입니다. 형식: ## 📦 상품 개발 기획서 / ###1.상품개요 / ###2.시장분석(표) / ###3.타겟고객페르소나 / ###4.SWOT분석 / ###5.포지셔닝전략및USP / ###6.GTM전략 / ###7.마일스톤및실행계획 / ###8.예상리스크및대응" }, { role: "user", content: `기획서 작성:\n[기획] ${query}${docContext}\n[전략분석]\n${strategyResult || "없음"}\n[시장데이터]\n${marketSearch || "없음"}` }], input: { model: "claude-sonnet-4-6", max_tokens: 16384, temperature: 0.3 } })
     const report = String(cr?.text ?? cr?.answer_text ?? "").trim()
     if (!report) throw new Error("empty")
     return { ok: true, report }
@@ -729,6 +824,53 @@ function buildSourceAssetFromThread(input: any): any | null {
   return { id: `source_${threadId}_${Date.now()}`, thread_id: threadId, type: "thread_summary", title, content, status: "confirmed", created_at: Date.now(), updated_at: Date.now() }
 }
 
+async function runSourcePromote(
+  threadMessages: any[],
+  projectId: string,
+  _query: string
+): Promise<{ ok: boolean; title: string; content: string; error?: string }> {
+  const openaiKey = String((globalThis as any)?.process?.env?.OPENAI_API_KEY ?? "").trim()
+  if (!openaiKey) return { ok: false, title: "", content: "", error: "OPENAI_API_KEY 없음" }
+
+  const relevant = threadMessages
+    .filter((m: any) => m.role === "user" || m.role === "assistant")
+    .slice(-20)
+    .map((m: any) => `[${m.role.toUpperCase()}] ${String(m.content ?? "").slice(0, 800)}`)
+    .join("\n\n")
+
+  if (!relevant.trim()) return { ok: false, title: "", content: "", error: "저장할 내용 없음" }
+
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiKey}` },
+      body: JSON.stringify({
+        model: "gpt-5.2",
+        max_tokens: 16384,
+        messages: [
+          {
+            role: "system",
+            content: "당신은 대화 내용을 구조화된 지식 자산으로 변환하는 AI입니다. 다음 대화를 분석해서 JSON으로만 응답하세요 (마크다운 코드블록 없이): { \"title\": \"한 줄 제목 (20자 이내)\", \"content\": \"핵심 내용, 결론, 결정사항, 중요 사실을 구조화한 마크다운 (500자 이내)\" } 내용은 미래에 다른 대화에서 참고할 수 있도록 자기완결적으로 작성하세요. 불필요한 인사, 메타 발언은 제거하고 핵심 정보만 남기세요."
+          },
+          { role: "user", content: `다음 대화를 지식 자산으로 변환해주세요:\n\n${relevant}` }
+        ]
+      })
+    })
+    const data = await res.json() as any
+    const raw = String(data?.choices?.[0]?.message?.content ?? "").trim()
+    const cleaned = raw.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim()
+    const parsed = JSON.parse(cleaned)
+    return {
+      ok: true,
+      title: String(parsed?.title ?? "스레드 지식 자산").slice(0, 60),
+      content: String(parsed?.content ?? relevant.slice(0, 500))
+    }
+  } catch (e: any) {
+    return { ok: false, title: "", content: "", error: e?.message ?? "파싱 실패" }
+  }
+}
+
+// SSE 라우트에서 사용하는 동기 래퍼 — structured memory 기반 즉시 반환 (비동기 불필요)
 function handleSourcePromoteCommand(input: any): { ok: boolean; message: string } {
   const projectId = safeString(input?.project_id) || "chat_project"
   const asset = buildSourceAssetFromThread(input)
@@ -758,7 +900,7 @@ async function analyzeImageWithVision(attached: any, userText: string): Promise<
   const body = {
     model: "gpt-5.2",
     messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: `data:${attached.type};base64,${attached.base64}`, detail: "high" } }, { type: "text", text: userText || "이 이미지를 분석해줘" }] }],
-    max_tokens: 2048
+    max_tokens: 16384
   }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 60000)
@@ -779,8 +921,8 @@ async function analyzePdfWithGemini(attached: any, userText: string): Promise<st
   const apiKey = String((globalThis as any)?.process?.env?.GEMINI_API_KEY ?? "").trim()
   if (!apiKey) return analyzePdfWithOpenAI(attached, userText)
   try {
-    const body = { contents: [{ parts: [{ inline_data: { mime_type: "application/pdf", data: attached.base64 } }, { text: userText || "이 PDF 문서의 내용을 분석하고 핵심 내용을 요약해줘" }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 4096 } }
-    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${apiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(60000) })
+    const body = { contents: [{ parts: [{ inline_data: { mime_type: "application/pdf", data: attached.base64 } }, { text: userText || "이 PDF 문서의 내용을 분석하고 핵심 내용을 요약해줘" }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 65536 } }
+    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(60000) })
     const data = await resp.json().catch(() => ({}))
     if (!resp.ok) throw new Error(data?.error?.message ?? `HTTP ${resp.status}`)
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ""
@@ -792,6 +934,182 @@ async function analyzePdfWithGemini(attached: any, userText: string): Promise<st
   }
 }
 
+// Excel/Word/PPT → Claude API에 직접 파일 내용 전달
+// ZIP 파싱 대신 파일을 텍스트 프롬프트로 설명하고 Claude가 분석하도록 위임
+async function analyzeOfficeFileWithClaude(attached: any, userText: string): Promise<string> {
+  const apiKey = String((globalThis as any)?.process?.env?.ANTHROPIC_API_KEY ?? "").trim()
+  if (!apiKey) return "API 키가 없습니다."
+
+  // ZIP XML 파싱으로 텍스트 추출 시도
+  let extractedText = ""
+  try {
+    const content = Buffer.from(attached.base64, "base64").toString("latin1")
+    const name = String(attached.name ?? "").toLowerCase()
+
+    if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+      // xlsx = ZIP 파일. Node.js로 ZIP 엔트리 파싱
+      try {
+        const { unzipSync } = await import("zlib")
+        const buf = Buffer.from(attached.base64, "base64")
+        // ZIP local file header 파싱으로 각 파일 추출
+        const texts: string[] = []
+        let offset = 0
+        const entries: { name: string; data: Buffer }[] = []
+        while (offset < buf.length - 4) {
+          if (buf.readUInt32LE(offset) !== 0x04034b50) break
+          const fnLen = buf.readUInt16LE(offset + 26)
+          const extraLen = buf.readUInt16LE(offset + 28)
+          const entryName = buf.slice(offset + 30, offset + 30 + fnLen).toString("utf-8")
+          const compMethod = buf.readUInt16LE(offset + 8)
+          const compSize = buf.readUInt32LE(offset + 18)
+          const dataStart = offset + 30 + fnLen + extraLen
+          const compData = buf.slice(dataStart, dataStart + compSize)
+          let entryData: Buffer
+          try {
+            entryData = compMethod === 8 ? unzipSync(Buffer.concat([Buffer.from([0x78, 0x9c]), compData])) : compData
+          } catch {
+            try { entryData = unzipSync(compData) } catch { entryData = compData }
+          }
+          entries.push({ name: entryName, data: entryData })
+          offset = dataStart + compSize
+        }
+        // sharedStrings.xml에서 텍스트 추출
+        const ss = entries.find(e => e.name.includes("sharedStrings"))
+        if (ss) {
+          const xml = ss.data.toString("utf-8")
+          const tMatches = xml.match(/<t[^>]*>([^<]+)<\/t>/g) ?? []
+          for (const m of tMatches) { const v = m.replace(/<[^>]+>/g,"").trim(); if (v) texts.push(v) }
+        }
+        // sheet1에서 수치 추출
+        const sh = entries.find(e => e.name.includes("sheet1.xml"))
+        const nums: string[] = []
+        if (sh) {
+          const xml = sh.data.toString("utf-8")
+          const vMatches = xml.match(/<v>([^<]+)<\/v>/g) ?? []
+          for (const m of vMatches) { nums.push(m.replace(/<[^>]+>/g,"")) }
+        }
+        extractedText = texts.length > 0
+          ? "텍스트 데이터: " + [...new Set(texts)].join(", ").slice(0, 3000) + (nums.length ? "\n수치: " + nums.slice(0,100).join(", ") : "")
+          : ""
+      } catch (ze: any) {
+        extractedText = ""
+      }
+    } else if (name.endsWith(".csv")) {
+      extractedText = Buffer.from(attached.base64, "base64").toString("utf-8").slice(0, 4000)
+    } else if (name.endsWith(".docx") || name.endsWith(".doc")) {
+      try {
+        const { unzipSync } = await import("zlib")
+        const buf = Buffer.from(attached.base64, "base64")
+        let offset = 0
+        const entries: { name: string; data: Buffer }[] = []
+        while (offset < buf.length - 4) {
+          if (buf.readUInt32LE(offset) !== 0x04034b50) break
+          const fnLen = buf.readUInt16LE(offset + 26)
+          const extraLen = buf.readUInt16LE(offset + 28)
+          const entryName = buf.slice(offset + 30, offset + 30 + fnLen).toString("utf-8")
+          const compMethod = buf.readUInt16LE(offset + 8)
+          const compSize = buf.readUInt32LE(offset + 18)
+          const dataStart = offset + 30 + fnLen + extraLen
+          const compData = buf.slice(dataStart, dataStart + compSize)
+          let entryData: Buffer
+          try { entryData = compMethod === 8 ? unzipSync(compData) : compData } catch { entryData = compData }
+          entries.push({ name: entryName, data: entryData })
+          offset = dataStart + compSize
+        }
+        const doc = entries.find(e => e.name.includes("document.xml"))
+        if (doc) {
+          const xml = doc.data.toString("utf-8")
+          const tMatches = xml.match(/<w:t[^>]*>([^<]+)<\/w:t>/g) ?? []
+          extractedText = tMatches.map((m: string) => m.replace(/<[^>]+>/g,"").trim()).filter(Boolean).join(" ").slice(0, 6000)
+        }
+      } catch { extractedText = "" }
+    } else if (name.endsWith(".pptx") || name.endsWith(".ppt")) {
+      // PPT: 슬라이드별 텍스트 추출
+      const slides: string[] = []
+      let si = 1
+      while (si <= 50) {
+        const sm = content.match(new RegExp("ppt/slides/slide" + si + "\.xml[\s\S]{0,100000}?(?=PK\x03\x04)"))?.[0] ?? ""
+        if (!sm) break
+        const ts = (sm.match(/<a:t>([^<]{1,500})<\/a:t>/g) ?? []).map((m: string) => m.replace(/<[^>]+>/g,"").trim()).filter(Boolean)
+        if (ts.length) slides.push("[슬라이드 " + si + "] " + ts.join(" | "))
+        si++
+      }
+      extractedText = slides.join("\n").slice(0, 5000)
+    }
+  } catch {}
+
+  const prompt = extractedText
+    ? userText + "\n\n[파일명: " + attached.name + "]\n[추출된 내용]\n" + extractedText
+    : userText + "\n\n[파일명: " + attached.name + "]\n\n파일이 첨부되었습니다. 파일명을 참고하여 분석해주세요."
+
+  try {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 16384, messages: [{ role: "user", content: prompt }] })
+    })
+    const d = await resp.json()
+    return d?.content?.[0]?.text ?? "분석 실패"
+  } catch (e: any) { return "분석 오류: " + String(e?.message ?? "") }
+}
+
+// PPT/장문 문서는 Gemini로
+async function analyzeOfficeFileWithGemini(attached: any, userText: string): Promise<string> {
+  const apiKey = String((globalThis as any)?.process?.env?.GEMINI_API_KEY ?? "").trim()
+  if (!apiKey) return analyzeOfficeFileWithClaude(attached, userText)
+  try {
+    const content = Buffer.from(attached.base64, "base64").toString("latin1")
+    const name = String(attached.name ?? "").toLowerCase()
+    const slides: string[] = []
+    let si = 1
+    while (si <= 50) {
+      const sm = content.match(new RegExp("ppt/slides/slide" + si + "\.xml[\s\S]{0,100000}?(?=PK\x03\x04)"))?.[0] ?? ""
+      if (!sm) break
+      const ts = (sm.match(/<a:t>([^<]{1,500})<\/a:t>/g) ?? []).map((m: string) => m.replace(/<[^>]+>/g,"").trim()).filter(Boolean)
+      if (ts.length) slides.push("[슬라이드 " + si + "] " + ts.join(" | "))
+      si++
+    }
+    const extractedText = slides.join("\n").slice(0, 5000)
+    const prompt = extractedText
+      ? userText + "\n\n[파일명: " + name + "]\n" + extractedText
+      : userText + "\n\n[파일명: " + name + "]"
+    const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 65536 } }
+    const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=" + apiKey, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body)
+    })
+    const d = await resp.json()
+    return d?.candidates?.[0]?.content?.parts?.[0]?.text || analyzeOfficeFileWithClaude(attached, userText)
+  } catch { return analyzeOfficeFileWithClaude(attached, userText) }
+}
+
+async function analyzeDocumentWithGemini(docText: string, userText: string): Promise<string> {
+  const apiKey = String((globalThis as any)?.process?.env?.GEMINI_API_KEY ?? "").trim()
+  if (!apiKey) return analyzeDocumentWithClaude(docText, userText)
+  try {
+    const body = { contents: [{ parts: [{ text: userText + "\n\n" + docText }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 65536 } }
+    const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=" + apiKey, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body)
+    })
+    const d = await resp.json()
+    return d?.candidates?.[0]?.content?.parts?.[0]?.text || analyzeDocumentWithClaude(docText, userText)
+  } catch { return analyzeDocumentWithClaude(docText, userText) }
+}
+
+async function analyzeDocumentWithClaude(docText: string, userText: string): Promise<string> {
+  const apiKey = String((globalThis as any)?.process?.env?.ANTHROPIC_API_KEY ?? "").trim()
+  if (!apiKey) return "분석할 수 없습니다."
+  try {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 16384, messages: [{ role: "user", content: userText + "\n\n" + docText }] })
+    })
+    const d = await resp.json()
+    return d?.content?.[0]?.text ?? "분석 실패"
+  } catch (e: any) { return "분석 오류: " + String(e?.message ?? "") }
+}
+
+
 async function analyzePdfWithOpenAI(attached: any, userText: string): Promise<string> {
   const apiKey = String((globalThis as any)?.process?.env?.OPENAI_API_KEY ?? "").trim()
   if (!apiKey) return "API 키가 없어 PDF를 분석할 수 없습니다."
@@ -799,7 +1117,7 @@ async function analyzePdfWithOpenAI(attached: any, userText: string): Promise<st
     const pdfText = Buffer.from(attached.base64, "base64").toString("latin1")
     const extracted = pdfText.replace(/[^ -~가-힣ㄱ-ㅎㅏ-ㅣ]/g, " ").replace(/\s+/g, " ").slice(0, 6000).trim()
     if (extracted.length < 100) return `PDF 파일(${attached.name})을 받았습니다. 이 파일은 스캔된 이미지 PDF로 텍스트 추출이 어렵습니다. Gemini API 키를 설정하면 이미지 PDF도 분석할 수 있습니다.`
-    const body = { model: "gpt-5.2", messages: [{ role: "system", content: "당신은 문서 분석 전문가입니다. 주어진 텍스트를 분석하고 핵심 내용을 정리해주세요." }, { role: "user", content: `[PDF 파일: ${attached.name}]\n\n[추출된 텍스트]\n${extracted}\n\n${userText || "이 문서의 핵심 내용을 분석해줘"}` }], max_tokens: 2048 }
+    const body = { model: "gpt-5.2", messages: [{ role: "system", content: "당신은 문서 분석 전문가입니다. 주어진 텍스트를 분석하고 핵심 내용을 정리해주세요." }, { role: "user", content: `[PDF 파일: ${attached.name}]\n\n[추출된 텍스트]\n${extracted}\n\n${userText || "이 문서의 핵심 내용을 분석해줘"}` }], max_tokens: 16384 }
     const resp = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) })
     const data = await resp.json().catch(() => ({}))
     return String(data?.choices?.[0]?.message?.content ?? "PDF 분석에 실패했습니다.")
@@ -833,28 +1151,12 @@ function injectAttachmentIntoInput(input: any): any {
   return { ...input, messages: [...existingMessages, ...messages], message: undefined }
 }
 
-function tryMemoryReuse(input: any): ReturnType<typeof buildReusedPayload> | null {
-  const projectId = safeString(input?.project_id) || "chat_project"
-  const query = extractInboundQuery(input)
-  if (query.length < 10) return null
-  try {
-    const similar = findSimilarQuery(query, projectId, { threshold: REUSE_SIMILARITY_THRESHOLD, limit: 1 })
-    if (similar.length > 0 && similar[0].score >= REUSE_SIMILARITY_THRESHOLD) {
-      const hit = similar[0]
-      return buildReusedPayload(hit.matched_answer, hit.winner_provider ?? "memory", "similar_query", hit.score)
-    }
-  } catch {}
-  try {
-    const task = safeString(input?.task) || "dialogue"
-    const pastWinner = findPastWinner(projectId, task, { minCount: 2, windowMs: 7 * 24 * 60 * 60 * 1000 })
-    if (pastWinner && pastWinner.confidence >= REUSE_PAST_WINNER_CONFIDENCE) {
-      return buildReusedPayload(pastWinner.answer_text, pastWinner.winner_provider, "past_winner", pastWinner.confidence)
-    }
-  } catch {}
+function tryMemoryReuse(_input: any): null {
+  // REUSE 완전 비활성화 — 오염된 캐시 데이터로 인한 엉뚱한 답변 방지
   return null
 }
 
-// ─── SSE 파이프라인 done 페이로드 헬퍼 ──────────────────────────────────────
+
 function makeDonePayload(provider: string, text: string, ok: boolean, strategy: string, task: string, providers: string[], extra?: any) {
   return {
     ok,
@@ -909,7 +1211,7 @@ export async function runChatRoute(req: RouteRequest, res: RouteResponse) {
     const reused = tryMemoryReuse(normalizedInput)
     if (reused) return res.json?.(reused)
     const result = await executeOrchestra(effectiveInput)
-    try { persistRuntimeMemory(normalizedInput, result) } catch {}
+    const _saveTxt = String(result?.final_answer?.text ?? ""); if (_saveTxt && _saveTxt.length > 20 && !_saveTxt.includes("final_answer를 찾지")) { try { persistRuntimeMemory(normalizedInput, result) } catch {} }
     try { await logBenchmark(buildBenchmarkPayload(result, normalizedInput)) } catch {}
     return res.json?.(buildChatPayload(result))
   } catch (error: any) {
@@ -951,6 +1253,33 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       res.end?.(); return
     }
 
+    // ── Midjourney 이미지 ──
+    if (detectMidjourneyCommand(inboundQuery)) {
+      writeSse(res, { type: "chunk", content: "🎨 Midjourney로 이미지를 생성하고 있습니다...\n\n" })
+      const r = await handleMidjourneyCommand(inboundQuery)
+      for (const chunk of r.message.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
+      writeSse(res, { type: "done", payload: makeDonePayload("midjourney", r.message, r.ok, "image_generate", "dialogue", ["midjourney"], { is_image: r.ok, image_url: r.url ?? null, image_urls: r.image_urls ?? null }) })
+      res.end?.(); return
+    }
+
+    // ── Runway Gen4 Turbo 비디오 ──
+    if (detectRunwayCommand(inboundQuery)) {
+      writeSse(res, { type: "chunk", content: "🎬 Runway Gen4 Turbo로 비디오를 생성하고 있습니다... (최대 3분 소요)\n\n" })
+      const r = await handleRunwayCommand(inboundQuery)
+      for (const chunk of r.message.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
+      writeSse(res, { type: "done", payload: makeDonePayload("runway", r.message, r.ok, "video_generate", "dialogue", ["runway"], { is_video: r.ok, video_url: r.video_url ?? null }) })
+      res.end?.(); return
+    }
+
+    // ── Gemini Veo 3.1 비디오 ──
+    if (detectVeoCommand(inboundQuery)) {
+      writeSse(res, { type: "chunk", content: "🎬 Gemini Veo 3.1로 비디오를 생성하고 있습니다... (최대 2분 소요)\n\n" })
+      const r = await handleVeoCommand(inboundQuery)
+      for (const chunk of r.message.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
+      writeSse(res, { type: "done", payload: makeDonePayload("gemini", r.message, r.ok, "video_generate", "dialogue", ["gemini"], { is_video: r.ok, video_url: r.video_url ?? null }) })
+      res.end?.(); return
+    }
+
     // ── OpenAI 이미지 ──
     if (detectImageCommand(inboundQuery)) {
       const r = await handleImageCommand(inboundQuery)
@@ -989,7 +1318,17 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       const finalText = result.ok ? result.report : `❌ 리서치 실패: ${result.error}`
       writeSse(res, { type: "chunk", content: "\n\n---\n\n" })
       for (const chunk of finalText.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
-      writeSse(res, { type: "done", payload: makeDonePayload("claude", finalText, result.ok, "deep_research", "research", ["perplexity", "openai", "claude"]) })
+      writeSse(res, { type: "done", payload: {
+        ...makeDonePayload("claude", finalText, result.ok, "deep_research", "research", ["perplexity", "openai", "claude"], {
+          execution_strategy: "deep_research_pipeline",
+          selected_providers: ["perplexity"],
+          verifier_providers: ["openai"],
+          parallel_providers: ["perplexity", "openai", "claude"],
+          winner: "claude",
+          winner_reason: { provider: "claude", rationale: "Perplexity 검색 → OpenAI 분석 → Claude 리포트 작성 파이프라인" }
+        }),
+        thread_title: await generateThreadTitle(inboundQuery, finalText) ?? null
+      } })
       res.end?.(); return
     }
 
@@ -1000,7 +1339,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       const finalText = result.ok ? result.report : `❌ 법률 검토 실패: ${result.error}`
       writeSse(res, { type: "chunk", content: "\n\n---\n\n" })
       for (const chunk of finalText.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
-      writeSse(res, { type: "done", payload: makeDonePayload("openai", finalText, result.ok, "legal_review", "research", ["perplexity", "claude", "openai"]) })
+      writeSse(res, { type: "done", payload: { ...makeDonePayload("openai", finalText, result.ok, "legal_review", "research", ["perplexity", "claude", "openai"]), thread_title: await generateThreadTitle(inboundQuery, finalText) ?? null } })
       res.end?.(); return
     }
 
@@ -1011,7 +1350,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       const finalText = result.ok ? result.report : `❌ 데이터 분석 실패: ${result.error}`
       writeSse(res, { type: "chunk", content: "\n\n---\n\n" })
       for (const chunk of finalText.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
-      writeSse(res, { type: "done", payload: makeDonePayload("claude", finalText, result.ok, "data_analysis", "research", ["openai", "claude"]) })
+      writeSse(res, { type: "done", payload: { ...makeDonePayload("claude", finalText, result.ok, "data_analysis", "research", ["openai", "claude"]), thread_title: await generateThreadTitle(inboundQuery, finalText) ?? null } })
       res.end?.(); return
     }
 
@@ -1022,7 +1361,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       const finalText = result.ok ? result.report : `❌ 재무 분석 실패: ${result.error}`
       writeSse(res, { type: "chunk", content: "\n\n---\n\n" })
       for (const chunk of finalText.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
-      writeSse(res, { type: "done", payload: makeDonePayload("claude", finalText, result.ok, "finance_analysis", "research", ["perplexity", "openai", "claude"]) })
+      writeSse(res, { type: "done", payload: { ...makeDonePayload("claude", finalText, result.ok, "finance_analysis", "research", ["perplexity", "openai", "claude"]), thread_title: await generateThreadTitle(inboundQuery, finalText) ?? null } })
       res.end?.(); return
     }
 
@@ -1033,7 +1372,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       const finalText = result.ok ? result.report : `❌ 상품 기획 실패: ${result.error}`
       writeSse(res, { type: "chunk", content: "\n\n---\n\n" })
       for (const chunk of finalText.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
-      writeSse(res, { type: "done", payload: makeDonePayload("claude", finalText, result.ok, "product_development", "research", ["perplexity", "openai", "claude"]) })
+      writeSse(res, { type: "done", payload: { ...makeDonePayload("claude", finalText, result.ok, "product_development", "research", ["perplexity", "openai", "claude"]), thread_title: await generateThreadTitle(inboundQuery, finalText) ?? null } })
       res.end?.(); return
     }
 
@@ -1045,9 +1384,39 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       res.end?.(); return
     }
 
-    // ── 첨부 파일 (이미지/PDF) ──
+    // ── 첨부 파일 처리 (파일 있으면 REUSE 스킵) ──
     const _attached = normalizedInput?.attached_file
     const _attachedType = String(_attached?.type ?? "")
+    const _attachedName = String(_attached?.name ?? "").toLowerCase()
+    const _isExcel = _attachedName.endsWith(".xlsx") || _attachedName.endsWith(".xls") || _attachedName.endsWith(".csv") || _attachedType.includes("spreadsheet") || _attachedType.includes("excel")
+    const _isWord = _attachedName.endsWith(".docx") || _attachedName.endsWith(".doc") || _attachedType.includes("wordprocessingml") || _attachedType.includes("msword")
+    const _isPpt = _attachedName.endsWith(".pptx") || _attachedName.endsWith(".ppt") || _attachedType.includes("presentationml") || _attachedType.includes("powerpoint")
+
+    if (_attached && _isExcel) {
+      const userText = safeString(normalizedInput?.message) || "이 엑셀 파일을 분석해줘"
+      writeSse(res, { type: "provider_chunk", provider: "claude", content: "Excel 파일 분석 중...\n\n" })
+      const result = await analyzeOfficeFileWithClaude(_attached, userText)
+      writeSse(res, { type: "final", provider: "claude", content: result })
+      writeSse(res, { type: "done", payload: makeDonePayload("claude", result, true, "excel_analyze", "excel", ["claude"]) })
+      res.end?.(); return
+    }
+    if (_attached && _isWord) {
+      const userText = safeString(normalizedInput?.message) || "이 Word 문서를 분석해줘"
+      writeSse(res, { type: "provider_chunk", provider: "claude", content: "Word 문서 분석 중...\n\n" })
+      const result = await analyzeOfficeFileWithClaude(_attached, userText)
+      writeSse(res, { type: "final", provider: "claude", content: result })
+      writeSse(res, { type: "done", payload: makeDonePayload("claude", result, true, "word_analyze", "word", ["claude"]) })
+      res.end?.(); return
+    }
+    if (_attached && _isPpt) {
+      const userText = safeString(normalizedInput?.message) || "이 PPT 파일을 분석해줘"
+      writeSse(res, { type: "provider_chunk", provider: "gemini", content: "PowerPoint 분석 중...\n\n" })
+      const result = await analyzeOfficeFileWithGemini(_attached, userText)
+      writeSse(res, { type: "final", provider: "gemini", content: result })
+      writeSse(res, { type: "done", payload: makeDonePayload("gemini", result, true, "ppt_analyze", "ppt", ["gemini"]) })
+      res.end?.(); return
+    }
+
     if (_attached && (_attachedType.startsWith("image/") || _attachedType === "application/pdf")) {
       const userText = safeString(normalizedInput?.message) || (_attachedType === "application/pdf" ? "이 PDF를 분석해줘" : "이 이미지를 분석해줘")
       const startMs = Date.now()
@@ -1055,7 +1424,8 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       if (_attachedType === "application/pdf") {
         writeSse(res, { type: "provider_chunk", provider: "gemini", content: "📄 PDF 분석 중...\n\n" })
         const pdfText = await analyzePdfWithGemini(_attached, userText)
-        const combinedQuery = `${userText} ${pdfText.slice(0, 500)}`
+        // combinedQuery: 사용자 메시지 + PDF 앞부분만 사용 (스레드 오염 방지)
+        const combinedQuery = `${userText} ${pdfText.slice(0, 200)}`
 
         if (detectLegalReviewCommand(combinedQuery)) {
           writeSse(res, { type: "provider_chunk", provider: "claude", content: "\n⚖️ 법률 검토 파이프라인으로 연결합니다...\n\n" })
@@ -1082,10 +1452,21 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
           res.end?.(); return
         }
 
-        // 일반 PDF → 오케스트라
-        const pdfEnrichedInput = { ...normalizedInput, message: userText, attached_text: pdfText.slice(0, 6000), pdf_text: pdfText.slice(0, 6000) }
-        const pdfResult = await executeOrchestra(pdfEnrichedInput, async (event: any) => { if (signal.aborted) return; if (event?.type === "done") return; writeSse(res, event) })
-        writeSse(res, { type: "done", payload: buildChatPayload(pdfResult) })
+        // PDF → Claude primary (Gemini 실패 시 자동 폴백)
+        let pdfFinalResult = ""
+        let pdfWinner = "claude"
+        try {
+          pdfFinalResult = await analyzeDocumentWithClaude(pdfText.slice(0, 12000), userText)
+          if (!pdfFinalResult || pdfFinalResult.includes("분석 실패") || pdfFinalResult.includes("분석 오류")) {
+            pdfFinalResult = await analyzeDocumentWithGemini(pdfText.slice(0, 8000), userText)
+            pdfWinner = "gemini"
+          }
+        } catch {
+          pdfFinalResult = await analyzeDocumentWithGemini(pdfText.slice(0, 8000), userText)
+          pdfWinner = "gemini"
+        }
+        writeSse(res, { type: "final", provider: pdfWinner, content: pdfFinalResult })
+        writeSse(res, { type: "done", payload: makeDonePayload(pdfWinner, pdfFinalResult, true, "pdf_analyze", "pdf", [pdfWinner]) })
         res.end?.(); return
       }
 
@@ -1102,16 +1483,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     }
 
     // ── 메모리 재사용 ──
-    const reused = tryMemoryReuse(normalizedInput)
-    if (reused) {
-      const text = safeString(reused.answer?.text)
-      for (const chunk of (text.length > 0 ? text.split(/(\s+)/).filter(p => p.length > 0) : [])) {
-        if (signal.aborted) break
-        writeSse(res, { type: "chunk", content: chunk }); await sleep(12)
-      }
-      writeSse(res, { type: "done", payload: reused })
-      res.end?.(); return
-    }
+    // REUSE 비활성화
 
     // ── 오케스트라 ──
     const result = await executeOrchestra(effectiveInput, async (event: any) => {
@@ -1122,7 +1494,17 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     if (signal.aborted) { res.end?.(); return }
 
     try { persistRuntimeMemory(normalizedInput, result) } catch {}
-    writeSse(res, { type: "done", payload: buildChatPayload(result) })
+    // 스레드 제목 자동 생성 (첫 메시지에서만 — 프론트에서 isGenericThreadTitle로 판단)
+    let threadTitle: string | null = null
+    try {
+      const inboundMsg = extractInboundQuery(effectiveInput)
+      const answerText = safeString(result?.final_answer?.text)
+      if (inboundMsg && answerText) {
+        threadTitle = await generateThreadTitle(inboundMsg, answerText)
+      }
+    } catch {}
+    const chatPayload = buildChatPayload(result)
+    writeSse(res, { type: "done", payload: { ...chatPayload, thread_title: threadTitle } })
     res.end?.()
     try { await logBenchmark(buildBenchmarkPayload(result, normalizedInput)) } catch {}
 

@@ -4,7 +4,7 @@ import { getProviderRoutingScore, recordJudgeOutcome } from "./scoreboard.js"
 type JudgeCandidate = {
   provider: string
   answer_text: string
-  raw?: any
+  raw?: unknown
 }
 
 type JudgeScoreRow = {
@@ -13,16 +13,107 @@ type JudgeScoreRow = {
   reasons: string[]
 }
 
-function normalizeText(input: string) {
+type JudgeProvider = "claude" | "openai"
+
+type CanonicalTask =
+  | "dialogue"
+  | "reasoning"
+  | "research"
+  | "code_implement"
+  | "code_debug"
+  | "code_refactor_review"
+  | "writing_creative"
+  | "writing_business"
+  | "long_doc"
+  | "excel"
+  | "ppt"
+  | "word"
+  | "pdf"
+  | "legal_review"
+  | "data_analysis"
+  | "finance_analysis"
+  | "product_development"
+  | "code"
+  | "writing"
+  | "generic"
+
+const HIGH_STAKES_TASKS = new Set<CanonicalTask>([
+  "reasoning",
+  "research",
+  "code_implement",
+  "code_debug",
+  "code_refactor_review",
+  "writing_business",
+  "long_doc",
+  "pdf",
+  "word",
+  "excel",
+  "ppt",
+  "legal_review",
+  "data_analysis",
+  "finance_analysis",
+  "product_development",
+])
+
+const CANONICAL_TASKS = new Set<CanonicalTask>([
+  "dialogue",
+  "reasoning",
+  "research",
+  "code_implement",
+  "code_debug",
+  "code_refactor_review",
+  "writing_creative",
+  "writing_business",
+  "long_doc",
+  "excel",
+  "ppt",
+  "word",
+  "pdf",
+  "legal_review",
+  "data_analysis",
+  "finance_analysis",
+  "product_development",
+  "code",
+  "writing",
+  "generic",
+])
+
+function normalizeText(input: string): string {
   return String(input ?? "").replace(/\r\n/g, "\n").trim()
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
+
+function round4(value: number): number {
+  return Number(value.toFixed(4))
+}
+
+function normalizeTask(input: string): CanonicalTask {
+  const task = String(input ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_")
+
+  if (!task) return "generic"
+  if (task === "code_refactor" || task === "code_review" || task === "code_refactor/review") {
+    return "code_refactor_review"
+  }
+  if (task === "legal") return "legal_review"
+  if (task === "analysis") return "data_analysis"
+  if (task === "finance") return "finance_analysis"
+  if (task === "product") return "product_development"
+
+  if (task.startsWith("writing_") && !CANONICAL_TASKS.has(task as CanonicalTask)) return "writing"
+  if (task.startsWith("code_") && !CANONICAL_TASKS.has(task as CanonicalTask)) return "code"
+  if (task.startsWith("writing")) return "writing"
+  if (task.startsWith("code")) return "code"
+
+  return CANONICAL_TASKS.has(task as CanonicalTask) ? (task as CanonicalTask) : "generic"
 }
 
 function splitSentences(input: string): string[] {
   const text = normalizeText(input)
   if (!text) return []
-  return (text.match(/[^.!?\n]+[.!?\n]?/g) ?? [])
-    .map((p) => p.trim())
-    .filter(Boolean)
+  return (text.match(/[^.!?\n]+[.!?\n]?/g) ?? []).map((part) => part.trim()).filter(Boolean)
 }
 
 function extractNumbers(input: string): number[] {
@@ -38,22 +129,23 @@ function estimateCoverage(answer: string): number {
   const sentences = splitSentences(answer)
   const lengthScore = Math.min(1, normalizeText(answer).length / 800)
   const sentenceScore = Math.min(1, sentences.length / 10)
-  return Number(((lengthScore * 0.6) + (sentenceScore * 0.4)).toFixed(4))
+  return round4((lengthScore * 0.6) + (sentenceScore * 0.4))
 }
 
 function estimateStructure(answer: string): number {
   const text = normalizeText(answer)
-  let score = 0.40
-  if (/(^\n)\s*[-*]\s+/.test(text)) score += 0.18
-  if (/(^\n)\s*\d+\.\s+/.test(text)) score += 0.14
-  if (/\n\s*\n/.test(text)) score += 0.10
-  if (splitSentences(text).length >= 5) score += 0.10
-  if (/#{1,3}\s+\S+/.test(text)) score += 0.08  // 헤더 구조
-  // 멀티섹션 보너스 — numbered/header 섹션 개수
-  const sectionMatches = text.match(/(?:^|\n)\s*(?:#{1,3}\s+\S|(?:\d+[\.\)]\s+|\*{1,2})[가-힣a-zA-Z])[^\n]{3,}/g) ?? []
-  if (sectionMatches.length >= 3) score += 0.10
-  if (sectionMatches.length >= 5) score += 0.10
-  return Number(Math.min(1, score).toFixed(4))
+  let score = 0.4
+  if (/(?:^|\n)\s*[-*]\s+/.test(text)) score += 0.18
+  if (/(?:^|\n)\s*\d+\.\s+/.test(text)) score += 0.14
+  if (/\n\s*\n/.test(text)) score += 0.1
+  if (splitSentences(text).length >= 5) score += 0.1
+  if (/#{1,3}\s+\S+/.test(text)) score += 0.08
+
+  const sectionMatches = text.match(/(?:^|\n)\s*(?:#{1,3}\s+\S|(?:\d+[.)]\s+|\*{1,2})[가-힣a-zA-Z])[^\n]{3,}/g) ?? []
+  if (sectionMatches.length >= 3) score += 0.1
+  if (sectionMatches.length >= 5) score += 0.1
+
+  return round4(clamp(score, 0, 1))
 }
 
 function estimateSpecificity(answer: string): number {
@@ -63,72 +155,208 @@ function estimateSpecificity(answer: string): number {
   score += Math.min(0.22, numbers.length * 0.04)
   if (/"[^"]+"/.test(text)) score += 0.08
   if (/: /.test(text)) score += 0.08
-  score += Math.min(0.22, unique(text.split(/\s+/).filter((w) => w.length >= 7)).length * 0.01)
-  return Number(Math.min(1, score).toFixed(4))
+  score += Math.min(0.22, unique(text.split(/\s+/).filter((word) => word.length >= 7)).length * 0.01)
+  return round4(clamp(score, 0, 1))
 }
 
-// 메타 응답 감지 — "도와드리겠습니다", "알겠습니다" 등
 function hasMetaResponse(answer: string): boolean {
   const text = normalizeText(answer).toLowerCase()
   const metaPatterns = [
     /^(알겠습니다|도와드리겠습니다|물론이죠|네,\s)/,
-    /^(sure|certainly|of course|i'd be happy)/i,
+    /^(sure|certainly|of course|i(?:'|’)d be happy)/i,
     /어떤 방식으로.*원하시나요/,
     /어떤 형식.*원하시나요/,
     /구체적으로.*알려주시면/,
   ]
-  return metaPatterns.some((p) => p.test(text.slice(0, 100)))
+  return metaPatterns.some((pattern) => pattern.test(text.slice(0, 100)))
 }
 
-function getConflictTypeWeight(typeInput: string) {
+function getConflictTypeWeight(typeInput: string): number {
   const type = String(typeInput ?? "").trim().toLowerCase()
   if (!type) return 0.07
   if (type.includes("numeric")) return 0.22
   if (type.includes("fact")) return 0.16
   if (type.includes("risk")) return 0.12
-  if (type.includes("implementation")) return 0.10
+  if (type.includes("implementation")) return 0.1
   if (type.includes("context")) return 0.18
   if (type.includes("comparison")) return 0.08
   if (type.includes("recommendation")) return 0.06
   return 0.07
 }
 
-function getSeverityBase(severityInput: string) {
+function getSeverityBase(severityInput: string): number {
   const severity = String(severityInput ?? "").trim().toLowerCase()
   if (severity === "high") return 0.12
   if (severity === "medium") return 0.06
   return 0.03
 }
 
+function isOpenAIProvider(provider: string): boolean {
+  return /openai|gpt|codex/i.test(provider)
+}
+
+function isClaudeProvider(provider: string): boolean {
+  return /claude|anthropic/i.test(provider)
+}
+
+function inferPrimaryAndVerifier(candidates: JudgeCandidate[]) {
+  return {
+    primaryProvider: String(candidates[0]?.provider ?? "").trim(),
+    verifierProvider: String(candidates[1]?.provider ?? "").trim(),
+  }
+}
+
+function chooseJudgeProvider(params: {
+  task: CanonicalTask
+  primaryProvider?: string
+  verifierProvider?: string
+}): JudgeProvider {
+  const { task } = params
+  const primary = String(params.primaryProvider ?? "")
+  const verifier = String(params.verifierProvider ?? "")
+
+  const verifierIsClaude = isClaudeProvider(verifier)
+  const verifierIsOpenAI = isOpenAIProvider(verifier)
+  const primaryIsClaude = isClaudeProvider(primary)
+  const primaryIsOpenAI = isOpenAIProvider(primary)
+
+  switch (task) {
+    case "reasoning":
+    case "research":
+    case "writing_business":
+    case "long_doc":
+    case "word":
+    case "legal_review":
+    case "finance_analysis":
+      return verifierIsOpenAI ? "claude" : "openai"
+
+    case "dialogue":
+    case "code_implement":
+    case "code_debug":
+    case "code_refactor_review":
+    case "writing_creative":
+    case "excel":
+    case "ppt":
+    case "pdf":
+    case "data_analysis":
+    case "product_development":
+      return verifierIsClaude ? "openai" : "claude"
+
+    default:
+      if (verifierIsClaude) return "openai"
+      if (verifierIsOpenAI) return "claude"
+      if (primaryIsOpenAI) return "claude"
+      if (primaryIsClaude) return "openai"
+      return "claude"
+  }
+}
+
+function shouldRunAIJudge(params: {
+  task: CanonicalTask
+  candidates: JudgeCandidate[]
+  conflicts: DetectedConflict[]
+  preliminaryScores: JudgeScoreRow[]
+}): boolean {
+  const enabled = String(process.env.ENABLE_AI_JUDGE ?? "true").toLowerCase() !== "false"
+  if (!enabled) return false
+  if (params.candidates.length < 2) return false
+
+  const winner = params.preliminaryScores[0]
+  const runnerUp = params.preliminaryScores[1]
+  if (!winner || !runnerUp) return false
+
+  const diff = Math.abs(winner.score - runnerUp.score)
+  const highConflict = params.conflicts.some((conflict) => String(conflict?.severity ?? "").toLowerCase() === "high")
+  const mediumPlusConflict = params.conflicts.some((conflict) => ["high", "medium"].includes(String(conflict?.severity ?? "").toLowerCase()))
+
+  if (HIGH_STAKES_TASKS.has(params.task) && (diff < 0.12 || mediumPlusConflict)) return true
+  if (highConflict) return true
+  if (diff < 0.06) return true
+
+  return false
+}
+
 function scoreCandidate(
   candidate: JudgeCandidate,
-  task: string,
-  conflicts: DetectedConflict[]
+  canonicalTask: CanonicalTask,
+  conflicts: DetectedConflict[],
 ): JudgeScoreRow {
   const reasons: string[] = []
   const coverage = estimateCoverage(candidate.answer_text)
   const structure = estimateStructure(candidate.answer_text)
   const specificity = estimateSpecificity(candidate.answer_text)
-  const normalizedTask = String(task ?? "").trim().toLowerCase()
 
-  // task별 가중치
   let coverageW = 0.22
   let structureW = 0.16
   let specificityW = 0.17
 
-  if (normalizedTask === "code") {
-    coverageW = 0.14; structureW = 0.14; specificityW = 0.25
-  } else if (normalizedTask === "research") {
-    coverageW = 0.20; structureW = 0.22; specificityW = 0.13
-  } else if (normalizedTask === "reasoning") {
-    coverageW = 0.18; structureW = 0.14; specificityW = 0.23
-  } else if (normalizedTask === "writing") {
-    coverageW = 0.26; structureW = 0.20; specificityW = 0.12
-  } else if (normalizedTask === "long_doc") {
-    coverageW = 0.24; structureW = 0.24; specificityW = 0.10
-  } else if (normalizedTask === "dialogue") {
-    // dialogue: 길이(coverage)보다 직접성·구체성이 핵심
-    coverageW = 0.10; structureW = 0.10; specificityW = 0.22
+  switch (canonicalTask) {
+    case "code":
+    case "code_implement":
+    case "code_debug":
+    case "code_refactor_review":
+      coverageW = 0.14
+      structureW = 0.14
+      specificityW = 0.25
+      break
+    case "research":
+      coverageW = 0.2
+      structureW = 0.22
+      specificityW = 0.13
+      break
+    case "reasoning":
+      coverageW = 0.18
+      structureW = 0.14
+      specificityW = 0.23
+      break
+    case "writing_creative":
+      coverageW = 0.24
+      structureW = 0.18
+      specificityW = 0.12
+      break
+    case "writing_business":
+      coverageW = 0.22
+      structureW = 0.24
+      specificityW = 0.16
+      break
+    case "long_doc":
+      coverageW = 0.24
+      structureW = 0.24
+      specificityW = 0.1
+      break
+    case "dialogue":
+      coverageW = 0.1
+      structureW = 0.1
+      specificityW = 0.22
+      break
+    case "excel":
+    case "ppt":
+      coverageW = 0.16
+      structureW = 0.24
+      specificityW = 0.18
+      break
+    case "word":
+      coverageW = 0.2
+      structureW = 0.24
+      specificityW = 0.16
+      break
+    case "pdf":
+      coverageW = 0.22
+      structureW = 0.2
+      specificityW = 0.14
+      break
+    case "legal_review":
+    case "finance_analysis":
+      coverageW = 0.2
+      structureW = 0.2
+      specificityW = 0.2
+      break
+    case "data_analysis":
+    case "product_development":
+      coverageW = 0.19
+      structureW = 0.21
+      specificityW = 0.19
+      break
   }
 
   let score = 0.45
@@ -136,29 +364,29 @@ function scoreCandidate(
   score += structure * structureW
   score += specificity * specificityW
 
-  // conflict 패널티
-  const providerConflicts = conflicts.filter((c) =>
-    Array.isArray(c.providers) && c.providers.includes(candidate.provider)
+  const providerConflicts = conflicts.filter(
+    (conflict) => Array.isArray(conflict.providers) && conflict.providers.includes(candidate.provider),
   )
 
-  const highConflicts = providerConflicts.filter((c) => c.severity === "high").length
-  const mediumConflicts = providerConflicts.filter((c) => c.severity === "medium").length
-  const lowConflicts = providerConflicts.filter((c) => c.severity === "low").length
+  const highConflicts = providerConflicts.filter((conflict) => conflict.severity === "high").length
+  const mediumConflicts = providerConflicts.filter((conflict) => conflict.severity === "medium").length
+  const lowConflicts = providerConflicts.filter((conflict) => conflict.severity === "low").length
 
-  const weightedPenalty = providerConflicts.reduce((acc, c) => {
-    const severityBase = getSeverityBase(String(c?.severity ?? "low"))
-    const explicitWeight = typeof (c as any).weight === "number" ? Number((c as any).weight) : 0.5
-    const typeWeight = getConflictTypeWeight(String(c?.type ?? ""))
+  const weightedPenalty = providerConflicts.reduce((acc, conflict) => {
+    const severityBase = getSeverityBase(String(conflict?.severity ?? "low"))
+    const explicitWeight = typeof (conflict as { weight?: unknown }).weight === "number"
+      ? Number((conflict as { weight?: number }).weight)
+      : 0.5
+    const typeWeight = getConflictTypeWeight(String(conflict?.type ?? ""))
     return acc + (severityBase * explicitWeight) + typeWeight
   }, 0)
 
   score -= weightedPenalty
 
-  const numericConflicts = providerConflicts.filter((c) => String(c?.type ?? "").toLowerCase().includes("numeric")).length
-  const factConflicts = providerConflicts.filter((c) => String(c?.type ?? "").toLowerCase().includes("fact")).length
-  const contextConflicts = providerConflicts.filter((c) => Array.isArray(c.providers) && c.providers.includes("context")).length
-  const recommendationConflicts = providerConflicts.filter((c) => String(c?.type ?? "").toLowerCase().includes("recommendation")).length
-  const comparisonConflicts = providerConflicts.filter((c) => String(c?.type ?? "").toLowerCase().includes("comparison")).length
+  const numericConflicts = providerConflicts.filter((conflict) => String(conflict?.type ?? "").toLowerCase().includes("numeric")).length
+  const factConflicts = providerConflicts.filter((conflict) => String(conflict?.type ?? "").toLowerCase().includes("fact")).length
+  const recommendationConflicts = providerConflicts.filter((conflict) => String(conflict?.type ?? "").toLowerCase().includes("recommendation")).length
+  const comparisonConflicts = providerConflicts.filter((conflict) => String(conflict?.type ?? "").toLowerCase().includes("comparison")).length
 
   reasons.push(`coverage:${coverage.toFixed(4)}`)
   reasons.push(`structure:${structure.toFixed(4)}`)
@@ -170,224 +398,422 @@ function scoreCandidate(
   if (lowConflicts > 0) reasons.push(`low_conflicts:${lowConflicts}`)
   if (numericConflicts > 0) reasons.push(`numeric_conflicts:${numericConflicts}`)
   if (factConflicts > 0) reasons.push(`fact_conflicts:${factConflicts}`)
-  if (contextConflicts > 0) reasons.push(`context_conflicts:${contextConflicts}`)
   if (recommendationConflicts > 0) reasons.push(`recommendation_conflicts:${recommendationConflicts}`)
   if (comparisonConflicts > 0) reasons.push(`comparison_conflicts:${comparisonConflicts}`)
 
-  if (highConflicts >= 2) { score -= 0.15; reasons.push("multi_high_conflict_penalty") }
-  if (numericConflicts >= 2) { score -= 0.08; reasons.push("multi_numeric_conflict_penalty") }
-  if (contextConflicts >= 2) { score -= 0.10; reasons.push("multi_context_conflict_penalty") }
+  if (highConflicts >= 2) {
+    score -= 0.15
+    reasons.push("multi_high_conflict_penalty")
+  }
+  if (numericConflicts >= 2) {
+    score -= 0.08
+    reasons.push("multi_numeric_conflict_penalty")
+  }
 
-  // 보너스
-  if (normalizedTask === "research" || normalizedTask === "reasoning" || normalizedTask === "comparison") {
-    if (/\|.+\|.+\|/.test(candidate.answer_text)) { score += 0.06; reasons.push("table_bonus") }
+  if (["research", "reasoning", "finance_analysis", "data_analysis"].includes(canonicalTask)) {
+    if (/\|.+\|.+\|/.test(candidate.answer_text)) {
+      score += 0.06
+      reasons.push("table_bonus")
+    }
   }
 
   if (/(결론|권고|추천|따라서|최종|결정|선택|recommend|conclusion|therefore)/i.test(candidate.answer_text)) {
-    score += 0.05; reasons.push("conclusion_bonus")
+    score += 0.05
+    reasons.push("conclusion_bonus")
   }
 
-  if (normalizedTask === "code") {
+  if (["code", "code_implement", "code_debug", "code_refactor_review"].includes(canonicalTask)) {
     const hasCodeFence = /```/.test(candidate.answer_text)
     const hasPathLike = /[A-Za-z0-9_\-/\\]+\.[A-Za-z0-9]+/.test(candidate.answer_text)
-    if (hasCodeFence) { score += 0.05; reasons.push("code_fence_bonus") }
+    if (hasCodeFence) {
+      score += 0.05
+      reasons.push("code_fence_bonus")
+    }
     if (hasCodeFence && /(function|const|def |class |import |return )/i.test(candidate.answer_text)) {
-      score += 0.04; reasons.push("executable_code_bonus")
+      score += 0.04
+      reasons.push("executable_code_bonus")
     }
-    if (hasPathLike) { score += 0.03; reasons.push("path_specific_bonus") }
-    // rubric 명시 패널티: 코드 없이 설명만 있는 경우
-    if (!hasCodeFence) { score -= 0.10; reasons.push("no_code_fence_penalty") }
-    // TODO/placeholder 패널티 — 미완성 코드 감점
+    if (hasPathLike) {
+      score += 0.03
+      reasons.push("path_specific_bonus")
+    }
+    if (!hasCodeFence && canonicalTask !== "code_refactor_review") {
+      score -= 0.1
+      reasons.push("no_code_fence_penalty")
+    }
     if (/(TODO|FIXME|placeholder|your.*here|여기에.*작성|수정.*필요)/i.test(candidate.answer_text)) {
-      score -= 0.06; reasons.push("placeholder_penalty")
+      score -= 0.06
+      reasons.push("placeholder_penalty")
+    }
+    if (canonicalTask === "code_debug" && /(root cause|원인|재현|stack trace|재현 조건)/i.test(candidate.answer_text)) {
+      score += 0.04
+      reasons.push("debug_root_cause_bonus")
+    }
+    if (canonicalTask === "code_refactor_review" && /(책임|결합도|구조|리팩터링|break risk|migration|의존성)/i.test(candidate.answer_text)) {
+      score += 0.05
+      reasons.push("review_structure_bonus")
     }
   }
 
-  if (normalizedTask === "research" || normalizedTask === "reasoning") {
+  if (["research", "reasoning"].includes(canonicalTask)) {
     if (/(because|therefore|however|근거|따라서|하지만|반면)/i.test(candidate.answer_text)) {
-      score += 0.04; reasons.push("reasoning_connector_bonus")
+      score += 0.04
+      reasons.push("reasoning_connector_bonus")
     }
   }
 
-  if (normalizedTask === "research") {
-    // 출처 인용 보너스 — 리서치의 핵심: 사실 근거 명시
+  if (canonicalTask === "research") {
     if (/(출처|참고|source|https?:\/\/|according to|에 따르면|\[\d+\])/i.test(candidate.answer_text)) {
-      score += 0.04; reasons.push("research_citation_bonus")
+      score += 0.04
+      reasons.push("research_citation_bonus")
     }
-    // 수치/데이터 포함 보너스
     if (/\d+[\.,]?\d*\s*(?:%|억|만|원|개|건|배|달러|\$|명|회)/i.test(candidate.answer_text)) {
-      score += 0.03; reasons.push("research_data_bonus")
+      score += 0.03
+      reasons.push("research_data_bonus")
     }
   }
 
-  if (normalizedTask === "reasoning") {
-    // 단계별 논리 전개 보너스 — 1. 2. 3. 또는 첫째/둘째/셋째
+  if (canonicalTask === "reasoning") {
     if (/(?:^|\n)\s*(?:\d+[.)\s]|첫째|둘째|셋째|Step\s*\d)/im.test(candidate.answer_text)) {
-      score += 0.04; reasons.push("reasoning_step_bonus")
+      score += 0.04
+      reasons.push("reasoning_step_bonus")
     }
-    // 반론 인정 + 극복 패턴 보너스 (논리 완성도)
     if (/(그러나|반면|하지만|이에 반해|물론.*하지만|비판|한계|단점)/i.test(candidate.answer_text)) {
-      score += 0.03; reasons.push("reasoning_counterpoint_bonus")
+      score += 0.03
+      reasons.push("reasoning_counterpoint_bonus")
     }
   }
 
-  if (normalizedTask === "writing") {
+  if (["writing", "writing_creative", "writing_business", "word"].includes(canonicalTask)) {
     const textLen = candidate.answer_text.trim().length
     const writingText = normalizeText(candidate.answer_text)
-    // 길이 보너스 — 3단계
-    if (textLen >= 600) { score += 0.04; reasons.push("writing_length_600_bonus") }
-    if (textLen >= 900) { score += 0.03; reasons.push("writing_length_900_bonus") }
-    // 섹션 구조 보너스
-    const writingSections = writingText.match(/(?:^|\n)\s*(?:#{1,3}\s+\S|(?:\d+[\.\)]\s+|\*{1,2})[가-힣a-zA-Z])[^\n]{3,}/g) ?? []
-    if (writingSections.length >= 3) { score += 0.05; reasons.push("writing_section3_bonus") }
-    if (writingSections.length >= 5) { score += 0.04; reasons.push("writing_section5_bonus") }
-    // 문서 구조 키워드
+    if (textLen >= 600) {
+      score += 0.04
+      reasons.push("writing_length_600_bonus")
+    }
+    if (textLen >= 900) {
+      score += 0.03
+      reasons.push("writing_length_900_bonus")
+    }
+    const writingSections = writingText.match(/(?:^|\n)\s*(?:#{1,3}\s+\S|(?:\d+[.)]\s+|\*{1,2})[가-힣a-zA-Z])[^\n]{3,}/g) ?? []
+    if (writingSections.length >= 3) {
+      score += 0.05
+      reasons.push("writing_section3_bonus")
+    }
+    if (writingSections.length >= 5) {
+      score += 0.04
+      reasons.push("writing_section5_bonus")
+    }
     if (/(##\s|^#\s|\*\*[가-힣]{2,}\*\*)/m.test(writingText)) {
-      score += 0.03; reasons.push("writing_header_bonus")
+      score += 0.03
+      reasons.push("writing_header_bonus")
     }
-    // 완성도 — 서론/본론/결론 흐름
-    if (/(서론|배경|개요|overview|introduction)/i.test(writingText) &&
-        /(결론|권고|제안|마무리|conclusion|recommendation)/i.test(writingText)) {
-      score += 0.04; reasons.push("writing_completeness_bonus")
+    if (/(서론|배경|개요|overview|introduction)/i.test(writingText) && /(결론|권고|제안|마무리|conclusion|recommendation)/i.test(writingText)) {
+      score += 0.04
+      reasons.push("writing_completeness_bonus")
     }
-    // 설득력/품질 키워드
-    if (/(설득력|자연스럽|compelling|engaging|차별화|핵심가치|브랜드|전략|포지셔닝)/i.test(writingText)) {
-      score += 0.03; reasons.push("writing_quality_bonus")
+    if (canonicalTask === "writing_business" || canonicalTask === "word") {
+      if (/(실행|로드맵|권고|리스크|다음 단계|우선순위|예산|일정|action)/i.test(writingText)) {
+        score += 0.04
+        reasons.push("business_execution_bonus")
+      }
+    }
+    if (canonicalTask === "writing_creative") {
+      if (/(비유|톤|리듬|서사|이미지|감정선|브랜드 보이스)/i.test(writingText)) {
+        score += 0.04
+        reasons.push("creative_style_bonus")
+      }
     }
   }
 
-  if (normalizedTask === "dialogue") {
+  if (canonicalTask === "dialogue") {
     const textLen = candidate.answer_text.trim().length
-    // 직결·간결 보너스: 150~700자가 dialogue 최적 응답 범위
-    if (textLen >= 150 && textLen <= 700) { score += 0.05; reasons.push("dialogue_concise_bonus") }
-    // 과도하게 긴 답변 패널티: 1200자 초과 시 verbose 응답 감점
-    if (textLen > 1200) { score -= 0.06; reasons.push("dialogue_verbose_penalty") }
-    // 직접 진입 보너스: 인사말/전치사 없이 바로 핵심으로 시작
+    if (textLen >= 50 && textLen <= 300) {
+      score += 0.05
+      reasons.push("dialogue_concise_bonus")
+    }
+    if (textLen > 300 && textLen <= 2000) {
+      score += 0.04
+      reasons.push("dialogue_detailed_bonus")
+    }
+    if (textLen > 3000) {
+      score -= 0.04
+      reasons.push("dialogue_verbose_penalty")
+    }
     const opener = normalizeText(candidate.answer_text).slice(0, 120).toLowerCase()
     const hasDirectOpener = !/(안녕하세요|반갑습니다|좋은 질문|흥미로운|도움이|물론이죠|네,\s*이에|알겠습니다|도와드리겠)/.test(opener)
-    if (hasDirectOpener) { score += 0.04; reasons.push("dialogue_direct_entry_bonus") }
-    // 실용 정보 보너스: 바로 쓸 수 있는 답변 패턴
+    if (hasDirectOpener) {
+      score += 0.04
+      reasons.push("dialogue_direct_entry_bonus")
+    }
     const dialogueText = normalizeText(candidate.answer_text)
     if (/(예를 들어|예시|구체적으로|방법은|방법:|예:|\bexample\b|\bfor instance\b)/i.test(dialogueText)) {
-      score += 0.03; reasons.push("dialogue_example_bonus")
+      score += 0.03
+      reasons.push("dialogue_example_bonus")
     }
   }
 
-  if (normalizedTask === "long_doc") {
+  if (canonicalTask === "long_doc" || canonicalTask === "pdf") {
     const longText = normalizeText(candidate.answer_text)
     const textLen = candidate.answer_text.trim().length
-    // 길이 보너스 — 3단계
-    if (textLen >= 600) { score += 0.03; reasons.push("long_doc_depth_600_bonus") }
-    if (textLen >= 1000) { score += 0.03; reasons.push("long_doc_depth_1000_bonus") }
-    // 핵심 추출 보너스
+    if (textLen >= 600) {
+      score += 0.03
+      reasons.push("long_doc_depth_600_bonus")
+    }
+    if (textLen >= 1000) {
+      score += 0.03
+      reasons.push("long_doc_depth_1000_bonus")
+    }
     if (/(핵심|요약|결론|key point|summary|takeaway|실행 항목|주요 발견)/i.test(longText)) {
-      score += 0.04; reasons.push("long_doc_extraction_bonus")
+      score += 0.04
+      reasons.push("long_doc_extraction_bonus")
     }
-    // 리스크 분석 보너스
     if (/(리스크|위험|독소조항|불리한|risk|취약|문제점|주의사항)/i.test(longText)) {
-      score += 0.04; reasons.push("long_doc_risk_bonus")
+      score += 0.04
+      reasons.push("long_doc_risk_bonus")
     }
-    // 실행 항목 보너스
     if (/(즉시\s*실행|실행\s*방안|액션|action item|다음\s*단계|next step|권고안|개선안)/i.test(longText)) {
-      score += 0.04; reasons.push("long_doc_action_bonus")
+      score += 0.04
+      reasons.push("long_doc_action_bonus")
     }
-    // 시나리오 분석 보너스
-    if (/(낙관|비관|시나리오|최선|최악|기대|scenario|optimistic|pessimistic)/i.test(longText)) {
-      score += 0.03; reasons.push("long_doc_scenario_bonus")
-    }
-    // 데이터 근거 보너스
     if (/\d+[\.,]?\d*\s*(?:%|억|만|천|원|개|건|배|위|점|명|회|달러|\$)/.test(longText)) {
-      score += 0.03; reasons.push("long_doc_data_evidence_bonus")
+      score += 0.03
+      reasons.push("long_doc_data_evidence_bonus")
     }
-    // 섹션 구조 보너스
-    const longSections = longText.match(/(?:^|\n)\s*(?:#{1,3}\s+\S|(?:\d+[\.\)]\s+|\*{1,2})[가-힣a-zA-Z])[^\n]{3,}/g) ?? []
-    if (longSections.length >= 3) { score += 0.04; reasons.push("long_doc_section3_bonus") }
-    // 의사결정 지원 키워드
-    if (/(의사결정|판단근거|선택|decision|전략방향|우선순위)/i.test(longText)) {
-      score += 0.03; reasons.push("long_doc_decision_bonus")
+    const longSections = longText.match(/(?:^|\n)\s*(?:#{1,3}\s+\S|(?:\d+[.)]\s+|\*{1,2})[가-힣a-zA-Z])[^\n]{3,}/g) ?? []
+    if (longSections.length >= 3) {
+      score += 0.04
+      reasons.push("long_doc_section3_bonus")
+    }
+    if (canonicalTask === "pdf" && /(표|차트|도표|figure|table|appendix|부록)/i.test(longText)) {
+      score += 0.04
+      reasons.push("pdf_layout_evidence_bonus")
     }
   }
 
-  // 패널티
-  if (normalizeText(candidate.answer_text).length < 180) {
-    score -= 0.08; reasons.push("too_short_penalty")
+  if (canonicalTask === "excel") {
+    const text = normalizeText(candidate.answer_text)
+    if (/(SUM|VLOOKUP|XLOOKUP|INDEX|MATCH|피벗|조건부 서식|수식|함수)/i.test(text)) {
+      score += 0.05
+      reasons.push("excel_formula_bonus")
+    }
+    if (/(열|행|시트|컬럼|필드|헤더|표)/i.test(text)) {
+      score += 0.03
+      reasons.push("excel_sheet_structure_bonus")
+    }
+  }
+
+  if (canonicalTask === "ppt") {
+    const text = normalizeText(candidate.answer_text)
+    if (/(슬라이드|slide|타이틀|목차|페이지|비주얼|차트|스토리라인)/i.test(text)) {
+      score += 0.05
+      reasons.push("ppt_storyline_bonus")
+    }
+    if (/(1장|2장|3장|slide\s*1|agenda)/i.test(text)) {
+      score += 0.03
+      reasons.push("ppt_page_plan_bonus")
+    }
+  }
+
+  if (canonicalTask === "legal_review") {
+    const text = normalizeText(candidate.answer_text)
+    if (/(법령|조문|판례|약관|계약서|책임|손해배상|해지|면책)/i.test(text)) {
+      score += 0.05
+      reasons.push("legal_basis_bonus")
+    }
+    if (/(high|medium|low|고위험|중위험|저위험)/i.test(text)) {
+      score += 0.04
+      reasons.push("legal_severity_bonus")
+    }
+    if (/(수정안|수정 문안|대체 문구|권고 조항)/i.test(text)) {
+      score += 0.05
+      reasons.push("legal_redraft_bonus")
+    }
+  }
+
+  if (canonicalTask === "data_analysis") {
+    const text = normalizeText(candidate.answer_text)
+    if (/(추세|트렌드|상관|이상치|분산|증감|전환율|리텐션)/i.test(text)) {
+      score += 0.04
+      reasons.push("data_pattern_bonus")
+    }
+    if (/(차트|그래프|시각화|대시보드|축|bar|line|scatter)/i.test(text)) {
+      score += 0.03
+      reasons.push("data_visualization_bonus")
+    }
+  }
+
+  if (canonicalTask === "finance_analysis") {
+    const text = normalizeText(candidate.answer_text)
+    if (/(per|pbr|roe|ebitda|fcf|부채비율|영업이익률|유동비율)/i.test(text)) {
+      score += 0.05
+      reasons.push("finance_metric_bonus")
+    }
+    if (/(밸류에이션|멀티플|시나리오|업계 평균|peer)/i.test(text)) {
+      score += 0.04
+      reasons.push("finance_comparison_bonus")
+    }
+  }
+
+  if (canonicalTask === "product_development") {
+    const text = normalizeText(candidate.answer_text)
+    if (/(usp|차별화|포지셔닝|타겟 고객|gtm|출시|유통|가격 전략)/i.test(text)) {
+      score += 0.05
+      reasons.push("product_strategy_bonus")
+    }
+    if (/(시장 규모|경쟁사|페르소나|로드맵|채널 전략)/i.test(text)) {
+      score += 0.04
+      reasons.push("product_market_bonus")
+    }
+  }
+
+  const answerLength = normalizeText(candidate.answer_text).length
+  const tooShortThreshold = canonicalTask === "dialogue"
+    ? 40
+    : canonicalTask === "writing_creative"
+      ? 60
+      : 80
+  const tooShortPenalty = canonicalTask === "dialogue" ? 0.02 : 0.04
+
+  if (answerLength < tooShortThreshold) {
+    score -= tooShortPenalty
+    reasons.push("too_short_penalty")
   }
 
   if (hasMetaResponse(candidate.answer_text)) {
-    score -= 0.12; reasons.push("meta_response_penalty")
+    score -= 0.12
+    reasons.push("meta_response_penalty")
   }
 
   return {
     provider: candidate.provider,
-    score: Number(Math.max(0, Math.min(1, score)).toFixed(4)),
-    reasons
+    score: round4(clamp(score, 0, 1)),
+    reasons,
   }
 }
 
-// Task별 상세 Judge rubric
-const TASK_RUBRIC: Record<string, string> = {
+const TASK_RUBRIC: Record<CanonicalTask, string> = {
   dialogue: `
 평가 기준 (각 항목 0-10점):
 1. 즉각성: 서론/면책조항 없이 바로 답변에 진입하는가?
 2. 정확성: 사실 오류나 논리적 모순이 없는가?
-3. 간결성: 불필요한 반복/패딩 없이 핵심만 전달하는가?
-4. 공감성: 사용자 의도를 정확히 파악하고 맥락에 맞게 답했는가?
-5. 실용성: 즉시 활용 가능한 정보나 행동 지침을 제공하는가?
-
-감점 요소: "알겠습니다", "도와드리겠습니다" 등 메타 응답으로 시작하는 경우 -2점`,
-
-  code: `
-평가 기준 (각 항목 0-10점):
-1. 실행 가능성: 코드가 실제로 동작하는가? 플레이스홀더가 없는가?
-2. 완전성: 엣지케이스, 에러 핸들링, import 구문이 포함되어 있는가?
-3. 코드 품질: 변수명, 구조, 가독성이 프로덕션 수준인가?
-4. 설명 품질: 핵심 로직에 대한 적절한 주석이나 설명이 있는가?
-5. 문제 해결: 질문의 핵심 요구사항을 정확히 해결했는가?
-
-가점 요소: 코드 블록(\`\`\`) 사용, 실제 파일 경로/함수명 포함
-감점 요소: TODO/placeholder 존재, 코드 없이 설명만 있는 경우`,
-
-  research: `
-평가 기준 (각 항목 0-10점):
-1. 사실 정확성: 데이터, 수치, 날짜가 정확하고 출처 언급이 있는가?
-2. 포괄성: 주제의 핵심 측면을 빠짐없이 다뤘는가?
-3. 구조화: 헤더, 목록, 표 등으로 정보가 체계적으로 정리되어 있는가?
-4. 깊이: 표면적 요약을 넘어 분석과 인사이트를 제공하는가?
-5. 실용성: 독자가 바로 활용할 수 있는 결론/권고안이 있는가?
-
-가점 요소: 구체적 수치 포함, 비교 표 포함, 명확한 결론`,
+3. 간결성: 불필요한 반복 없이 핵심만 전달하는가?
+4. 의도 파악: 사용자가 원하는 것을 정확히 이해했는가?
+5. 실용성: 즉시 활용 가능한 정보를 제공하는가?
+6. 완결성: 질문의 핵심 부분에 모두 답했는가?
+감점: 메타 응답 시작, 과도한 장황함.`,
 
   reasoning: `
 평가 기준 (각 항목 0-10점):
-1. 논리 흐름: 전제 → 근거 → 결론이 명확하게 연결되는가?
-2. 근거 품질: 주장을 뒷받침하는 구체적 근거가 있는가?
-3. 반론 고려: 반대 의견이나 한계를 인식하고 다루는가?
-4. 결론 명확성: 애매한 중립이 아닌 명확한 입장을 취하는가?
-5. 일관성: 논증 전체에서 모순이 없는가?
+1. 논리 흐름
+2. 근거 품질
+3. 반론 고려
+4. 결론 명확성
+5. 일관성
+6. 독립성
+감점: 결론 회피, 근거 없는 단정, 환각 사실 인용.`,
 
-감점 요소: "경우에 따라 다릅니다" 등 결론 회피, 반복적 내용`,
-
-  writing: `
+  research: `
 평가 기준 (각 항목 0-10점):
-1. 완성도: 요청된 모든 섹션/항목이 빠짐없이 작성되었는가? 섹션 생략이나 "이하 생략" 표현이 없는가?
-2. 구조와 흐름: 서론-본론-결론 흐름이 명확하고 ## 헤더 또는 번호 체계로 섹션이 구분되는가?
-3. 내용 깊이: 표면적 나열을 넘어 전략적 인사이트, 차별화 포인트, 구체적 근거가 포함되는가?
-4. 설득력: 독자(투자자/파트너/고객) 관점에서 납득 가능한 논거와 언어로 작성되었는가?
-5. 실행 가능성: 즉시 활용 가능한 수준의 권고안, 다음 단계, 실행 방향이 포함되는가?
+1. 사실 정확성
+2. 포괄성
+3. 구조화
+4. 깊이
+5. 실용성
+가점: 출처, 데이터, 비교 표, 명확한 권고안.`,
 
-가점 요소: 900자 이상, 5개 이상 섹션, 구체적 수치/데이터 포함
-감점 요소: 섹션 누락, "간략히 설명", "이하 생략" 등 약식 처리`,
+  code_implement: `
+평가 기준 (각 항목 0-10점):
+1. 실행 가능성
+2. 완전성
+3. 코드 품질
+4. 문제 해결 적합성
+5. 파일/함수 수준 구체성
+감점: placeholder, TODO, 코드 없이 설명만 제시.`,
+
+  code_debug: `
+평가 기준 (각 항목 0-10점):
+1. root cause 정렬성
+2. 수정 최소성
+3. 재현/검증 단계 제시
+4. 회귀 리스크 고려
+5. 실제 패치 가능성
+감점: 증상만 가리고 원인을 놓침.`,
+
+  code_refactor_review: `
+평가 기준 (각 항목 0-10점):
+1. 구조적 문제 식별
+2. 책임 분리 적절성
+3. 멀티파일 일관성
+4. break risk / migration note 품질
+5. 제안의 실행 가능성
+감점: 과도한 재작성, 추상화 남용, 영향 범위 누락.`,
+
+  writing_creative: `
+평가 기준 (각 항목 0-10점):
+1. 창의성: 진부하지 않은 발상, 신선한 관점, 예상 밖의 표현 사용
+2. 톤 일관성: 전체 글에서 목소리/감성/스타일이 일관되게 유지되는가
+3. 감정/이미지 전달력: 독자가 시각적으로 상상하고 감정이입할 수 있는 묘사
+4. 완성도: 시작-전개-결말 구조가 있고, 끊김 없이 완결된 작품인가
+5. 독창성: 다른 작품과 차별되는 고유한 목소리와 세계관
+6. 서사 흐름: 리듬감, 긴장-이완, 장면 전환의 자연스러움
+7. 언어 밀도: 불필요한 수식어 없이 핵심 이미지가 응축된 표현
+감점: 클리셰 표현, 과도한 장황함, 평면적 캐릭터, 설명적 서술, AI 특유의 틀에 박힌 문장 구조.
+가점: 독자에게 여운을 남기는 마무리, 감각적 디테일, 예상을 비트는 반전.`,
+
+  writing_business: `
+평가 기준 (각 항목 0-10점):
+1. 명확성
+2. 구조화
+3. 실행 가능성
+4. 리스크/가정 명시
+5. 독자 적합성
+가점: 다음 단계, 우선순위, 일정/예산/실행안.`,
 
   long_doc: `
 평가 기준 (각 항목 0-10점):
-1. 핵심 추출: 원문에서 중요한 사실, 수치, 조항을 정확히 식별하고 요약했는가?
-2. 리스크 분석: 위험 요소, 독소조항, 불리한 조건을 명시적으로 지적했는가?
-3. 구조화: 섹션 번호/헤더로 체계적으로 정리되어 있고 정보 위계가 명확한가?
-4. 실행 권고: 즉시 실행 가능한 액션 아이템, 다음 단계, 협상 포인트가 포함되는가?
-5. 완결성: 요청된 분석 항목이 모두 다뤄졌고 결론/권고로 마무리되는가?
+1. 핵심 추출
+2. 리스크 분석
+3. 구조화
+4. 실행 권고
+5. 완결성
+가점: 수치 인용, 시나리오, 우선순위.`,
 
-가점 요소: 1000자 이상, 리스크+액션 동시 포함, 데이터 수치 인용, 시나리오 분석
-감점 요소: 원문 단순 재인용, 분석 없는 나열, 결론 부재`,
+  excel: `
+평가 기준 (각 항목 0-10점):
+1. 계산/수식 정확성
+2. 시트 구조 제안
+3. 필드 정의 명확성
+4. 실무 활용성
+5. 검증 가능성
+가점: 함수 예시, 컬럼 구조, 검증 규칙.`,
+
+  ppt: `
+평가 기준 (각 항목 0-10점):
+1. 스토리라인
+2. 슬라이드 구조
+3. 시각화 적합성
+4. 메시지 우선순위
+5. 발표용 완성도
+가점: 슬라이드별 구성안, 차트/도식 제안.`,
+
+  word: `
+평가 기준 (각 항목 0-10점):
+1. 문서 구조
+2. 명확성
+3. 실행 가능성
+4. 독자 적합성
+5. 완결성
+가점: 제목/섹션/권고안/체크리스트.`,
+
+  pdf: `
+평가 기준 (각 항목 0-10점):
+1. 문서 내용 파악 정확성
+2. 표/차트/부록 등 시각 요소 반영
+3. 핵심 위험/포인트 추출
+4. 구조화
+5. 활용 가능한 요약/권고
+감점: 원문 재복붙, 표/차트 무시.`,
 
   legal_review: `
 평가 기준 (각 항목 0-10점):
@@ -395,7 +821,8 @@ const TASK_RUBRIC: Record<string, string> = {
 2. 근거 명확성: 관련 법령/판례를 구체적으로 인용했는가?
 3. 심각도 분류: HIGH/MEDIUM/LOW 위험 등급이 적절한가?
 4. 수정 권고: 실행 가능한 구체적 수정안을 제시했는가?
-5. 구조화: 조항별로 체계적으로 정리되어 있는가?`,
+5. 구조화: 조항별로 체계적으로 정리되어 있는가?
+가점 요소: 법령 조문 인용, 판례 언급, 수정 문안 제시`,
 
   data_analysis: `
 평가 기준 (각 항목 0-10점):
@@ -403,7 +830,8 @@ const TASK_RUBRIC: Record<string, string> = {
 2. 패턴 발견: 트렌드, 이상치, 상관관계를 명확히 식별했는가?
 3. 인사이트: 데이터를 비즈니스 관점으로 해석했는가?
 4. 시각화 제안: 적절한 차트/그래프 유형을 제안했는가?
-5. 실행 가능성: 즉시 활용 가능한 권고사항이 있는가?`,
+5. 실행 가능성: 즉시 활용 가능한 권고사항이 있는가?
+가점 요소: 구체적 수치, 비교 기준 제시, 액션 플랜`,
 
   finance_analysis: `
 평가 기준 (각 항목 0-10점):
@@ -411,7 +839,8 @@ const TASK_RUBRIC: Record<string, string> = {
 2. 비교 분석: 업계 평균 대비 비교가 포함되어 있는가?
 3. 다각도 분석: 수익성/안정성/성장성을 모두 다뤘는가?
 4. 리스크 식별: 재무적 위험 요소를 명확히 제시했는가?
-5. 투자 관점: 객관적인 투자 관점의 종합 평가가 있는가?`,
+5. 투자 관점: 객관적인 투자 관점의 종합 평가가 있는가?
+가점 요소: 수치 인용, 산업 비교, 시나리오 분석`,
 
   product_development: `
 평가 기준 (각 항목 0-10점):
@@ -419,30 +848,32 @@ const TASK_RUBRIC: Record<string, string> = {
 2. 차별화: 명확한 USP(핵심 차별점)를 제시했는가?
 3. 실행 가능성: GTM 전략이 구체적이고 실행 가능한가?
 4. 리스크: 예상 위험과 대응 방안을 포함했는가?
-5. 구조화: 기획서 형식으로 체계적으로 정리되어 있는가?`
+5. 구조화: 기획서 형식으로 체계적으로 정리되어 있는가?
+가점 요소: 시장 규모 수치, 경쟁사 비교, 실행 타임라인`,
+
+  code: `전반적인 코드 품질, 실행 가능성, 정확성, 유지보수성을 기준으로 평가하세요.`,
+  writing: `전반적인 글의 완성도, 구조, 설득력, 활용성을 기준으로 평가하세요.`,
+  generic: `전반적인 품질, 정확성, 유용성, 직접성을 기준으로 평가하세요.`,
 }
 
-// AI Judge — task별 상세 루브릭 기반
 async function aiJudge(params: {
   candidates: JudgeCandidate[]
-  task: string
+  task: CanonicalTask
   question: string
-}): Promise<{ winner: string; scores: Record<string, number>; rationale: string } | null> {
-  const apiKey = String((globalThis as any)?.process?.env?.OPENAI_API_KEY ?? "").trim()
-  if (!apiKey || params.candidates.length < 2) return null
+  judgeProvider: JudgeProvider
+}): Promise<{ winner: string; scores: Record<string, number>; rationale: string; judgeProvider: JudgeProvider } | null> {
+  const rubric = TASK_RUBRIC[params.task] ?? TASK_RUBRIC.generic
 
-  const rubric = TASK_RUBRIC[params.task] ?? "전반적인 품질, 정확성, 유용성, 즉각성을 기준으로 평가."
-  const task = params.task
-
-  // 답변 1500자로 확대
-  const candidateSummaries = params.candidates.map((c, idx) => {
-    const text = String(c.answer_text ?? "").slice(0, 1500)
-    return `[답변 ${idx + 1} — ${c.provider}]\n${text}`
-  }).join("\n\n---\n\n")
+  const candidateSummaries = params.candidates
+    .map((candidate, index) => {
+      const text = String(candidate.answer_text ?? "").slice(0, 2000)
+      return `[답변 ${index + 1} - ${candidate.provider}]\n${text}`
+    })
+    .join("\n\n---\n\n")
 
   const prompt = `당신은 AI 응답 품질 평가 전문가입니다. 아래 기준에 따라 엄격하고 공정하게 평가하세요.
 
-[Task 유형]: ${task}
+[Task 유형]: ${params.task}
 
 [평가 루브릭]:
 ${rubric}
@@ -456,8 +887,8 @@ ${candidateSummaries}
 지시사항:
 - 각 답변에 0-10점을 부여하세요 (소수점 1자리)
 - 점수 차이가 의미있게 나타나도록 변별력 있게 평가하세요
-- 길이가 길다고 좋은 것이 아닙니다 — 질문에 얼마나 직접적으로 답하는지가 핵심입니다
-- 반드시 아래 JSON만 출력하세요 (다른 텍스트 없이):
+- 길이가 길다고 좋은 것이 아닙니다
+- 반드시 아래 JSON만 출력하세요
 
 {
   "winner": "provider_name",
@@ -466,28 +897,60 @@ ${candidateSummaries}
 }`
 
   try {
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "gpt-5.2",
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 400,
-        temperature: 0
-      }),
-      signal: AbortSignal.timeout(20000)
-    })
+    let responseText = ""
 
-    const data = await resp.json().catch(() => ({}))
-    const text = String(data?.choices?.[0]?.message?.content ?? "")
-    const clean = text.replace(/```json|```/g, "").trim()
-    const parsed = JSON.parse(clean)
+    if (params.judgeProvider === "openai") {
+      const openaiKey = String(process.env.OPENAI_API_KEY ?? "").trim()
+      if (!openaiKey) return null
 
+      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${openaiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: process.env.OPENAI_JUDGE_MODEL || "gpt-5.2",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 500,
+          temperature: 0,
+        }),
+        signal: AbortSignal.timeout(20000),
+      })
+      const data = await resp.json().catch(() => ({}))
+      responseText = String((data as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content ?? "")
+    } else {
+      const claudeKey = String(process.env.ANTHROPIC_API_KEY ?? "").trim()
+      if (!claudeKey) return null
+
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": claudeKey,
+          "anthropic-version": "2023-06-01",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: process.env.CLAUDE_JUDGE_MODEL || "claude-sonnet-4-6",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 500,
+          temperature: 0,
+        }),
+        signal: AbortSignal.timeout(20000),
+      })
+      const data = await resp.json().catch(() => ({}))
+      responseText = String((data as { content?: Array<{ text?: string }> })?.content?.[0]?.text ?? "")
+    }
+
+    const clean = responseText.replace(/```json|```/g, "").trim()
+    const parsed = JSON.parse(clean) as { winner?: string; scores?: Record<string, number>; rationale?: string }
     if (!parsed?.winner || !parsed?.scores) return null
+
     return {
       winner: String(parsed.winner),
       scores: parsed.scores,
-      rationale: String(parsed.rationale ?? "")
+      rationale: String(parsed.rationale ?? ""),
+      judgeProvider: params.judgeProvider,
     }
   } catch {
     return null
@@ -501,7 +964,7 @@ export async function judge(params: {
   question?: string
 }) {
   const candidates = Array.isArray(params?.candidates) ? params.candidates : []
-  const task = String(params?.task ?? "").trim().toLowerCase()
+  const canonicalTask = normalizeTask(String(params?.task ?? ""))
   const conflicts = Array.isArray(params?.conflicts) ? params.conflicts : []
   const question = String(params?.question ?? "").trim()
 
@@ -517,8 +980,8 @@ export async function judge(params: {
         judge_confidence: 0,
         conflict_count: 0,
         conflicts: [],
-        claims: []
-      }
+        claims: [],
+      },
     }
   }
 
@@ -533,95 +996,114 @@ export async function judge(params: {
         judge_confidence: 1,
         conflict_count: conflicts.length,
         conflicts,
-        claims: []
-      }
+        claims: [],
+      },
     }
   }
 
-  // 1. 휴리스틱 점수
   const heuristicScores = candidates
-    .map((c) => scoreCandidate(c, task, conflicts))
+    .map((candidate) => scoreCandidate(candidate, canonicalTask, conflicts))
     .sort((a, b) => b.score - a.score)
 
-  // 2. Scoreboard win_rate 반영 (피드백 누적 반영)
   const scoreboardWeights: Record<string, number> = {}
-  for (const c of candidates) {
+  for (const candidate of candidates) {
     try {
-      const routing = getProviderRoutingScore(c.provider, task)
-      // effective_win_rate 또는 blended_win_rate 사용
-      const winRate = Number(routing?.effective_win_rate ?? routing?.blended_win_rate ?? 0.5)
-      scoreboardWeights[c.provider] = Number(Math.max(0.2, Math.min(0.85, winRate)).toFixed(4))
+      const routing = getProviderRoutingScore(candidate.provider, canonicalTask)
+      const winRate = Number((routing as { effective_win_rate?: number; blended_win_rate?: number } | undefined)?.effective_win_rate ?? (routing as { blended_win_rate?: number } | undefined)?.blended_win_rate ?? 0.5)
+      scoreboardWeights[candidate.provider] = round4(clamp(winRate, 0.35, 0.85))
     } catch {
-      scoreboardWeights[c.provider] = 0.5
+      scoreboardWeights[candidate.provider] = 0.5
     }
   }
 
-  // 3. AI Judge
-  let aiResult: { winner: string; scores: Record<string, number>; rationale: string } | null = null
-  try {
-    aiResult = await aiJudge({ candidates, task, question })
-  } catch {}
+  const preliminaryScores = heuristicScores
+    .map((row) => {
+      const sbWeight = scoreboardWeights[row.provider] ?? 0.5
+      return {
+        provider: row.provider,
+        score: round4(clamp((row.score * 0.7) + (sbWeight * 0.3), 0, 1)),
+        reasons: [...row.reasons, `scoreboard_win_rate:${sbWeight.toFixed(2)}`],
+      }
+    })
+    .sort((a, b) => b.score - a.score)
 
-  // 4. 혼합 점수 — AI 50% + 휴리스틱 25% + Scoreboard 25%
-  const blendedScores = heuristicScores.map((h) => {
-    const aiScore = aiResult?.scores?.[h.provider]
-    const aiNormalized = typeof aiScore === "number" ? aiScore / 10 : null
-    const sbWeight = scoreboardWeights[h.provider] ?? 0.5
+  const { primaryProvider, verifierProvider } = inferPrimaryAndVerifier(candidates)
+  // primary provider bonus — 동점일 때 primary(Claude) 우선
+  const primaryBonus: Record<string, number> = {}
+  for (const candidate of candidates) {
+    primaryBonus[candidate.provider] = candidate.provider === String(primaryProvider ?? "").trim().toLowerCase() ? 0.03 : 0
+  }
 
-    let blended: number
-    if (aiNormalized !== null) {
-      blended = (aiNormalized * 0.50) + (h.score * 0.25) + (sbWeight * 0.25)
-    } else {
-      // AI Judge 없을 때: 휴리스틱 60% + Scoreboard 40%
-      blended = (h.score * 0.60) + (sbWeight * 0.40)
-    }
+  const judgeProvider = chooseJudgeProvider({
+    task: canonicalTask,
+    primaryProvider,
+    verifierProvider,
+  })
 
-    return {
-      provider: h.provider,
-      score: Number(Math.max(0, Math.min(1, blended)).toFixed(4)),
-      reasons: [
-        ...h.reasons,
-        aiNormalized !== null ? `ai_judge:${aiNormalized.toFixed(2)}` : "ai_judge:fallback",
-        `scoreboard_win_rate:${sbWeight.toFixed(2)}`
-      ]
-    }
-  }).sort((a, b) => b.score - a.score)
+  let aiResult: { winner: string; scores: Record<string, number>; rationale: string; judgeProvider: JudgeProvider } | null = null
+  if (shouldRunAIJudge({
+    task: canonicalTask,
+    candidates,
+    conflicts,
+    preliminaryScores,
+  })) {
+    aiResult = await aiJudge({
+      candidates,
+      task: canonicalTask,
+      question,
+      judgeProvider,
+    }).catch(() => null)
+  }
 
-  // AI winner가 명확하면 우선 적용
-  const winner = (aiResult?.winner && blendedScores.find(s => s.provider === aiResult!.winner))
-    ? blendedScores.find(s => s.provider === aiResult!.winner)!
-    : blendedScores[0]
+  const blendedScores = heuristicScores
+    .map((row) => {
+      const aiScore = aiResult?.scores?.[row.provider]
+      const aiNormalized = typeof aiScore === "number" ? aiScore / 10 : null
+      const sbWeight = scoreboardWeights[row.provider] ?? 0.5
 
-  const runnerUp = blendedScores.find(s => s.provider !== winner.provider)
-  const scoreDiff = (winner.score ?? 0) - (runnerUp?.score ?? 0)
-  const winnerScore = winner.score ?? 0
+      const blended = aiNormalized !== null
+        ? (aiNormalized * 0.5) + (row.score * 0.3) + (sbWeight * 0.2)
+        : (row.score * 0.7) + (sbWeight * 0.3)
 
-  // confidence: AI 사용 여부, score 차이, 절대 점수 반영
-  const confidence = Number(
-    Math.max(0.55, Math.min(0.98,
-      (winnerScore * 0.40) +
-      (Math.min(scoreDiff * 3.0, 0.25)) +
-      (aiResult ? 0.18 : 0) +
-      0.25
-    )).toFixed(4)
-  )
+      const pBonus = primaryBonus[row.provider] ?? 0
+      return {
+        provider: row.provider,
+        score: round4(clamp(blended + pBonus, 0, 1)),
+        reasons: [
+          ...row.reasons,
+          aiNormalized !== null ? `ai_judge:${aiNormalized.toFixed(2)}` : "ai_judge:skipped_or_fallback",
+          `scoreboard_win_rate:${sbWeight.toFixed(2)}`,
+        ],
+      }
+    })
+    .sort((a, b) => b.score - a.score)
 
-  const selected = candidates.find(c => c.provider === winner.provider) ?? candidates[0]
+  const winner = blendedScores[0]
+  const runnerUp = blendedScores[1]
+  const scoreDiff = (winner?.score ?? 0) - (runnerUp?.score ?? 0)
+  const winnerScore = winner?.score ?? 0
 
-  // Judge 결과 → bandit_score 자동 학습
-  if (task && selected.provider) {
-    const losers = candidates
-      .filter((c) => c.provider !== selected.provider)
-      .map((c) => c.provider)
+  const confidence = round4(clamp(
+    (winnerScore * 0.4) + Math.min(scoreDiff * 3.0, 0.25) + (aiResult ? 0.18 : 0) + 0.25,
+    0.55,
+    0.98,
+  ))
+
+  const selected = candidates.find((candidate) => candidate.provider === winner.provider) ?? candidates[0]
+
+  if (canonicalTask && selected.provider) {
+    const losers = candidates.filter((candidate) => candidate.provider !== selected.provider).map((candidate) => candidate.provider)
     try {
       recordJudgeOutcome({
         winner: selected.provider,
         losers,
-        task,
+        task: canonicalTask,
         judge_confidence: confidence,
-        source: "judge_auto"
+        source: "judge_auto",
       })
-    } catch {}
+    } catch {
+      // noop
+    }
   }
 
   return {
@@ -631,14 +1113,16 @@ export async function judge(params: {
       judge_selected_provider: selected.provider,
       judge_scores: blendedScores,
       judge_rationale: aiResult?.rationale
-        ? `AI: ${aiResult.rationale}`
+        ? `AI(${aiResult.judgeProvider}): ${aiResult.rationale}`
         : `selected ${selected.provider} by heuristic+scoreboard`,
       judge_confidence: confidence,
       conflict_count: conflicts.length,
       conflicts,
       claims: [],
       ai_judge_used: Boolean(aiResult),
-      scoreboard_weights: scoreboardWeights
-    }
+      judge_provider: aiResult?.judgeProvider ?? null,
+      scoreboard_weights: scoreboardWeights,
+      canonical_task: canonicalTask,
+    },
   }
 }

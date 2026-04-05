@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import type { ProjectGroup, Thread } from "../../types/workspace";
 
 type ArtifactItem = {
@@ -14,13 +14,14 @@ type Props = {
   projects: ProjectGroup[];
   activeProjectId: string;
   activeThreadId: string | null;
-  sidebarView: "default" | "search" | "images" | "benchmark";
+  sidebarView: "default" | "search" | "images" | "benchmark" | "dashboard";
   artifacts?: ArtifactItem[];
   onOpenArtifact?: (title: string, code: string, language: string) => void;
   onOpenGeneralHome: () => void;
   onOpenSearch: () => void;
   onOpenImages: () => void;
   onOpenBenchmark: () => void;
+  onOpenDashboard: () => void;
   onSelectProject: (projectId: string) => void;
   onSelectThread: (threadId: string) => void;
   onNewChat: () => void;
@@ -33,6 +34,7 @@ type Props = {
   onMoveThread: (threadId: string, nextProjectId: string) => void;
   onToggleProjectMemory: (projectId: string) => void;
   onToggleThreadPinned?: (threadId: string) => void;
+  onOpenSettings?: () => void;
 };
 
 function stripMarkdown(text: string): string {
@@ -50,6 +52,17 @@ function stripMarkdown(text: string): string {
 }
 
 function LogoIcon() {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        width: 26, height: 26, borderRadius: "50%",
+        background: "#2a2a2a", color: "#e8d66e",
+        fontSize: 13, fontWeight: 800, fontFamily: "sans-serif", flexShrink: 0
+      }}>X</span>
+    );
+  }
   return (
     <img
       src="/corvus-logo.png"
@@ -57,10 +70,7 @@ function LogoIcon() {
       width="26"
       height="26"
       style={{ objectFit: "contain", display: "block" }}
-      onError={(e) => {
-        // fallback: crow SVG if image not found
-        (e.currentTarget as HTMLImageElement).style.display = "none";
-      }}
+      onError={() => setFailed(true)}
     />
   );
 }
@@ -101,6 +111,16 @@ function FileIcon() {
   );
 }
 
+function DashboardIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
+  );
+}
 function BenchmarkIcon() {
   return (
     <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9">
@@ -791,6 +811,7 @@ export default function Sidebar({
   onOpenSearch,
   onOpenImages,
   onOpenBenchmark,
+  onOpenDashboard,
   onSelectProject,
   onSelectThread,
   onNewChat,
@@ -800,7 +821,8 @@ export default function Sidebar({
   onRenameThread,
   onDeleteThread,
   onMoveThread,
-  onToggleThreadPinned
+  onToggleThreadPinned,
+  onOpenSettings
 }: Props) {
   const [openProjectIds, setOpenProjectIds] = useState<string[]>([]);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -867,12 +889,14 @@ export default function Sidebar({
             paddingRight: 2
           }}
         >
-          <div className="sidebar__top" style={{ position: "relative" }}>
+          <div className="sidebar__top" style={{ position: "relative", paddingRight: 36 }}>
             <button type="button" className="sidebar-logo" onClick={onOpenGeneralHome}>
               <span className="sidebar-logo__icon">
                 <LogoIcon />
               </span>
-              <span className="sidebar-logo__text">CORVUS X</span>
+              <span style={{ fontWeight: 800, fontSize: 15, color: "var(--text-main)", letterSpacing: -0.3 }}>
+                CORVUS X
+              </span>
             </button>
           </div>
 
@@ -880,24 +904,10 @@ export default function Sidebar({
             <WorkspaceRow icon={<PlusIcon />} label="새 채팅" onClick={onNewChat} />
             <WorkspaceRow active={sidebarView === "search"} icon={<SearchIcon />} label="채팅 검색" onClick={onOpenSearch} />
             <WorkspaceRow active={sidebarView === "images"} icon={<ImageIcon />} label="이미지" onClick={onOpenImages} />
-            <WorkspaceRow active={sidebarView === "benchmark"} icon={<BenchmarkIcon />} label="벤치마크" onClick={onOpenBenchmark} />
+            <WorkspaceRow active={sidebarView === "dashboard"} icon={<DashboardIcon />} label="대시보드" onClick={onOpenDashboard ?? (() => {})} />
+  
           </div>
 
-          {/* 파일 섹션 — 아티팩트 목록 */}
-          {artifacts.length > 0 ? (
-            <div className="sidebar__section-block">
-              <div className="sidebar__section-label sidebar__section-label--large">파일</div>
-              <div style={{ paddingTop: 2 }}>
-                {artifacts.map((artifact) => (
-                  <ArtifactRow
-                    key={artifact.id}
-                    artifact={artifact}
-                    onClick={() => onOpenArtifact?.(artifact.title, artifact.code, artifact.language)}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : null}
 
           <div className="sidebar__section-block">
             <div className="sidebar__section-header">
@@ -969,9 +979,7 @@ export default function Sidebar({
         >
           <button
             type="button"
-            onClick={() => {
-              window.alert("설정 화면은 다음 단계에서 연결합니다.");
-            }}
+            onClick={() => onOpenSettings?.()}
             style={{
               width: "100%",
               minHeight: 40,

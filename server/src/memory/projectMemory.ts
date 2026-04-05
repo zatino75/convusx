@@ -1,5 +1,9 @@
-﻿import fs from "node:fs"
+import fs from "node:fs"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 type ProjectSourceAsset = {
   id: string
@@ -45,7 +49,7 @@ export type PastWinnerResult = {
   timestamp: number
 }
 
-const DATA_DIR = path.resolve(process.cwd(), "server", "data")
+const DATA_DIR = path.resolve(__dirname, "../../../data")
 const DATA_FILE = path.join(DATA_DIR, "project-memory.json")
 
 const ProjectStore: Record<string, ProjectMemoryState> = loadStore()
@@ -389,11 +393,22 @@ export function getLatestProjectContext(projectId: string, query?: string) {
 
   const decisions = uniqueStrings(
     recentEntries.flatMap((entry) => Array.isArray(entry?.decisions) ? entry.decisions : [])
-  ).slice(0, 8)
+  ).slice(0, 4)
 
-  const facts = uniqueStrings(
+  // facts: query가 있을 때 관련성 높은 것만, 없으면 최신 5개
+  const allFacts = uniqueStrings(
     recentEntries.flatMap((entry) => Array.isArray(entry?.facts) ? entry.facts : [])
-  ).slice(0, 10)
+  )
+
+  const facts = hasQuery && queryTokens
+    ? uniqueStrings(
+        allFacts
+          .map((f) => ({ text: f, score: overlapSourceScore(queryTokens!, tokenizeSource(f)) }))
+          .filter((item) => item.score > 0.05)  // 최소 관련성 threshold
+          .sort((a, b) => b.score - a.score)
+          .map((item) => item.text)
+      ).slice(0, 5)
+    : allFacts.slice(0, 5)
 
   // query가 있으면 관련성 높은 소스만, 없으면 confirmed 전체
   const relevantAssets = hasQuery
@@ -435,4 +450,11 @@ export function getLatestProjectContext(projectId: string, query?: string) {
       sources
     }
   }
+}
+
+export function clearAllProjectMemory() {
+  for (const key of Object.keys(ProjectStore)) {
+    delete ProjectStore[key]
+  }
+  saveStore()
 }

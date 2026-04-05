@@ -1,5 +1,16 @@
 import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
 
+function shouldFallbackToChat(params: { status?: number; code?: string | null; message?: string | null; model?: string | null }): boolean {
+  if (String((globalThis as any)?.process?.env?.OPENAI_FORCE_CHAT_COMPLETIONS ?? "").toLowerCase() === "true") return true
+  const model = String(params.model ?? "").toLowerCase()
+  if (model.startsWith("gpt-5")) return false
+  const status = Number(params.status ?? 0)
+  const code = String(params.code ?? "").toLowerCase()
+  const message = String(params.message ?? "").toLowerCase()
+  const hints = ["responses", "unsupported", "unknown parameter", "invalid parameter", "does not support", "input_text", "max_output_tokens"]
+  return (status === 400 || status === 404) && hints.some((h) => code.includes(h) || message.includes(h))
+}
+
 function env(name: string): string {
   const value = (globalThis as any)?.process?.env?.[name]
   return typeof value === "string" ? value.trim() : ""
@@ -15,7 +26,6 @@ function now() {
 
 function normalizeContent(value: any): string {
   if (typeof value === "string") return value
-
   if (Array.isArray(value)) {
     return value
       .map((x: any) => {
@@ -28,72 +38,46 @@ function normalizeContent(value: any): string {
       .join("\n")
       .trim()
   }
-
   if (value == null) return ""
   return String(value)
 }
 
 function normalizeMessages(messages: ModelRequest["messages"]) {
-  return (Array.isArray(messages) ? messages : [])
+  const mapped = (Array.isArray(messages) ? messages : [])
     .map((message) => ({
       role: message.role,
       content: [
         {
-          type: "input_text",
+          type: message.role === "assistant" ? "output_text" : "input_text",
           text: normalizeContent((message as any).content)
         }
       ]
     }))
     .filter((message) => String(message.content?.[0]?.text ?? "").trim().length > 0)
+
+  const deduped: typeof mapped = []
+  for (const msg of mapped) {
+    const last = deduped[deduped.length - 1]
+    const text = msg.content?.[0]?.text ?? ""
+    const lastText = last?.content?.[0]?.text ?? ""
+    if (last && last.role === msg.role && text === lastText) continue
+    deduped.push(msg)
+  }
+  return deduped
 }
 
 function buildInput(messages: ModelRequest["messages"]) {
   const normalized = normalizeMessages(messages)
-
-  if (normalized.length > 0) {
-    return normalized
-  }
-
-  return [
-    {
-      role: "user",
-      content: [
-        {
-          type: "input_text",
-          text: ""
-        }
-      ]
-    }
-  ]
-}
-
-function extractTextFromPart(part: any): string {
-  if (typeof part?.text === "string" && part.text.trim()) {
-    return part.text.trim()
-  }
-
-  if (typeof part?.output_text === "string" && part.output_text.trim()) {
-    return part.output_text.trim()
-  }
-
-  if (typeof part?.content === "string" && part.content.trim()) {
-    return part.content.trim()
-  }
-
-  return ""
+  if (normalized.length > 0) return normalized
+  return [{ role: "user", content: [{ type: "input_text", text: "" }] }]
 }
 
 function extractText(data: any): string {
-  // /v1/responses 최상위 output_text
-  if (typeof data?.output_text === "string" && data.output_text.trim()) {
-    return data.output_text.trim()
-  }
+  if (typeof data?.output_text === "string" && data.output_text.trim()) return data.output_text.trim()
 
-  // /v1/responses: output[].content[].text (type: "output_text")
   const output = Array.isArray(data?.output) ? data.output : []
   for (const item of output) {
     if (typeof item?.text === "string" && item.text.trim()) return item.text.trim()
-
     const parts = Array.isArray(item?.content) ? item.content : []
     for (const part of parts) {
       if (typeof part?.text === "string" && part.text.trim()) return part.text.trim()
@@ -101,17 +85,10 @@ function extractText(data: any): string {
     }
   }
 
-  // /v1/chat/completions fallback
   const choices = Array.isArray(data?.choices) ? data.choices : []
   for (const choice of choices) {
     const msg = choice?.message?.content ?? choice?.delta?.content ?? ""
     if (typeof msg === "string" && msg.trim()) return msg.trim()
-  }
-
-  const contentArray = Array.isArray(data?.content) ? data.content : []
-  for (const part of contentArray) {
-    const text = extractTextFromPart(part)
-    if (text) return text
   }
 
   if (typeof data?.response?.output_text === "string" && data.response.output_text.trim()) {
@@ -139,35 +116,19 @@ function extractApiError(data: any, statusCode: number): { code: string; message
 }
 
 function isRetriableError(statusCode: number, code?: string): boolean {
-  if (statusCode >= 500) return true
-  if (statusCode === 429) return true
-  if (statusCode === 408) return true
-
+  if (statusCode >= 500 || statusCode === 429 || statusCode === 408) return true
   const normalized = String(code ?? "").trim().toLowerCase()
-
-  if (normalized.includes("rate_limit")) return true
-  if (normalized.includes("server")) return true
-  if (normalized.includes("timeout")) return true
-  if (normalized.includes("overloaded")) return true
-
-  return false
+  return normalized.includes("rate_limit") || normalized.includes("server") || normalized.includes("timeout") || normalized.includes("overloaded")
 }
 
 function buildError(provider: ModelRequest["provider"], message: string, code?: string, retriable = false): ModelError {
-  return {
-    provider,
-    message,
-    code,
-    retriable
-  }
+  return { provider, message, code, retriable }
 }
 
 function supportsTemperature(model: string): boolean {
   const normalized = String(model ?? "").trim().toLowerCase()
-
   if (!normalized) return true
   if (normalized.startsWith("gpt-5")) return false
-
   return true
 }
 
@@ -175,17 +136,8 @@ function extractUsage(data: any) {
   return data?.usage ?? data?.response?.usage ?? undefined
 }
 
-async function callOpenAI(params: {
-  apiKey: string
-  model: string
-  req: ModelRequest
-  body: any
-}) {
-  const timeoutMs =
-    typeof params.req.timeout_ms === "number" && params.req.timeout_ms > 0
-      ? params.req.timeout_ms
-      : 60000
-
+async function callOpenAI(params: { apiKey: string; model: string; req: ModelRequest; body: any }) {
+  const timeoutMs = typeof params.req.timeout_ms === "number" && params.req.timeout_ms > 0 ? params.req.timeout_ms : 60000
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   const startedAt = now()
@@ -193,10 +145,7 @@ async function callOpenAI(params: {
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${params.apiKey}`,
-        "Content-Type": "application/json"
-      },
+      headers: { Authorization: `Bearer ${params.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(params.body),
       signal: controller.signal
     })
@@ -204,40 +153,43 @@ async function callOpenAI(params: {
     const latencyMs = now() - startedAt
     const data = await response.json().catch(() => ({}))
 
-    return {
-      response,
-      data,
-      latencyMs,
-      timedOut: false
+    if (!response.ok && shouldFallbackToChat({ status: response.status, code: data?.error?.code, message: data?.error?.message, model: params.body?.model })) {
+      const chatBody = {
+        model: params.body.model,
+        messages: [
+          ...(params.body.instructions ? [{ role: "system", content: params.body.instructions }] : []),
+          ...(Array.isArray(params.body.input)
+            ? params.body.input.map((m: any) => ({
+                role: m.role,
+                content: Array.isArray(m.content) ? m.content.map((p: any) => p.text ?? p.input_text ?? "").join("") : m.content ?? ""
+              }))
+            : [{ role: "user", content: String(params.body.input ?? "") }])
+        ],
+        max_tokens: params.body.max_output_tokens ?? 16384,
+        ...(params.body.temperature !== undefined ? { temperature: params.body.temperature } : {})
+      }
+      const chatResp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${params.apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify(chatBody),
+        signal: controller.signal
+      })
+      const chatData = await chatResp.json().catch(() => ({}))
+      return { response: chatResp, data: chatData, latencyMs, timedOut: false }
     }
+
+    return { response, data, latencyMs, timedOut: false }
   } catch (error: any) {
     const latencyMs = now() - startedAt
-    const timedOut =
-      error?.name === "AbortError" ||
-      String(error?.message ?? "").toLowerCase().includes("aborted")
-
-    throw {
-      original: error,
-      latencyMs,
-      timedOut
-    }
+    const timedOut = error?.name === "AbortError" || String(error?.message ?? "").toLowerCase().includes("aborted")
+    throw { original: error, latencyMs, timedOut }
   } finally {
     clearTimeout(timer)
   }
 }
 
-// ─── SSE 스트리밍 ───────────────────────────────────────────────────────────
-async function callOpenAIStreaming(params: {
-  apiKey: string
-  model: string
-  req: ModelRequest
-  body: any
-}): Promise<{ text: string; usage: any; latencyMs: number; timedOut: boolean; errorData?: any; httpStatus?: number }> {
-  const timeoutMs =
-    typeof params.req.timeout_ms === "number" && params.req.timeout_ms > 0
-      ? params.req.timeout_ms
-      : 60000
-
+async function callOpenAIStreaming(params: { apiKey: string; model: string; req: ModelRequest; body: any }): Promise<{ text: string; usage: any; latencyMs: number; timedOut: boolean; errorData?: any; httpStatus?: number }> {
+  const timeoutMs = typeof params.req.timeout_ms === "number" && params.req.timeout_ms > 0 ? params.req.timeout_ms : 60000
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   const startedAt = now()
@@ -245,15 +197,11 @@ async function callOpenAIStreaming(params: {
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${params.apiKey}`,
-        "Content-Type": "application/json"
-      },
+      headers: { Authorization: `Bearer ${params.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ ...params.body, stream: true }),
       signal: controller.signal
     })
 
-    // API 오류 → 스트리밍 없이 조기 반환
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
       const latencyMs = now() - startedAt
@@ -262,7 +210,6 @@ async function callOpenAIStreaming(params: {
 
     let fullText = ""
     const usage: { input_tokens?: number; output_tokens?: number; total_tokens?: number } = {}
-
     const reader = response.body?.getReader()
     if (!reader) {
       const latencyMs = now() - startedAt
@@ -275,22 +222,17 @@ async function callOpenAIStreaming(params: {
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split("\n")
       buffer = lines.pop() ?? ""
 
       for (const line of lines) {
         const trimmed = line.trim()
-        if (!trimmed || trimmed === "data: [DONE]") continue
-        if (!trimmed.startsWith("data: ")) continue
-
+        if (!trimmed || trimmed === "data: [DONE]" || !trimmed.startsWith("data: ")) continue
         const jsonStr = trimmed.slice(6)
         try {
           const parsed = JSON.parse(jsonStr)
           const eventType = String(parsed?.type ?? "")
-
-          // 텍스트 청크 — response.output_text.delta
           if (eventType === "response.output_text.delta") {
             const delta = String(parsed?.delta ?? "")
             if (delta) {
@@ -298,8 +240,6 @@ async function callOpenAIStreaming(params: {
               await params.req.onToken?.(delta)
             }
           }
-
-          // 스트림 완료 — usage 수집
           if (eventType === "response.completed") {
             const responseUsage = parsed?.response?.usage
             if (responseUsage) {
@@ -309,7 +249,7 @@ async function callOpenAIStreaming(params: {
             }
           }
         } catch {
-          // SSE 파싱 실패 무시
+          // ignore parse errors
         }
       }
     }
@@ -318,10 +258,7 @@ async function callOpenAIStreaming(params: {
     return { text: fullText, usage, latencyMs, timedOut: false }
   } catch (error: any) {
     const latencyMs = now() - startedAt
-    const timedOut =
-      error?.name === "AbortError" ||
-      String(error?.message ?? "").toLowerCase().includes("aborted")
-
+    const timedOut = error?.name === "AbortError" || String(error?.message ?? "").toLowerCase().includes("aborted")
     throw { original: error, latencyMs, timedOut }
   } finally {
     clearTimeout(timer)
@@ -344,39 +281,31 @@ export const openaiAdapter: ModelAdapter = {
       }
     }
 
-    const systemPrompt = req.system_prompt
-      ?? "You are AI Orchestra, a powerful multi-AI workspace that uses GPT-5.4, Claude Sonnet 4.6, Gemini 3.1 Pro, and Perplexity Pro. These are the actual models running in this system. Answer questions about these models based on your knowledge. Respond in the same language the user writes in. Be concise, accurate, and genuinely helpful."
+    const systemPrompt = req.system_prompt ??
+      "You are CORVUS X, a powerful multi-AI workspace that uses GPT-5.2 / GPT-5.4-pro, Claude Sonnet 4.6 / Opus 4.6, Gemini 3.0 Flash / 3.1 Pro, and Perplexity Pro. These models are dynamically selected based on task complexity. These are the actual models running in this system. Answer questions about these models based on your knowledge. Respond in the same language the user writes in. Be concise, accurate, and genuinely helpful."
 
     const body: any = {
       model,
       instructions: systemPrompt,
       input: buildInput(req.messages),
-      max_output_tokens: req.max_tokens ?? 2048
+      max_output_tokens: req.max_tokens ?? 16384
     }
 
     if (supportsTemperature(model)) {
       body.temperature = req.temperature ?? 0
     }
 
-    const maxAttempts =
-      typeof req.max_retries === "number" && req.max_retries >= 1
-        ? req.max_retries + 1
-        : 2
-
-    // ─── 스트리밍 경로 ──────────────────────────────────────────────────────
+    const maxAttempts = typeof req.max_retries === "number" && req.max_retries >= 1 ? req.max_retries + 1 : 2
     const wantsStreaming = Boolean(req.stream || typeof req.onToken === "function")
 
     if (wantsStreaming && typeof req.onToken === "function") {
       try {
         const streamResult = await callOpenAIStreaming({ apiKey, model, req, body })
-
         if (streamResult.httpStatus !== undefined && streamResult.httpStatus >= 400) {
-          // API 오류 → 논스트리밍 폴백으로 강등
           console.warn(`[OpenAI] streaming HTTP ${streamResult.httpStatus}, falling back to non-streaming`)
         } else if (streamResult.text || !streamResult.errorData) {
           const text = streamResult.text.trim()
           const latencyMs = streamResult.latencyMs
-
           if (text) {
             attempts.push({
               provider: req.provider,
@@ -388,7 +317,6 @@ export const openaiAdapter: ModelAdapter = {
               outcome: "success",
               retriable: false
             })
-
             return {
               provider: req.provider,
               model,
@@ -398,32 +326,47 @@ export const openaiAdapter: ModelAdapter = {
               streaming_supported: true
             }
           }
-          // 텍스트 없으면 논스트리밍 폴백
           console.warn("[OpenAI] streaming returned empty text, falling back to non-streaming")
         }
       } catch (e: any) {
-        // 스트리밍 오류 → 논스트리밍 폴백
+        const isAbort = e?.name === "AbortError" ||
+          String(e?.message ?? "").toLowerCase().includes("aborted") ||
+          String(e?.original?.message ?? "").toLowerCase().includes("aborted")
+
+        if (isAbort) {
+          attempts.push({
+            provider: req.provider,
+            model,
+            status: "error",
+            latency_ms: 0,
+            error: "aborted",
+            attempt_no: 1,
+            outcome: "timeout",
+            retriable: false,
+            error_code: "aborted"
+          })
+          return {
+            provider: req.provider,
+            model,
+            answer: "",
+            attempts,
+            error: buildError(req.provider, `[${model}] aborted`, "aborted", false)
+          }
+        }
+
         console.warn("[OpenAI] streaming error, falling back to non-streaming:", e?.original?.message ?? e?.message ?? "unknown")
       }
     }
 
-    // ─── 논스트리밍 경로 (기존 로직) ────────────────────────────────────────
     for (let attemptNo = 1; attemptNo <= maxAttempts; attemptNo += 1) {
       try {
-        const { response, data, latencyMs } = await callOpenAI({
-          apiKey,
-          model,
-          req,
-          body
-        })
-
+        const { response, data, latencyMs } = await callOpenAI({ apiKey, model, req, body })
         const text = extractText(data)
         const usage = extractUsage(data)
 
         if (!response.ok) {
           const apiError = extractApiError(data, response.status)
           const retriable = isRetriableError(response.status, apiError.code)
-
           attempts.push({
             provider: req.provider,
             model,
@@ -448,18 +391,12 @@ export const openaiAdapter: ModelAdapter = {
             answer: "",
             attempts,
             usage,
-            error: buildError(
-              req.provider,
-              `[${model}] ${apiError.message}`,
-              apiError.code,
-              retriable
-            )
+            error: buildError(req.provider, `[${model}] ${apiError.message}`, apiError.code, retriable)
           }
         }
 
         if (!text) {
           const retriable = attemptNo < maxAttempts
-
           attempts.push({
             provider: req.provider,
             model,
@@ -484,12 +421,7 @@ export const openaiAdapter: ModelAdapter = {
             answer: "",
             attempts,
             usage,
-            error: buildError(
-              req.provider,
-              `[${model}] empty_response`,
-              "empty_response",
-              false
-            )
+            error: buildError(req.provider, `[${model}] empty_response`, "empty_response", false)
           }
         }
 
@@ -514,11 +446,7 @@ export const openaiAdapter: ModelAdapter = {
         }
       } catch (wrapped: any) {
         const original = wrapped?.original
-        const latencyMs =
-          typeof wrapped?.latencyMs === "number"
-            ? wrapped.latencyMs
-            : 0
-
+        const latencyMs = typeof wrapped?.latencyMs === "number" ? wrapped.latencyMs : 0
         const timedOut = wrapped?.timedOut === true
         const code = timedOut ? "timeout" : "network_error"
         const message = String(original?.message ?? code)
@@ -546,12 +474,7 @@ export const openaiAdapter: ModelAdapter = {
           model,
           answer: "",
           attempts,
-          error: buildError(
-            req.provider,
-            `[${model}] ${message}`,
-            code,
-            retriable
-          )
+          error: buildError(req.provider, `[${model}] ${message}`, code, retriable)
         }
       }
     }
@@ -570,7 +493,6 @@ export async function generate(req: ModelRequest): Promise<ModelResponse> {
   return openaiAdapter.generate(req)
 }
 
-// ─── DALL-E 3 이미지 생성 ─────────────────────────────────────
 export async function generateImage(params: {
   prompt: string
   size?: "1024x1024" | "1792x1024" | "1024x1792"
@@ -593,33 +515,22 @@ export async function generateImage(params: {
   try {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 60000)
-
     const response = await fetch("https://api.openai.com/v1/images/generations", {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: controller.signal
     })
-
     clearTimeout(timer)
 
     const data = await response.json().catch(() => ({}))
-
     if (!response.ok) {
-      return {
-        ok: false,
-        error: data?.error?.message ?? `HTTP ${response.status}`
-      }
+      return { ok: false, error: data?.error?.message ?? `HTTP ${response.status}` }
     }
 
     const url = data?.data?.[0]?.url
     const revised_prompt = data?.data?.[0]?.revised_prompt
-
     if (!url) return { ok: false, error: "no image url returned" }
-
     return { ok: true, url, revised_prompt }
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "network_error" }

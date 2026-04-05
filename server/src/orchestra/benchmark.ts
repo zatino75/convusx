@@ -1,4 +1,4 @@
-import fs from "fs"
+﻿import fs from "fs"
 import { updateScoreboardFromBenchmark } from "./scoreboard.js"
 
 const LOG_PATH = "server/data/benchmark.jsonl"
@@ -37,6 +37,13 @@ export async function logBenchmark(payload: any) {
     ensureDir()
     const record = normalizeBenchmarkCase(payload)
     fs.appendFileSync(LOG_PATH, JSON.stringify(record) + "\n", "utf-8")
+    // E17: rotation — 1000줄 초과 시 앞 200줄 제거
+    try {
+      const lines = fs.readFileSync(LOG_PATH, "utf-8").split("\n").filter(Boolean)
+      if (lines.length > 1000) {
+        fs.writeFileSync(LOG_PATH, lines.slice(lines.length - 800).join("\n") + "\n", "utf-8")
+      }
+    } catch {}
     try {
       updateScoreboardFromBenchmark(record)
     } catch {}

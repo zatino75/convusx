@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
+﻿import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
 import type { Message, ProjectGroup, Thread } from "../../types/workspace";
 import renderMessageContent from "./MessageRenderer";
 
@@ -8,6 +8,39 @@ type MessageVersionState = {
 };
 
 type ComposerMenuAction = "upload" | "deep-think" | "web-search";
+
+type SlashCommand = {
+  trigger: string;        // /dalle, /midjourney 등
+  label: string;
+  meta: string;
+  insert: string;         // textarea에 삽입될 텍스트
+  category: "image" | "video" | "research" | "code" | "doc";
+};
+
+const SLASH_COMMANDS: SlashCommand[] = [
+  { trigger: "/dalle",      label: "DALL-E 이미지",      meta: "OpenAI DALL-E 3",              insert: "이미지 그려줘: ",           category: "image" },
+  { trigger: "/imagen",     label: "Gemini Imagen",      meta: "Gemini Imagen 4",              insert: "gemini로 그려줘: ",          category: "image" },
+  { trigger: "/midjourney", label: "Midjourney 이미지",  meta: "Midjourney v6.1",              insert: "midjourney로 그려줘: ",      category: "image" },
+  { trigger: "/runway",     label: "Runway 비디오",      meta: "Runway Gen4 Turbo",            insert: "runway로 만들어줘: ",        category: "video" },
+  { trigger: "/veo",        label: "Veo 비디오",         meta: "Gemini Veo 3.1",              insert: "veo로 만들어줘: ",           category: "video" },
+  { trigger: "/research",   label: "심층 리서치",        meta: "Perplexity + OpenAI + Claude", insert: "심층 리서치: ",              category: "research" },
+  { trigger: "/web",        label: "웹 검색",            meta: "Perplexity Pro",               insert: "웹 검색: ",                  category: "research" },
+  { trigger: "/legal",      label: "법률 검토",          meta: "Claude + OpenAI",              insert: "법률 검토해줘: ",            category: "doc" },
+  { trigger: "/finance",    label: "재무 분석",          meta: "OpenAI + Perplexity",          insert: "재무 분석해줘: ",            category: "doc" },
+  { trigger: "/product",    label: "상품 개발",          meta: "OpenAI + Perplexity",          insert: "상품 개발 기획해줘: ",       category: "doc" },
+  { trigger: "/data",       label: "데이터 분석",        meta: "OpenAI",                       insert: "데이터 분석해줘: ",          category: "doc" },
+  { trigger: "/code",       label: "코드 작성",          meta: "Claude Sonnet + gpt-5.3-codex", insert: "",                          category: "code" },
+  { trigger: "/source",     label: "소스로 저장",        meta: "스레드 → 프로젝트 소스",       insert: "소스로 저장해줘",           category: "doc" },
+  { trigger: "/slide",      label: "슬라이드 생성",      meta: "AI 슬라이드",                  insert: "슬라이드로 만들어줘: ",      category: "doc" },
+];
+
+const CATEGORY_COLOR: Record<string, string> = {
+  image:    "#8b5cf6",
+  video:    "#ef4444",
+  research: "#10b981",
+  code:     "#f59e0b",
+  doc:      "#3b82f6",
+};
 
 type Props = {
   activeProject: ProjectGroup | null;
@@ -41,8 +74,8 @@ type Props = {
   showScrollToBottom?: boolean;
   onScrollToBottom?: () => void;
   onDownloadSlide?: (slideData: any) => void;
-  attachedFile?: { name: string; type: string; base64: string; size: number } | null;
-  onAttachFile?: (file: { name: string; type: string; base64: string; size: number } | null) => void;
+  attachedFiles?: { name: string; type: string; base64: string; size: number }[];
+  onAttachFiles?: (files: { name: string; type: string; base64: string; size: number }[]) => void;
 };
 
 function formatTime(iso: string) {
@@ -203,6 +236,13 @@ function AssistantActionToolbar({
   onFeedback?: (feedback: "up" | "down") => void;
 }) {
   const [thumbState, setThumbState] = useState<"up" | "down" | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    onCopy();
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  }
 
   return (
     <div
@@ -218,13 +258,17 @@ function AssistantActionToolbar({
     >
       <button
         type="button"
-        onClick={onCopy}
-        title="복사"
-        style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "none", background: "none", cursor: "pointer", borderRadius: 6, color: "var(--text-sub)" }}
+        onClick={handleCopy}
+        title={copied ? "복사됨!" : "복사"}
+        style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "none", background: "none", cursor: "pointer", borderRadius: 6, color: copied ? "#10a37f" : "var(--text-sub)", transition: "color 0.2s" }}
         onMouseEnter={e => (e.currentTarget.style.background = "var(--surface-2, #f3f4f6)")}
         onMouseLeave={e => (e.currentTarget.style.background = "none")}
       >
-        <CopyIcon />
+        {copied ? (
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 13l4 4L19 7" /></svg>
+        ) : (
+          <CopyIcon />
+        )}
       </button>
 
       <button
@@ -270,18 +314,6 @@ function AssistantActionToolbar({
         </button>
       )}
 
-      {onDelete && (
-        <button
-          type="button"
-          onClick={onDelete}
-          title="메시지 삭제"
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "none", background: "none", cursor: "pointer", borderRadius: 6, color: "var(--text-sub)" }}
-          onMouseEnter={e => { e.currentTarget.style.background = "var(--surface-2, #f3f4f6)"; e.currentTarget.style.color = "#ef4444"; }}
-          onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-sub)"; }}
-        >
-          <DeleteIcon />
-        </button>
-      )}
     </div>
   );
 }
@@ -328,6 +360,12 @@ function UserMessageToolsRow({
   onMouseEnter: () => void;
   onMouseLeave: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
+  function handleCopy() {
+    onCopy();
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  }
   return (
     <div
       onMouseEnter={onMouseEnter}
@@ -381,15 +419,18 @@ function UserMessageToolsRow({
           gap: 6
         }}
       >
-        <button type="button" className="user-message-tools__button" onClick={onCopy} aria-label="메시지 복사">
-          <CopyIcon />
+        <button type="button" className="user-message-tools__button" onClick={handleCopy}
+          aria-label={copied ? "복사됨!" : "메시지 복사"}
+          title={copied ? "복사됨!" : "복사"}
+          style={{ color: copied ? "#10a37f" : undefined, transition: "color 0.2s" }}>
+          {copied
+            ? <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 13l4 4L19 7" /></svg>
+            : <CopyIcon />}
         </button>
         <button type="button" className="user-message-tools__button" onClick={onEdit} aria-label="메시지 편집">
           <EditIcon />
         </button>
-        <button type="button" className="user-message-tools__button" onClick={onDelete} aria-label="메시지 삭제" style={{ color: "var(--text-sub)" }}>
-          <DeleteIcon />
-        </button>
+
       </div>
     </div>
   );
@@ -535,6 +576,15 @@ function MessageBubble({
   const isUser = message.role === "user";
   const isPending = message.status === "pending";
   const isError = message.status === "error";
+
+  // 생각중 경과 시간 타이머
+  const [elapsedSec, setElapsedSec] = useState(0);
+  useEffect(() => {
+    if (!isPending) { setElapsedSec(0); return; }
+    setElapsedSec(0);
+    const timer = setInterval(() => setElapsedSec(s => s + 1), 1000);
+    return () => clearInterval(timer);
+  }, [isPending]);
   const showAssistantCopy = !isUser && hasStructuredCopyTarget(message.content);
 
   const orchestrationMeta = (message as any)?.meta?.orchestration ?? (message as any)?.meta?.debug ?? null;
@@ -565,7 +615,7 @@ function MessageBubble({
       setIsBubbleHovered(false);
       setIsMenuHovered(false);
       hoverHideTimerRef.current = null;
-    }, 140);
+    }, 600);
   }
 
   useEffect(() => {
@@ -673,6 +723,25 @@ function MessageBubble({
           ) : null}
 
           <div className={isError ? "message__error-box" : ""}>
+            {/* 유저 메시지 첨부파일 칩 */}
+            {isUser && (message as any).attachedFiles && (message as any).attachedFiles.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, padding: "8px 14px 2px" }}>
+                {((message as any).attachedFiles as { name: string; type: string; size: number }[]).map((f, idx) => (
+                  <div key={idx} style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "3px 9px", borderRadius: 6,
+                    background: "rgba(255,255,255,0.18)", border: "1px solid rgba(255,255,255,0.3)",
+                    fontSize: 11, color: "inherit", maxWidth: 200
+                  }}>
+                    <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
+                    </svg>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                    <span style={{ opacity: 0.7, flexShrink: 0 }}>{(f.size / 1024).toFixed(0)}KB</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div
               className={"message__text" + (isUser ? " message__text--user" : "")}
               style={{
@@ -685,7 +754,7 @@ function MessageBubble({
                 lineHeight: isUser ? 1.45 : undefined
               }}
             >
-              {message.content ? renderMessageContent(message.content, { onRelatedQuestion, onOpenArtifact }) : isPending ? "응답 생성 중..." : ""}
+              {message.content ? renderMessageContent(message.content, { onRelatedQuestion, onOpenArtifact }) : ""}
             </div>
 
             {/* 슬라이드 다운로드 버튼 */}
@@ -715,7 +784,7 @@ function MessageBubble({
               </div>
             )}
 
-            {/* 이미지 표시 */}
+            {/* 이미지 표시 — DALL-E / Imagen / Midjourney */}
             {!isUser && !isPending && (message as any).requestMeta?.image_url && (
               <div style={{ padding: "10px 18px 4px" }}>
                 <img
@@ -729,13 +798,74 @@ function MessageBubble({
                     {(message as any).requestMeta.image_revised_prompt}
                   </div>
                 )}
+                {(message as any).requestMeta?.image_urls?.length > 1 && (
+                  <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, maxWidth: 480 }}>
+                    {((message as any).requestMeta.image_urls as string[]).map((url: string, idx: number) => (
+                      <a key={idx} href={url} target="_blank" rel="noopener noreferrer">
+                        <img
+                          src={url}
+                          alt={`이미지 ${idx + 1}`}
+                          style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 8, display: "block", border: "1px solid var(--border)" }}
+                          onError={e => { (e.target as HTMLImageElement).style.display = "none" }}
+                        />
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 비디오 표시 — Runway / Veo */}
+            {!isUser && !isPending && (message as any).requestMeta?.video_url && (
+              <div style={{ padding: "10px 18px 4px" }}>
+                {String((message as any).requestMeta.video_url).startsWith("gs://") ? (
+                  <div style={{ padding: "12px 16px", borderRadius: 10, background: "var(--bg-sub, #f3f4f6)", border: "1px solid var(--border)", maxWidth: 480, fontSize: 13 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>🎬 비디오 생성 완료</div>
+                    <div style={{ fontSize: 11, color: "var(--text-sub)", wordBreak: "break-all" }}>
+                      {(message as any).requestMeta.video_url}
+                    </div>
+                    <a
+                      href={(message as any).requestMeta.video_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ display: "inline-block", marginTop: 8, fontSize: 12, color: "var(--accent, #6366f1)", textDecoration: "none", fontWeight: 600 }}
+                    >
+                      ↗ 비디오 열기
+                    </a>
+                  </div>
+                ) : (
+                  <video
+                    src={(message as any).requestMeta.video_url}
+                    controls
+                    style={{ maxWidth: "100%", width: 480, borderRadius: 12, display: "block", border: "1px solid var(--border)" }}
+                  />
+                )}
               </div>
             )}
 
             {isPending ? (
-              <div className="message__pending">
-                <span className="message__pending-dot" />
-                생성 중...
+              <div
+                className="message__pending"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 10px",
+                  borderRadius: 999,
+                  background: "rgba(0,0,0,0.04)",
+                  width: "fit-content",
+                  maxWidth: "100%"
+                }}
+              >
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <span className="message__pending-dot" />
+                  <span className="message__pending-dot" style={{ animationDelay: "0.18s" }} />
+                  <span className="message__pending-dot" style={{ animationDelay: "0.36s" }} />
+                </span>
+                <span style={{ fontSize: 12, color: "var(--text-sub)" }}>생각중</span>
+                <span style={{ fontSize: 11, color: "var(--text-soft, #aaa)", fontVariantNumeric: "tabular-nums", minWidth: 32 }}>
+                  {elapsedSec < 60 ? `${elapsedSec}s` : `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`}
+                </span>
               </div>
             ) : null}
 
@@ -869,7 +999,7 @@ function ComposerMenu({
         </span>
         <span className="composer-menu__stack">
           <span className="composer-menu__text">심층리서치</span>
-          <span className="composer-menu__meta">GPT-5.4 Pro / Claude Opus 4.6 바로 생각하기</span>
+          <span className="composer-menu__meta">GPT-5.4 Pro + Claude Opus 4.6</span>
         </span>
       </button>
 
@@ -897,30 +1027,34 @@ function Composer({
   draft,
   isSending,
   onDraftChange,
+  onAttachFiles,
   onSend,
   onStopGenerating,
   textareaRef,
   onComposerAction,
   composerMode,
   onClearComposerMode,
-  attachedFile,
-  onAttachFile
+  attachedFiles
 }: {
   draft: string;
   isSending: boolean;
   onDraftChange: (value: string) => void;
+  onAttachFiles?: (files: { name: string; type: string; base64: string; size: number }[]) => void;
   onSend: () => void;
   onStopGenerating?: () => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   onComposerAction?: (action: ComposerMenuAction) => void;
   composerMode?: "deep-think" | "web-search" | null;
   onClearComposerMode?: () => void;
-  attachedFile?: { name: string; type: string; base64: string; size: number } | null;
-  onAttachFile?: (file: { name: string; type: string; base64: string; size: number } | null) => void;
+  attachedFiles?: { name: string; type: string; base64: string; size: number }[];
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [slashOpen, setSlashOpen] = useState(false);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashFiltered, setSlashFiltered] = useState<SlashCommand[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const menuRootRef = useRef<HTMLDivElement | null>(null);
+  const slashRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -954,13 +1088,63 @@ function Composer({
     };
   }, []);
 
+  function handlePaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const text = event.clipboardData.getData("text/plain");
+    if (text.length < 500) return; // 500자 미만은 일반 붙여넣기
+    event.preventDefault();
+
+    // 파일명 생성 (날짜 기반)
+    const now = new Date();
+    const fileName = "붙여넣기_" + now.getFullYear() + String(now.getMonth()+1).padStart(2,"0") + String(now.getDate()).padStart(2,"0") + "_" + String(now.getHours()).padStart(2,"0") + String(now.getMinutes()).padStart(2,"0") + ".txt";
+
+    // base64 변환
+    const bytes = new TextEncoder().encode(text);
+    const binary = Array.from(bytes).map(b => String.fromCharCode(b)).join("");
+    const base64 = btoa(binary);
+
+    // 파일 첨부로 처리
+    if (onAttachFiles) {
+      const newFile = { name: fileName, type: "text/plain", base64, size: text.length };
+      onAttachFiles([...(attachedFiles ?? []), newFile].slice(0, 10));
+    }
+  }
+
   function handleKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (slashOpen) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setSlashIndex(i => Math.min(i + 1, slashFiltered.length - 1));
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setSlashIndex(i => Math.max(i - 1, 0));
+        return;
+      }
+      if (event.key === "Tab" || (event.key === "Enter" && slashFiltered.length > 0)) {
+        event.preventDefault();
+        applySlashCommand(slashFiltered[slashIndex]);
+        return;
+      }
+      if (event.key === "Escape") {
+        setSlashOpen(false);
+        return;
+      }
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (!isSending && (draft.trim() || attachedFile)) {
+      if (!isSending && (draft.trim() || (attachedFiles && attachedFiles.length > 0))) {
         onSend();
       }
     }
+  }
+
+  function applySlashCommand(cmd: SlashCommand) {
+    // 현재 입력에서 /xxx 부분을 cmd.insert로 교체
+    const replaced = draft.replace(/(^|\s)\/[\w가-힣]*$/, (m, prefix) => prefix + cmd.insert);
+    onDraftChange(replaced);
+    setSlashOpen(false);
+    setTimeout(() => textareaRef.current?.focus(), 0);
   }
 
   function handleMenuAction(action: ComposerMenuAction) {
@@ -974,22 +1158,38 @@ function Composer({
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
 
     const maxSize = 20 * 1024 * 1024; // 20MB
-    if (file.size > maxSize) {
-      alert("파일 크기는 20MB 이하여야 합니다.");
+    const current = attachedFiles ?? [];
+    const remaining = 10 - current.length;
+
+    if (remaining <= 0) {
+      alert("최대 10개까지 첨부할 수 있습니다.");
+      e.target.value = "";
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(",")[1] ?? result;
-      onAttachFile?.({ name: file.name, type: file.type, base64, size: file.size });
-    };
-    reader.readAsDataURL(file);
+    const toProcess = files.slice(0, remaining);
+    const oversized = toProcess.filter(f => f.size > maxSize);
+    if (oversized.length > 0) {
+      alert(`파일 크기는 20MB 이하여야 합니다: ${oversized.map(f => f.name).join(", ")}`);
+      e.target.value = "";
+      return;
+    }
+
+    const results = await Promise.all(toProcess.map(file => new Promise<{ name: string; type: string; base64: string; size: number }>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        const base64 = result.split(",")[1] ?? result;
+        resolve({ name: file.name, type: file.type, base64, size: file.size });
+      };
+      reader.readAsDataURL(file);
+    })));
+
+    onAttachFiles?.([...current, ...results]);
     e.target.value = "";
   }
 
@@ -1001,17 +1201,23 @@ function Composer({
       onDrop={async e => {
         e.preventDefault();
         e.currentTarget.style.outline = "";
-        const file = e.dataTransfer.files?.[0];
-        if (!file) return;
+        const files = Array.from(e.dataTransfer.files ?? []);
+        if (files.length === 0) return;
         const maxSize = 20 * 1024 * 1024;
-        if (file.size > maxSize) { alert("20MB 이하 파일만 가능합니다."); return; }
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          const base64 = result.split(",")[1] ?? result;
-          onAttachFile?.({ name: file.name, type: file.type, base64, size: file.size });
-        };
-        reader.readAsDataURL(file);
+        const current = attachedFiles ?? [];
+        const remaining = 10 - current.length;
+        if (remaining <= 0) { alert("최대 10개까지 첨부할 수 있습니다."); return; }
+        const toProcess = files.slice(0, remaining).filter(f => f.size <= maxSize);
+        const results = await Promise.all(toProcess.map(file => new Promise<{ name: string; type: string; base64: string; size: number }>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            const base64 = result.split(",")[1] ?? result;
+            resolve({ name: file.name, type: file.type, base64, size: file.size });
+          };
+          reader.readAsDataURL(file);
+        })));
+        onAttachFiles?.([...current, ...results]);
       }}
     >
       {/* hidden file input */}
@@ -1020,22 +1226,28 @@ function Composer({
         type="file"
         accept="image/*,.pdf,.txt,.md,.csv,.json,.ts,.tsx,.js,.jsx,.py"
         style={{ display: "none" }}
+        multiple
         onChange={handleFileChange}
       />
 
       {/* 첨부파일 미리보기 */}
-      {attachedFile && (
-        <div style={{ padding: "8px 14px 0", display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 8, background: "var(--surface-1)", border: "1px solid var(--border)", fontSize: 12 }}>
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: "var(--text-sub)", flexShrink: 0 }}>
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
-            </svg>
-            <span style={{ color: "var(--text-main)", fontWeight: 500, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{attachedFile.name}</span>
-            <span style={{ color: "var(--text-soft)", fontSize: 11 }}>{(attachedFile.size / 1024).toFixed(0)}KB</span>
-            <button type="button" onClick={() => onAttachFile?.(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "var(--text-soft)", display: "flex", alignItems: "center" }}>
-              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12" /></svg>
-            </button>
-          </div>
+      {attachedFiles && attachedFiles.length > 0 && (
+        <div style={{ padding: "8px 14px 0", display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {attachedFiles.map((f, idx) => (
+            <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 8, background: "var(--surface-1)", border: "1px solid var(--border)", fontSize: 12 }}>
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: "var(--text-sub)", flexShrink: 0 }}>
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
+              </svg>
+              <span style={{ color: "var(--text-main)", fontWeight: 500, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{f.name}</span>
+              <span style={{ color: "var(--text-soft)", fontSize: 11 }}>{(f.size / 1024).toFixed(0)}KB</span>
+              <button type="button" onClick={() => onAttachFiles?.(attachedFiles.filter((_, i) => i !== idx))} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "var(--text-soft)", display: "flex", alignItems: "center" }}>
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12" /></svg>
+              </button>
+            </div>
+          ))}
+          {attachedFiles.length < 10 && (
+            <span style={{ fontSize: 11, color: "var(--text-soft)", alignSelf: "center" }}>{attachedFiles.length}/10</span>
+          )}
         </div>
       )}
 
@@ -1048,7 +1260,7 @@ function Composer({
             color: composerMode === "deep-think" ? "#6366f1" : "#10b981",
             fontSize: 12, fontWeight: 600
           }}>
-            {composerMode === "deep-think" ? "⚡ 심층리서치 (GPT-5.4 Pro + Claude Opus)" : "🔍 웹검색 (Perplexity Scout)"}
+            {composerMode === "deep-think" ? "⚡ 심층리서치 (GPT-5.4 Pro + Claude Opus 4.6)" : "🔍 웹검색 (Perplexity Scout)"}
             <button type="button" onClick={onClearComposerMode}
               style={{ display: "flex", alignItems: "center", border: "none", background: "none", cursor: "pointer", padding: 0, color: "inherit", opacity: 0.7 }}>
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -1058,7 +1270,46 @@ function Composer({
           </span>
         </div>
       )}
-      <div className="chat-composer__row">
+      {/* slash 커맨드 팝오버 */}
+      {slashOpen && slashFiltered.length > 0 && (
+        <div
+          ref={slashRef}
+          style={{
+            position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 4,
+            background: "var(--bg-main, #fff)", border: "1px solid var(--border)",
+            borderRadius: 10, boxShadow: "0 4px 20px rgba(0,0,0,0.12)",
+            zIndex: 100, overflow: "hidden", maxHeight: 320, overflowY: "auto"
+          }}
+        >
+          <div style={{ padding: "6px 10px", fontSize: 10, fontWeight: 700, color: "var(--text-sub)", textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid var(--border)" }}>
+            커맨드
+          </div>
+          {slashFiltered.map((cmd, idx) => (
+            <button
+              key={cmd.trigger}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); applySlashCommand(cmd); }}
+              style={{
+                display: "flex", alignItems: "center", gap: 10,
+                width: "100%", padding: "8px 12px", border: "none", cursor: "pointer",
+                background: idx === slashIndex ? "var(--bg-sub, #f3f4f6)" : "transparent",
+                textAlign: "left"
+              }}
+            >
+              <span style={{
+                width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+                background: CATEGORY_COLOR[cmd.category] ?? "#888"
+              }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)", minWidth: 90 }}>
+                {cmd.trigger}
+              </span>
+              <span style={{ fontSize: 12, color: "var(--text-main)", flex: 1 }}>{cmd.label}</span>
+              <span style={{ fontSize: 10, color: "var(--text-sub)" }}>{cmd.meta}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="chat-composer__row" style={{ position: "relative" }}>
         <div ref={menuRootRef} className="chat-composer__menu-anchor">
           <button
             type="button"
@@ -1075,10 +1326,28 @@ function Composer({
         <textarea
           ref={textareaRef}
           value={draft}
-          onChange={(event) => onDraftChange(event.target.value)}
+          onChange={(event) => {
+            const val = event.target.value;
+            onDraftChange(val);
+            // slash 커맨드 감지
+            const slashMatch = val.match(/(?:^|\s)\/([\w가-힣]*)$/);
+            if (slashMatch) {
+              const q = slashMatch[1].toLowerCase();
+              const filtered = SLASH_COMMANDS.filter(c =>
+                c.trigger.slice(1).startsWith(q) ||
+                c.label.toLowerCase().includes(q)
+              );
+              setSlashFiltered(filtered);
+              setSlashOpen(filtered.length > 0);
+              setSlashIndex(0);
+            } else {
+              setSlashOpen(false);
+            }
+          }}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           rows={1}
-          placeholder={attachedFile ? "파일에 대해 질문하거나 Enter로 바로 전송" : "무엇이든 물어보세요"}
+          placeholder={attachedFiles && attachedFiles.length > 0 ? "파일에 대해 질문하거나 Enter로 바로 전송" : "무엇이든 물어보세요"}
           className="chat-composer__textarea"
         />
 
@@ -1092,7 +1361,7 @@ function Composer({
               }
               onSend();
             }}
-            disabled={!isSending && !draft.trim() && !attachedFile}
+            disabled={!isSending && !draft.trim() && !(attachedFiles && attachedFiles.length > 0)}
             className="chat-composer__send"
             aria-label={isSending ? "정지" : "전송"}
             title={isSending ? "생성 중지" : "전송"}
@@ -1142,8 +1411,8 @@ export default function ChatView({
   showScrollToBottom = false,
   onScrollToBottom,
   onDownloadSlide,
-  attachedFile,
-  onAttachFile
+  attachedFiles,
+  onAttachFiles
 }: Props) {
   const visibleMessages = useMemo(
     () => (activeThread?.messages ?? []).filter((message) => !message.isHidden),
@@ -1168,8 +1437,8 @@ export default function ChatView({
                 onComposerAction={onComposerAction}
                 composerMode={composerMode}
                 onClearComposerMode={onClearComposerMode}
-                attachedFile={attachedFile}
-                onAttachFile={onAttachFile}
+                attachedFiles={attachedFiles}
+                onAttachFiles={onAttachFiles}
               />
             </div>
 
@@ -1182,17 +1451,23 @@ export default function ChatView({
 
   async function handleGlobalDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
-    const file = e.dataTransfer.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.dataTransfer.files ?? []);
+    if (files.length === 0) return;
     const maxSize = 20 * 1024 * 1024;
-    if (file.size > maxSize) { alert("20MB 이하 파일만 가능합니다."); return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(",")[1] ?? result;
-      onAttachFile?.({ name: file.name, type: file.type, base64, size: file.size });
-    };
-    reader.readAsDataURL(file);
+    const current = attachedFiles ?? [];
+    const remaining = 10 - current.length;
+    if (remaining <= 0) { alert("최대 10개까지 첨부할 수 있습니다."); return; }
+    const toProcess = files.slice(0, remaining).filter(f => f.size <= maxSize);
+    const results = await Promise.all(toProcess.map(file => new Promise<{ name: string; type: string; base64: string; size: number }>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        const base64 = result.split(",")[1] ?? result;
+        resolve({ name: file.name, type: file.type, base64, size: file.size });
+      };
+      reader.readAsDataURL(file);
+    })));
+    onAttachFiles?.([...current, ...results]);
   }
 
   return (
@@ -1278,8 +1553,8 @@ export default function ChatView({
             composerMode={composerMode}
             onClearComposerMode={onClearComposerMode}
             textareaRef={textareaRef}
-            attachedFile={attachedFile}
-            onAttachFile={onAttachFile}
+            attachedFiles={attachedFiles}
+            onAttachFiles={onAttachFiles}
           />
 
           <div className="chat-footer-note">CORVUS X는 실수를 할 수 있습니다. 중요한 정보는 확인하십시오.</div>

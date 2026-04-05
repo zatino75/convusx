@@ -1,4 +1,4 @@
-import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
+﻿import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
 
 function env(name: string): string {
   const value = (globalThis as any)?.process?.env?.[name]
@@ -302,7 +302,7 @@ export const claudeAdapter: ModelAdapter = {
     const payload = {
       model,
       system: system || undefined,
-      max_tokens: req.max_tokens ?? 2000,
+      max_tokens: req.max_tokens ?? 32000,
       temperature: req.temperature ?? 0,
       messages: conversation.map((m) => ({
         role: m.role,

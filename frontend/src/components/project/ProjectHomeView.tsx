@@ -1,5 +1,6 @@
-﻿import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState, useCallback } from "react";
 import type { ProjectGroup } from "../../types/workspace";
+import { useWorkspaceState } from "../../store/workspaceStore";
 import {
   fetchProjectAssets,
   persistAsset,
@@ -24,7 +25,7 @@ type Props = {
   isSending?: boolean;
 };
 
-type Tab = "스레드" | "소스";
+type Tab = "스레드" | "소스" | "지침";
 
 function PlusIcon() {
   return (
@@ -88,6 +89,13 @@ function getSourceIcon(type: SourceAsset["type"]) {
 function getSourceTypeLabel(type: SourceAsset["type"]) {
   const m: Record<string, string> = { file: "파일", link: "링크", note: "노트", image: "이미지", thread_summary: "스레드 요약" };
   return m[type] ?? type;
+}
+function getSourceTypeColor(type: SourceAsset["type"]) {
+  const m: Record<string, string> = {
+    file: "#3b82f6", link: "#10b981", note: "#f59e0b",
+    image: "#8b5cf6", thread_summary: "#6366f1"
+  };
+  return m[type] ?? "#6b7280";
 }
 function formatSize(content?: string) {
   if (!content) return "";
@@ -190,10 +198,12 @@ function SourceItem({ asset, onDelete, onToggleConfirmed }: {
         <span style={{ color: isConfirmed ? "#6366f1" : "var(--text-sub)", flexShrink: 0 }}>{getSourceIcon(asset.type)}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-main)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{asset.title || "제목 없음"}</div>
-          <div style={{ fontSize: 11, color: "var(--text-sub)", display: "flex", gap: 8, marginTop: 2 }}>
-            <span>{getSourceTypeLabel(asset.type)}</span>
+          <div style={{ fontSize: 11, color: "var(--text-sub)", display: "flex", gap: 6, marginTop: 2, alignItems: "center", flexWrap: "wrap" as const }}>
+            <span style={{ padding: "1px 6px", borderRadius: 4, background: getSourceTypeColor(asset.type) + "18", color: getSourceTypeColor(asset.type), fontWeight: 600 }}>
+              {getSourceTypeLabel(asset.type)}
+            </span>
             {asset.content && <span>{formatSize(asset.content)}</span>}
-            {isConfirmed && <span style={{ color: "#6366f1", fontWeight: 500 }}>● 학습됨</span>}
+            {isConfirmed && <span style={{ color: "#6366f1", fontWeight: 600 }}>● 학습됨</span>}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
@@ -222,10 +232,55 @@ function SourceItem({ asset, onDelete, onToggleConfirmed }: {
   );
 }
 
+function InstructionTab({ project }: { project: ProjectGroup }) {
+  const workspace = useWorkspaceState();
+  const [value, setValue] = useState<string>(project?.meta?.instruction ?? "");
+
+  // 프로젝트 변경 시 값 동기화
+  useEffect(() => {
+    setValue(project?.meta?.instruction ?? "");
+  }, [project?.id, project?.meta?.instruction]);
+
+  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const next = e.target.value;
+    setValue(next);
+    workspace.updateProjectMeta(project.id, { instruction: next });
+  }
+
+  return (
+    <div style={{ paddingBottom: 32 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)", marginBottom: 8 }}>
+        프로젝트 지침
+      </div>
+      <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-sub)", lineHeight: 1.6 }}>
+        이 프로젝트의 모든 대화에 적용됩니다. AI가 따라야 할 역할, 말투, 형식, 제약 조건 등을 입력하세요.
+      </p>
+      <textarea
+        style={{
+          width: "100%", minHeight: 180, padding: "12px 14px",
+          borderRadius: 10, border: "1px solid var(--border)",
+          background: "var(--bg-main)", color: "var(--text-main)",
+          fontSize: 13, lineHeight: 1.7, resize: "vertical",
+          outline: "none", boxSizing: "border-box" as const,
+          fontFamily: "inherit"
+        }}
+        placeholder={"예시:\n- 당신은 브랜드 전략 전문가입니다.\n- 항상 한국 시장 관점에서 분석하세요.\n- 답변은 실행 가능한 액션 중심으로 작성하세요."}
+        value={value}
+        onChange={handleChange}
+      />
+      <p style={{ margin: "8px 0 0", fontSize: 11, color: "var(--text-soft)" }}>
+        변경사항은 자동 저장됩니다.
+      </p>
+    </div>
+  );
+}
+
 function SourcesTab({ project }: { project: ProjectGroup }) {
   const [assets, setAssets] = useState<SourceAsset[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<SourceAsset["type"] | "all">("all");
 
   useEffect(() => {
     setLoading(true);
@@ -249,20 +304,47 @@ function SourcesTab({ project }: { project: ProjectGroup }) {
     await patchAssetOnServer(project.id, id, { status });
   }
 
-  const confirmed = assets.filter(a => a.status === "confirmed");
-  const draft = assets.filter(a => a.status === "draft");
+  const filtered = assets.filter(a => {
+    const q = searchQuery.trim().toLowerCase();
+    const matchType = typeFilter === "all" || a.type === typeFilter;
+    const matchSearch = !q || (a.title ?? "").toLowerCase().includes(q) || (a.content ?? "").toLowerCase().includes(q);
+    return matchType && matchSearch;
+  });
+  const confirmed = filtered.filter(a => a.status === "confirmed");
+  const draft = filtered.filter(a => a.status === "draft");
 
   return (
     <div style={{ paddingBottom: 40 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div style={{ fontSize: 13, color: "var(--text-sub)" }}>
-          학습된 소스 <strong style={{ color: "var(--text-main)" }}>{confirmed.length}개</strong>가 모든 대화에 자동으로 주입됩니다.
+          학습된 소스 <strong style={{ color: "var(--text-main)" }}>{assets.filter(a=>a.status==="confirmed").length}개</strong>{searchQuery || typeFilter !== "all" ? <span style={{ marginLeft: 6, color: "#6366f1" }}>/ 필터 {filtered.length}개</span> : null}
         </div>
         <button type="button" onClick={() => setShowAdd(true)}
           style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", border: "none", borderRadius: 10, background: "var(--text-main)", color: "var(--bg-main, #fff)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
           <PlusIcon />소스 추가
         </button>
       </div>
+      {/* 검색 + 타입 필터 */}
+      {assets.length > 0 && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" as const }}>
+          <input
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="소스 검색..."
+            style={{ flex: 1, minWidth: 120, padding: "7px 12px", borderRadius: 8, border: "1px solid var(--border)", fontSize: 13, color: "var(--text-main)", background: "var(--bg-main, #fff)", outline: "none" }}
+          />
+          <div style={{ display: "flex", gap: 4 }}>
+            {(["all", "file", "note", "link", "thread_summary"] as const).map(t => (
+              <button key={t} type="button" onClick={() => setTypeFilter(t)}
+                style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid var(--border)", cursor: "pointer", fontSize: 11, fontWeight: 600,
+                  background: typeFilter === t ? "var(--text-main)" : "transparent",
+                  color: typeFilter === t ? "#fff" : "var(--text-sub)" }}>
+                {t === "all" ? "전체" : getSourceTypeLabel(t)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {loading ? (
         <div style={{ fontSize: 13, color: "var(--text-sub)", padding: "20px 0" }}>불러오는 중...</div>
       ) : assets.length === 0 ? (
@@ -330,17 +412,21 @@ export default function ProjectHomeView({ project, activeThreadId = null, onOpen
             </div>
           )}
           <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid var(--border)" }}>
-            {(["스레드", "소스"] as Tab[]).map(tab => (
+            {(["스레드", "소스", "지침"] as Tab[]).map(tab => (
               <button key={tab} type="button" onClick={() => setActiveTab(tab)}
                 style={{ padding: "8px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: 14, fontWeight: activeTab === tab ? 600 : 400, color: activeTab === tab ? "var(--text-main)" : "var(--text-sub)", borderBottom: activeTab === tab ? "2px solid var(--text-main)" : "2px solid transparent", marginBottom: -1 }}>
                 {tab}
               </button>
             ))}
           </div>
-          {activeTab === "스레드" ? (
+          {activeTab === "스레드" && (
             <ProjectThreadList project={project} activeThreadId={activeThreadId} onOpenThread={onOpenThread} onRenameThread={onRenameThread} onMoveThread={onMoveThread} onRemoveFromProject={onRemoveFromProject} onDeleteThread={onDeleteThread} />
-          ) : (
+          )}
+          {activeTab === "소스" && (
             <SourcesTab project={project} />
+          )}
+          {activeTab === "지침" && (
+            <InstructionTab project={project} />
           )}
         </div>
       </div>

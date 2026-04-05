@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+﻿import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ProjectGroup, Thread, WorkspaceKind } from "../../types/workspace";
 import ProjectHomeView from "../project/ProjectHomeView";
 
+const MAX_ATTACHMENTS = 10;
 type AttachedFile = { name: string; type: string; base64: string; size: number };
 
 type Props = {
@@ -9,7 +10,7 @@ type Props = {
   activeProject: ProjectGroup | null;
   generalThreads: Thread[];
   projectThreads: Thread[];
-  sidebarView: "default" | "search" | "images";
+  sidebarView: "default" | "search" | "images" | "benchmark" | "dashboard";
   isSending: boolean;
   onOpenThread: (threadId: string) => void;
   onSubmitPrompt: (value: string) => void;
@@ -18,8 +19,8 @@ type Props = {
   onRemoveFromProject?: (threadId: string) => void;
   onDeleteThread?: (threadId: string) => void;
   projectGroups?: ProjectGroup[];
-  attachedFile?: AttachedFile | null;
-  onAttachFile?: (file: AttachedFile | null) => void;
+  attachedFiles?: AttachedFile[];
+  onAttachFiles?: (files: AttachedFile[]) => void;
 };
 
 function PlusIcon() {
@@ -182,13 +183,13 @@ function ImagesPlaceholder() {
 }
 
 function HomeComposer({
-  placeholder, isSending, onSubmit, attachedFile, onAttachFile
+  placeholder, isSending, onSubmit, attachedFiles, onAttachFiles
 }: {
   placeholder: string;
   isSending: boolean;
   onSubmit: (value: string) => void;
-  attachedFile?: AttachedFile | null;
-  onAttachFile?: (file: AttachedFile | null) => void;
+  attachedFiles?: AttachedFile[];
+  onAttachFiles?: (files: AttachedFile[]) => void;
 }) {
   const [value, setValue] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -206,22 +207,29 @@ function HomeComposer({
 
   function handleSubmit() {
     const trimmed = value.trim();
-    if ((!trimmed && !attachedFile) || isSending) return;
+    if ((!trimmed && (!attachedFiles || attachedFiles.length === 0)) || isSending) return;
     onSubmit(trimmed);
     setValue("");
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 20 * 1024 * 1024) { alert("20MB 이하 파일만 가능합니다."); return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(",")[1] ?? result;
-      onAttachFile?.({ name: file.name, type: file.type, base64, size: file.size });
-    };
-    reader.readAsDataURL(file);
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+    const maxSize = 20 * 1024 * 1024;
+    const current = attachedFiles ?? [];
+    const remaining = MAX_ATTACHMENTS - current.length;
+    if (remaining <= 0) { alert(`최대 ${MAX_ATTACHMENTS}개까지 첨부할 수 있습니다.`); e.target.value = ""; return; }
+    const toProcess = files.slice(0, remaining).filter(f => f.size <= maxSize);
+    const results = await Promise.all(toProcess.map(file => new Promise<AttachedFile>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        const base64 = result.split(",")[1] ?? result;
+        resolve({ name: file.name, type: file.type, base64, size: file.size });
+      };
+      reader.readAsDataURL(file);
+    })));
+    onAttachFiles?.([...current, ...results]);
     e.target.value = "";
   }
 
@@ -233,16 +241,23 @@ function HomeComposer({
       onDrop={async e => {
         e.preventDefault();
         (e.currentTarget as HTMLElement).style.outline = "";
-        const file = e.dataTransfer.files?.[0];
-        if (!file) return;
-        if (file.size > 20 * 1024 * 1024) { alert("20MB 이하 파일만 가능합니다."); return; }
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          const base64 = result.split(",")[1] ?? result;
-          onAttachFile?.({ name: file.name, type: file.type, base64, size: file.size });
-        };
-        reader.readAsDataURL(file);
+        const files = Array.from(e.dataTransfer.files ?? []);
+        if (files.length === 0) return;
+        const maxSize = 20 * 1024 * 1024;
+        const current = attachedFiles ?? [];
+        const remaining = MAX_ATTACHMENTS - current.length;
+        if (remaining <= 0) { alert(`최대 ${MAX_ATTACHMENTS}개까지 첨부할 수 있습니다.`); return; }
+        const toProcess = files.slice(0, remaining).filter(f => f.size <= maxSize);
+        const results = await Promise.all(toProcess.map(file => new Promise<AttachedFile>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            const base64 = result.split(",")[1] ?? result;
+            resolve({ name: file.name, type: file.type, base64, size: file.size });
+          };
+          reader.readAsDataURL(file);
+        })));
+        onAttachFiles?.([...current, ...results]);
       }}
     >
       <input
@@ -250,22 +265,28 @@ function HomeComposer({
         type="file"
         accept="image/*,.pdf,.txt,.md,.csv,.json,.ts,.tsx,.js,.jsx,.py"
         style={{ display: "none" }}
+        multiple
         onChange={handleFileChange}
       />
 
       {/* 첨부 파일 미리보기 */}
-      {attachedFile && (
-        <div style={{ padding: "8px 14px 0", display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 8, background: "var(--surface-1)", border: "1px solid var(--border)", fontSize: 12 }}>
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: "var(--text-sub)", flexShrink: 0 }}>
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
-            </svg>
-            <span style={{ color: "var(--text-main)", fontWeight: 500, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{attachedFile.name}</span>
-            <span style={{ color: "var(--text-soft)", fontSize: 11 }}>{(attachedFile.size / 1024).toFixed(0)}KB</span>
-            <button type="button" onClick={() => onAttachFile?.(null)} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "var(--text-soft)", display: "flex", alignItems: "center" }}>
-              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12" /></svg>
-            </button>
-          </div>
+      {attachedFiles && attachedFiles.length > 0 && (
+        <div style={{ padding: "8px 14px 0", display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {attachedFiles.map((f, idx) => (
+            <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 8, background: "var(--surface-1)", border: "1px solid var(--border)", fontSize: 12 }}>
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: "var(--text-sub)", flexShrink: 0 }}>
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
+              </svg>
+              <span style={{ color: "var(--text-main)", fontWeight: 500, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{f.name}</span>
+              <span style={{ color: "var(--text-soft)", fontSize: 11 }}>{(f.size / 1024).toFixed(0)}KB</span>
+              <button type="button" onClick={() => onAttachFiles?.(attachedFiles.filter((_, i) => i !== idx))} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "var(--text-soft)", display: "flex", alignItems: "center" }}>
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12" /></svg>
+              </button>
+            </div>
+          ))}
+          {attachedFiles.length < MAX_ATTACHMENTS && (
+            <span style={{ fontSize: 11, color: "var(--text-soft)", alignSelf: "center" }}>{attachedFiles.length}/{MAX_ATTACHMENTS}</span>
+          )}
         </div>
       )}
 
@@ -307,7 +328,7 @@ function HomeComposer({
           value={value}
           onChange={e => setValue(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleSubmit(); } }}
-          placeholder={attachedFile ? "파일에 대해 질문하거나 Enter로 바로 전송" : placeholder}
+          placeholder={attachedFiles && attachedFiles.length > 0 ? "파일에 대해 질문하거나 Enter로 바로 전송" : placeholder}
           className="launcher-composer__input"
         />
         <div className="launcher-composer__actions">
@@ -315,7 +336,7 @@ function HomeComposer({
             type="button"
             className="launcher-composer__submit"
             onClick={handleSubmit}
-            disabled={isSending || (!value.trim() && !attachedFile)}
+            disabled={isSending || (!value.trim() && !(attachedFiles && attachedFiles.length > 0))}
           >
             <WaveIcon />
           </button>
@@ -326,12 +347,12 @@ function HomeComposer({
 }
 
 function GeneralHome({
-  isSending, onSubmitPrompt, attachedFile, onAttachFile
+  isSending, onSubmitPrompt, attachedFiles, onAttachFiles
 }: {
   isSending: boolean;
   onSubmitPrompt: (value: string) => void;
-  attachedFile?: AttachedFile | null;
-  onAttachFile?: (file: AttachedFile | null) => void;
+  attachedFiles?: AttachedFile[];
+  onAttachFiles?: (files: AttachedFile[]) => void;
 }) {
   return (
     <div
@@ -339,16 +360,23 @@ function GeneralHome({
       onDragOver={e => { e.preventDefault(); }}
       onDrop={async e => {
         e.preventDefault();
-        const file = e.dataTransfer.files?.[0];
-        if (!file) return;
-        if (file.size > 20 * 1024 * 1024) { alert("20MB 이하 파일만 가능합니다."); return; }
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          const base64 = result.split(",")[1] ?? result;
-          onAttachFile?.({ name: file.name, type: file.type, base64, size: file.size });
-        };
-        reader.readAsDataURL(file);
+        const files = Array.from(e.dataTransfer.files ?? []);
+        if (files.length === 0) return;
+        const maxSize = 20 * 1024 * 1024;
+        const current = attachedFiles ?? [];
+        const remaining = MAX_ATTACHMENTS - current.length;
+        if (remaining <= 0) { alert(`최대 ${MAX_ATTACHMENTS}개까지 첨부할 수 있습니다.`); return; }
+        const toProcess = files.slice(0, remaining).filter(f => f.size <= maxSize);
+        const results = await Promise.all(toProcess.map(file => new Promise<AttachedFile>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            const base64 = result.split(",")[1] ?? result;
+            resolve({ name: file.name, type: file.type, base64, size: file.size });
+          };
+          reader.readAsDataURL(file);
+        })));
+        onAttachFiles?.([...current, ...results]);
       }}
     >
       <div className="general-home__center">
@@ -359,19 +387,58 @@ function GeneralHome({
             style={{ width: 52, height: 52, objectFit: "contain", marginBottom: 8, opacity: 0.85 }}
             onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
           />
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-            <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "0.08em", color: "var(--text-main)" }}>CORVUS X</span>
-            <span style={{ fontSize: 11, color: "var(--text-sub)", letterSpacing: "0.18em", fontWeight: 500 }}>SEE · CHOOSE · GO</span>
-          </div>
+          <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "0.08em", color: "var(--text-main)" }}>CORVUS X</span>
+          <span style={{ fontSize: 11, color: "var(--text-sub)", letterSpacing: "0.18em", fontWeight: 500, marginTop: 4 }}>SEE · CHOOSE · GO</span>
         </div>
         <h1 className="general-home__title">Mr.T 님, 어떻게 도와드릴까요?</h1>
         <HomeComposer
-          placeholder="무엇이든 물어보세요"
+          placeholder="무엇이든 물어보세요  ·  / 로 커맨드 입력"
           isSending={isSending}
           onSubmit={onSubmitPrompt}
-          attachedFile={attachedFile}
-          onAttachFile={onAttachFile}
+          attachedFiles={attachedFiles}
+          onAttachFiles={onAttachFiles}
         />
+        {/* Slash 커맨드 힌트 카드 */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, marginTop: 20, maxWidth: 640, width: "100%" }}>
+          {[
+            { cmd: "/dalle",      icon: "🎨", label: "DALL-E 이미지",     color: "#10a37f" },
+            { cmd: "/midjourney", icon: "🖼",  label: "Midjourney",        color: "#8b5cf6" },
+            { cmd: "/runway",     icon: "🎬", label: "Runway 비디오",     color: "#ef4444" },
+            { cmd: "/veo",        icon: "🎞", label: "Gemini Veo",        color: "#3b82f6" },
+            { cmd: "/research",   icon: "🔭", label: "심층 리서치",       color: "#f59e0b" },
+            { cmd: "/legal",      icon: "⚖️",  label: "법률 검토",         color: "#6366f1" },
+            { cmd: "/finance",    icon: "📊", label: "재무 분석",         color: "#14b8a6" },
+            { cmd: "/code",       icon: "💻", label: "코드 작성",         color: "#d97706" },
+          ].map(({ cmd, icon, label, color }) => (
+            <button
+              key={cmd}
+              type="button"
+              onClick={() => onSubmitPrompt(cmd + " ")}
+              style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "9px 12px", borderRadius: 10,
+                border: "1px solid var(--border)",
+                background: "var(--bg-card, #fafafa)",
+                cursor: "pointer", textAlign: "left" as const,
+                transition: "border-color 0.15s, background 0.15s"
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.borderColor = color;
+                (e.currentTarget as HTMLElement).style.background = color + "10";
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
+                (e.currentTarget as HTMLElement).style.background = "var(--bg-card, #fafafa)";
+              }}
+            >
+              <span style={{ fontSize: 16 }}>{icon}</span>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color, fontFamily: "monospace" }}>{cmd}</div>
+                <div style={{ fontSize: 11, color: "var(--text-sub)", marginTop: 1 }}>{label}</div>
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -381,7 +448,7 @@ export default function HomeView({
   workspaceKind, activeProject, generalThreads, projectThreads,
   sidebarView, isSending, onOpenThread, onSubmitPrompt,
   onRenameThread, onMoveThread, onRemoveFromProject, onDeleteThread, projectGroups,
-  attachedFile, onAttachFile
+  attachedFiles, onAttachFiles
 }: Props) {
   if (sidebarView === "search") {
     return (
@@ -423,8 +490,8 @@ export default function HomeView({
           <GeneralHome
             isSending={isSending}
             onSubmitPrompt={onSubmitPrompt}
-            attachedFile={attachedFile}
-            onAttachFile={onAttachFile}
+            attachedFiles={attachedFiles}
+            onAttachFiles={onAttachFiles}
           />
         </div>
       </div>

@@ -1,4 +1,4 @@
-import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
+﻿import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
 
 function env(name: string): string {
   const value = (globalThis as any)?.process?.env?.[name]
@@ -367,7 +367,7 @@ async function streamGemini(params: {
 export const geminiAdapter: ModelAdapter = {
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const apiKey = env("GEMINI_API_KEY")
-    const model = req.model?.trim() || (req.force_pro ? "gemini-3.1-pro-preview" : "gemini-3-flash-preview")
+    const model = req.model?.trim() || (req.force_pro ? "gemini-2.5-pro" : "gemini-2.5-pro")
     const attempts: ModelAttempt[] = []
     const { system, conversation } = splitSystemAndMessages(req.messages)
 
@@ -404,7 +404,7 @@ export const geminiAdapter: ModelAdapter = {
         : {}),
       generationConfig: {
         temperature: req.temperature ?? 0,
-        maxOutputTokens: req.max_tokens ?? 2048
+        maxOutputTokens: req.max_tokens ?? 65536
       }
     }
 

@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { extractDebugMeta } from "./api/chat";
+import { useStreamLock } from "./hooks/useStreamLock";
+import { apiUrl } from "./api/url";
 import ChatView from "./components/chat/ChatView";
 import HomeView from "./components/chat/HomeView";
 import AppShell from "./components/layout/AppShell";
 import OrchestrationPanel from "./components/ops/OrchestrationPanel";
 import Sidebar from "./components/layout/Sidebar";
+import SettingsModal from "./components/settings/SettingsModal";
 import Topbar from "./components/layout/Topbar";
+import { createMessage, getVisibleMessages, isAbortError, makeThreadTitle, normalizeThreadTitle, updateMessageStatus } from "./appMessageUtils";
+import { BenchmarkView, DashboardView, ImageGalleryView, SearchView } from "./components/chat/AppViews";
+import ProjectCreateModal from "./components/chat/ProjectCreateModal";
 import {
   GENERAL_PROJECT_ID,
   buildLiveMetaFromEvents,
@@ -42,7 +48,7 @@ async function sendChatStream(
     signal?: AbortSignal;
   }
 ) {
-  const response = await fetch("http://localhost:8000/api/chat/stream", {
+  const response = await fetch(apiUrl("/api/chat/stream"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -58,6 +64,28 @@ async function sendChatStream(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+
+  const handleRawEvent = (rawEvent: string) => {
+    const dataLines = rawEvent
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim());
+
+    if (dataLines.length === 0) return;
+
+    const json = dataLines.join("\n");
+    const event = JSON.parse(json) as StreamEvent;
+
+    if (event.type === "done") {
+      handlers.onDone?.(event.payload);
+    } else {
+      handlers.onEvent?.(event);
+    }
+
+    if (event.type === "error") {
+      throw new Error(event.error || "unknown_error");
+    }
+  };
 
   try {
     while (true) {
@@ -105,1040 +133,6 @@ async function sendChatStream(
   }
 }
 
-function createMessage(
-  role: "user" | "assistant",
-  content: string,
-  status?: MessageStatus,
-  extra?: Partial<Message>
-): Message {
-  return {
-    id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
-    role,
-    content,
-    createdAt: nowIso(),
-    status,
-    requestMeta: null,
-    ...extra
-  };
-}
-
-function normalizeThreadTitle(input: string | null | undefined) {
-  return String(input ?? "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-
-function isGenericThreadTitle(input: string | null | undefined) {
-  const normalized = normalizeThreadTitle(input);
-
-  if (!normalized) return true;
-
-  const genericTitles = new Set([
-    "새 채팅",
-    "새채팅",
-    "new chat",
-    "untitled",
-    "chat",
-    "thread",
-    "global chat",
-    "globalchat",
-    "글로벌채팅",
-    "글로벌 채팅",
-    "일반채팅",
-    "일반 채팅",
-    "general chat"
-  ]);
-
-  return genericTitles.has(normalized);
-}
-
-function makeThreadTitle(input: string) {
-  const oneLine = input.replace(/\s+/g, " ").trim();
-  if (!oneLine) return "새 채팅";
-  return oneLine.slice(0, 32);
-}
-
-function getVisibleMessages(thread: Thread | null) {
-  return (thread?.messages ?? []).filter((message) => !message.isHidden);
-}
-
-function findBaseUserMessageIndex(messages: Message[], messageId: string) {
-  return messages.findIndex((item) => item.id === messageId);
-}
-
-function findNextUserMessageIndex(messages: Message[], startIndex: number) {
-  for (let index = startIndex + 1; index < messages.length; index += 1) {
-    if (messages[index]?.role === "user") {
-      return index;
-    }
-  }
-  return -1;
-}
-
-function updateMessageStatus(
-  messages: Message[],
-  targetId: string,
-  updater: (message: Message) => Message
-): Message[] {
-  return messages.map((message) => (message.id === targetId ? updater(message) : message));
-}
-
-function isAbortError(error: unknown) {
-  return error instanceof DOMException
-    ? error.name === "AbortError"
-    : error instanceof Error && error.name === "AbortError";
-}
-
-function extractImagesFromThreads(threads: Thread[]): Array<{ id: string; url: string; alt: string; threadTitle: string }> {
-  const results: Array<{ id: string; url: string; alt: string; threadTitle: string }> = [];
-  const seen = new Set<string>();
-  const mdImgRe = /!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g;
-  const htmlImgRe = /<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/g;
-
-  for (const thread of threads) {
-    for (const msg of thread.messages ?? []) {
-      const content = msg.content ?? "";
-      let m: RegExpExecArray | null;
-
-      mdImgRe.lastIndex = 0;
-      while ((m = mdImgRe.exec(content)) !== null) {
-        const url = m[2];
-        if (!seen.has(url)) {
-          seen.add(url);
-          results.push({ id: `${thread.id}_${results.length}`, url, alt: m[1] || "image", threadTitle: thread.title });
-        }
-      }
-
-      htmlImgRe.lastIndex = 0;
-      while ((m = htmlImgRe.exec(content)) !== null) {
-        const url = m[1];
-        if (!seen.has(url)) {
-          seen.add(url);
-          results.push({ id: `${thread.id}_${results.length}`, url, alt: "image", threadTitle: thread.title });
-        }
-      }
-    }
-  }
-
-  return results;
-}
-
-type BenchmarkResult = {
-  ok: boolean;
-  case_count: number;
-  single_providers: string[];
-  comparison: {
-    summary: { orchestra_wins: number; best_single_wins: number; ties: number; total_cases?: number; win_rate?: number; avg_quality_orchestra?: number; avg_quality_single?: number };
-    pairwise: any[];
-    task_improvement: Record<string, { total: number; orchestra_win: number; best_single_win: number; tie: number }>;
-  };
-};
-
-function BenchmarkView() {
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<BenchmarkResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [maxCases, setMaxCases] = useState(6);
-  const [selectedProviders, setSelectedProviders] = useState<string[]>(["openai", "claude", "gemini", "perplexity"]);
-  const [activeTab, setActiveTab] = useState<"run" | "history" | "routing">("run");
-  const [history, setHistory] = useState<any[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [routingScores, setRoutingScores] = useState<Record<string, any[]> | null>(null);
-  const [currentRoles, setCurrentRoles] = useState<Record<string, {
-    primary: string | null;
-    verifier: string | null;
-    optional: string | null;
-    dynamic_scores?: Record<string, { score: number; breakdown: Record<string, number> }>;
-    router_policy?: string;
-  }> | null>(null);
-  const [routingLoading, setRoutingLoading] = useState(false);
-  const [accumulatedStats, setAccumulatedStats] = useState<Record<string, { total_tokens: number; estimated_cost_usd: number; runs: number; wins: number }> | null>(null);
-
-  async function loadHistory() {
-    setHistoryLoading(true);
-    try {
-      const res = await fetch("http://localhost:8000/api/benchmark/history");
-      const data = await res.json();
-      if (data.ok) setHistory((data.history ?? []).slice().reverse());
-    } catch {} finally {
-      setHistoryLoading(false);
-    }
-  }
-
-  async function loadRoutingScores() {
-    setRoutingLoading(true);
-    try {
-      const res = await fetch("http://localhost:8000/api/scoreboard");
-      const data = await res.json();
-      if (data.ok) {
-        setRoutingScores(data.task_routing_scores ?? null);
-        setCurrentRoles(data.current_roles ?? null);
-        setAccumulatedStats(data.accumulated ?? null);
-      }
-    } catch {} finally {
-      setRoutingLoading(false);
-    }
-  }
-
-  async function runBenchmark() {
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    try {
-      const res = await fetch("http://localhost:8000/api/benchmark/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ max_cases: maxCases, single_providers: selectedProviders })
-      });
-      const data = await res.json();
-      if (data.ok) setResult(data);
-      else setError(data.error ?? "실행 실패");
-    } catch (e: any) {
-      setError(e.message ?? "네트워크 오류");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const summary = result?.comparison?.summary;
-  const pairwise = result?.comparison?.pairwise ?? [];
-  const taskImprovement = result?.comparison?.task_improvement ?? {};
-
-  const PROVIDER_COLOR: Record<string, string> = {
-    openai: "#10a37f", claude: "#d97706", gemini: "#3b82f6", perplexity: "#8b5cf6"
-  };
-  const TASK_LABEL: Record<string, string> = {
-    dialogue: "대화", reasoning: "추론", research: "리서치", code: "코드", writing: "글쓰기", long_doc: "긴 문서"
-  };
-
-  return (
-    <div style={{ padding: "24px 28px", overflowY: "auto", height: "100%", boxSizing: "border-box" as const }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-        <div style={{ display: "flex", gap: 4 }}>
-          {(["run", "history", "routing"] as const).map(tab => (
-            <button key={tab} type="button"
-              onClick={() => {
-                setActiveTab(tab);
-                if (tab === "history") loadHistory();
-                if (tab === "routing") loadRoutingScores();
-              }}
-              style={{
-                padding: "6px 14px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600,
-                background: activeTab === tab ? "var(--text-main)" : "transparent",
-                color: activeTab === tab ? "#fff" : "var(--text-sub)"
-              }}
-            >
-              {tab === "run" ? "🏆 실행" : tab === "history" ? "📈 히스토리" : "🧭 라우팅"}
-            </button>
-          ))}
-        </div>
-        {activeTab === "run" && (
-          <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" as const }}>
-            <label style={{ fontSize: 12, color: "var(--text-sub)" }}>
-              케이스 수:
-              <select value={maxCases} onChange={e => setMaxCases(Number(e.target.value))}
-                style={{ marginLeft: 6, fontSize: 12, padding: "2px 6px", borderRadius: 4, border: "1px solid var(--border)" }}>
-                {[3, 6, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
-              </select>
-            </label>
-            {/* 비교 대상 provider 선택 */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text-sub)" }}>
-              <span>비교 대상:</span>
-              {(["openai", "claude", "gemini", "perplexity"] as const).map(p => {
-                const COLORS: Record<string, string> = { openai: "#10a37f", claude: "#d97706", gemini: "#3b82f6", perplexity: "#8b5cf6" };
-                const checked = selectedProviders.includes(p);
-                return (
-                  <label key={p} style={{ display: "flex", alignItems: "center", gap: 3, cursor: "pointer", userSelect: "none" as const }}>
-                    <input type="checkbox" checked={checked}
-                      onChange={e => setSelectedProviders(prev =>
-                        e.target.checked ? [...prev, p] : prev.filter(x => x !== p)
-                      )}
-                      style={{ accentColor: COLORS[p] }} />
-                    <span style={{ color: checked ? COLORS[p] : "var(--text-sub)", fontWeight: checked ? 700 : 400 }}>{p}</span>
-                  </label>
-                );
-              })}
-            </div>
-            <button type="button" onClick={runBenchmark} disabled={loading || selectedProviders.length === 0}
-              style={{ padding: "7px 16px", borderRadius: 8, border: "none",
-                background: loading ? "var(--border)" : "var(--text-main)",
-                color: loading ? "var(--text-sub)" : "#fff",
-                fontSize: 13, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer" }}>
-              {loading ? "실행 중..." : "실행"}
-            </button>
-          </div>
-          {selectedProviders.length === 0 && (
-            <div style={{ fontSize: 11, color: "#ef4444" }}>비교 대상 provider를 1개 이상 선택하세요.</div>
-          )}
-          </div>
-        )}
-      </div>
-
-      {activeTab === "routing" && (
-        <div>
-          {routingLoading && <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-sub)", fontSize: 13 }}>로딩 중...</div>}
-          {!routingLoading && !routingScores && (
-            <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-sub)" }}>
-              <div style={{ fontSize: 28, marginBottom: 10 }}>🧭</div>
-              <div style={{ fontSize: 13 }}>탭을 클릭하면 현재 라우팅 점수를 불러옵니다.</div>
-            </div>
-          )}
-          {!routingLoading && routingScores && (() => {
-            const PROVIDERS = ["openai", "claude", "gemini", "perplexity"];
-            const PROVIDER_COLOR: Record<string, string> = { openai: "#10a37f", claude: "#d97706", gemini: "#3b82f6", perplexity: "#8b5cf6" };
-            const TASK_LABEL: Record<string, string> = { dialogue: "대화", reasoning: "추론", research: "리서치", code: "코드", writing: "글쓰기", long_doc: "긴 문서" };
-            const TASK_ORDER = ["dialogue", "reasoning", "research", "code", "writing", "long_doc"];
-            const tasks = TASK_ORDER.filter(t => Object.keys(routingScores).includes(t))
-              .concat(Object.keys(routingScores).filter(t => !TASK_ORDER.includes(t)).sort());
-            // bandit_score 기준 최대값 (색상 정규화)
-            const allScores = tasks.flatMap(t => (routingScores[t] ?? []).map((r: any) => Number(r.bandit_score ?? 0)));
-            const maxScore = Math.max(...allScores, 0.01);
-            return (
-              <div>
-                {/* 현재 배정 카드 */}
-                {currentRoles && (
-                  <div style={{ marginBottom: 18 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-sub)", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>
-                        현재 배정
-                      </div>
-                      {(() => {
-                        const anyPolicy = Object.values(currentRoles)[0]?.router_policy;
-                        return anyPolicy ? (
-                          <span style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: "#eff6ff", color: "#3b82f6", fontWeight: 600 }}>
-                            {anyPolicy}
-                          </span>
-                        ) : null;
-                      })()}
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
-                      {tasks.map(task => {
-                        const roles = currentRoles[task];
-                        if (!roles) return null;
-                        const primary = roles.primary;
-                        const verifier = roles.verifier;
-                        return (
-                          <div key={task} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-card, #fafafa)", fontSize: 11 }}>
-                            <span style={{ fontWeight: 700, color: "var(--text-sub)", minWidth: 38 }}>{TASK_LABEL[task] ?? task}</span>
-                            <span style={{ color: "var(--text-sub)" }}>→</span>
-                            {primary && (
-                              <span style={{ fontWeight: 800, color: PROVIDER_COLOR[primary] ?? "var(--text-main)", background: `${PROVIDER_COLOR[primary] ?? "#888"}18`, padding: "1px 6px", borderRadius: 4 }}>
-                                P: {primary}
-                              </span>
-                            )}
-                            {verifier && (
-                              <span style={{ fontWeight: 600, color: PROVIDER_COLOR[verifier] ?? "var(--text-sub)", background: "var(--bg-sub, #f3f4f6)", padding: "1px 6px", borderRadius: 4 }}>
-                                V: {verifier}
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Dynamic v4 Score — 태스크별 provider 점수 바 */}
-                    <div style={{ marginTop: 16 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-sub)", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 10 }}>
-                        Dynamic Router v4 · 12지표 점수 <span style={{ fontSize: 9, fontWeight: 400, textTransform: "none" as const }}>(0–1000)</span>
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
-                        {tasks.map(task => {
-                          const roles = currentRoles[task];
-                          if (!roles?.dynamic_scores) return null;
-                          const dynScores = roles.dynamic_scores as Record<string, { score: number; breakdown: Record<string, number> }>;
-                          const ranked = PROVIDERS
-                            .map(p => ({ p, score: dynScores[p]?.score ?? 0 }))
-                            .sort((a, b) => b.score - a.score);
-                          const maxDyn = Math.max(...ranked.map(r => r.score), 1);
-                          const primary = roles.primary;
-                          return (
-                            <div key={task} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-card, #fafafa)" }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-main)", marginBottom: 8 }}>
-                                {TASK_LABEL[task] ?? task}
-                              </div>
-                              {ranked.map(({ p, score }) => {
-                                const pct = Math.round((score / maxDyn) * 100);
-                                const isWinner = p === primary;
-                                return (
-                                  <div key={p} style={{ marginBottom: 6 }}>
-                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
-                                      <span style={{ fontSize: 10, fontWeight: isWinner ? 800 : 500, color: PROVIDER_COLOR[p] ?? "var(--text-sub)" }}>
-                                        {isWinner ? "▶ " : ""}{p}
-                                      </span>
-                                      <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-main)", fontVariantNumeric: "tabular-nums" as const }}>
-                                        {score.toFixed(0)}
-                                      </span>
-                                    </div>
-                                    <div style={{ height: 4, borderRadius: 2, background: "var(--border)", overflow: "hidden" }}>
-                                      <div style={{ height: "100%", width: `${pct}%`, borderRadius: 2, background: isWinner ? (PROVIDER_COLOR[p] ?? "#888") : (PROVIDER_COLOR[p] ?? "#888") + "60" }} />
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                )}
-                <div style={{ fontSize: 12, color: "var(--text-sub)", marginBottom: 14 }}>
-                  provider × task 별 bandit_score — 높을수록 해당 태스크에서 우선 배정됨
-                </div>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                    <thead>
-                      <tr>
-                        <th style={{ padding: "6px 10px", textAlign: "left", color: "var(--text-sub)", fontWeight: 600, borderBottom: "1px solid var(--border)" }}>태스크</th>
-                        {PROVIDERS.map(p => (
-                          <th key={p} style={{ padding: "6px 10px", textAlign: "center", color: PROVIDER_COLOR[p] ?? "var(--text-main)", fontWeight: 700, borderBottom: "1px solid var(--border)" }}>
-                            {p}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tasks.map(task => {
-                        const rows: any[] = routingScores[task] ?? [];
-                        const scoreMap = Object.fromEntries(rows.map((r: any) => [r.provider, r]));
-                        const taskScores = PROVIDERS.map(p => Number(scoreMap[p]?.bandit_score ?? 0));
-                        const taskMax = Math.max(...taskScores, 0.01);
-                        return (
-                          <tr key={task} style={{ borderBottom: "1px solid var(--border)" }}>
-                            <td style={{ padding: "8px 10px", fontWeight: 600, color: "var(--text-main)" }}>{TASK_LABEL[task] ?? task}</td>
-                            {PROVIDERS.map(p => {
-                              const row = scoreMap[p];
-                              const score = Number(row?.bandit_score ?? 0);
-                              const pct = score / taskMax;
-                              const bg = pct >= 0.85 ? "#d1fae5" : pct >= 0.65 ? "#fef9c3" : pct >= 0.4 ? "#fee2e2" : "transparent";
-                              const textColor = pct >= 0.85 ? "#065f46" : pct >= 0.65 ? "#92400e" : pct >= 0.4 ? "#991b1b" : "var(--text-sub)";
-                              const uses = Number(row?.task_uses ?? row?.uses ?? 0);
-                              const winRate = row?.task_win_rate != null ? Number(row.task_win_rate) : (row?.win_rate != null ? Number(row.win_rate) : null);
-                              return (
-                                <td key={p} style={{ padding: "6px 8px", textAlign: "center" }}>
-                                  <div style={{ display: "inline-block", padding: "4px 10px", borderRadius: 6, background: bg, color: textColor, fontWeight: 700, fontSize: 13, minWidth: 52 }}>
-                                    {score.toFixed(3)}
-                                  </div>
-                                  <div style={{ fontSize: 10, color: "var(--text-sub)", marginTop: 2 }}>
-                                    {uses > 0 ? `${uses}회` : "—"}
-                                    {winRate != null && uses > 0 ? ` / ${Math.round(winRate * 100)}%승` : ""}
-                                  </div>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                <div style={{ marginTop: 16, display: "flex", gap: 12, flexWrap: "wrap" as const }}>
-                  {[
-                    { label: "최우선", color: "#d1fae5", text: "#065f46", desc: "해당 태스크 1위" },
-                    { label: "경쟁", color: "#fef9c3", text: "#92400e", desc: "근접 경쟁 중" },
-                    { label: "열세", color: "#fee2e2", text: "#991b1b", desc: "낮은 우선순위" }
-                  ].map(item => (
-                    <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
-                      <div style={{ width: 12, height: 12, borderRadius: 3, background: item.color, border: `1px solid ${item.text}` }} />
-                      <span style={{ color: item.text, fontWeight: 600 }}>{item.label}</span>
-                      <span style={{ color: "var(--text-sub)" }}>{item.desc}</span>
-                    </div>
-                  ))}
-                  <button type="button" onClick={loadRoutingScores}
-                    style={{ marginLeft: "auto", padding: "4px 12px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", cursor: "pointer", fontSize: 11, color: "var(--text-sub)" }}>
-                    🔄 새로고침
-                  </button>
-                </div>
-
-              {/* 누적 실적 — provider별 실사용 데이터 */}
-              {accumulatedStats && Object.keys(accumulatedStats).length > 0 && (() => {
-                const PROVIDER_COLOR: Record<string, string> = { openai: "#10a37f", claude: "#d97706", gemini: "#3b82f6", perplexity: "#8b5cf6" };
-                const providers = Object.entries(accumulatedStats).filter(([, v]) => v.runs > 0);
-                if (providers.length === 0) return null;
-                return (
-                  <div style={{ marginTop: 20 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-sub)", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 10 }}>
-                      누적 실사용 실적 <span style={{ fontSize: 9, fontWeight: 400, textTransform: "none" as const }}>(model-scoreboard 집계)</span>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
-                      {providers.map(([provider, stats]) => {
-                        const winRate = stats.runs > 0 ? stats.wins / stats.runs : 0;
-                        const color = PROVIDER_COLOR[provider] ?? "var(--text-sub)";
-                        return (
-                          <div key={provider} style={{ borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-card, #fafafa)", padding: "10px 12px", display: "grid", gap: 4 }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color, marginBottom: 2 }}>{provider.toUpperCase()}</div>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                              <span style={{ color: "var(--text-sub)" }}>실행 / 승</span>
-                              <span style={{ fontWeight: 600 }}>{stats.runs} / {stats.wins}</span>
-                            </div>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                              <span style={{ color: "var(--text-sub)" }}>승률</span>
-                              <span style={{ fontWeight: 700, color: winRate >= 0.6 ? "#10b981" : winRate >= 0.4 ? "#f59e0b" : "#ef4444" }}>{(winRate * 100).toFixed(1)}%</span>
-                            </div>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                              <span style={{ color: "var(--text-sub)" }}>누적 토큰</span>
-                              <span>{stats.total_tokens.toLocaleString()}</span>
-                            </div>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                              <span style={{ color: "var(--text-sub)" }}>누적 비용</span>
-                              <span>${stats.estimated_cost_usd.toFixed(4)}</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-            );
-          })()}
-        </div>
-      )}
-
-      {activeTab === "history" && (
-        <div>
-          {historyLoading && <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-sub)", fontSize: 13 }}>로딩 중...</div>}
-          {!historyLoading && history.length === 0 && (
-            <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-sub)" }}>
-              <div style={{ fontSize: 28, marginBottom: 10 }}>📈</div>
-              <div style={{ fontSize: 13 }}>아직 벤치마크 기록이 없습니다.<br />실행 탭에서 벤치마크를 실행해주세요.</div>
-            </div>
-          )}
-          {!historyLoading && history.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column" as const, gap: 10 }}>
-              {/* 트렌드 차트 — orchestra vs single 점수 추이 */}
-              {history.length >= 2 && (() => {
-                const chartData = [...history].reverse(); // 오래된 순으로
-                const W = 560; const H = 110; const PAD = { t: 10, r: 12, b: 28, l: 36 };
-                const cW = W - PAD.l - PAD.r; const cH = H - PAD.t - PAD.b;
-                const orchScores = chartData.map(e => Number(e.avg_quality_orchestra ?? 0));
-                const singleScores = chartData.map(e => Number(e.avg_quality_single ?? 0));
-                const winRates = chartData.map(e => Number(e.win_rate ?? 0));
-                const allScores = [...orchScores, ...singleScores].filter(s => s > 0);
-                const minY = Math.max(0, Math.min(...allScores) - 1);
-                const maxY = Math.max(...allScores) + 1;
-                const xStep = chartData.length > 1 ? cW / (chartData.length - 1) : cW;
-                const toX = (i: number) => PAD.l + i * xStep;
-                const toY = (v: number) => PAD.t + cH - ((v - minY) / (maxY - minY)) * cH;
-                const polyline = (arr: number[]) =>
-                  arr.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
-                const yTicks = [minY, (minY + maxY) / 2, maxY].map(v => Math.round(v));
-                return (
-                  <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", background: "var(--bg-card, #fafafa)" }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-sub)", marginBottom: 8, display: "flex", alignItems: "center", gap: 14 }}>
-                      <span>품질 점수 추이</span>
-                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="18" height="3"><line x1="0" y1="1.5" x2="18" y2="1.5" stroke="#6366f1" strokeWidth="2" /></svg>오케스트라</span>
-                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="18" height="3"><line x1="0" y1="1.5" x2="18" y2="1.5" stroke="#f87171" strokeWidth="2" strokeDasharray="4 2" /></svg>단일 최강</span>
-                    </div>
-                    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H, display: "block" }}>
-                      {/* y grid */}
-                      {yTicks.map(v => (
-                        <g key={v}>
-                          <line x1={PAD.l} y1={toY(v)} x2={W - PAD.r} y2={toY(v)} stroke="var(--border, #e5e7eb)" strokeWidth="1" />
-                          <text x={PAD.l - 4} y={toY(v) + 4} textAnchor="end" fontSize="9" fill="var(--text-sub, #9ca3af)">{v.toFixed(0)}</text>
-                        </g>
-                      ))}
-                      {/* win rate bars */}
-                      {chartData.map((_, i) => {
-                        const bW = Math.max(4, xStep * 0.4);
-                        const bH = winRates[i] * cH * 0.35;
-                        const bX = toX(i) - bW / 2;
-                        const bY = PAD.t + cH - bH;
-                        return <rect key={i} x={bX} y={bY} width={bW} height={bH} fill={winRates[i] >= 0.5 ? "#d1fae5" : "#fee2e2"} opacity="0.7" rx="2" />;
-                      })}
-                      {/* lines */}
-                      <polyline points={polyline(singleScores)} fill="none" stroke="#f87171" strokeWidth="1.5" strokeDasharray="5 3" strokeLinejoin="round" />
-                      <polyline points={polyline(orchScores)} fill="none" stroke="#6366f1" strokeWidth="2" strokeLinejoin="round" />
-                      {/* dots */}
-                      {orchScores.map((v, i) => (
-                        <circle key={i} cx={toX(i)} cy={toY(v)} r="3" fill="#6366f1" />
-                      ))}
-                      {singleScores.map((v, i) => (
-                        <circle key={i} cx={toX(i)} cy={toY(v)} r="2.5" fill="#f87171" />
-                      ))}
-                      {/* x labels */}
-                      {chartData.map((_, i) => (
-                        <text key={i} x={toX(i)} y={H - 6} textAnchor="middle" fontSize="9" fill="var(--text-sub, #9ca3af)">#{i + 1}</text>
-                      ))}
-                    </svg>
-                    <div style={{ fontSize: 10, color: "var(--text-sub)", marginTop: 4 }}>
-                      막대: 오케스트라 승률 (초록=50%↑, 빨강=50%↓) · 최근 {chartData.length}회
-                    </div>
-                  </div>
-                );
-              })()}
-              <div style={{ fontSize: 12, color: "var(--text-sub)", marginBottom: 4 }}>최근 {history.length}개 기록 (최신순)</div>
-              {history.map((entry: any, idx: number) => {
-                const winRate = Math.round((entry.win_rate ?? 0) * 100);
-                const date = new Date(entry.run_at).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-                return (
-                  <div key={idx} style={{ padding: 14, borderRadius: 10, border: "1px solid var(--border)",
-                    borderLeft: `3px solid ${winRate >= 60 ? "#10b981" : winRate >= 40 ? "#f59e0b" : "#ef4444"}` }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <span style={{ fontSize: 12, color: "var(--text-sub)" }}>{date}</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: winRate >= 60 ? "#10b981" : winRate >= 40 ? "#f59e0b" : "#ef4444" }}>
-                        오케스트라 {winRate}% 승
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", gap: 16, marginBottom: 8 }}>
-                      {[
-                        { label: "오케 승", value: entry.orchestra_wins, color: "#10b981" },
-                        { label: "단일 승", value: (entry.total_cases ?? 0) - (entry.orchestra_wins ?? 0), color: "#ef4444" },
-                        { label: "오케 품질", value: (entry.avg_quality_orchestra ?? 0).toFixed(1), color: "#6366f1" },
-                        { label: "단일 품질", value: (entry.avg_quality_single ?? 0).toFixed(1), color: "#f87171" },
-                      ].map(item => (
-                        <div key={item.label} style={{ textAlign: "center" as const }}>
-                          <div style={{ fontSize: 15, fontWeight: 700, color: item.color }}>{item.value}</div>
-                          <div style={{ fontSize: 10, color: "var(--text-sub)" }}>{item.label}</div>
-                        </div>
-                      ))}
-                    </div>
-                    {/* task별 승률 미니 바 */}
-                    {(() => {
-                      const ti = entry.comparison?.task_improvement ?? {};
-                      const tasks = Object.keys(ti);
-                      if (tasks.length === 0) return null;
-                      const TASK_L: Record<string, string> = { dialogue: "대화", reasoning: "추론", research: "리서치", code: "코드", writing: "글쓰기", long_doc: "긴문서" };
-                      return (
-                        <div style={{ display: "flex", flexWrap: "wrap" as const, gap: "4px 10px" }}>
-                          {tasks.map(t => {
-                            const d = ti[t];
-                            const wr = d.total > 0 ? Math.round((d.orchestra_win / d.total) * 100) : 0;
-                            const color = wr >= 60 ? "#10b981" : wr >= 40 ? "#f59e0b" : "#ef4444";
-                            return (
-                              <div key={t} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10 }}>
-                                <span style={{ color: "var(--text-sub)", minWidth: 28 }}>{TASK_L[t] ?? t}</span>
-                                <div style={{ width: 40, height: 3, borderRadius: 2, background: "var(--border)" }}>
-                                  <div style={{ width: wr + "%", height: "100%", borderRadius: 2, background: color }} />
-                                </div>
-                                <span style={{ fontWeight: 700, color, minWidth: 24 }}>{wr}%</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {activeTab === "run" && (
-        <>
-          {error && (
-            <div style={{ padding: 12, borderRadius: 8, background: "#fef2f2", color: "#ef4444", fontSize: 13, marginBottom: 16 }}>
-              {error}
-            </div>
-          )}
-          {loading && (
-            <div style={{ textAlign: "center", padding: "48px 0", color: "var(--text-sub)" }}>
-              <div style={{ fontSize: 13 }}>단일 모델 + 오케스트라 동시 실행 중...</div>
-              <div style={{ fontSize: 11, marginTop: 6 }}>케이스당 약 15-30초 소요</div>
-            </div>
-          )}
-          {summary && (
-            <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 12 }}>
-                {[
-                  { label: "오케스트라 승", value: summary.orchestra_wins, color: "#10b981" },
-                  { label: "단일 모델 승", value: summary.best_single_wins, color: "#ef4444" },
-                  { label: "동점", value: summary.ties, color: "#6b7280" }
-                ].map(item => (
-                  <div key={item.label} style={{ padding: 16, borderRadius: 10, border: "1px solid var(--border)", textAlign: "center" as const, background: item.color + "08" }}>
-                    <div style={{ fontSize: 28, fontWeight: 700, color: item.color }}>{item.value}</div>
-                    <div style={{ fontSize: 12, color: "var(--text-sub)", marginTop: 4 }}>{item.label}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
-                {[
-                  { label: "오케스트라 승률", value: Math.round((summary.win_rate ?? 0) * 100) + "%", color: (summary.win_rate ?? 0) >= 0.5 ? "#10b981" : "#ef4444" },
-                  { label: "품질 오케스트라", value: (summary.avg_quality_orchestra ?? 0).toFixed(1), color: "var(--text-main)" },
-                  { label: "품질 단일 최강", value: (summary.avg_quality_single ?? 0).toFixed(1), color: "var(--text-sub)" }
-                ].map(item => (
-                  <div key={item.label} style={{ padding: 12, borderRadius: 10, border: "1px solid var(--border)", textAlign: "center" as const }}>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: item.color }}>{item.value}</div>
-                    <div style={{ fontSize: 11, color: "var(--text-sub)", marginTop: 4 }}>{item.label}</div>
-                  </div>
-                ))}
-              </div>
-              {Object.keys(taskImprovement).length > 0 && (() => {
-                // pairwise에서 task별 평균 점수 계산
-                const taskScores: Record<string, { orchSum: number; singleSum: number; count: number }> = {};
-                pairwise.forEach((p: any) => {
-                  const t = p.task ?? "unknown";
-                  if (!taskScores[t]) taskScores[t] = { orchSum: 0, singleSum: 0, count: 0 };
-                  if (Number(p.orchestra_score) > 0 || Number(p.best_single_score) > 0) {
-                    taskScores[t].orchSum += Number(p.orchestra_score ?? 0);
-                    taskScores[t].singleSum += Number(p.best_single_score ?? 0);
-                    taskScores[t].count += 1;
-                  }
-                });
-                const TASK_ORDER_BENCH = ["dialogue", "reasoning", "research", "code", "writing", "long_doc"];
-                const sortedTasks = TASK_ORDER_BENCH.filter(t => taskImprovement[t])
-                  .concat(Object.keys(taskImprovement).filter(t => !TASK_ORDER_BENCH.includes(t)));
-                return (
-                  <div style={{ marginBottom: 24 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginBottom: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Task별 결과</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
-                      {sortedTasks.map(task => {
-                        const data = taskImprovement[task];
-                        const winRate = data.total > 0 ? Math.round((data.orchestra_win / data.total) * 100) : 0;
-                        const sc = taskScores[task];
-                        const orchAvg = sc && sc.count > 0 ? sc.orchSum / sc.count : null;
-                        const singleAvg = sc && sc.count > 0 ? sc.singleSum / sc.count : null;
-                        const gap = orchAvg != null && singleAvg != null ? orchAvg - singleAvg : null;
-                        const winColor = winRate >= 50 ? "#10b981" : "#ef4444";
-                        return (
-                          <div key={task} style={{ padding: 12, borderRadius: 8, border: `1px solid ${winRate >= 50 ? "#a7f3d0" : "#fecaca"}`, background: winRate >= 50 ? "#f0fdf4" : "#fff5f5" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-main)" }}>{TASK_LABEL[task] ?? task}</span>
-                              <span style={{ fontSize: 10, color: "var(--text-sub)" }}>{data.total}건</span>
-                            </div>
-                            <div style={{ marginTop: 4, height: 4, borderRadius: 2, background: "var(--border, #e5e7eb)" }}>
-                              <div style={{ width: winRate + "%", height: "100%", borderRadius: 2, background: winColor, transition: "width 0.4s ease" }} />
-                            </div>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: winColor, marginTop: 5 }}>오케 {winRate}% 승 ({data.orchestra_win}W/{data.best_single_win}L/{data.tie}T)</div>
-                            {orchAvg != null && singleAvg != null && (
-                              <div style={{ fontSize: 10, color: "var(--text-sub)", marginTop: 3, display: "flex", gap: 6 }}>
-                                <span style={{ color: "#6366f1" }}>오케 {orchAvg.toFixed(1)}</span>
-                                <span>vs</span>
-                                <span style={{ color: "#f87171" }}>단일 {singleAvg.toFixed(1)}</span>
-                                <span style={{ fontWeight: 700, color: gap != null && gap >= 0 ? "#10b981" : "#ef4444" }}>
-                                  {gap != null ? (gap >= 0 ? "+" : "") + gap.toFixed(1) : ""}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-              {pairwise.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginBottom: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>케이스별 결과</div>
-                  <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
-                    {pairwise.map((pair: any, idx: number) => {
-                      const winColor = pair.benchmark_winner === "orchestra" ? "#10b981" : pair.benchmark_winner === "best_single" ? "#ef4444" : "#6b7280";
-                      const orchEval = pair.orchestra_evaluation ?? {};
-                      const rubric: Record<string, number> = orchEval.rubric_breakdown ?? {};
-                      const reasons: string[] = orchEval.quality_reasons ?? [];
-                      const orchChain: string[] = pair.orchestra_provider_chain ?? [];
-                      const RUBRIC_LABEL: Record<string, string> = {
-                        base_text_quality: "텍스트", request_fit: "요청 적합", multi_provider_reasoning: "멀티 추론",
-                        verifier_agreement: "검증 일치", claim_density: "근거 밀도", evidence_strength: "증거",
-                        conflict_resolution: "충돌 해소", judge_quality: "Judge", consistency: "일관성",
-                        code_quality: "코드 품질", penalty: "페널티"
-                      };
-                      const topRubric = Object.entries(rubric)
-                        .filter(([k, v]) => k !== "penalty" && (v as number) !== 0)
-                        .sort(([, a], [, b]) => (b as number) - (a as number))
-                        .slice(0, 4);
-                      const singleCandidates: any[] = pair.single_evaluations ?? pair.single_candidates ?? [];
-                      return (
-                        <div key={idx} style={{ padding: 14, borderRadius: 10, border: "1px solid var(--border)", borderLeft: `3px solid ${winColor}` }}>
-                          {/* 헤더 */}
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: "var(--border)", color: "var(--text-sub)" }}>{TASK_LABEL[pair.task] ?? pair.task}</span>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: winColor }}>
-                                {pair.benchmark_winner === "orchestra" ? "✓ 오케스트라" : pair.benchmark_winner === "best_single" ? "단일 모델" : "동점"}
-                              </span>
-                            </div>
-                            <div style={{ fontSize: 11, color: "var(--text-sub)", fontFamily: "monospace" }}>
-                              <span style={{ color: "#6366f1", fontWeight: 700 }}>{pair.orchestra_score?.toFixed(1)}</span>
-                              {" vs "}
-                              <span style={{ color: "#f87171", fontWeight: 700 }}>{pair.best_single_score?.toFixed(1)}</span>
-                              <span style={{ marginLeft: 6, color: pair.score_gap >= 0 ? "#10b981" : "#ef4444", fontWeight: 700 }}>
-                                ({pair.score_gap >= 0 ? "+" : ""}{pair.score_gap?.toFixed(1)})
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* case_id + provider chain */}
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" as const }}>
-                            <span style={{ fontSize: 10, color: "var(--text-soft, #9ca3af)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, maxWidth: 160 }}>{pair.case_id}</span>
-                            {orchChain.length > 0 && (
-                              <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                                {orchChain.map((p: string, i: number) => (
-                                  <span key={i} style={{ fontSize: 9, padding: "1px 5px", borderRadius: 6, background: (PROVIDER_COLOR[p.toLowerCase()] ?? "#888") + "20", color: PROVIDER_COLOR[p.toLowerCase()] ?? "var(--text-sub)", fontWeight: 600 }}>
-                                    {p}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                            {pair.best_single_provider && (
-                              <span style={{ fontSize: 10, color: "var(--text-sub)" }}>
-                                vs <span style={{ fontWeight: 600, color: PROVIDER_COLOR[pair.best_single_provider] ?? "var(--text-main)" }}>{pair.best_single_provider}</span>
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Rubric breakdown bars */}
-                          {topRubric.length > 0 && (
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3px 10px", marginBottom: 6 }}>
-                              {topRubric.map(([k, v]) => (
-                                <div key={k} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                                  <span style={{ fontSize: 9, color: "var(--text-sub)", minWidth: 48, whiteSpace: "nowrap" as const }}>{RUBRIC_LABEL[k] ?? k}</span>
-                                  <div style={{ flex: 1, height: 3, borderRadius: 2, background: "var(--border)" }}>
-                                    <div style={{ height: "100%", width: `${Math.min(100, Math.max(0, (v as number) / 3 * 100))}%`, borderRadius: 2, background: "#6366f1" }} />
-                                  </div>
-                                  <span style={{ fontSize: 9, fontWeight: 700, color: "var(--text-main)", minWidth: 18, textAlign: "right" as const }}>{(v as number).toFixed(1)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* quality_reasons tags */}
-                          {reasons.length > 0 && (
-                            <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 3 }}>
-                              {reasons.slice(0, 5).map((r: string, i: number) => (
-                                <span key={i} style={{ fontSize: 9, padding: "1px 6px", borderRadius: 8, background: r.includes("bonus") ? "#f0fdf4" : r.includes("penalty") ? "#fff5f5" : "#f3f4f6", color: r.includes("bonus") ? "#065f46" : r.includes("penalty") ? "#991b1b" : "var(--text-sub)" }}>
-                                  {r.replace(/_bonus$/, " ✓").replace(/_penalty$/, " ✗").replace(/_/g, " ")}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* single 후보 점수 비교 */}
-                          {singleCandidates.length > 1 && (
-                            <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" as const }}>
-                              {singleCandidates.slice(0, 4).map((s: any, i: number) => {
-                                const sp = s.provider ?? s.mode?.replace("single_", "") ?? "?";
-                                const ss = Number(s.score ?? s.evaluation?.text_quality_score ?? 0);
-                                return (
-                                  <span key={i} style={{ fontSize: 9, padding: "1px 7px", borderRadius: 8, background: "var(--border)", color: PROVIDER_COLOR[sp] ?? "var(--text-sub)", fontWeight: 600 }}>
-                                    {sp} {ss.toFixed(1)}
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-          {!loading && !result && !error && (
-            <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-sub)" }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>🏆</div>
-              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>벤치마크 준비됨</div>
-              <div style={{ fontSize: 12 }}>실행 버튼을 누르면 단일 모델과 오케스트라를<br />동일한 테스트셋으로 비교합니다</div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-function ImageGalleryView({ threads }: { threads: Thread[] }) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [images, setImages] = useState(() => extractImagesFromThreads(threads));
-
-  const toggleSelect = (id: string) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  const deleteSelected = () => {
-    setImages(prev => prev.filter(img => !selected.has(img.id)));
-    setSelected(new Set());
-  };
-
-  const deleteAll = () => {
-    setImages([]);
-    setSelected(new Set());
-  };
-
-  return (
-    <div style={{ padding: "24px 28px", overflowY: "auto", height: "100%", boxSizing: "border-box" as const }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-main)" }}>이미지</div>
-        {images.length > 0 && (
-          <div style={{ display: "flex", gap: 8 }}>
-            {selected.size > 0 && (
-              <button type="button" onClick={deleteSelected}
-                style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid #ef4444", background: "transparent", color: "#ef4444", cursor: "pointer" }}>
-                선택 삭제 ({selected.size})
-              </button>
-            )}
-            <button type="button" onClick={deleteAll}
-              style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--text-sub)", cursor: "pointer" }}>
-              전체 삭제
-            </button>
-          </div>
-        )}
-      </div>
-
-      {images.length === 0 ? (
-        <div style={{ fontSize: 13, color: "var(--text-sub)", paddingTop: 8 }}>채팅에서 생성된 이미지가 없습니다.</div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
-          {images.map(img => (
-            <div
-              key={img.id}
-              onClick={() => toggleSelect(img.id)}
-              style={{
-                position: "relative", cursor: "pointer", borderRadius: 8,
-                border: selected.has(img.id) ? "2px solid var(--accent, #111827)" : "2px solid transparent",
-                overflow: "hidden", background: "var(--surface-1, #f9f9f9)"
-              }}
-            >
-              <img src={img.url} alt={img.alt} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", display: "block" }} />
-              {selected.has(img.id) && (
-                <div style={{ position: "absolute", top: 6, right: 6, width: 18, height: 18, borderRadius: "50%", background: "var(--accent, #111827)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="#fff" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>
-                </div>
-              )}
-              <div style={{ padding: "4px 6px", fontSize: 10, color: "var(--text-sub)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{img.threadTitle}</div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FolderIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M6 6l12 12M18 6 6 18" />
-    </svg>
-  );
-}
-
-function ProjectCreateModal({
-  open,
-  value,
-  onChange,
-  onClose,
-  onSubmit
-}: {
-  open: boolean;
-  value: string;
-  onChange: (value: string) => void;
-  onClose: () => void;
-  onSubmit: () => void;
-}) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const id = requestAnimationFrame(() => inputRef.current?.focus());
-    return () => cancelAnimationFrame(id);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open, onClose]);
-
-  if (!open) return null;
-
-  return (
-    <div
-      className="modal-overlay"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose();
-        }
-      }}
-    >
-      <div className="project-modal" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="project-modal__header">
-          <div className="project-modal__title">새 프로젝트</div>
-
-          <div className="project-modal__actions">
-            <button type="button" className="project-modal__icon-btn" onClick={onClose} aria-label="닫기">
-              <CloseIcon />
-            </button>
-          </div>
-        </div>
-
-        <div className="project-modal__label">프로젝트 이름</div>
-
-        <div className="project-modal__input-wrap">
-          <span className="project-modal__input-icon">
-            <FolderIcon />
-          </span>
-          <input
-            ref={inputRef}
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-            onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                onSubmit();
-              }
-            }}
-            className="project-modal__input"
-            placeholder="예: CORVUS X 분석 리서치"
-          />
-        </div>
-
-        <div className="project-modal__chips">
-          <button type="button" className="project-modal__chip" onClick={() => onChange("CORVUS X")}>
-            CORVUS X
-          </button>
-          <button type="button" className="project-modal__chip" onClick={() => onChange("멀티 AI 리서치")}>
-            멀티 AI 리서치
-          </button>
-          <button type="button" className="project-modal__chip" onClick={() => onChange("UI 고도화")}>
-            UI 고도화
-          </button>
-        </div>
-
-        <div className="project-modal__notice">
-          프로젝트를 만들면 프로젝트 홈과 스레드 구조가 분리되어 관리됩니다.
-        </div>
-
-        <div className="project-modal__footer">
-          <button
-            type="button"
-            className="project-modal__submit"
-            onClick={onSubmit}
-            disabled={!value.trim()}
-          >
-            생성
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 type SendTarget = {
   threadId: string;
@@ -1157,18 +151,58 @@ type ActiveStreamState = {
   placeholderId: string;
 };
 
+function findBaseUserMessageIndex(messages: any[], fromId: string): number {
+  return messages.findIndex((m: any) => m.id === fromId)
+}
+
+function findNextUserMessageIndex(messages: any[], fromIndex: number): number {
+  for (let i = fromIndex + 1; i < messages.length; i++) {
+    if ((messages[i] as any).role === "user") return i
+  }
+  return messages.length
+}
+
+function isGenericThreadTitle(title: string | null | undefined): boolean {
+  if (!title) return true
+  const lower = title.trim().toLowerCase()
+  return lower === "새 채팅" || lower === "new chat" || lower === "untitled" || lower.length < 3
+}
+
+
 export default function App() {
   const workspace = useWorkspaceState();
+  const globalInstruction = workspace.globalInstruction ?? "";
 
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
-  const [attachedFile, setAttachedFile] = useState<{ name: string; type: string; base64: string; size: number } | null>(null);
+  const [credits, setCredits] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem("corvus-x.credits") ?? "{}"); } catch { return {}; }
+  });
+  const [editingCredit, setEditingCredit] = useState<string | null>(null);
+  function saveCredit(provider: string, value: string) {
+    const next = { ...credits, [provider]: value };
+    setCredits(next);
+    localStorage.setItem("corvus-x.credits", JSON.stringify(next));
+    setEditingCredit(null);
+  }
+  const [attachedFiles, setAttachedFiles] = useState<{ name: string; type: string; base64: string; size: number }[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
   const [debugMeta, setDebugMeta] = useState<DebugMeta>(createDefaultDebugMeta());
-  const [sidebarView, setSidebarView] = useState<"default" | "search" | "images" | "benchmark">("default");
+  const [sidebarView, setSidebarView] = useState<"default" | "search" | "images" | "benchmark" | "dashboard">("default");
+  const [showSettings, setShowSettings] = useState(false);
+  const [msgFontSize, setMsgFontSize] = useState(() => {
+    const saved = localStorage.getItem("corvus-x.msg-font-size");
+    return saved ? Number(saved) : 16;
+  });
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--msg-font-size", `${msgFontSize}px`);
+    localStorage.setItem("corvus-x.msg-font-size", String(msgFontSize));
+  }, [msgFontSize]);
   const [artifactList, setArtifactList] = useState<Array<{ id: string; title: string; code: string; language: string }>>([]);
   const [activeArtifact, setActiveArtifact] = useState<{ id: string; title: string; code: string; language: string } | null>(null);
-  const [showPanel, setShowPanel] = useState(true);
+  const [showPanel, setShowPanel] = useState(false);
+  const [panelPage, setPanelPage] = useState(0);
   const [composerOptions, setComposerOptions] = useState<{ force_pro?: boolean; deep_research?: boolean; task?: string } | null>(null);
   const [dialog, setDialog] = useState<{
     type: "rename-project" | "delete-project" | "rename-thread" | "delete-thread";
@@ -1189,6 +223,7 @@ export default function App() {
   const shouldAutoStickRef = useRef(true);
   const pendingScrollBehaviorRef = useRef<ScrollBehavior | null>("auto");
   const activeStreamRef = useRef<ActiveStreamState | null>(null);
+  const streamLock = useStreamLock();
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -1234,6 +269,13 @@ export default function App() {
       pendingScrollBehaviorRef.current = null;
     });
   }, [workspace.threads, workspace.activeThreadId, isSending]);
+
+  // document.title 동기화 — 스레드 열면 탭 제목 변경, 홈이면 CORVUS X
+  useEffect(() => {
+    const thread = workspace.activeThread;
+    const title = thread?.title?.trim();
+    document.title = title ? `${title} — CORVUS X` : "CORVUS X";
+  }, [workspace.activeThread?.title, workspace.activeThreadId]);
 
   const workspaceKind: WorkspaceKind =
     workspace.activeProjectId === GENERAL_PROJECT_ID ? "general" : "project";
@@ -1431,7 +473,7 @@ export default function App() {
     workspace.updateThreadById(activeStream.threadId, (thread) => ({
       ...thread,
       updatedAt: nowIso(),
-      messages: updateMessageStatus(thread.messages, activeStream.placeholderId, (message) => ({
+      messages: updateMessageStatus(thread.messages, activeStream.placeholderId, (message: any) => ({
         ...message,
         content: message.content?.trim() ? message.content : "생성이 중단되었습니다.",
         status: "done",
@@ -1449,7 +491,17 @@ export default function App() {
 
   async function sendMessageToThread(text: string, target: SendTarget, options?: RetryOptions) {
     const trimmed = text.trim();
-    if ((!trimmed && !attachedFile) || isSending) return;
+    if (!trimmed && attachedFiles.length === 0) return;
+
+    // 새 메시지 전송 시 패널 탭 리셋 (코드탭 고정 방지)
+    setPanelPage(0);
+
+    // 기존 스트림 abort 후 isSending 체크
+    if (activeStreamRef.current) {
+      activeStreamRef.current.controller.abort();
+      activeStreamRef.current = null;
+    }
+    if (isSending) return;
 
     const timestamp = nowIso();
     const replaceFromMessageId = options?.replaceFromMessageId ?? null;
@@ -1536,11 +588,14 @@ export default function App() {
       }
     }
 
-    const displayText = trimmed || (attachedFile ? `📎 ${attachedFile.name}` : "")
+    const displayText = trimmed || (attachedFiles.length > 0 ? `📎 ${attachedFiles.map(f => f.name).join(", ")}` : "")
     const userMessage = createMessage("user", displayText, "done", {
       versionGroupId,
       versionIndex,
-      isHidden: false
+      isHidden: false,
+      attachedFiles: attachedFiles.length > 0
+        ? attachedFiles.map(f => ({ name: f.name, type: f.type, size: f.size }))
+        : undefined
     });
 
     const assistantPlaceholder = createMessage("assistant", "", "pending", {
@@ -1549,10 +604,11 @@ export default function App() {
       isHidden: false
     });
 
-    const nextTitle = makeThreadTitle(trimmed || (attachedFile?.name ?? "파일 분석"));
+    const nextTitle = makeThreadTitle(trimmed || (attachedFiles.length > 0 ? attachedFiles[0].name : "파일 분석"));
     const liveEvents: StreamEvent[] = [];
     let liveMeta = createDefaultDebugMeta();
     let finalTextFromEvent = "";
+    let chunkAccumulator = "";
     const controller = new AbortController();
 
     activeStreamRef.current = {
@@ -1579,6 +635,7 @@ export default function App() {
     workspace.touchProject(target.projectId, timestamp);
 
     setDraft("");
+    setAttachedFiles([]);
     setComposerOptions(null);
     setIsSending(true);
     setLastError(null);
@@ -1586,73 +643,118 @@ export default function App() {
     resetEditingState();
 
     try {
-      // 현재 스레드 메시지 수집 (핸드오프/세션 요약용)
-      const currentThread = workspace.threads.find(t => t.id === target.threadId);
-      const threadMessages = (currentThread?.messages ?? [])
-        .filter(m => !m.isHidden && m.content?.trim())
-        .map(m => ({ role: m.role, content: m.content }));
+      // 현재 요청 직전의 스레드 메시지 수집 (현재 user/placeholder 제외)
+      const threadMessages = preservedMessages
+        .filter(m => !m.isHidden && m.content?.trim() && !m.content.includes("[응답 오류]") && m.status !== "pending")
+        .map(m => {
+          let content = m.content;
+          // USER 메시지: PROJECT CONTEXT / THREAD MEMORY 블록 완전 제거 후 순수 질문만 추출
+          if (m.role === "user") {
+            if (content.includes("[USER INPUT]")) {
+              content = content.slice(content.lastIndexOf("[USER INPUT]") + "[USER INPUT]".length).trim();
+            } else if (content.includes("[PROJECT CONTEXT]")) {
+              content = content.split("[PROJECT CONTEXT]")[0].trim();
+            }
+          }
+          // ASSISTANT 메시지: 코드블록 포함 시 축약 (오염 방지)
+          if (m.role === "assistant") {
+            const codeBlocks = (content.match(/```/g) ?? []).length;
+            if (codeBlocks >= 2 && content.length > 5000) content = content.slice(0, 5000) + "...";
+            else if (content.length > 7000) content = content.slice(0, 7000) + "...";
+          }
+          return { role: m.role, content };
+        })
+        .filter(m => m.content.trim().length > 0);
+
+      // 마지막 유저 메시지가 현재 전송 메시지와 동일하면 제거
+      const lastMsg = threadMessages[threadMessages.length - 1];
+      if (lastMsg?.role === "user" && (lastMsg.content === trimmed || lastMsg.content === trimmed.trim())) {
+        threadMessages.pop();
+      }
+
+      // ── 대화 자동 압축 — 메시지 30개 초과 시 오래된 대화 요약 압축 ──────
+      if (threadMessages.length > 30) {
+        const KEEP_RECENT = 10;
+        const toCompress = threadMessages.slice(0, threadMessages.length - KEEP_RECENT);
+        const recent = threadMessages.slice(threadMessages.length - KEEP_RECENT);
+        try {
+          const compressText = toCompress
+            .map(m => "[" + (m.role === "user" ? "USER" : "AI") + "] " + String(m.content).slice(0, 400))
+            .join("\n");
+          const claudeKey = String((window as any).__ANTHROPIC_KEY__ ?? "");
+          const openaiKey = String((window as any).__OPENAI_KEY__ ?? "");
+          let summary = "";
+          if (openaiKey) {
+            const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+              method: "POST",
+              headers: { Authorization: "Bearer " + openaiKey, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: "gpt-4o-mini",
+                messages: [
+                  { role: "system", content: "다음 대화 내용을 핵심만 500자 이내로 압축 요약하세요. 중요한 결정사항, 코드, 숫자는 반드시 포함하세요." },
+                  { role: "user", content: compressText }
+                ],
+                max_tokens: 600
+              })
+            });
+            const d = await resp.json().catch(() => ({}));
+            summary = String(d?.choices?.[0]?.message?.content ?? "").trim();
+          }
+          if (summary) {
+            const compressed = [
+              { role: "user" as const, content: "[📋 이전 대화 요약 — " + toCompress.length + "개 메시지 압축]\n\n" + summary },
+              { role: "assistant" as const, content: "이전 대화 내용을 참고하겠습니다." }
+            ];
+            threadMessages.splice(0, threadMessages.length, ...compressed, ...recent);
+          }
+        } catch { /* 압축 실패 시 원본 유지 */ }
+      }
 
       await sendChatStream(
         {
-          message: trimmed || (attachedFile ? `첨부 파일 ${attachedFile.name}을 분석해줘` : ""),
+          message: trimmed || (attachedFiles.length > 0 ? `첨부 파일 ${attachedFiles.map(f => f.name).join(", ")}을 분석해줘` : ""),
           thread_id: target.threadId,
           project_id: target.projectId,
           mode: "runtime_orchestra",
           messages: threadMessages,
+          global_instruction: globalInstruction?.trim() || null,
+          project_instruction: workspace.activeProject?.meta?.instruction?.trim() || null,
           ...(composerOptions ?? {}),
-          ...(attachedFile ? {
-            attached_file: {
-              name: attachedFile.name,
-              type: attachedFile.type,
-              base64: attachedFile.base64,
-              size: attachedFile.size
-            }
+          ...(attachedFiles.length > 0 ? {
+            attached_files: attachedFiles.map(f => ({
+              name: f.name,
+              type: f.type,
+              base64: f.base64,
+              size: f.size
+            }))
           } : {})
         },
         {
           onEvent: (event) => {
+            if (activeStreamRef.current?.placeholderId !== assistantPlaceholder.id) return;
             liveEvents.push(event);
             liveMeta = buildLiveMetaFromEvents(liveEvents);
 
             if (event.type === "provider_chunk") {
-              const winnerProvider =
-                liveMeta.displayWinner?.provider ??
-                liveMeta.winnerProvider ??
-                liveMeta.selectedProviders[0] ??
-                event.provider;
-
-              const currentWinnerDraft =
-                liveMeta.providerDrafts?.find((item) => item.provider === winnerProvider)?.content ?? "";
-
-              workspace.updateThreadById(target.threadId, (thread) => ({
-                ...thread,
-                updatedAt: nowIso(),
-                messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (message) => ({
-                  ...message,
-                  content: currentWinnerDraft,
-                  status: "pending",
-                  requestMeta: liveMeta
-                }))
-              }));
-
-              setDebugMeta(liveMeta);
-              return;
+              // liveEvents에는 모든 provider chunk 포함 (비교탭 표시용)
+              // 화면 표시는 primary provider + final 이전만
+              if (!finalTextFromEvent) {
+                const cp = String(event.provider ?? "").toLowerCase();
+                const primary = String(liveMeta.selectedProviders?.[0] ?? "").toLowerCase();
+                const isPrimary = !cp || !primary || cp === primary;
+                if (isPrimary) {
+                  chunkAccumulator += String(event.content ?? "");
+                  workspace.updateThreadById(target.threadId, (thread) => ({
+                    ...thread,
+                    messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (msg: any) => ({
+                      ...msg, content: chunkAccumulator, status: "pending" as const
+                    }))
+                  }));
+                }
+              }
             }
 
-            if (event.type === "chunk" || event.type === "answer_chunk") {
-              workspace.updateThreadById(target.threadId, (thread) => ({
-                ...thread,
-                updatedAt: nowIso(),
-                messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (message) => ({
-                  ...message,
-                  content: `${message.content}${event.content ?? ""}`,
-                  status: "pending",
-                  requestMeta: liveMeta
-                }))
-              }));
-
-              setDebugMeta(liveMeta);
-              return;
+            if (event.type === "chunk" || event.type === "answer_chunk") { chunkAccumulator += String(event.content ?? "");
             }
 
             if (event.type === "final") {
@@ -1669,7 +771,7 @@ export default function App() {
               workspace.updateThreadById(target.threadId, (thread) => ({
                 ...thread,
                 updatedAt: nowIso(),
-                messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (message) => ({
+                messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (message: any) => ({
                   ...message,
                   content: finalTextFromEvent || message.content,
                   status: "pending",
@@ -1691,7 +793,7 @@ export default function App() {
               workspace.updateThreadById(target.threadId, (thread) => ({
                 ...thread,
                 updatedAt: nowIso(),
-                messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (msg) => ({
+                messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (msg: any) => ({
                   ...msg,
                   content: slideText,
                   status: "done",
@@ -1700,33 +802,60 @@ export default function App() {
               }))
               workspace.touchProject(target.projectId)
               setIsSending(false)
-              setAttachedFile(null)
+              setAttachedFiles([])
               focusComposer()
               activeStreamRef.current = null
               return
             }
 
-            // 이미지 생성 결과 저장
+            // 이미지 생성 결과 저장 (DALL-E / Imagen / Midjourney)
             if (payload?.is_image && payload?.image_url) {
               const imageUrl = payload.image_url
               const imageText = String(payload?.answer?.text ?? "🎨 이미지가 생성됐습니다.").trim()
               workspace.updateThreadById(target.threadId, (thread) => ({
                 ...thread,
                 updatedAt: nowIso(),
-                messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (msg) => ({
+                messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (msg: any) => ({
                   ...msg,
                   content: imageText,
                   status: "done",
                   requestMeta: {
                     ...(msg.requestMeta ?? {}),
                     image_url: imageUrl,
+                    image_urls: payload?.image_urls ?? null,
                     image_revised_prompt: payload?.image_revised_prompt ?? null
                   }
                 }))
               }))
               workspace.touchProject(target.projectId)
               setIsSending(false)
-              setAttachedFile(null)
+              setAttachedFiles([])
+              focusComposer()
+              activeStreamRef.current = null
+              return
+            }
+
+            // 비디오 생성 결과 저장 (Runway / Veo)
+            if (payload?.is_video && payload?.video_url) {
+              const videoUrl = payload.video_url
+              const videoText = String(payload?.answer?.text ?? "🎬 비디오가 생성됐습니다.").trim()
+              workspace.updateThreadById(target.threadId, (thread) => ({
+                ...thread,
+                updatedAt: nowIso(),
+                messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (msg: any) => ({
+                  ...msg,
+                  content: videoText,
+                  status: "done",
+                  requestMeta: {
+                    ...(msg.requestMeta ?? {}),
+                    video_url: videoUrl,
+                    is_video: true
+                  }
+                }))
+              }))
+              workspace.touchProject(target.projectId)
+              setIsSending(false)
+              setAttachedFiles([])
               focusComposer()
               activeStreamRef.current = null
               return
@@ -1739,8 +868,9 @@ export default function App() {
             })()
 
             const assistantText =
-              String(payload?.answer?.text ?? "").trim() ||
               finalTextFromEvent ||
+              String(payload?.answer?.text ?? "").trim() ||
+              chunkAccumulator ||
               currentDisplayContent ||
               liveMeta.providerDrafts?.find((item) => item.provider === liveMeta.displayWinner?.provider)?.content ||
               liveMeta.providerDrafts?.find((item) => item.provider === liveMeta.winnerProvider)?.content ||
@@ -1762,18 +892,24 @@ export default function App() {
               timelineEvents: rawMeta?.timeline_events ?? []
             };
 
+            const doneTask = String(payload?.internal?.task ?? (meta as any)?.task ?? "").toLowerCase();
+            if (doneTask === "code" || doneTask === "code_implement" || doneTask === "code_debug" || doneTask === "code_refactor") {
+              setShowPanel(true);
+              setPanelPage(2);
+            }
+
             workspace.updateThreadById(target.threadId, (thread) => {
-              const nextMessages: Message[] = updateMessageStatus(thread.messages, assistantPlaceholder.id, (message) => ({
+              const nextMessages: Message[] = updateMessageStatus(thread.messages, assistantPlaceholder.id, (message: any) => ({
                 ...message,
                 content:
                   assistantText ||
                   message.content ||
-                  "응답은 왔지만 표시 가능한 final_answer를 찾지 못했습니다.",
+                  "[응답 오류] 잠시 후 다시 시도해주세요.",
                 status: "done",
                 requestMeta: meta
               }));
 
-              const nextThread: Thread = {
+              let nextThread: Thread = {
                 ...thread,
                 updatedAt: nowIso(),
                 meta: {
@@ -1806,6 +942,12 @@ export default function App() {
                 };
               }
 
+              // 서버에서 생성한 thread_title 적용 (isGenericThreadTitle인 경우에만)
+              if (payload?.thread_title && isGenericThreadTitle(nextThread.title)) {
+                const autoTitle = String(payload.thread_title).trim().slice(0, 32);
+                if (autoTitle) nextThread = { ...nextThread, title: autoTitle };
+              }
+
               return nextThread;
             });
 
@@ -1822,7 +964,7 @@ export default function App() {
         workspace.updateThreadById(target.threadId, (thread) => ({
           ...thread,
           updatedAt: nowIso(),
-          messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (item) => ({
+          messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (item: any) => ({
             ...item,
             content: item.content?.trim() ? item.content : "생성이 중단되었습니다.",
             status: "done",
@@ -1838,7 +980,7 @@ export default function App() {
         workspace.updateThreadById(target.threadId, (thread) => ({
           ...thread,
           updatedAt: nowIso(),
-          messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (item) => ({
+          messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (item: any) => ({
             ...item,
             content: item.content ? `${item.content}\n\n오류: ${message}` : `오류: ${message}`,
             status: "error",
@@ -1854,6 +996,7 @@ export default function App() {
         activeStreamRef.current = null;
       }
       setIsSending(false);
+      setAttachedFiles([]);
       focusComposer();
     }
   }
@@ -1870,7 +1013,7 @@ export default function App() {
 
   async function handleHomeSubmit(text: string) {
     const trimmed = text.trim();
-    if ((!trimmed && !attachedFile) || isSending) return;
+    if ((!trimmed && attachedFiles.length === 0) || isSending) return;
 
     setSidebarView("default");
 
@@ -1881,7 +1024,7 @@ export default function App() {
         projectId: GENERAL_PROJECT_ID,
         currentTitle: ""
       });
-      setAttachedFile(null);
+      setAttachedFiles([]);
       return;
     }
 
@@ -1893,7 +1036,7 @@ export default function App() {
       projectId,
       currentTitle: ""
     });
-    setAttachedFile(null);
+    setAttachedFiles([]);
   }
 
   function handleStartEditMessage(message: Message) {
@@ -1969,7 +1112,7 @@ export default function App() {
 
     workspace.updateThreadById(thread.id, (currentThread) => {
       const visibleMessages = getVisibleMessages(currentThread);
-      const currentUserIndex = visibleMessages.findIndex((item) => item.id === messageId);
+      const currentUserIndex = visibleMessages.findIndex((item: any) => item.id === messageId);
       if (currentUserIndex < 0) return currentThread;
 
       const existingAssistant =
@@ -2009,7 +1152,7 @@ export default function App() {
 
   async function handleDownloadSlide(slideData: any) {
     try {
-      const res = await fetch("http://localhost:8000/api/slides/generate", {
+      const res = await fetch(apiUrl("/api/slides/generate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slide_data: slideData })
@@ -2121,7 +1264,7 @@ export default function App() {
 
       <AppShell
         showPanel={showPanel}
-        onTogglePanel={() => setShowPanel(v => !v)}
+        onTogglePanel={() => { setShowPanel(v => { if (v) setPanelPage(0); return !v; }); }}
         sidebar={
           <Sidebar
             generalThreads={workspace.generalThreads}
@@ -2135,6 +1278,8 @@ export default function App() {
             onOpenGeneralHome={handleOpenGeneralHome}
             onOpenSearch={handleOpenSearch}
             onOpenImages={handleOpenImages}
+            onOpenSettings={() => setShowSettings(true)}
+            onOpenDashboard={() => { setSidebarView("dashboard"); }}
             onOpenBenchmark={handleOpenBenchmark}
             onSelectProject={handleSelectProject}
             onSelectThread={handleOpenThread}
@@ -2216,7 +1361,7 @@ export default function App() {
             panelToggle={
               <button
                 type="button"
-                onClick={() => setShowPanel(v => !v)}
+                onClick={() => { setShowPanel(v => { if (v) setPanelPage(0); return !v; }); }}
                 title={showPanel ? "패널 닫기" : "패널 열기"}
                 style={{
                   width: 36, height: 36, border: "none", borderRadius: 8,
@@ -2236,8 +1381,15 @@ export default function App() {
           />
         }
         main={
-          sidebarView === "images" ? (
+          sidebarView === "search" ? (
+            <SearchView
+              threads={workspace.threads}
+              onOpenThread={handleOpenThread}
+            />
+          ) : sidebarView === "images" ? (
             <ImageGalleryView threads={workspace.threads} />
+          ) : sidebarView === "dashboard" ? (
+            <DashboardView />
           ) : sidebarView === "benchmark" ? (
             <BenchmarkView />
           ) : mode === "home" ? (
@@ -2249,8 +1401,8 @@ export default function App() {
               sidebarView={sidebarView}
               isSending={isSending}
               onOpenThread={handleOpenThread}
-              attachedFile={attachedFile}
-              onAttachFile={setAttachedFile}
+              attachedFiles={attachedFiles}
+              onAttachFiles={setAttachedFiles}
               onSubmitPrompt={(value) => void handleHomeSubmit(value)}
               onRenameThread={(id, _nextTitle) => {
                 const thread = workspace.threads.find(t => t.id === id);
@@ -2312,8 +1464,8 @@ export default function App() {
                 });
               }}
               onDownloadSlide={handleDownloadSlide}
-              attachedFile={attachedFile}
-              onAttachFile={setAttachedFile}
+              attachedFiles={attachedFiles}
+              onAttachFiles={setAttachedFiles}
               composerMode={composerOptions ? (composerOptions.force_pro ? "deep-think" : composerOptions.task === "research" ? "web-search" : null) : null}
               onClearComposerMode={() => setComposerOptions(null)}
               onComposerAction={(action) => {
@@ -2340,6 +1492,15 @@ export default function App() {
         onChange={setProjectTitleDraft}
         onClose={closeProjectModal}
         onSubmit={handleSubmitProjectModal}
+      />
+
+      <SettingsModal
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        fontSize={msgFontSize}
+        onFontSizeChange={setMsgFontSize}
+        globalInstruction={globalInstruction}
+        onGlobalInstructionChange={(v: string) => workspace.setGlobalInstruction(v)}
       />
     </>
   );

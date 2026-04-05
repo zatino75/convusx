@@ -148,7 +148,8 @@ function normalizeProjects(projects: Project[]): Project[] {
     meta: {
       description: project.meta?.description ?? null,
       tags: Array.isArray(project.meta?.tags) ? project.meta.tags : [],
-      memoryEnabled: Boolean(project.meta?.memoryEnabled)
+      memoryEnabled: Boolean(project.meta?.memoryEnabled),
+      instruction: project.meta?.instruction ?? null
     }
   }));
 }
@@ -249,7 +250,45 @@ export function loadWorkspace(): WorkspaceSnapshot {
   }
 }
 
-export function persistWorkspace(snapshot: WorkspaceSnapshot) {
+function stripHeavyMeta(meta: Message["requestMeta"]): Message["requestMeta"] {
+  if (!meta) return null;
+  // providerDrafts: 스트리밍 임시 데이터, 저장 불필요 + 가장 무거운 필드
+  // raw: SSE 이벤트 원본, 저장 불필요
+  const { raw: _raw, providerDrafts: _drafts, ...rest } = meta as Record<string, unknown>;
+  void _raw; void _drafts;
+  return rest as Message["requestMeta"];
+}
+
+function trimThreadsForStorage(threads: Thread[]): Thread[] {
+  return threads.map((thread) => ({
+    ...thread,
+    messages: thread.messages.map((msg) => ({
+      ...msg,
+      requestMeta: stripHeavyMeta(msg.requestMeta)
+    })),
+    messageVersions: Object.fromEntries(
+      Object.entries(thread.messageVersions ?? {}).map(([groupId, msgs]) => [
+        groupId,
+        msgs.map((msg) => ({
+          ...msg,
+          requestMeta: stripHeavyMeta(msg.requestMeta)
+        }))
+      ])
+    )
+  }));
+}
+
+function pruneOldThreads(threads: Thread[], keepCount = 20): Thread[] {
+  // 2단계: 핀된 스레드는 유지, 나머지는 최신 순 keepCount개만
+  const pinned = threads.filter(getThreadPinned);
+  const unpinned = threads
+    .filter((t) => !getThreadPinned(t))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, Math.max(keepCount - pinned.length, 5));
+  return [...pinned, ...unpinned];
+}
+
+function writeToStorage(snapshot: WorkspaceSnapshot) {
   localStorage.setItem(STORAGE_PROJECTS_KEY, JSON.stringify(snapshot.projects));
   localStorage.setItem(STORAGE_THREADS_KEY, JSON.stringify(snapshot.threads));
   localStorage.setItem(STORAGE_ACTIVE_PROJECT_KEY, snapshot.activeProjectId);
@@ -258,6 +297,28 @@ export function persistWorkspace(snapshot: WorkspaceSnapshot) {
     localStorage.setItem(STORAGE_ACTIVE_THREAD_KEY, snapshot.activeThreadId);
   } else {
     localStorage.removeItem(STORAGE_ACTIVE_THREAD_KEY);
+  }
+}
+
+export function persistWorkspace(snapshot: WorkspaceSnapshot) {
+  // 항상 heavy meta(providerDrafts, raw) 제거 후 저장 — 저장 불필요한 임시 데이터
+  const cleaned = { ...snapshot, threads: trimThreadsForStorage(snapshot.threads) };
+
+  // 1차 시도: 정상 저장
+  try {
+    writeToStorage(cleaned);
+    return;
+  } catch {
+    // 용량 초과 — 다음 단계로
+  }
+
+  // 2차 시도: 오래된 스레드 정리 후 재시도
+  try {
+    const pruned = { ...cleaned, threads: pruneOldThreads(cleaned.threads) };
+    writeToStorage(pruned);
+  } catch {
+    // 모든 시도 실패 — 앱 크래시 방지를 위해 조용히 무시
+    console.warn("[CORVUS X] localStorage 저장 실패: 용량 초과. 스레드 데이터 일부가 유실될 수 있습니다.");
   }
 }
 
@@ -391,6 +452,8 @@ type WorkspaceState = WorkspaceSnapshot & {
   updateThreadById: (threadId: string, mutator: (thread: Thread) => Thread) => void;
   touchProject: (projectId: string, timestamp?: string) => void;
   updateProjectMeta: (projectId: string, metaPatch: Partial<Project["meta"]>) => void;
+  globalInstruction: string;
+  setGlobalInstruction: (value: string) => void;
   updateThreadMeta: (threadId: string, metaPatch: Partial<Thread["meta"]>) => void;
   updateThreadVersionGroup: (
     threadId: string,
@@ -420,6 +483,9 @@ type WorkspaceState = WorkspaceSnapshot & {
 export function useWorkspaceState(): WorkspaceState {
   const initialWorkspace = useMemo(() => loadWorkspace(), []);
   const [projects, setProjects] = useState<Project[]>(initialWorkspace.projects);
+  const [globalInstruction, setGlobalInstructionState] = useState<string>(() => {
+    try { return localStorage.getItem("corvus_global_instruction") ?? ""; } catch { return ""; }
+  });
   const [threads, setThreads] = useState<Thread[]>(initialWorkspace.threads);
   const [activeProjectId, setActiveProjectId] = useState<string>(initialWorkspace.activeProjectId);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(initialWorkspace.activeThreadId);
@@ -497,6 +563,14 @@ export function useWorkspaceState(): WorkspaceState {
     );
   }
 
+  function touchThread(threadId: string, timestamp = nowIso()) {
+    setThreads((current) =>
+      current.map((thread) =>
+        thread.id === threadId ? { ...thread, updatedAt: timestamp } : thread
+      )
+    );
+  }
+
   function touchProject(projectId: string, timestamp = nowIso()) {
     if (projectId === GENERAL_PROJECT_ID) return;
     setProjects((current) =>
@@ -506,6 +580,11 @@ export function useWorkspaceState(): WorkspaceState {
           : project
       )
     );
+  }
+
+  function setGlobalInstruction(value: string) {
+    setGlobalInstructionState(value);
+    try { localStorage.setItem("corvus_global_instruction", value); } catch {}
   }
 
   function updateProjectMeta(projectId: string, metaPatch: Partial<Project["meta"]>) {
@@ -783,6 +862,8 @@ export function useWorkspaceState(): WorkspaceState {
     createNamedProject,
     createThreadInProject,
     renameProject,
+    globalInstruction,
+    setGlobalInstruction,
     deleteProject,
     renameThread,
     deleteThread,

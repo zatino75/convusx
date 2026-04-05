@@ -1,5 +1,9 @@
 import fs from "node:fs"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 type ThreadMessage = {
   id: string
@@ -24,6 +28,7 @@ type ThreadMemoryEntry = {
   messages: ThreadMessage[]
   structured?: ThreadStructured
   retrieval_preview?: any
+  winner_provider?: string | null  // judge가 선택한 최종 provider
 }
 
 type ThreadStoreType = Record<string, ThreadMemoryEntry>
@@ -37,7 +42,7 @@ export type SimilarQueryResult = {
   updated_at: number
 }
 
-const DATA_DIR = path.resolve(process.cwd(), "server", "data")
+const DATA_DIR = path.resolve(__dirname, "../../../data")
 const DATA_FILE = path.join(DATA_DIR, "thread-memory.json")
 
 const ThreadStore: ThreadStoreType = loadStore()
@@ -147,7 +152,7 @@ export function findSimilarQuery(
   projectId: string,
   options?: { threshold?: number; limit?: number }
 ): SimilarQueryResult[] {
-  const threshold = options?.threshold ?? 0.18
+  const threshold = options?.threshold ?? 0.15  // 0.18 → 0.15: 한국어 변형어 재현율 개선
   const limit = options?.limit ?? 5
 
   const queryTokens = tokenize(query)
@@ -164,23 +169,48 @@ export function findSimilarQuery(
     const userMessages = entry.messages.filter((m) => m.role === "user")
     const assistantMessages = entry.messages.filter((m) => m.role === "assistant")
 
+    // assistant 메시지를 id/created_at 기준으로 user 메시지와 매핑
+    // (인덱스 기반 매핑은 system 메시지 삽입 시 오매칭 발생)
+    const assistantByIndex = new Map<number, ThreadMessage>()
+    let aIdx = 0
+    for (let i = 0; i < entry.messages.length; i++) {
+      const msg = entry.messages[i]
+      if (msg.role === "assistant") {
+        // 직전 user 메시지의 userMessages 내 인덱스 찾기
+        let precedingUserIdx = -1
+        for (let j = i - 1; j >= 0; j--) {
+          if (entry.messages[j].role === "user") {
+            precedingUserIdx = userMessages.findIndex((u) => u.id === entry.messages[j].id)
+            break
+          }
+        }
+        if (precedingUserIdx >= 0) {
+          assistantByIndex.set(precedingUserIdx, msg)
+        } else {
+          assistantByIndex.set(aIdx, msg)
+        }
+        aIdx++
+      }
+    }
+
     // 스레드 제목 (가중치 1.5)
     const titleScore = entry.title
       ? overlapScore(queryTokens, tokenize(entry.title)) * 1.5
       : 0
 
-    // structured summary (가중치 0.6)
+    // structured summary (가중치 0.7)
     const summaryScore = entry.structured?.summary
-      ? overlapScore(queryTokens, tokenize(entry.structured.summary)) * 0.6
+      ? overlapScore(queryTokens, tokenize(entry.structured.summary)) * 0.7
       : 0
 
-    // entities + decisions 복합 매칭 (가중치 0.8)
+    // entities + decisions + facts 복합 매칭 (가중치 0.9)
     const structuredText = [
       ...(entry.structured?.entities ?? []),
-      ...(entry.structured?.decisions ?? [])
+      ...(entry.structured?.decisions ?? []),
+      ...(entry.structured?.facts ?? [])
     ].join(" ")
     const structuredScore = structuredText
-      ? overlapScore(queryTokens, tokenize(structuredText)) * 0.8
+      ? overlapScore(queryTokens, tokenize(structuredText)) * 0.9
       : 0
 
     for (let i = 0; i < userMessages.length; i++) {
@@ -192,8 +222,11 @@ export function findSimilarQuery(
 
       if (score < threshold) continue
 
+      // 매핑된 assistant 메시지 우선, 없으면 structured summary fallback
+      const pairedAssistant = assistantByIndex.get(i)
       const matchedAnswer =
-        assistantMessages[i]?.content ||
+        pairedAssistant?.content ||
+        assistantMessages[i]?.content ||       // legacy fallback
         normalizeText(entry.structured?.summary) ||
         ""
 
@@ -206,7 +239,7 @@ export function findSimilarQuery(
           score,
           matched_query: userMsg.content,
           matched_answer: matchedAnswer,
-          winner_provider: null,
+          winner_provider: entry.winner_provider ?? null,  // judge 선택 provider 반영
           updated_at: Number(entry.structured?.updated_at ?? 0)
         })
       }
@@ -241,7 +274,9 @@ export function upsertThreadMemory(entry: ThreadMemoryEntry) {
     title: entry?.title ?? existing?.title ?? null,
     messages: Array.isArray(entry?.messages) ? entry.messages : existing?.messages ?? [],
     structured,
-    retrieval_preview: entry?.retrieval_preview ?? existing?.retrieval_preview ?? null
+    retrieval_preview: entry?.retrieval_preview ?? existing?.retrieval_preview ?? null,
+    // winner_provider: 새 값이 있으면 갱신, 없으면 기존 값 유지
+    winner_provider: entry?.winner_provider ?? existing?.winner_provider ?? null
   }
 
   saveStore()
@@ -268,4 +303,11 @@ export function getProjectThreadMemories(projectId: string) {
 export function getThreadMessages(threadId: string): ThreadMessage[] {
   const entry = getThreadMemory(threadId)
   return Array.isArray(entry?.messages) ? entry.messages : []
+}
+
+export function clearAllThreadMemory() {
+  for (const key of Object.keys(ThreadStore)) {
+    delete ThreadStore[key]
+  }
+  saveStore()
 }

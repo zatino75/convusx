@@ -1,0 +1,4 @@
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ?숋툘  write to custom object with { processEnv: myObject }
+CORVUS X running on http://localhost:8000
+[OpenAI] streaming HTTP 400, falling back to non-streaming
+[OpenAI] streaming HTTP 400, falling back to non-streaming

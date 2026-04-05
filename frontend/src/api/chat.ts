@@ -1,4 +1,4 @@
-export type ChatRequest = {
+﻿export type ChatRequest = {
   message: string;
   thread_id?: string;
   project_id?: string;
@@ -386,8 +386,9 @@ export function extractDebugMeta(response: ChatResponse | null | undefined): Deb
       String(orchestration.recovery_to_model ?? "").trim() || null,
 
     providerStatusMap: asRecord(orchestration.provider_status_map),
-    providerStreamSummary: asRecord(orchestration.provider_stream_summary)
-  };
+    providerStreamSummary: asRecord(orchestration.provider_stream_summary),
+    raw: response
+  } as any;
 }
 
 export async function sendChat(input: ChatRequest): Promise<ChatResponse> {
@@ -427,4 +428,39 @@ export async function fetchDashboard(): Promise<DashboardResponse> {
   const response = await fetch("http://localhost:8000/api/dashboard");
   const payload = await safeJson(response);
   return payload as DashboardResponse;
+}
+
+export async function fetchSettingsKeys(): Promise<{ ok: boolean; keys: Record<string, string> }> {
+  try {
+    const res = await fetch("http://localhost:8000/api/settings/keys");
+    return await res.json();
+  } catch {
+    return { ok: false, keys: {} };
+  }
+}
+
+export async function saveSettingsKeys(keys: Record<string, string>): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch("http://localhost:8000/api/settings/keys", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(keys),
+    });
+    return await res.json();
+  } catch {
+    return { ok: false, error: "network_error" };
+  }
+}
+
+export async function resetSettingsData(target: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch("http://localhost:8000/api/settings/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target }),
+    });
+    return await res.json();
+  } catch {
+    return { ok: false, error: "network_error" };
+  }
 }

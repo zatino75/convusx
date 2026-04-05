@@ -1,4 +1,4 @@
-import { readModelScoreboard } from "./modelScoreboard.js"
+import { readModelScoreboard } from "./scoreboard.js"
 
 type DispatchInput = {
   provider: string
@@ -26,8 +26,21 @@ type OrxTask =
   | "reasoning"
   | "research"
   | "code"
+  | "code_implement"
+  | "code_debug"
+  | "code_refactor_review"
   | "writing"
+  | "writing_creative"
+  | "writing_business"
   | "long_doc"
+  | "word"
+  | "pdf"
+  | "excel"
+  | "ppt"
+  | "legal_review"
+  | "data_analysis"
+  | "finance_analysis"
+  | "product_development"
   | "evidence"
 
 const REGISTRY: Record<string, AdapterResolver[]> = {
@@ -46,14 +59,14 @@ const REGISTRY: Record<string, AdapterResolver[]> = {
 }
 
 const MODEL_PRICING_USD_PER_1K_TOKENS: Record<string, { input: number; output: number }> = {
-  "gpt-5.4": { input: 0.003, output: 0.009 },
+  "gpt-5.2": { input: 0.003, output: 0.009 },
   "gpt-5.4-pro": { input: 0.015, output: 0.12 },
   "gpt-5.3-codex": { input: 0.006, output: 0.018 },
 
   "claude-sonnet-4-6": { input: 0.0035, output: 0.018 },
   "claude-opus-4-6": { input: 0.018, output: 0.09 },
 
-  "gemini-3.1-pro-preview": { input: 0.00125, output: 0.005 },
+  "gemini-2.5-pro": { input: 0.00125, output: 0.005 },
 
   "sonar-reasoning-pro": { input: 0.002, output: 0.008 },
   "sonar-pro": { input: 0.001, output: 0.004 }
@@ -71,19 +84,37 @@ function safeNumber(value: any) {
 function normalizeTask(task: any): OrxTask {
   const value = String(task ?? "").trim().toLowerCase()
 
+  if (!value) return "dialogue"
+
+  if (value === "code_debug" || value.includes("debug")) return "code_debug"
+  if (
+    value === "code_refactor_review" ||
+    value === "code_refactor" ||
+    value === "code_review" ||
+    value === "code_refactor/review" ||
+    value.includes("refactor") ||
+    value.includes("review")
+  ) return "code_refactor_review"
+  if (value === "code_implement" || value.includes("implement")) return "code_implement"
   if (value.includes("code")) return "code"
+
   if (value.includes("long_doc") || value.includes("long_document")) return "long_doc"
+  if (value === "word" || value.includes("document") || value.includes("doc")) return "word"
+  if (value === "pdf") return "pdf"
+  if (value === "excel" || value.includes("spreadsheet") || value.includes("sheet")) return "excel"
+  if (value === "ppt" || value.includes("slide") || value.includes("presentation")) return "ppt"
+
+  if (value.includes("writing_creative") || value.includes("creative_writing")) return "writing_creative"
+  if (value.includes("writing_business") || value.includes("business_writing") || value.includes("email_writing")) return "writing_business"
   if (value.includes("writing") || value.includes("write")) return "writing"
+
+  if (value.includes("legal")) return "legal_review"
+  if (value.includes("finance")) return "finance_analysis"
+  if (value.includes("data")) return "data_analysis"
+  if (value.includes("product")) return "product_development"
+  if (value.includes("research")) return "research"
   if (value.includes("reasoning")) return "reasoning"
   if (value.includes("evidence")) return "evidence"
-  // 전용 파이프라인 task → research
-  if (
-    value.includes("research") ||
-    value.includes("legal_review") ||
-    value.includes("data_analysis") ||
-    value.includes("finance_analysis") ||
-    value.includes("product_development")
-  ) return "research"
 
   return "dialogue"
 }
@@ -163,7 +194,14 @@ function normalizeMessages(input: DispatchInput): Array<{ role: "system" | "user
 
       return { role, content }
     })
-    return trimContextMessages(normalized)
+    // 연속 중복 메시지 제거 (같은 role + 같은 content 연속 시 API 오류 방지)
+    const deduped: typeof normalized = []
+    for (const msg of normalized) {
+      const last = deduped[deduped.length - 1]
+      if (last && last.role === msg.role && last.content.trim() === msg.content.trim()) continue
+      deduped.push(msg)
+    }
+    return trimContextMessages(deduped)
   }
 
   const fallbackMessage =
@@ -290,7 +328,7 @@ function pickTieredModel(params: {
       board,
       provider: params.provider,
       task: params.task,
-      currentModel: "gpt-5.4",
+      currentModel: "gpt-5.2",
       nextModel: "gpt-5.4-pro"
     })
 
@@ -298,11 +336,28 @@ function pickTieredModel(params: {
       return "gpt-5.4-pro"
     }
 
-    return "gpt-5.4"
+    return "gpt-5.2"
   }
 
   if (params.provider === "gemini") {
-    return "gemini-3.1-pro-preview"
+    if (shouldForceOpenAIPro({ task: params.task, input: params.input })) {
+      return "gemini-2.5-pro"
+    }
+
+    // scoreboard 기반 Gemini pro 자동 승격
+    const canPromoteGemini = shouldPromoteByBoard({
+      board,
+      provider: params.provider,
+      task: params.task,
+      currentModel: "gemini-2.5-pro",
+      nextModel: "gemini-2.5-pro"
+    })
+
+    if (canPromoteGemini) {
+      return "gemini-2.5-pro"
+    }
+
+    return "gemini-2.5-pro"
   }
 
   if (params.provider === "claude") {
@@ -331,7 +386,7 @@ function pickTieredModel(params: {
 
 function defaultModel(provider: string, task: OrxTask, input?: any): string {
   if (provider === "openai") {
-    return pickTieredModel({ provider, task, input }) ?? "gpt-5.4"
+    return pickTieredModel({ provider, task, input }) ?? "gpt-5.2"
   }
 
   if (provider === "claude") {
@@ -339,7 +394,7 @@ function defaultModel(provider: string, task: OrxTask, input?: any): string {
   }
 
   if (provider === "gemini") {
-    return pickTieredModel({ provider, task, input }) ?? "gemini-3.1-pro-preview"
+    return pickTieredModel({ provider, task, input }) ?? "gemini-2.5-pro"
   }
 
   if (provider === "perplexity") {
@@ -347,13 +402,15 @@ function defaultModel(provider: string, task: OrxTask, input?: any): string {
     return "sonar-pro"
   }
 
-  return "gpt-5.4"
+  return "gpt-5.2"
 }
 
 function defaultTemperature(task: OrxTask, role = "primary"): number {
   // synthesis/blend 호출은 자연스러운 텍스트 합성을 위해 온도 고정
   if (role === "synthesis") return 0.25
   if (task === "dialogue") return 0.2
+  if (task === "writing_creative") return 0.7
+  if (task === "writing_business") return 0.2
   if (task === "writing") return 0.3
   if (task === "research") return 0.1
   if (task === "long_doc") return 0.1
@@ -373,7 +430,9 @@ function defaultMaxTokens(task: OrxTask, provider: string, input?: any): number 
     return task === "research" ? 2200 : 1800
   }
 
-  if (task === "dialogue") return 1200
+  if (task === "dialogue") return 16000
+  if (task === "writing_creative") return 3500
+  if (task === "writing_business") return 2500
   if (task === "writing") return 3000
   if (task === "long_doc") return 4000
   if (task === "reasoning") return 2200
@@ -387,15 +446,15 @@ function buildTimeoutMs(provider: string, task: OrxTask, input?: any): number {
 
   if (provider === "openai") {
     if (explicitModel === "gpt-5.4-pro") {
-      if (task === "research") return 90000
-      if (task === "reasoning") return 80000
-      return 70000
+      if (task === "research") return 30000
+      if (task === "reasoning") return 45000
+      return 40000
     }
 
-    if (task === "research") return 70000
-    if (task === "reasoning") return 65000
+    if (task === "research") return 25000
+    if (task === "reasoning") return 45000
     if (task === "code") return 60000
-    return 45000
+    return 40000
   }
 
   if (provider === "gemini") {
@@ -407,14 +466,24 @@ function buildTimeoutMs(provider: string, task: OrxTask, input?: any): number {
   }
 
   if (provider === "claude") {
+    if (task === "writing_creative") return 55000
+    if (task === "writing_business") return 45000
     if (task === "writing") return 55000
     if (task === "long_doc") return 70000
-    if (task === "research") return 70000
-    if (task === "reasoning") return 65000
+    if (task === "research") return 25000
+    if (task === "reasoning") return 45000
     if (task === "code") return 60000
-    return 45000
+    if (task === "dialogue") return 120000
+    return 120000
   }
 
+  if (provider === "perplexity") {
+    if (task === "research") return 80000
+    if (task === "reasoning") return 70000
+    return 50000
+  }
+
+  // 나머지 provider fallthrough
   if (task === "research") return 70000
   if (task === "code") return 60000
   if (task === "reasoning") return 60000
@@ -445,11 +514,11 @@ function buildMaxRetries(provider: string, task: OrxTask, input?: any): number {
 
 function buildTaskSystemPrompt(task: OrxTask, provider: string, structuredOutput = false, role = "primary"): string {
   const COMMON = [
-    "당신은 AI Orchestra 멀티 AI 시스템의 일원입니다.",
+    "당신은 CORVUS X 멀티 AI 시스템의 일원입니다.",
     "한국어로 질문이 들어오면 반드시 한국어로 답하세요.",
     "메타 응답(예: '알겠습니다', '도와드리겠습니다', '어떤 형식을 원하시나요')은 절대 출력하지 마세요.",
     "질문에 즉시 실질적인 답변을 제공하세요.",
-    "Deliver high-quality responses by choosing the most effective format for the content — use tables when comparing multiple options, use prose when explaining concepts, use code blocks for code, use bullet points only when listing discrete items. Prioritize clarity, accuracy, and actionable insight over length. Always include a concrete conclusion or recommendation when the question requires a decision. Never pad responses with filler or meta-commentary."
+    "Deliver comprehensive, high-quality responses. Choose the most effective format — use tables when comparing options, use prose when explaining concepts, use code blocks for code, use bullet points when listing discrete items. Always include a concrete conclusion or recommendation when the question requires a decision. Never pad responses with filler or meta-commentary. Never truncate or cut off mid-answer — always complete your response fully."
   ].join(" ")
 
   // synthesis/patching 호출은 중립 프롬프트 사용 — role-specific 지시와 충돌 방지
@@ -463,7 +532,7 @@ function buildTaskSystemPrompt(task: OrxTask, provider: string, structuredOutput
   if (task === "dialogue") {
     // TASK_WEIGHTS: claude(0.12) > openai(0.08) — claude가 primary, openai가 verifier
     const roleMap: Record<string, string> = {
-      claude: "당신은 주 대화 AI입니다. 간결하고 실용적으로 답하되, 사용자에게 바로 유용한 정보를 제공하세요.",
+      claude: "당신은 주 대화 AI입니다. 사용자의 질문에 충분히 상세하고 구조적으로 답하세요. 핵심 포인트를 빠짐없이 다루고, 실용적인 정보와 구체적인 예시를 포함해 완결성 있는 답변을 제공하세요. 절대 중간에 끊거나 요약으로 대체하지 마세요.",
       openai: "당신은 비판적 검증 AI입니다. 답변의 논리적 허점이나 누락된 관점을 짚고, 더 나은 대안을 제시하세요.",
       gemini: "당신은 맥락 분석 AI입니다. 대화의 배경과 숨겨진 의도를 파악해 풍부한 맥락 정보를 제공하세요.",
       perplexity: "당신은 팩트 스카우트 AI입니다. 신뢰할 수 있는 사실과 최신 정보를 근거 중심으로 제공하세요."
@@ -492,11 +561,46 @@ function buildTaskSystemPrompt(task: OrxTask, provider: string, structuredOutput
   }
 
   if (task === "code") {
+    // role 기반 agent 분화 — provider보다 role 우선
+    const rolePrompts: Record<string, string> = {
+      // primary: Claude가 구현, OpenAI가 verifier일 때
+      primary: provider === "claude"
+        ? "당신은 코드 구현 AI(Code Implementer)입니다. 프로덕션 품질의 완성된 코드를 작성하세요. 플레이스홀더 없이 실제 동작하는 코드만 출력하고, 예외 처리·엣지 케이스·타입 안전성을 반드시 포함하세요. 코드 블록 외 설명은 최소화하세요."
+        : provider === "openai"
+          ? "당신은 코드 구현 및 리뷰 AI입니다. 요청한 기능을 완전히 구현하고, 보안 취약점·성능 문제·논리 오류가 없는지 즉시 검토하세요. 완성된 코드만 출력하세요."
+          : provider === "gemini"
+            ? "당신은 아키텍처 설계 AI(Architect)입니다. 코드의 전체 구조, 모듈 분리, 확장성, 유지보수성 관점에서 설계 방향을 제시하고 구조화된 구현을 제공하세요."
+            : "당신은 기술 문서 AI입니다. 관련 공식 문서, API 레퍼런스, 실제 사용 예제를 출처와 함께 제공하세요.",
+
+      // verifier: 코드 리뷰어 (OpenAI gpt-5.3-codex)
+      verifier: "당신은 코드 리뷰 AI(Code Reviewer)입니다. 제출된 코드를 검토하고 다음 순서로 응답하세요: 1) 버그·논리 오류 발견 시 수정된 전체 코드 출력 (설명 없이 코드만). 2) 보안 취약점이 있으면 수정 코드와 간단한 이유. 3) 완전히 정확하면 'LGTM' 한 줄만 출력. 절대 리뷰 코멘트와 코드를 섞지 마세요.",
+
+      // synthesis: 리팩토링/패치
+      synthesis: "당신은 리팩토링 AI(Refactor Architect)입니다. 주어진 코드를 개선하여 완성본을 반환하세요. 가독성·성능·구조를 개선하되 기능 변경은 금지. 개선이 불필요하면 'APPROVED' 한 줄만 출력. 수정본만 출력하고 설명은 코드 내 주석으로만 추가하세요.",
+
+      // scout: 디버깅/탐색
+      scout: "당신은 디버그 조사 AI(Debug Investigator)입니다. 버그의 근본 원인을 추적하고 재현 조건을 명확히 하세요. 원인 분석 → 수정 코드 → 예방 방법 순서로 응답하세요. 수정된 전체 코드를 반드시 포함하세요."
+    }
+
+    const prompt = rolePrompts[role] ?? rolePrompts.primary
+    return [COMMON, prompt].join(" ")
+  }
+
+  // ── writing_creative: Claude primary + OpenAI verifier ──
+  if (task === "writing_creative") {
     const roleMap: Record<string, string> = {
-      openai: "당신은 코드 리뷰 AI입니다. 제출된 코드의 버그, 보안 취약점, 성능 문제를 검토하세요. 문제가 있으면 수정 코드를 제시하고, 없으면 'LGTM' 및 간단한 개선 제안을 주세요.",
-      claude: "당신은 코드 구현 AI입니다. 프로덕션 품질의 완성된 코드를 작성하세요. 플레이스홀더 없이 실제 동작하는 코드만 출력하고, 예외 처리와 엣지 케이스를 반드시 포함하세요.",
-      gemini: "당신은 아키텍처 설계 AI입니다. 코드의 전체 구조, 모듈 분리, 확장성, 유지보수성 관점에서 설계 방향을 제시하세요.",
-      perplexity: "당신은 기술 문서 AI입니다. 관련 공식 문서, API 레퍼런스, 실제 사용 예제를 출처와 함께 제공하세요."
+      claude: "당신은 창작 글쓰기 AI입니다. 독창적이고 설득력 있는 문장을 작성하세요. 감성적 호소와 스토리텔링을 활용하고, 모든 섹션을 빠짐없이 완성하세요.",
+      openai: "당신은 글쓰기 검토 AI입니다. 문장의 사실성·구조·일관성을 검토하고 독자 관점에서 개선안을 제시하세요.",
+      gemini: "당신은 스타일 최적화 AI입니다. 문체·톤·가독성을 분석하고 타깃 독자에게 최적화된 표현으로 개선하세요.",
+    }
+    return [COMMON, roleMap[provider] ?? roleMap.claude].join(" ")
+  }
+
+  // ── writing_business: OpenAI primary + Claude verifier ──
+  if (task === "writing_business") {
+    const roleMap: Record<string, string> = {
+      openai: "당신은 업무 문서 작성 AI입니다. 보고서·제안서·계약 초안 등 구조화된 업무 문서를 작성하세요. 사실성과 명확성을 최우선으로 하고, 모든 섹션을 빠짐없이 완성하세요.",
+      claude: "당신은 문서 검토 AI입니다. 톤·흐름·논리적 일관성을 검토하고 비즈니스 문서로서 적합성을 평가하세요.",
     }
     return [COMMON, roleMap[provider] ?? roleMap.openai].join(" ")
   }

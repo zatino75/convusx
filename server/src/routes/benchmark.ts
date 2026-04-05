@@ -1,4 +1,4 @@
-import { logBenchmark, normalizeBenchmarkCase } from "../orchestra/benchmark.js"
+﻿import { logBenchmark, normalizeBenchmarkCase } from "../orchestra/benchmark.js"
 import { resetScoreboard, recordProviderExecution } from "../orchestra/scoreboard.js"
 import { executeOrchestra } from "../orchestra/runtime.js"
 import { evaluateBenchmarkResult } from "../benchmark/evaluator.js"
@@ -253,7 +253,6 @@ export async function runBenchmarkRunRoute(req: any, res: any) {
       }
     }
   }
-  console.log(`[BENCHMARK] Scoreboard 반영 완료 — ${comparison.pairwise?.length ?? 0}개 케이스`)
 
   // 히스토리 저장
   const historyEntry = {
@@ -268,7 +267,6 @@ export async function runBenchmarkRunRoute(req: any, res: any) {
     comparison
   }
   saveHistory(historyEntry)
-  console.log(`[BENCHMARK] 자동 저장 완료 — 승률: ${Math.round((historyEntry.win_rate ?? 0) * 100)}%`)
 
   return res.json({
     ok: true,
@@ -283,7 +281,6 @@ let autoScheduler: ReturnType<typeof setTimeout> | null = null
 const AUTO_BENCHMARK_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24시간
 
 async function runAutoBenchmark() {
-  console.log("[BENCHMARK] 자동 벤치마크 시작...")
   try {
     const fakeReq = { body: { max_cases: 12 } }
     const results: any[] = []
@@ -291,16 +288,13 @@ async function runAutoBenchmark() {
       json: (data: any) => { results.push(data) }
     }
     await runBenchmarkRunRoute(fakeReq, fakeRes)
-    console.log("[BENCHMARK] 자동 벤치마크 완료")
   } catch (e: any) {
     console.error("[BENCHMARK] 자동 벤치마크 실패:", e?.message)
   }
 }
 
 export function startBenchmarkScheduler() {
-  // 서버 시작 1시간 후 첫 실행, 이후 24시간마다 반복
-  const firstDelay = 60 * 60 * 1000 // 1시간
-  console.log(`[BENCHMARK] 스케줄러 등록 — 첫 실행: 1시간 후, 이후 24시간 주기`)
+  const firstDelay = 60 * 60 * 1000
   setTimeout(() => {
     runAutoBenchmark()
     autoScheduler = setInterval(runAutoBenchmark, AUTO_BENCHMARK_INTERVAL_MS)

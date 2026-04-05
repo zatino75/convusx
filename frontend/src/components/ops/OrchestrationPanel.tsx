@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import type { UsageSummaryResponse } from "../../api/chat";
 
 type DebugMeta = {
@@ -19,7 +19,7 @@ type DebugMeta = {
   recoveryToModel?: string | null;
   providerStatusMap?: Record<string, any>;
   providerStreamSummary?: Record<string, any>;
-  raw?: any;
+  raw?: unknown;
 };
 
 type Props = {
@@ -35,7 +35,8 @@ const PROVIDER_LABEL: Record<string, string> = {
 };
 const TASK_LABEL: Record<string, string> = {
   dialogue: "대화", reasoning: "추론", research: "리서치", code: "코드",
-  writing: "글쓰기", long_doc: "긴 문서", source_promote: "소스 저장", slide_generate: "슬라이드"
+  writing: "글쓰기", long_doc: "긴 문서", source_promote: "소스 저장", slide_generate: "슬라이드",
+  image_generate: "이미지 생성", video_generate: "비디오 생성"
 };
 
 // 벤치마크 기반 라우팅 근거
@@ -63,7 +64,7 @@ const SYNTHESIS_ROLE_LABEL: Record<string, { label: string; color: string }> = {
   critique:  { label: "크리틱",   color: "#ef4444" }
 };
 
-const PAGES = ["사용량", "코드 파일"];
+const PAGES = ["흐름", "비교", "코드"];
 
 function pLabel(p: string | null | undefined) {
   const k = String(p ?? "").trim().toLowerCase();
@@ -160,11 +161,11 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
   const winner = debugMeta.displayWinner?.provider ?? debugMeta.winnerProvider;
   const task = debugMeta.routerTask ?? "";
   const isSourcePromote = task === "source_promote";
-  const internalRationale = debugMeta.raw?.result?.internal_rationale ?? {};
+  const internalRationale = (debugMeta.raw as any)?.result?.internal_rationale ?? {};
   const conflicts: any[] = internalRationale.conflicts ?? [];
   const conflictCount = debugMeta.conflictCount ?? conflicts.length;
   const executedProviders: any[] = internalRationale.executed_providers ?? [];
-  const threadFusionApplied = Boolean(debugMeta.raw?.result?.response_meta?.orchestration?.thread_fusion_applied);
+  const threadFusionApplied = Boolean((debugMeta.raw as any)?.result?.response_meta?.orchestration?.thread_fusion_applied);
 
   // Judge 점수 비교 데이터
   const judgeScores: Array<{ provider: string; score: number; reasons: string[] }> =
@@ -178,6 +179,71 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
 
   // synthesis 적용 여부 (role이 verified/patched/edited/extracted인 항목)
   const synthProviders = executedProviders.filter((ep: any) => SYNTHESIS_ROLE_LABEL[ep?.role]);
+
+  const isImageGenerate = task === "image_generate";
+  const isVideoGenerate = task === "video_generate";
+
+  // 이미지 생성 패널
+  if (isImageGenerate) {
+    const imageUrl = (debugMeta.raw as any)?.image_url ?? (debugMeta.raw as any)?.result?.image_url ?? null;
+    const imageUrls: string[] = (debugMeta.raw as any)?.image_urls ?? [];
+    const provider = winner ?? "openai";
+    const PROVIDER_LABEL: Record<string, string> = { openai: "DALL-E 3", gemini: "Gemini Imagen 4", midjourney: "Midjourney v6.1" };
+    return (
+      <Section title="이미지 생성">
+        <div style={{ padding: 12, borderRadius: 8, background: "var(--bg-sub,#f8fafc)", border: "1px solid var(--border)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <ProviderBadge provider={provider} />
+            <span style={{ fontSize: 11, color: "var(--text-sub)" }}>{PROVIDER_LABEL[provider] ?? provider.toUpperCase()}</span>
+          </div>
+          {imageUrl && (
+            <img src={imageUrl} alt="생성된 이미지" style={{ width: "100%", maxWidth: 320, borderRadius: 8, border: "1px solid var(--border)", display: "block" }}
+              onError={e => { (e.target as HTMLImageElement).style.display = "none" }} />
+          )}
+          {imageUrls.length > 1 && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 6 }}>
+              {imageUrls.map((url, i) => (
+                <img key={i} src={url} alt={`이미지 ${i+1}`} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 6, border: "1px solid var(--border)" }}
+                  onError={e => { (e.target as HTMLImageElement).style.display = "none" }} />
+              ))}
+            </div>
+          )}
+          {!imageUrl && !imageUrls.length && (
+            <div style={{ fontSize: 12, color: "var(--text-sub)" }}>이미지 URL을 불러오는 중...</div>
+          )}
+        </div>
+      </Section>
+    );
+  }
+
+  // 비디오 생성 패널
+  if (isVideoGenerate) {
+    const videoUrl = (debugMeta.raw as any)?.video_url ?? (debugMeta.raw as any)?.result?.video_url ?? null;
+    const provider = winner ?? "gemini";
+    const PROVIDER_LABEL: Record<string, string> = { runway: "Runway Gen4 Turbo", gemini: "Gemini Veo 3.1" };
+    const isGcs = videoUrl && String(videoUrl).startsWith("gs://");
+    return (
+      <Section title="비디오 생성">
+        <div style={{ padding: 12, borderRadius: 8, background: "var(--bg-sub,#f8fafc)", border: "1px solid var(--border)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <ProviderBadge provider={provider} />
+            <span style={{ fontSize: 11, color: "var(--text-sub)" }}>{PROVIDER_LABEL[provider] ?? provider.toUpperCase()}</span>
+          </div>
+          {videoUrl && !isGcs && (
+            <video src={videoUrl} controls style={{ width: "100%", maxWidth: 320, borderRadius: 8, border: "1px solid var(--border)" }} />
+          )}
+          {videoUrl && isGcs && (
+            <div style={{ fontSize: 12, color: "var(--text-sub)", wordBreak: "break-all" }}>
+              <a href={videoUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent,#6366f1)", fontWeight: 600 }}>↗ 비디오 열기 (GCS)</a>
+            </div>
+          )}
+          {!videoUrl && (
+            <div style={{ fontSize: 12, color: "var(--text-sub)" }}>비디오 URL을 불러오는 중...</div>
+          )}
+        </div>
+      </Section>
+    );
+  }
 
   if (isSourcePromote) {
     return (
@@ -479,124 +545,72 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
   );
 }
 
-function PageTokens({ debugMeta }: { debugMeta: DebugMeta }) {
-  const executedProviders: any[] = debugMeta.raw?.result?.internal_rationale?.executed_providers ?? [];
-  const hasData = executedProviders.length > 0;
-  const totalCost = executedProviders.reduce((sum: number, ep: any) => sum + Number(ep?.usage?.estimated_cost_usd ?? 0), 0);
-  const totalTokens = executedProviders.reduce((sum: number, ep: any) => sum + Number(ep?.usage?.total_tokens ?? 0), 0);
+function PageComparison({ debugMeta }: { debugMeta: DebugMeta }) {
+  const winner = debugMeta.displayWinner?.provider ?? debugMeta.winnerProvider ?? null;
+  const losers: string[] = debugMeta.displayLosers ?? [];
+  const drafts: Array<{ provider: string; content: string }> = (debugMeta as any).providerDrafts ?? [];
+  const executed: any[] = (debugMeta.raw as any)?.result?.internal_rationale?.executed_providers ?? [];
 
-  // 누적 통계 (서버 /api/usage → accumulated)
-  const [accumulated, setAccumulated] = useState<Record<string, { total_tokens: number; estimated_cost_usd: number; runs: number; wins: number }>>({});
-  useEffect(() => {
-    fetch("http://localhost:8000/api/usage")
-      .then(r => r.json())
-      .then(data => { if (data?.accumulated) setAccumulated(data.accumulated) })
-      .catch(() => {});
-  }, [hasData]); // 응답 올 때마다 갱신
+  // provider → 응답 텍스트 매핑
+  const textMap: Record<string, string> = {};
+  for (const ep of executed) {
+    if (ep?.provider && ep?.text) textMap[String(ep.provider)] = String(ep.text);
+  }
+  for (const d of drafts) {
+    if (d.provider && d.content && !textMap[d.provider]) textMap[d.provider] = d.content;
+  }
 
-  const accProviders = Object.keys(accumulated).filter(p => accumulated[p].runs > 0);
-  const accTotalTokens = accProviders.reduce((s, p) => s + accumulated[p].total_tokens, 0);
-  const accTotalCost = accProviders.reduce((s, p) => s + accumulated[p].estimated_cost_usd, 0);
+  const candidates = [winner, ...losers].filter(Boolean) as string[];
+  const allProviders = Array.from(new Set([...candidates, ...Object.keys(textMap)]));
 
-  if (!hasData) {
-    return <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-soft)", fontSize: 13 }}>대화를 시작하면 토큰 사용량이 표시됩니다</div>;
+  if (allProviders.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-soft)", fontSize: 13 }}>
+        대화를 시작하면 AI 응답 비교가 표시됩니다
+      </div>
+    );
   }
 
   return (
-    <>
-      {/* 이번 응답 요약 */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-        <div style={{ padding: 12, borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface-1)" }}>
-          <div style={{ fontSize: 10, color: "var(--text-sub)", marginBottom: 4 }}>이번 응답 토큰</div>
-          <div style={{ fontSize: 17, fontWeight: 700, color: "var(--text-main)" }}>{totalTokens.toLocaleString()}</div>
-        </div>
-        <div style={{ padding: 12, borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface-1)" }}>
-          <div style={{ fontSize: 10, color: "var(--text-sub)", marginBottom: 4 }}>이번 응답 비용</div>
-          <div style={{ fontSize: 17, fontWeight: 700, color: "var(--text-main)" }}>${totalCost.toFixed(5)}</div>
-        </div>
-      </div>
-
-      <Section title="이번 응답 — Provider별">
-        {executedProviders.map((ep: any, idx: number) => {
-          const inputTokens = Number(ep?.usage?.input_tokens ?? 0);
-          const outputTokens = Number(ep?.usage?.output_tokens ?? 0);
-          const cost = Number(ep?.usage?.estimated_cost_usd ?? 0);
-          const billing = BILLING_LINKS[String(ep.provider ?? "").toLowerCase()];
-          return (
-            <div key={idx} style={{ padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <ProviderBadge provider={ep.provider} />
-                {billing && (
-                  <a href={billing.url} target="_blank" rel="noopener noreferrer"
-                    style={{ fontSize: 11, color: pColor(ep.provider), textDecoration: "none", fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: pColor(ep.provider) + "15" }}>
-                    결제 →
-                  </a>
-                )}
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>
-                {[["입력", inputTokens.toLocaleString()], ["출력", outputTokens.toLocaleString()], ["비용", `$${cost.toFixed(5)}`]].map(([label, val]) => (
-                  <div key={label}>
-                    <div style={{ fontSize: 10, color: "var(--text-sub)", marginBottom: 2 }}>{label}</div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)" }}>{val}</div>
-                  </div>
-                ))}
-              </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {allProviders.map(provider => {
+        const isWinner = normP(provider) === normP(winner);
+        const text = textMap[provider] ?? "";
+        return (
+          <div key={provider} style={{
+            borderRadius: 10,
+            border: `1px solid ${isWinner ? pColor(provider) : "var(--border)"}`,
+            background: isWinner ? pColor(provider) + "08" : "var(--surface-1)",
+            overflow: "hidden"
+          }}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "8px 12px",
+              borderBottom: "1px solid var(--border)",
+              background: isWinner ? pColor(provider) + "12" : "transparent"
+            }}>
+              <ProviderBadge provider={provider} />
+              {isWinner && (
+                <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20, background: pColor(provider), color: "#fff" }}>
+                  ✓ Winner
+                </span>
+              )}
             </div>
-          );
-        })}
-      </Section>
-
-      {/* 누적 합계 */}
-      {accProviders.length > 0 && (
-        <>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, margin: "16px 0 12px" }}>
-            <div style={{ padding: 12, borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface-1)" }}>
-              <div style={{ fontSize: 10, color: "var(--text-sub)", marginBottom: 4 }}>전체 누적 토큰</div>
-              <div style={{ fontSize: 17, fontWeight: 700, color: "var(--text-main)" }}>{accTotalTokens.toLocaleString()}</div>
-            </div>
-            <div style={{ padding: 12, borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface-1)" }}>
-              <div style={{ fontSize: 10, color: "var(--text-sub)", marginBottom: 4 }}>전체 누적 비용</div>
-              <div style={{ fontSize: 17, fontWeight: 700, color: "var(--text-main)" }}>${accTotalCost.toFixed(4)}</div>
+            <div style={{
+              padding: "10px 12px",
+              fontSize: 12, color: "var(--text-main)", lineHeight: 1.65,
+              whiteSpace: "pre-wrap", wordBreak: "break-word",
+              maxHeight: 220, overflowY: "auto"
+            }}>
+              {text || <span style={{ color: "var(--text-soft)", fontStyle: "italic" }}>응답 없음</span>}
             </div>
           </div>
-
-          <Section title="전체 누적 — Provider별">
-            {accProviders.map(provider => {
-              const acc = accumulated[provider];
-              const billing = BILLING_LINKS[provider.toLowerCase()];
-              return (
-                <div key={provider} style={{ padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                    <ProviderBadge provider={provider} />
-                    {billing && (
-                      <a href={billing.url} target="_blank" rel="noopener noreferrer"
-                        style={{ fontSize: 11, color: pColor(provider), textDecoration: "none", fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: pColor(provider) + "15" }}>
-                        결제 →
-                      </a>
-                    )}
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4 }}>
-                    {[
-                      ["총 토큰", acc.total_tokens.toLocaleString()],
-                      ["총 비용", `$${acc.estimated_cost_usd.toFixed(4)}`],
-                      ["실행", `${acc.runs}회`],
-                      ["승리", `${acc.wins}회`]
-                    ].map(([label, val]) => (
-                      <div key={label}>
-                        <div style={{ fontSize: 10, color: "var(--text-sub)", marginBottom: 2 }}>{label}</div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)" }}>{val}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </Section>
-        </>
-      )}
-    </>
+        );
+      })}
+    </div>
   );
 }
+
 
 function PageCodeFiles({ artifactList }: { artifactList: Array<{ id: string; title: string; code: string; language: string }> }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -645,7 +659,7 @@ function PageCodeFiles({ artifactList }: { artifactList: Array<{ id: string; tit
             </button>
           </div>
           <textarea readOnly value={selected.code}
-            style={{ width: "100%", height: 280, padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 10, background: "#f8f9fa", color: "var(--text-main)", fontSize: 12, lineHeight: 1.6, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", resize: "vertical" as const, boxSizing: "border-box" as const }} />
+            style={{ width: "100%", height: 280, padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 10, background: "#f8f9fa", color: "var(--text-main)", fontSize: 12, lineHeight: 1.6, fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, Menlo, Consolas, monospace", resize: "vertical" as const, boxSizing: "border-box" as const }} />
         </div>
       )}
     </>
@@ -656,10 +670,6 @@ function PagePreviews({ debugMeta }: { debugMeta: DebugMeta }) {
   const winner = debugMeta.displayWinner?.provider ?? debugMeta.winnerProvider;
   const summaries = debugMeta.providerStreamSummary ?? {};
   const hasData = Object.keys(summaries).length > 0;
-
-  if (!hasData) {
-    return <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-soft)", fontSize: 13 }}>대화를 시작하면 각 AI의 응답이 표시됩니다</div>;
-  }
 
   return (
     <>
@@ -679,8 +689,17 @@ function PagePreviews({ debugMeta }: { debugMeta: DebugMeta }) {
   );
 }
 
-export default function OrchestrationPanel({ debugMeta, artifactList = [] }: Props) {
-  const [pageIndex, setPageIndex] = useState(0);
+export default function OrchestrationPanel({ debugMeta, artifactList = [], initialPage = 0 }: Props & { initialPage?: number }) {
+  const [pageIndex, setPageIndex] = useState(initialPage);
+
+  // initialPage 변경 시 탭 전환 (코드 응답 → 코드탭, 닫힘 → 흐름탭)
+  const prevInitialPage = React.useRef(initialPage);
+  React.useEffect(() => {
+    if (initialPage !== prevInitialPage.current) {
+      setPageIndex(initialPage);
+      prevInitialPage.current = initialPage;
+    }
+  }, [initialPage]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "linear-gradient(135deg, #fefef9 0%, #fcfaf2 30%, #f9f5ea 55%, #fcfaf3 80%, #fefef9 100%)" }}>
@@ -695,7 +714,7 @@ export default function OrchestrationPanel({ debugMeta, artifactList = [] }: Pro
             <button key={idx} type="button" onClick={() => setPageIndex(idx)}
               style={{ flexShrink: 0, padding: "5px 12px", border: "none", borderRadius: "6px 6px 0 0", background: "transparent", cursor: "pointer", fontSize: 12, fontWeight: pageIndex === idx ? 700 : 500, color: pageIndex === idx ? "var(--text-main)" : "var(--text-sub)", borderBottom: pageIndex === idx ? "2px solid var(--text-main)" : "2px solid transparent", marginBottom: -1, position: "relative" as const }}>
               {label}
-              {idx === 1 && artifactList.length > 0 && (
+              {idx === 2 && artifactList.length > 0 && (
                 <span style={{ marginLeft: 3, fontSize: 10, fontWeight: 700, padding: "1px 4px", borderRadius: 8, background: "#10a37f", color: "#fff" }}>{artifactList.length}</span>
               )}
             </button>
@@ -706,8 +725,10 @@ export default function OrchestrationPanel({ debugMeta, artifactList = [] }: Pro
       {/* 컨텐츠 */}
       <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
         {pageIndex === 0
-          ? <PageTokens debugMeta={debugMeta} />
-          : <PageCodeFiles artifactList={artifactList} />}
+          ? <PageOrchestration debugMeta={debugMeta} />
+          : pageIndex === 1
+            ? <PageComparison debugMeta={debugMeta} />
+            : <PageCodeFiles artifactList={artifactList} />}
       </div>
     </div>
   );

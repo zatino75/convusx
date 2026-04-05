@@ -1,5 +1,11 @@
 import dotenv from "dotenv"
-dotenv.config({ override: true })
+import { fileURLToPath } from "node:url"
+import { dirname, resolve } from "node:path"
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+const ENV_PATH = resolve(__dirname, "../../.env")
+dotenv.config({ path: ENV_PATH, override: true })
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 
@@ -7,14 +13,14 @@ const geminiKeyLoaded =
   typeof process.env.GEMINI_API_KEY === "string" &&
   process.env.GEMINI_API_KEY.trim().length > 0
 
-console.log("[ENV] GEMINI_API_KEY:", geminiKeyLoaded ? "LOADED" : "EMPTY")
 
 import { runBenchmarkRoute, runBenchmarkRunRoute, runBenchmarkHistoryRoute, startBenchmarkScheduler } from "./routes/benchmark.js"
 import { runFeedbackRoute } from "./routes/feedback.js"
 import { runSlidesGenerateRoute as generateSlidesRoute } from "./routes/slides.js"
 import { chatRoute, chatStreamRoute } from "./routes/chat.js"
-import { usageRoute, scoreboardRoute } from "./routes/usage.js"
+import { usageRoute, scoreboardRoute, usageResetRoute } from "./routes/usage.js"
 import { dashboardRoute } from "./routes/dashboard.js"
+import { getSettingsKeys, saveSettingsKeys, resetSettings } from "./routes/settings.js"
 import {
   getProjectMemory,
   getLatestProjectContext,
@@ -113,7 +119,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   if (method === "GET" && path === "/api/health") {
     endJson(res, 200, {
       ok: true,
-      service: "AI ORCHESTRA",
+      service: "CORVUS X",
       timestamp: new Date().toISOString(),
       env: {
         gemini_api_key: geminiKeyLoaded ? "LOADED" : "EMPTY"
@@ -123,7 +129,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   }
 
   if (method === "GET" && path === "/") {
-    endJson(res, 200, { ok: true, service: "AI ORCHESTRA" })
+    endJson(res, 200, { ok: true, service: "CORVUS X" })
     return
   }
 
@@ -203,6 +209,11 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       return
     }
 
+    if (method === "POST" && path === "/api/usage/reset") {
+      const resLike = createExpressLikeResponse(res)
+      await usageResetRoute.handler(req, resLike)
+      return
+    }
     if (method === "GET" && path === "/api/usage") {
       const resLike = createExpressLikeResponse(res)
       await usageRoute.handler({}, resLike)
@@ -296,6 +307,22 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       return
     }
 
+    if (method === "GET" && path === "/api/settings/keys") {
+      const resLike = createExpressLikeResponse(res)
+      await getSettingsKeys({ method, url: req.url, headers: req.headers, body: {} }, resLike)
+      return
+    }
+
+    if (method === "POST" && path === "/api/settings/keys") {
+      await handlePostRoute(req, res, saveSettingsKeys)
+      return
+    }
+
+    if (method === "POST" && path === "/api/settings/reset") {
+      await handlePostRoute(req, res, resetSettings)
+      return
+    }
+
     if (method === "GET" && path === "/api/retrieval-context") {
       const url = new URL(req.url ?? "/", "http://localhost:8000")
       const projectId = url.searchParams.get("projectId") ?? ""
@@ -322,6 +349,6 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 const PORT = 8000
 
 server.listen(PORT, () => {
-  console.log("AI ORCHESTRA running on http://localhost:" + PORT)
+  console.log("CORVUS X running on http://localhost:" + PORT)
   startBenchmarkScheduler()
 })
