@@ -40,12 +40,15 @@ function StatusHistoryBlock({ steps, isPending }: { steps: string[]; isPending?:
 
   return (
     <div className="tp">
-      {/* 헤더: 진행 중일 때 현재 단계, 완료 시 "과정 보기" 토글 */}
+      {/* 헤더: 접혀있을 때만 텍스트 표시 — 펼쳐지면 리스트가 이미 보이므로 collapse 화살표만 */}
       <button className="tp__header" onClick={() => setOpen(p => !p)} type="button">
-        {isPending && <span className="tp__spinner" />}
-        <span className="tp__title">
-          {isPending ? lastStep : t("chat.thinkingProcess")}
-        </span>
+        {!open && isPending && <span className="tp__spinner" />}
+        {!open && (
+          <span className="tp__title">
+            {isPending ? lastStep : t("chat.thinkingProcess")}
+          </span>
+        )}
+        {open && isPending && <span className="tp__spinner" />}
         <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2"
           className="tp__chevron" style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}>
           <path d="M6 3l5 5-5 5" />
