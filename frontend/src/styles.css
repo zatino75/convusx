@@ -761,22 +761,22 @@ pre::-webkit-scrollbar-track { background: transparent; }
 }
 
 /* ── 사고 과정 (Claude-style Thinking Process) ── */
-.tp { margin: 6px 0 8px; }
+.tp { margin: 4px 0 6px; }
 .tp__header {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 2px; border: none; background: transparent;
-  cursor: pointer; font-size: 14px; color: var(--text-main, #1a1a1a);
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 2px; border: none; background: transparent;
+  cursor: pointer; font-size: 11px; color: var(--text-soft, #b0b0b0);
   line-height: 1.4;
 }
-.tp__header:hover { opacity: 0.65; }
+.tp__header:hover { opacity: 0.7; }
 .tp__chevron {
   transition: transform 0.2s ease;
-  flex-shrink: 0; opacity: 0.45;
+  flex-shrink: 0; opacity: 0.5;
 }
-.tp__title { font-weight: 600; }
+.tp__title { font-weight: 500; color: #b0b0b0; }
 .tp__spinner {
-  width: 12px; height: 12px;
-  border: 2px solid var(--border, #e0e0e0);
+  width: 10px; height: 10px;
+  border: 1.5px solid var(--border, #e0e0e0);
   border-top-color: var(--accent, #b8860b);
   border-radius: 50%;
   animation: tp-spin 0.8s linear infinite;
@@ -785,43 +785,43 @@ pre::-webkit-scrollbar-track { background: transparent; }
 @keyframes tp-spin { to { transform: rotate(360deg); } }
 
 .tp__preview {
-  padding: 0 2px 6px 26px;
-  font-size: 13px; color: var(--text-sub, #666);
+  padding: 0 2px 4px 20px;
+  font-size: 11px; color: var(--text-soft, #c0c0c0);
   line-height: 1.5;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-.tp__body { padding: 0 2px 8px 2px; }
+.tp__body { padding: 0 2px 6px 2px; }
 .tp__counter {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 5px 12px; margin: 0 0 4px 24px;
-  border: 1px solid var(--border, #e5e7eb); border-radius: 8px;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; margin: 0 0 3px 18px;
+  border: 1px solid var(--border, #f0f0f0); border-radius: 6px;
   background: var(--surface-1, #fafafa);
-  cursor: pointer; font-size: 12px; color: var(--text-sub, #888);
+  cursor: pointer; font-size: 10px; color: var(--text-soft, #bbb);
   line-height: 1.4;
 }
-.tp__counter:hover { background: rgba(0,0,0,0.04); }
+.tp__counter:hover { background: rgba(0,0,0,0.03); }
 
 .tp__list {
-  list-style: none; margin: 6px 0 0 24px;
-  padding: 8px 14px;
-  border: 1px solid var(--border, #e5e7eb); border-radius: 10px;
+  list-style: none; margin: 4px 0 0 18px;
+  padding: 6px 12px;
+  border: 1px solid var(--border, #f0f0f0); border-radius: 8px;
   background: var(--surface-1, #fafafa);
-  display: flex; flex-direction: column; gap: 7px;
+  display: flex; flex-direction: column; gap: 5px;
 }
 .tp__item {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 12px; line-height: 1.5;
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11px; line-height: 1.5;
 }
-.tp__dot { flex-shrink: 0; }
+.tp__dot { flex-shrink: 0; opacity: 0.7; }
 .tp__item-text {
-  flex: 1; color: var(--text-main, #333);
+  flex: 1; color: var(--text-soft, #aaa);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .tp__badge {
-  flex-shrink: 0; font-size: 10px; font-weight: 500;
-  padding: 1px 7px; border-radius: 4px;
-  border: 1px solid; white-space: nowrap;
+  flex-shrink: 0; font-size: 9px; font-weight: 500;
+  padding: 1px 6px; border-radius: 3px;
+  border: 1px solid; white-space: nowrap; opacity: 0.8;
 }
 
 .message__time { margin: 8px 18px 0; font-size: 12px; color: var(--text-soft); }

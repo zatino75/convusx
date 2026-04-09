@@ -33,8 +33,8 @@ function categorizeStep(step: string): { label: string; color: string } {
 }
 
 function StatusHistoryBlock({ steps, isPending }: { steps: string[]; isPending?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const [detailOpen, setDetailOpen] = useState(false);
+  const [open, setOpen] = useState(true);
+  const [detailOpen, setDetailOpen] = useState(true);
   if (!steps || steps.length === 0) return null;
 
   const lastStep = steps[steps.length - 1];
