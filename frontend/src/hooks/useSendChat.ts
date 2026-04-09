@@ -254,7 +254,7 @@ export function useSendChat({
     workspace.touchProject(target.projectId, timestamp);
 
     setIsSending(true);
-    setAttachedFiles([]);
+    // ✅ setAttachedFiles([]) 여기서 하지 않음 — 전송 실패 시 파일 유지를 위해 onDone 성공 시점에만 초기화
     setComposerOptions(null);
     setLastError(null);
     setDebugMeta(createDefaultDebugMeta());
@@ -262,8 +262,9 @@ export function useSendChat({
 
     try {
       // 현재 요청 직전의 스레드 메시지 수집 (현재 user/placeholder 제외)
-      const threadMessages = preservedMessages
-        .filter((m: Message) => !m.isHidden && m.content?.trim() && !m.content.includes("[응답 오류]") && m.status !== "pending")
+      // ✅ status === "error" 메시지 제외: 이전 실패한 응답이 컨텍스트에 남아 오답을 유발하는 버그 수정
+      const rawContextMessages = preservedMessages
+        .filter((m: Message) => !m.isHidden && m.content?.trim() && !m.content.includes("[응답 오류]") && m.status !== "pending" && m.status !== "error")
         .map((m: Message) => {
           let content = m.content;
           // USER 메시지: PROJECT CONTEXT / THREAD MEMORY 블록 완전 제거 후 순수 질문만 추출
@@ -283,6 +284,14 @@ export function useSendChat({
           return { role: m.role, content };
         })
         .filter((m: { role: string; content: string }) => m.content.trim().length > 0);
+
+      // ✅ 고아 user 메시지 제거: error assistant가 제거된 후 짝 없이 남은 user 메시지를 컨텍스트에서 제외
+      const threadMessages = rawContextMessages.filter((m: { role: string; content: string }, i: number, arr: { role: string; content: string }[]) => {
+        if (m.role !== "user") return true;
+        const nextUserIdx = arr.findIndex((x, j) => j > i && x.role === "user");
+        const endIdx = nextUserIdx === -1 ? arr.length : nextUserIdx;
+        return arr.slice(i + 1, endIdx).some(x => x.role === "assistant");
+      });
 
       // 마지막 유저 메시지가 현재 전송 메시지와 동일하면 제거
       const lastMsg = threadMessages[threadMessages.length - 1];
@@ -575,7 +584,7 @@ export function useSendChat({
                 activeStreamRef.current = null;
               }
               setIsSending(false);
-              setAttachedFiles([]);
+              // ✅ 에러 시 setAttachedFiles([]) 하지 않음 — 파일 유지하여 재시도 가능하게
               focusComposer();
               return;
             }
@@ -732,7 +741,7 @@ export function useSendChat({
         activeStreamRef.current = null;
       }
       setIsSending(false);
-      setAttachedFiles([]);
+      // ✅ finally에서 setAttachedFiles([]) 제거 — 에러 시에도 실행되어 파일을 지우는 버그 수정
       focusComposer();
     }
   }
@@ -757,7 +766,7 @@ export function useSendChat({
         projectId: GENERAL_PROJECT_ID,
         currentTitle: ""
       });
-      setAttachedFiles([]);
+      // ✅ setAttachedFiles([]) 제거 — sendMessageToThread 내부 onDone 성공 시 처리됨
       return;
     }
 
@@ -769,7 +778,7 @@ export function useSendChat({
       projectId,
       currentTitle: ""
     });
-    setAttachedFiles([]);
+    // ✅ setAttachedFiles([]) 제거 — sendMessageToThread 내부 onDone 성공 시 처리됨
   }
 
   async function handleSubmitEditMessage(messageId: string) {
