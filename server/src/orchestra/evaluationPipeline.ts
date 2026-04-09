@@ -25,6 +25,7 @@ export type EvaluationOptions = {
   primaryProvider?: string
   projectId?: string
   threadId?: string
+  executionStrategy?: string
 }
 
 function normalizeCandidates(candidates: ProviderCandidate[]): ProviderCandidate[] {
@@ -94,6 +95,7 @@ export async function runEvaluationPass(options: EvaluationOptions): Promise<Eva
     task,
     conflicts: conflicts as any,
     question: options?.message ?? "",
+    executionStrategy: options?.executionStrategy,
   })
 
   const winner = String(

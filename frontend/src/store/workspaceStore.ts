@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { t } from "../i18n";
 import type {
   DebugMeta,
   Message,
@@ -14,6 +15,18 @@ import type {
   Thread,
   WorkspaceSnapshot
 } from "../types/workspace";
+import {
+  loadWorkspaceFromServer,
+  importSnapshot,
+  syncState as apiSyncState,
+  saveProject as apiSaveProject,
+  removeProject as apiRemoveProject,
+  saveThread as apiSaveThread,
+  removeThread as apiRemoveThread,
+  saveMessages as apiSaveMessages,
+  saveVersions as apiSaveVersions
+} from "../api/workspace";
+import { devLog, nowIso } from "../utils/helpers";
 
 export const GENERAL_PROJECT_ID = "__general__";
 const STORAGE_PROJECTS_KEY = "corvus-x.frontend.projects.v15";
@@ -45,9 +58,6 @@ export function createId(prefix: string) {
   return `${prefix}_${Date.now()}_${random}`;
 }
 
-export function nowIso() {
-  return new Date().toISOString();
-}
 
 export function createVersionGroupId() {
   return createId("version_group");
@@ -94,7 +104,7 @@ export function createDefaultDebugMeta(): DebugMeta {
   };
 }
 
-export function createProjectEntity(title = "새 프로젝트"): Project {
+export function createProjectEntity(title = t("defaults.newProject")): Project {
   const timestamp = nowIso();
   return {
     id: createId("project"),
@@ -109,7 +119,7 @@ export function createProjectEntity(title = "새 프로젝트"): Project {
   };
 }
 
-export function createThread(projectId: string, title = "새 채팅"): Thread {
+export function createThread(projectId: string, title = t("defaults.newChat")): Thread {
   const timestamp = nowIso();
   return {
     id: createId("thread"),
@@ -240,10 +250,8 @@ export function loadWorkspace(): WorkspaceSnapshot {
         typeof rawActiveProjectId === "string" && rawActiveProjectId.trim()
           ? rawActiveProjectId
           : GENERAL_PROJECT_ID,
-      activeThreadId:
-        typeof rawActiveThreadId === "string" && rawActiveThreadId.trim()
-          ? rawActiveThreadId
-          : null
+      // 브라우저 재시작 시 항상 홈 화면으로 시작
+      activeThreadId: null
     };
   } catch {
     return createSeedSnapshot();
@@ -304,22 +312,55 @@ export function persistWorkspace(snapshot: WorkspaceSnapshot) {
   // 항상 heavy meta(providerDrafts, raw) 제거 후 저장 — 저장 불필요한 임시 데이터
   const cleaned = { ...snapshot, threads: trimThreadsForStorage(snapshot.threads) };
 
-  // 1차 시도: 정상 저장
+  // localStorage에도 캐시 (오프라인 폴백)
   try {
     writeToStorage(cleaned);
-    return;
   } catch {
-    // 용량 초과 — 다음 단계로
+    try {
+      const pruned = { ...cleaned, threads: pruneOldThreads(cleaned.threads) };
+      writeToStorage(pruned);
+    } catch {
+      devLog.warn("[CORVUS X] localStorage 저장 실패: 용량 초과.");
+    }
+  }
+}
+
+// ─── 서버에서 워크스페이스 로드 (비동기) ───────────
+export async function loadWorkspaceAsync(): Promise<WorkspaceSnapshot & { globalInstruction?: string }> {
+  try {
+    const result = await loadWorkspaceFromServer();
+    if (result?.ok && result.data) {
+      const { projects, threads, activeProjectId, activeThreadId, globalInstruction } = result.data;
+
+      // 서버 DB에 실제 대화 데이터가 있으면 그걸 사용 (threads 기준, __general__ 시드 프로젝트만 있는 경우 제외)
+      const hasRealData = Array.isArray(threads) && threads.length > 0;
+      if (hasRealData) {
+        devLog.log("[CORVUS X] 서버 DB에서 워크스페이스 로드됨:", projects?.length ?? 0, "projects,", threads.length, "threads");
+        return {
+          projects: normalizeProjects(Array.isArray(projects) ? projects : []),
+          threads: normalizeThreads(threads),
+          activeProjectId: activeProjectId || GENERAL_PROJECT_ID,
+          activeThreadId: activeThreadId || null,
+          globalInstruction: globalInstruction ?? ""
+        };
+      }
+
+      // 서버 DB에 스레드 없음 → localStorage에서 마이그레이션 시도
+      const local = loadWorkspace();
+      if (local.threads.length > 0 || local.projects.length > 0) {
+        devLog.log("[CORVUS X] localStorage → 서버 DB 마이그레이션 시작");
+        const cleaned = { ...local, threads: trimThreadsForStorage(local.threads) };
+        await importSnapshot(cleaned.projects, cleaned.threads);
+        devLog.log("[CORVUS X] 마이그레이션 완료:", cleaned.projects.length, "projects,", cleaned.threads.length, "threads");
+        return { ...local, globalInstruction: "" };
+      }
+    }
+  } catch (err) {
+    devLog.warn("[CORVUS X] 서버 로드 실패, localStorage 폴백:", err);
   }
 
-  // 2차 시도: 오래된 스레드 정리 후 재시도
-  try {
-    const pruned = { ...cleaned, threads: pruneOldThreads(cleaned.threads) };
-    writeToStorage(pruned);
-  } catch {
-    // 모든 시도 실패 — 앱 크래시 방지를 위해 조용히 무시
-    console.warn("[CORVUS X] localStorage 저장 실패: 용량 초과. 스레드 데이터 일부가 유실될 수 있습니다.");
-  }
+  // 서버 접근 불가 → localStorage 폴백
+  return { ...loadWorkspace(), globalInstruction: "" };
 }
 
 export function buildProjectGroups(projects: Project[], threads: Thread[]): ProjectGroup[] {
@@ -439,7 +480,7 @@ export function buildLiveMetaFromEvents(events: StreamEvent[]): DebugMeta {
   return meta;
 }
 
-type WorkspaceState = WorkspaceSnapshot & {
+export type WorkspaceState = WorkspaceSnapshot & {
   generalThreads: Thread[];
   projectGroups: ProjectGroup[];
   projectThreads: Thread[];
@@ -484,11 +525,31 @@ export function useWorkspaceState(): WorkspaceState {
   const initialWorkspace = useMemo(() => loadWorkspace(), []);
   const [projects, setProjects] = useState<Project[]>(initialWorkspace.projects);
   const [globalInstruction, setGlobalInstructionState] = useState<string>(() => {
-    try { return localStorage.getItem("corvus_global_instruction") ?? ""; } catch { return ""; }
+    try { return localStorage.getItem("corvus-x.global-instruction") ?? ""; } catch { return ""; }
   });
   const [threads, setThreads] = useState<Thread[]>(initialWorkspace.threads);
   const [activeProjectId, setActiveProjectId] = useState<string>(initialWorkspace.activeProjectId);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(initialWorkspace.activeThreadId);
+  const serverLoadedRef = useRef(false);
+
+  // ── 서버에서 비동기 로드 (초기 1회) ──────────────
+  useEffect(() => {
+    if (serverLoadedRef.current) return;
+    serverLoadedRef.current = true;
+
+    loadWorkspaceAsync().then((snapshot) => {
+      setProjects(snapshot.projects);
+      setThreads(snapshot.threads);
+      setActiveProjectId(snapshot.activeProjectId);
+      setActiveThreadId(snapshot.activeThreadId);
+      if (snapshot.globalInstruction) {
+        setGlobalInstructionState(snapshot.globalInstruction);
+      }
+      devLog.log("[CORVUS X] 서버 동기화 완료");
+    }).catch(() => {
+      devLog.warn("[CORVUS X] 서버 동기화 실패, localStorage 데이터 유지");
+    });
+  }, []);
 
   useEffect(() => {
     persistWorkspace({
@@ -584,23 +645,27 @@ export function useWorkspaceState(): WorkspaceState {
 
   function setGlobalInstruction(value: string) {
     setGlobalInstructionState(value);
-    try { localStorage.setItem("corvus_global_instruction", value); } catch {}
+    try { localStorage.setItem("corvus-x.global-instruction", value); } catch {}
+    apiSyncState({ globalInstruction: value });
   }
 
   function updateProjectMeta(projectId: string, metaPatch: Partial<Project["meta"]>) {
     if (projectId === GENERAL_PROJECT_ID) return;
     setProjects((current) =>
-      current.map((project) =>
-        project.id === projectId
-          ? {
-              ...project,
-              meta: {
-                ...(project.meta ?? {}),
-                ...(metaPatch ?? {})
-              }
+      current.map((project) => {
+        if (project.id === projectId) {
+          const updated = {
+            ...project,
+            meta: {
+              ...(project.meta ?? {}),
+              ...(metaPatch ?? {})
             }
-          : project
-      )
+          };
+          apiSaveProject(updated);
+          return updated;
+        }
+        return project;
+      })
     );
   }
 
@@ -620,35 +685,50 @@ export function useWorkspaceState(): WorkspaceState {
     messages: Message[],
     activeIndex = 0
   ) {
-    updateThreadById(threadId, (thread) => ({
-      ...thread,
-      messageVersions: {
+    updateThreadById(threadId, (thread) => {
+      const nextVersions = {
         ...(thread.messageVersions ?? {}),
         [groupId]: messages.map(normalizeMessage)
-      },
-      activeVersionIndex: {
+      };
+      const nextActiveIdx = {
         ...(thread.activeVersionIndex ?? {}),
         [groupId]: activeIndex
-      }
-    }));
+      };
+      apiSaveVersions(threadId, nextVersions, nextActiveIdx);
+      return {
+        ...thread,
+        messageVersions: nextVersions,
+        activeVersionIndex: nextActiveIdx
+      };
+    });
   }
 
   function setActiveMessageVersion(threadId: string, groupId: string, versionIndex: number) {
-    updateThreadById(threadId, (thread) => ({
-      ...thread,
-      activeVersionIndex: {
+    updateThreadById(threadId, (thread) => {
+      const nextActiveIdx = {
         ...(thread.activeVersionIndex ?? {}),
         [groupId]: Math.max(0, versionIndex)
-      }
-    }));
+      };
+      apiSaveVersions(threadId, thread.messageVersions ?? {}, nextActiveIdx);
+      return {
+        ...thread,
+        activeVersionIndex: nextActiveIdx
+      };
+    });
   }
 
   function replaceThreadMessages(threadId: string, nextMessages: Message[], timestamp = nowIso()) {
-    updateThreadById(threadId, (thread) => ({
-      ...thread,
-      updatedAt: timestamp,
-      messages: nextMessages.map(normalizeMessage)
-    }));
+    updateThreadById(threadId, (thread) => {
+      const normalized = nextMessages.map(normalizeMessage);
+      // 서버에 메시지 저장 (heavy meta 제거 후)
+      const stripped = normalized.map(m => ({ ...m, requestMeta: stripHeavyMeta(m.requestMeta) }));
+      apiSaveMessages(threadId, stripped);
+      return {
+        ...thread,
+        updatedAt: timestamp,
+        messages: normalized
+      };
+    });
   }
 
   function hideMessagesAfter(threadId: string, fromMessageId: string) {
@@ -671,6 +751,9 @@ export function useWorkspaceState(): WorkspaceState {
         nextMessages.push({ ...message });
       }
 
+      const stripped = nextMessages.map(m => ({ ...m, requestMeta: stripHeavyMeta(m.requestMeta) }));
+      apiSaveMessages(threadId, stripped);
+
       return {
         ...thread,
         messages: nextMessages
@@ -679,21 +762,41 @@ export function useWorkspaceState(): WorkspaceState {
   }
 
   function deleteMessage(threadId: string, messageId: string) {
-    updateThreadById(threadId, (thread) => ({
-      ...thread,
-      messages: thread.messages.filter((m) => m.id !== messageId),
-      updatedAt: nowIso()
-    }));
+    updateThreadById(threadId, (thread) => {
+      const deletedMsg = thread.messages.find((m) => m.id === messageId);
+      const nextMessages = thread.messages.filter((m) => m.id !== messageId);
+
+      // orphaned 버전 데이터 정리
+      const nextVersions = { ...(thread.messageVersions ?? {}) };
+      const nextActiveIdx = { ...(thread.activeVersionIndex ?? {}) };
+      if (deletedMsg?.versionGroupId) {
+        delete nextVersions[deletedMsg.versionGroupId];
+        delete nextActiveIdx[deletedMsg.versionGroupId];
+      }
+
+      const stripped = nextMessages.map(m => ({ ...m, requestMeta: stripHeavyMeta(m.requestMeta) }));
+      apiSaveMessages(threadId, stripped);
+      apiSaveVersions(threadId, nextVersions, nextActiveIdx);
+      return {
+        ...thread,
+        messages: nextMessages,
+        messageVersions: nextVersions,
+        activeVersionIndex: nextActiveIdx,
+        updatedAt: nowIso()
+      };
+    });
   }
 
   function openGeneralHome() {
     setActiveProjectId(GENERAL_PROJECT_ID);
     setActiveThreadId(null);
+    apiSyncState({ activeProjectId: GENERAL_PROJECT_ID, activeThreadId: null });
   }
 
   function selectProject(projectId: string) {
     setActiveProjectId(projectId);
     setActiveThreadId(null);
+    apiSyncState({ activeProjectId: projectId, activeThreadId: null });
   }
 
   function openThread(threadId: string) {
@@ -701,34 +804,42 @@ export function useWorkspaceState(): WorkspaceState {
     if (!nextThread) return;
     setActiveProjectId(nextThread.projectId);
     setActiveThreadId(threadId);
+    apiSyncState({ activeProjectId: nextThread.projectId, activeThreadId: threadId });
   }
 
   function createGeneralChat() {
-    const nextThread = createThread(GENERAL_PROJECT_ID, "새 채팅");
+    const nextThread = createThread(GENERAL_PROJECT_ID);
     setThreads((current) => [nextThread, ...current]);
     setActiveProjectId(GENERAL_PROJECT_ID);
     setActiveThreadId(nextThread.id);
+    apiSaveThread({ ...nextThread, messages: [] });
+    apiSyncState({ activeProjectId: GENERAL_PROJECT_ID, activeThreadId: nextThread.id });
     return nextThread.id;
   }
 
   function createNamedProject(title?: string) {
-    const nextTitle = String(title ?? "").trim() || "새 프로젝트";
+    const nextTitle = String(title ?? "").trim() || t("defaults.newProject");
     const nextProject = createProjectEntity(nextTitle);
 
     setProjects((current) => [nextProject, ...current]);
     setActiveProjectId(nextProject.id);
     setActiveThreadId(null);
+    apiSaveProject(nextProject);
+    apiSyncState({ activeProjectId: nextProject.id, activeThreadId: null });
     return nextProject.id;
   }
 
   function createThreadInProject(projectId: string) {
-    const nextThread = createThread(projectId, "새 채팅");
+    const nextThread = createThread(projectId);
     const timestamp = nowIso();
 
-    setThreads((current) => [{ ...nextThread, updatedAt: timestamp, createdAt: timestamp }, ...current]);
+    const threadWithTime = { ...nextThread, updatedAt: timestamp, createdAt: timestamp };
+    setThreads((current) => [threadWithTime, ...current]);
     touchProject(projectId, timestamp);
     setActiveProjectId(projectId);
     setActiveThreadId(nextThread.id);
+    apiSaveThread({ ...threadWithTime, messages: [] });
+    apiSyncState({ activeProjectId: projectId, activeThreadId: nextThread.id });
     return nextThread.id;
   }
 
@@ -738,21 +849,26 @@ export function useWorkspaceState(): WorkspaceState {
 
     const timestamp = nowIso();
     setProjects((current) =>
-      current.map((project) =>
-        project.id === projectId
-          ? { ...project, title: safeTitle, updatedAt: timestamp }
-          : project
-      )
+      current.map((project) => {
+        if (project.id === projectId) {
+          const updated = { ...project, title: safeTitle, updatedAt: timestamp };
+          apiSaveProject(updated);
+          return updated;
+        }
+        return project;
+      })
     );
   }
 
   function deleteProject(projectId: string) {
     setProjects((current) => current.filter((project) => project.id !== projectId));
     setThreads((current) => current.filter((thread) => thread.projectId !== projectId));
+    apiRemoveProject(projectId);
 
     if (activeProjectId === projectId) {
       setActiveProjectId(GENERAL_PROJECT_ID);
       setActiveThreadId(null);
+      apiSyncState({ activeProjectId: GENERAL_PROJECT_ID, activeThreadId: null });
     }
   }
 
@@ -762,11 +878,11 @@ export function useWorkspaceState(): WorkspaceState {
 
     const target = threads.find((thread) => thread.id === threadId);
     const timestamp = nowIso();
-    updateThreadById(threadId, (thread) => ({
-      ...thread,
-      title: safeTitle,
-      updatedAt: timestamp
-    }));
+    updateThreadById(threadId, (thread) => {
+      const updated = { ...thread, title: safeTitle, updatedAt: timestamp };
+      apiSaveThread({ id: updated.id, projectId: updated.projectId, title: updated.title, createdAt: updated.createdAt, updatedAt: updated.updatedAt, meta: updated.meta });
+      return updated;
+    });
     if (target) touchProject(target.projectId, timestamp);
   }
 
@@ -775,10 +891,13 @@ export function useWorkspaceState(): WorkspaceState {
 
     setThreads((current) => current.filter((thread) => thread.id !== threadId));
     if (target) touchProject(target.projectId);
+    apiRemoveThread(threadId);
 
     if (activeThreadId === threadId) {
-      setActiveProjectId(target?.projectId ?? GENERAL_PROJECT_ID);
+      const nextProjectId = target?.projectId ?? GENERAL_PROJECT_ID;
+      setActiveProjectId(nextProjectId);
       setActiveThreadId(null);
+      apiSyncState({ activeProjectId: nextProjectId, activeThreadId: null });
     }
   }
 
@@ -788,17 +907,18 @@ export function useWorkspaceState(): WorkspaceState {
     if (!nextProjectId || target.projectId === nextProjectId) return;
 
     const timestamp = nowIso();
-    updateThreadById(threadId, (thread) => ({
-      ...thread,
-      projectId: nextProjectId,
-      updatedAt: timestamp
-    }));
+    updateThreadById(threadId, (thread) => {
+      const updated = { ...thread, projectId: nextProjectId, updatedAt: timestamp };
+      apiSaveThread({ id: updated.id, projectId: updated.projectId, title: updated.title, createdAt: updated.createdAt, updatedAt: updated.updatedAt, meta: updated.meta });
+      return updated;
+    });
 
     touchProject(target.projectId, timestamp);
     touchProject(nextProjectId, timestamp);
 
     if (activeThreadId === threadId) {
       setActiveProjectId(nextProjectId);
+      apiSyncState({ activeProjectId: nextProjectId });
     }
   }
 
@@ -809,27 +929,32 @@ export function useWorkspaceState(): WorkspaceState {
 
     const timestamp = nowIso();
 
-    updateThreadById(threadId, (thread) => ({
-      ...thread,
-      projectId: GENERAL_PROJECT_ID,
-      updatedAt: timestamp
-    }));
+    updateThreadById(threadId, (thread) => {
+      const updated = { ...thread, projectId: GENERAL_PROJECT_ID, updatedAt: timestamp };
+      apiSaveThread({ id: updated.id, projectId: updated.projectId, title: updated.title, createdAt: updated.createdAt, updatedAt: updated.updatedAt, meta: updated.meta });
+      return updated;
+    });
 
     touchProject(target.projectId, timestamp);
 
     if (activeThreadId === threadId) {
       setActiveProjectId(GENERAL_PROJECT_ID);
+      apiSyncState({ activeProjectId: GENERAL_PROJECT_ID });
     }
   }
 
   function toggleThreadPinned(threadId: string) {
-    updateThreadById(threadId, (thread) => ({
-      ...thread,
-      meta: {
-        ...(thread.meta ?? {}),
-        pinned: !getThreadPinned(thread)
-      } as Thread["meta"]
-    }));
+    updateThreadById(threadId, (thread) => {
+      const updated = {
+        ...thread,
+        meta: {
+          ...(thread.meta ?? {}),
+          pinned: !getThreadPinned(thread)
+        } as Thread["meta"]
+      };
+      apiSaveThread({ id: updated.id, projectId: updated.projectId, title: updated.title, createdAt: updated.createdAt, updatedAt: updated.updatedAt, meta: updated.meta });
+      return updated;
+    });
   }
 
   return {

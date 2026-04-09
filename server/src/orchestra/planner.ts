@@ -1,3 +1,8 @@
+import type { CanonicalTask, CodeSubtask } from "../types/tasks.js"
+
+// PlannedTask — CanonicalTask의 별칭 (하위호환)
+export type { CanonicalTask as PlannedTask, CodeSubtask }
+
 export type PlannerSignals = {
   benchmark_mode: boolean
   deep_analysis: boolean
@@ -6,29 +11,6 @@ export type PlannerSignals = {
   structured_output: boolean
 }
 
-export type PlannedTask =
-  | "dialogue"
-  | "reasoning"
-  | "research"
-  | "code"
-  | "code_implement"
-  | "code_debug"
-  | "code_refactor_review"
-  | "writing"
-  | "writing_creative"
-  | "writing_business"
-  | "long_doc"
-  | "word"
-  | "pdf"
-  | "excel"
-  | "ppt"
-  | "legal_review"
-  | "data_analysis"
-  | "finance_analysis"
-  | "product_development"
-  | "generic"
-
-export type CodeSubtask = "code_implement" | "code_debug" | "code_refactor_review"
 
 function normalizeText(input: string) {
   return String(input ?? "").trim().toLowerCase()
@@ -133,7 +115,7 @@ export function detectCodeSubtask(input: string): CodeSubtask | null {
   return "code_implement"
 }
 
-export function detectTaskType(input: string): PlannedTask {
+export function detectTaskType(input: string): CanonicalTask {
   const text = normalizeText(input)
 
   if (includesAny(text, [
@@ -242,6 +224,61 @@ export function detectTaskType(input: string): PlannedTask {
 
   if (includesAny(text, ["write", "작성", "문안", "초안", "draft", "copy"])) {
     return "writing"
+  }
+
+  // ── 일반 유틸리티 커맨드 (dialogue 방지) ──
+
+  // 요약/정리 → writing (짧은 요약은 writing, 긴 문서 요약은 long_doc에서 이미 잡힘)
+  if (includesAny(text, [
+    "요약해줘", "요약해", "요약 좀", "요약 부탁", "정리해줘", "정리해", "정리 좀", "깔끔하게 정리",
+    "핵심만", "핵심 정리", "요점 정리", "간단히 정리", "한 줄로", "한줄로", "한마디로",
+    "summarize", "summary", "sum up", "tldr", "tl;dr", "key points", "key takeaways"
+  ])) {
+    return "writing"
+  }
+
+  // 번역 → writing
+  if (includesAny(text, [
+    "번역해줘", "번역해", "번역 좀", "영어로", "한국어로", "일본어로", "중국어로", "스페인어로",
+    "프랑스어로", "독일어로", "영문으로", "국문으로", "한영", "영한", "translate", "translation",
+    "into english", "into korean", "into japanese", "into chinese"
+  ])) {
+    return "writing"
+  }
+
+  // 표/테이블/리스트 생성 → writing
+  if (includesAny(text, [
+    "표 만들어", "표로 만들어", "표로 정리", "테이블로", "테이블 만들어", "표 형태로",
+    "비교표", "비교 표", "comparison table", "make a table", "create a table", "tabulate",
+    "리스트로", "리스트 만들어", "목록으로", "목록 만들어", "list out", "bullet points"
+  ])) {
+    return "writing"
+  }
+
+  // 설명/해석 → reasoning
+  if (includesAny(text, [
+    "설명해줘", "설명해", "설명 좀", "알려줘", "알려 줘", "뜻이 뭐야", "무슨 뜻", "의미가 뭐야",
+    "차이가 뭐야", "차이점", "다른 점", "구별해", "구분해", "explain", "what is", "what does",
+    "how does", "describe", "definition", "의미를 알려", "개념 설명", "쉽게 설명"
+  ])) {
+    return "reasoning"
+  }
+
+  // 변환/포맷팅 → writing
+  if (includesAny(text, [
+    "변환해줘", "변환해", "바꿔줘", "바꿔 줘", "형식으로", "포맷으로", "json으로", "csv로",
+    "markdown으로", "html로", "xml로", "다시 써줘", "다시 작성", "고쳐 써", "rewrite", "rephrase",
+    "reformat", "convert to", "change to", "tone 변경", "톤 바꿔", "문체 바꿔"
+  ])) {
+    return "writing"
+  }
+
+  // 추천/제안 → reasoning
+  if (includesAny(text, [
+    "추천해줘", "추천해", "추천 좀", "제안해줘", "제안해", "골라줘", "뭐가 좋을까", "뭐가 나을까",
+    "어떤 게 좋", "suggest", "recommend", "which one", "what should", "pick one", "best option"
+  ])) {
+    return "reasoning"
   }
 
   return "dialogue"

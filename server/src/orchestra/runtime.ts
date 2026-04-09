@@ -4,12 +4,40 @@ import { judge } from "./judge.js"
 import { detectTaskType, planRequest } from "./planner.js"
 import { extractClaims } from "./claims.js"
 import { detectConflicts, resolveConflictDecisions } from "./conflicts.js"
-import { readScoreboard, recordProviderExecution, recordProviderConflict } from "./scoreboard.js"
-import { updateModelScoreboard } from "./scoreboard.js"
+import { readScoreboard, recordProviderExecution, recordProviderConflict, updateModelScoreboard } from "./scoreboard.js"
 import { runJudgeStep, sanitizeProviderStreamSummary } from "./runtimePipeline.js"
 import { applyFinalProviderPreview, buildInputWithRetrievalContext, buildOrchestrationMeta, buildOutcomeMeta, buildProviderInput, buildProviderStatusMap, buildRoleMap, buildSelectionTrace, buildWinnerReason, calculateConflictScore, clipText, createRecoveryMeta, emit, enforcePrimaryWinner, ensureProviderStreamSummary, extractInboundMessage, getJudgeScore, getProviderRole, hasText, normalizeChunkPreview, normalizePreviewText, normalizeProvider, pickText, shouldEscalateAfterEval, shouldKeepPrimaryWinner, summarizeConflictBuckets, summarizeProviderConflictLearning, summarizeProviderUsage, uniqueProviders } from "./runtimeHelpers.js"
 import { upsertThreadMemory } from "../memory/threadMemory.js"
 
+// ── Orchestra Event 타입 정의 ──
+export type OrchestraEventType =
+  | "route_decided"
+  | "provider_start"
+  | "provider_chunk"
+  | "provider_event"
+  | "provider_done"
+  | "judge_start"
+  | "judge_done"
+  | "status"
+  | "synthesis_start"
+  | "synthesis_done"
+  | "error"
+
+export type OrchestraEvent = {
+  type: OrchestraEventType
+  provider?: string
+  role?: string
+  content?: string
+  ok?: boolean
+  latency_ms?: number
+  model?: string | null
+  task?: string
+  selected_providers?: string[]
+  event?: Record<string, any>
+  [key: string]: any
+}
+
+export type OrchestraEmitFn = (event: OrchestraEvent) => Promise<void>
 
 async function executeProvider(params: {
   provider: string
@@ -19,7 +47,7 @@ async function executeProvider(params: {
   route: any
   plannerSignals: any
   usePro?: boolean
-  emitEvent?: (event: any) => Promise<void>
+  emitEvent?: OrchestraEmitFn
 }) {
   const provider = normalizeProvider(params.provider)
   let partialText = ""
@@ -119,8 +147,22 @@ function shouldRecoverOpenAIPrimary(result: any, _route: any): boolean {
   return false                          // 텍스트가 있으면 복구 안 함
 }
 
+// Claude primary 실패 시 → Opus 4.6으로 에스컬레이션 재시도
+function shouldRecoverClaudePrimary(result: any): boolean {
+  if (!result) return false
+  if (result.provider !== "claude") return false
+  const text = String(result.text ?? "").trim()
+  const errorCode = String(result.error_code ?? "").trim()
+  // Sonnet 실패 시 Opus로 재시도 (이미 Opus였으면 재시도 안 함)
+  const model = String(result.model ?? "").toLowerCase()
+  if (model.includes("opus")) return false
+  if (!text && errorCode) return true
+  if (!text) return true
+  return false
+}
 
-export async function executeOrchestra(input: any, stream?: any) {
+
+export async function executeOrchestra(input: any, stream?: OrchestraEmitFn) {
   const startedAt = Date.now()
   const rawInboundMessage = extractInboundMessage(input)
   const planner = planRequest(rawInboundMessage)
@@ -265,23 +307,24 @@ export async function executeOrchestra(input: any, stream?: any) {
       provider: primaryProvider,
       role: roleMap.get(normalizeProvider(primaryProvider)) ?? "primary",
       input: effectiveInput, task, route, plannerSignals,
-      usePro: Boolean(route?.escalation?.use_pro) && normalizeProvider(primaryProvider) === "openai",
+      usePro: Boolean(route?.escalation?.use_pro) && (normalizeProvider(primaryProvider) === "openai" || normalizeProvider(primaryProvider) === "claude"),
       emitEvent: emitTracked
     })
     const verifierResults = await Promise.all(
       verifierProviders.map(async (provider: any) => {
         const timeoutMs = 15000
+        let timeoutId: ReturnType<typeof setTimeout> | null = null
         const result = await Promise.race([
           executeProvider({
             provider,
             role: roleMap.get(normalizeProvider(provider)) ?? "verifier",
             input: effectiveInput, task, route, plannerSignals,
             usePro: false, emitEvent: emitTracked
-          }),
-          new Promise<Awaited<ReturnType<typeof executeProvider>>>((resolve) =>
-            setTimeout(() => resolve({ provider, ok: false, text: "", role: "verifier",
+          }).finally(() => { if (timeoutId) clearTimeout(timeoutId) }),
+          new Promise<Awaited<ReturnType<typeof executeProvider>>>((resolve) => {
+            timeoutId = setTimeout(() => resolve({ provider, ok: false, text: "", role: "verifier",
               latency_ms: timeoutMs, model: null, usage: null } as any), timeoutMs)
-          )
+          })
         ])
         return result
       })
@@ -295,7 +338,7 @@ export async function executeOrchestra(input: any, stream?: any) {
           role: roleMap.get(normalizeProvider(provider)) ?? "optional",
           input: effectiveInput,
           task, route, plannerSignals,
-          usePro: Boolean(route?.escalation?.use_pro) && normalizeProvider(provider) === "openai",
+          usePro: Boolean(route?.escalation?.use_pro) && (normalizeProvider(provider) === "openai" || normalizeProvider(provider) === "claude"),
           emitEvent: emitTracked
         })
       )
@@ -387,6 +430,82 @@ export async function executeOrchestra(input: any, stream?: any) {
     })
   }
 
+  // ── Claude Primary Recovery: Sonnet 실패 → Opus 에스컬레이션 재시도 ──
+  if (primaryResultInitial && shouldRecoverClaudePrimary(primaryResultInitial)) {
+    transientFailures.push({
+      ...primaryResultInitial,
+      transient_failed_primary: true
+    })
+
+    recoveryMeta.primary_recovered = true
+    recoveryMeta.recovery_reason = primaryResultInitial.error_code ?? "claude_sonnet_failed"
+    recoveryMeta.recovery_from_model = primaryResultInitial.model ?? null
+    recoveryMeta.recovery_from_cost_usd = Number(primaryResultInitial?.usage?.estimated_cost_usd ?? 0)
+
+    await emitTracked({
+      type: "primary_recovery_start",
+      provider: "claude",
+      role: "primary",
+      reason: primaryResultInitial.error_code
+    })
+
+    const recoveredClaude = await executeProvider({
+      provider: "claude",
+      role: "primary",
+      input: {
+        ...effectiveInput,
+        model: "claude-opus-4-6",
+        force_pro: true,
+        benchmark_mode: false,
+        deep_analysis: false,
+        deep_research: false,
+        allow_auto_promote_pro: false,
+        metadata: {
+          ...(effectiveInput?.metadata ?? {}),
+          claude_primary_recovery: true
+        }
+      },
+      task,
+      route: {
+        ...route,
+        escalation: {
+          ...(route?.escalation ?? {}),
+          use_pro: true
+        }
+      },
+      plannerSignals: {
+        ...plannerSignals,
+        force_pro: true,
+        benchmark_mode: false,
+        deep_analysis: false,
+        deep_research: false
+      },
+      usePro: true,
+      emitEvent: emitTracked
+    })
+
+    recoveryMeta.recovery_to_model = recoveredClaude.model ?? "claude-opus-4-6"
+    recoveryMeta.effective_primary_provider = recoveredClaude.ok ? "claude" : (selectedProviders[0] ?? "claude")
+
+    executed = [
+      ...executed.filter((item) => !(item.provider === "claude" && item.role === "primary")),
+      recoveredClaude
+    ]
+
+    applyFinalProviderPreview(providerStreamSummary, recoveredClaude)
+
+    primaryResultInitial = recoveredClaude
+
+    await emitTracked({
+      type: "primary_recovery_done",
+      provider: "claude",
+      role: "primary",
+      ok: recoveredClaude.ok,
+      model: recoveredClaude.model,
+      error_code: recoveredClaude.error_code
+    })
+  }
+
   const primaryProvider = normalizeProvider(selectedProviders[0] ?? "openai")
   const successfulInitial = executed.filter((item) => item.ok && hasText(item.text))
 
@@ -428,6 +547,44 @@ export async function executeOrchestra(input: any, stream?: any) {
     }
   }
 
+  // ── 최후 폴백: 모든 프로바이더 실패 시 단일 프로바이더 직접 재시도 ──
+  const anySuccess = executed.some((item) => item.ok && hasText(item.text))
+  if (!anySuccess) {
+    const lastResortOrder = ["openai", "claude", "gemini"]
+    const alreadyTriedProviders = new Set(executed.map((item) => normalizeProvider(item.provider)))
+
+    for (const lastResortProvider of lastResortOrder) {
+      // 이미 시도한 프로바이더도 한 번 더 시도 (네트워크 일시적 장애일 수 있음)
+      await emitTracked({
+        type: "last_resort_fallback_start",
+        provider: lastResortProvider,
+        role: "last_resort"
+      })
+
+      try {
+        const lastResortResult = await executeProvider({
+          provider: lastResortProvider,
+          role: "last_resort",
+          input: effectiveInput,
+          task,
+          route,
+          plannerSignals,
+          usePro: false,
+          emitEvent: emitTracked
+        })
+
+        applyFinalProviderPreview(providerStreamSummary, lastResortResult)
+
+        if (lastResortResult.ok && hasText(lastResortResult.text)) {
+          executed = [...executed, lastResortResult]
+          break
+        }
+      } catch {
+        // 최후 폴백도 실패하면 다음 프로바이더 시도
+      }
+    }
+  }
+
   const successfulResults = executed.filter((item) => item.ok && hasText(item.text))
 
   // conflict detection — reasoning/research 한정 활성화 (threshold 강화로 오탐 방지)
@@ -456,18 +613,35 @@ export async function executeOrchestra(input: any, stream?: any) {
   let judged: any = null
 
   if (candidates.length > 0) {
-    const evaluation1 = await runJudgeStep({
-      task, message: rawInboundMessage,
-      candidates: candidates.map((c: any) => ({ provider: c.provider, answer_text: c.answer_text, raw: c.raw })),
-      primaryProvider
-    })
-    candidateClaims = evaluation1.claims
-    detectedConflicts = evaluation1.conflicts
-    judged = evaluation1.judged ?? (evaluation1.winnerCandidate ? {
-      ...evaluation1.winnerCandidate, ok: true,
-      meta: { judge_selected_provider: evaluation1.winner, judge_scores: evaluation1.scoreRows,
-               judge_rationale: "evaluation_pipeline", conflict_count: evaluation1.conflicts.length }
-    } : null)
+    try {
+      const evaluation1 = await runJudgeStep({
+        task, message: rawInboundMessage,
+        candidates: candidates.map((c: any) => ({ provider: c.provider, answer_text: c.answer_text, raw: c.raw })),
+        primaryProvider,
+        executionStrategy: route?.execution_strategy,
+      })
+      candidateClaims = evaluation1.claims
+      detectedConflicts = evaluation1.conflicts
+      judged = evaluation1.judged ?? (evaluation1.winnerCandidate ? {
+        ...evaluation1.winnerCandidate, ok: true,
+        meta: { judge_selected_provider: evaluation1.winner, judge_scores: evaluation1.scoreRows,
+                 judge_rationale: "evaluation_pipeline", conflict_count: evaluation1.conflicts.length }
+      } : null)
+    } catch {
+      // Judge 실패 시 첫 번째 candidate를 winner로 fallback
+      judged = {
+        ...candidates[0], ok: true,
+        meta: {
+          judge_selected_provider: candidates[0].provider,
+          judge_scores: candidates.map((c: any) => ({ provider: c.provider, score: c.provider === candidates[0].provider ? 1 : 0, reasons: ["judge_error_fallback"] })),
+          judge_rationale: "judge_error_fallback",
+          judge_confidence: 0.5,
+          conflict_count: detectedConflicts.length,
+          conflicts: detectedConflicts,
+          claims: candidateClaims
+        }
+      }
+    }
   } else if (false) {  // legacy branch preserved
     judged = {
       ...candidates[0],
@@ -583,18 +757,34 @@ export async function executeOrchestra(input: any, stream?: any) {
       candidates = buildCandidates(nextSuccessful)
 
       if (candidates.length > 0) {
-        const evaluation2 = await runJudgeStep({
-          task, message: rawInboundMessage,
-          candidates: candidates.map((c: any) => ({ provider: c.provider, answer_text: c.answer_text, raw: c.raw })),
-          primaryProvider
-        })
-        candidateClaims = [...candidateClaims, ...evaluation2.claims]
-        nextDetectedConflicts = evaluation2.conflicts
-        judged = evaluation2.judged ?? (evaluation2.winnerCandidate ? {
-          ...evaluation2.winnerCandidate, ok: true,
-          meta: { judge_selected_provider: evaluation2.winner, judge_scores: evaluation2.scoreRows,
-                   judge_rationale: "evaluation_pipeline", conflict_count: evaluation2.conflicts.length }
-        } : null)
+        try {
+          const evaluation2 = await runJudgeStep({
+            task, message: rawInboundMessage,
+            candidates: candidates.map((c: any) => ({ provider: c.provider, answer_text: c.answer_text, raw: c.raw })),
+            primaryProvider
+          })
+          candidateClaims = [...candidateClaims, ...evaluation2.claims]
+          nextDetectedConflicts = evaluation2.conflicts
+          judged = evaluation2.judged ?? (evaluation2.winnerCandidate ? {
+            ...evaluation2.winnerCandidate, ok: true,
+            meta: { judge_selected_provider: evaluation2.winner, judge_scores: evaluation2.scoreRows,
+                     judge_rationale: "evaluation_pipeline", conflict_count: evaluation2.conflicts.length }
+          } : null)
+        } catch {
+          // Post-eval Judge 실패 시 첫 번째 candidate를 winner로 fallback
+          judged = {
+            ...candidates[0], ok: true,
+            meta: {
+              judge_selected_provider: candidates[0].provider,
+              judge_scores: candidates.map((c: any) => ({ provider: c.provider, score: c.provider === candidates[0].provider ? 1 : 0, reasons: ["judge_error_fallback_after_escalation"] })),
+              judge_rationale: "judge_error_fallback_after_escalation",
+              judge_confidence: 0.5,
+              conflict_count: nextDetectedConflicts.length,
+              conflicts: nextDetectedConflicts,
+              claims: nextCandidateClaims
+            }
+          }
+        }
       } else if (false) {  // legacy branch
         judged = {
           ...candidates[0],
@@ -1120,7 +1310,7 @@ export async function executeOrchestra(input: any, stream?: any) {
   })
 
   await emitTracked({
-    type: "done",
+    type: "orchestra_done",
     provider: finalProvider,
     role: finalRole,
     content: String(finalResult?.text ?? ""),

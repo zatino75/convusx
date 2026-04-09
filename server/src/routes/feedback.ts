@@ -1,4 +1,6 @@
 import { recordProviderExecution, recordProviderConflict } from "../orchestra/scoreboard.js"
+import { logger } from "../observability/logger.js"
+import { validateBody, feedbackRules, sanitizeProvider, sanitizeString } from "../http/validation.js"
 
 type RouteRequest = { body?: any }
 type RouteResponse = {
@@ -9,21 +11,18 @@ type RouteResponse = {
 export async function runFeedbackRoute(req: RouteRequest, res: RouteResponse) {
   const body = req?.body ?? {}
 
-  const feedback = String(body?.feedback ?? "").trim()   // "up" | "down"
-  const provider = String(body?.provider ?? "").trim().toLowerCase()
-  const task = String(body?.task ?? "dialogue").trim().toLowerCase()
-  const messageId = String(body?.message_id ?? "").trim()
-  const runnerUp = String(body?.runner_up ?? "").trim().toLowerCase()
-
-  if (!feedback || !provider) {
-    res.status?.(400).json?.({ ok: false, error: "feedback and provider required" })
+  // 입력 검증
+  const validation = validateBody(body, feedbackRules)
+  if (!validation.ok) {
+    res.status?.(400).json?.({ ok: false, error: validation.error })
     return
   }
 
-  if (!["up", "down"].includes(feedback)) {
-    res.status?.(400).json?.({ ok: false, error: "feedback must be up or down" })
-    return
-  }
+  const feedback = sanitizeString(body?.feedback, 10)
+  const provider = sanitizeProvider(body?.provider)
+  const task = sanitizeString(body?.task ?? "dialogue", 50).toLowerCase()
+  const messageId = sanitizeString(body?.message_id, 128)
+  const runnerUp = sanitizeProvider(body?.runner_up)
 
   try {
     const isPositive = feedback === "up"
@@ -92,7 +91,7 @@ export async function runFeedbackRoute(req: RouteRequest, res: RouteResponse) {
       }
     }
 
-    console.log(`[FEEDBACK] ${feedback} → provider:${provider} runner_up:${runnerUp || "none"} task:${task} msg:${messageId}`)
+    logger.info(`[FEEDBACK] ${feedback} → provider:${provider} runner_up:${runnerUp || "none"} task:${task} msg:${messageId}`)
 
     res.json?.({ ok: true, feedback, provider, task })
   } catch (e: any) {

@@ -20,6 +20,10 @@ server/data/*.log
 server/package.json
 
 dist/
+data/
+data/*.db
+data/*.db-wal
+data/*.db-shm
 
 .claude/worktrees/
 

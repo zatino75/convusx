@@ -1,22 +1,35 @@
 {
-  "name": "ai-orchestra",
+  "name": "corvus-x",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "npx tsx server/src/index.ts",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:all": "npx tsx server/src/index.ts & cd frontend && npm run dev",
     "build": "tsc -p tsconfig.json",
+    "build:frontend": "cd frontend && npm run build",
+    "build:all": "npm run build && npm run build:frontend",
     "start": "npx tsx server/src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "benchmark": "npx tsx scripts/run-benchmark.ts"
   },
   "devDependencies": {
-    "@types/node": "^24.12.0",
-    "ts-node": "^10.9.2",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "24.12.0",
+    "ts-node": "10.9.2",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "vitest": "3.1.1"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.79.0",
-    "dotenv": "^17.3.1",
-    "pptxgenjs": "^4.0.1"
+    "@anthropic-ai/sdk": "0.79.0",
+    "better-sqlite3": "12.8.0",
+    "dotenv": "17.3.1",
+    "image-size": "1.2.1",
+    "jszip": "3.10.1",
+    "pdf-parse": "1.1.4",
+    "pptxgenjs": "4.0.1"
   }
 }

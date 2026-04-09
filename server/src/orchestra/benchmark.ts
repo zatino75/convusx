@@ -1,4 +1,5 @@
 ﻿import fs from "fs"
+import { logger } from "../observability/logger.js"
 import { updateScoreboardFromBenchmark } from "./scoreboard.js"
 
 const LOG_PATH = "server/data/benchmark.jsonl"
@@ -6,7 +7,7 @@ const LOG_PATH = "server/data/benchmark.jsonl"
 function ensureDir() {
   try {
     fs.mkdirSync("server/data", { recursive: true })
-  } catch {}
+  } catch (e) { logger.warn("[benchmark] ensureDir failed", { error: String(e) }) }
 }
 
 export function normalizeBenchmarkCase(payload: any) {
@@ -43,12 +44,27 @@ export async function logBenchmark(payload: any) {
       if (lines.length > 1000) {
         fs.writeFileSync(LOG_PATH, lines.slice(lines.length - 800).join("\n") + "\n", "utf-8")
       }
-    } catch {}
+    } catch (e) { logger.warn("[benchmark] log rotation failed", { error: String(e) }) }
     try {
       updateScoreboardFromBenchmark(record)
-    } catch {}
+    } catch (e) { logger.warn("[benchmark] updateScoreboardFromBenchmark failed", { error: String(e) }) }
+    try {
+      // Also update model scoreboard with provider_usage details
+      const { updateModelScoreboard } = await import("./scoreboard.js")
+      const task = record?.task
+      const finalProvider = record?.final_provider
+      const providerUsage = record?.provider_usage ?? []
+      if (task && finalProvider && Array.isArray(providerUsage)) {
+        updateModelScoreboard({
+          task,
+          final_provider: finalProvider,
+          provider_usage: providerUsage
+        })
+      }
+    } catch (e) { logger.warn("[benchmark] updateModelScoreboard failed", { error: String(e) }) }
     return record
-  } catch {
+  } catch (e) {
+    logger.warn("[benchmark] logBenchmark failed", { error: String(e) })
     return null
   }
 }

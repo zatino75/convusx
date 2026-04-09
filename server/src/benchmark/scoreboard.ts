@@ -1,3 +1,5 @@
+import { BENCHMARK_TASKS } from "../types/tasks.js"
+
 export type BenchmarkRunResult = {
   case_id: string
   mode: string
@@ -30,8 +32,8 @@ function getFullScore(run: BenchmarkRunResult | undefined): number {
   return Number(run?.evaluation?.quality_score ?? run?.evaluation?.score ?? 0)
 }
 
-const KNOWN_TASKS = ["dialogue", "reasoning", "research", "code", "writing", "long_doc"] as const
-type KnownTask = typeof KNOWN_TASKS[number]
+const KNOWN_TASKS = BENCHMARK_TASKS
+type KnownTask = typeof BENCHMARK_TASKS[number]
 
 function isKnownTask(value: string): value is KnownTask {
   return (KNOWN_TASKS as readonly string[]).includes(value)

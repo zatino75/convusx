@@ -27,6 +27,17 @@ export type GlobalSettings = {
   globalInstruction?: string | null;  // 전체 지침
 };
 
+/** 요청 메타 — DebugMeta + 미디어/슬라이드 등 런타임 확장 */
+export type RequestMeta = Partial<DebugMeta> & {
+  slide_data?: unknown;
+  image_url?: string;
+  image_urls?: string[];
+  image_revised_prompt?: string;
+  video_url?: string;
+  is_video?: boolean;
+  [key: string]: unknown;
+};
+
 /* 🔥 핵심 확장 */
 export type Message = {
   id: string;
@@ -34,10 +45,14 @@ export type Message = {
   content: string;
   createdAt: string;
   status?: MessageStatus;
-  requestMeta?: any;
+  requestMeta?: RequestMeta | null;
   attachedFiles?: { name: string; type: string; size: number }[];
 
-  // NEW
+  // 스트리밍 진행 상태
+  statusText?: string;
+  statusHistory?: string[];
+
+  // 버전 관리
   versionGroupId?: string;     // 같은 질문 묶음
   versionIndex?: number;       // 0,1,2...
   isHidden?: boolean;          // 이전 답변 숨김 처리
@@ -130,9 +145,9 @@ export type DebugMeta = {
   primaryRecovered?: boolean;
   recoveryFromModel?: string | null;
   recoveryToModel?: string | null;
-  providerStatusMap?: Record<string, any>;
-  providerStreamSummary?: Record<string, any>;
-  timelineEvents?: any[];
+  providerStatusMap?: Record<string, unknown>;
+  providerStreamSummary?: Record<string, unknown>;
+  timelineEvents?: unknown[];
 };
 
 export type WorkspaceSnapshot = {
@@ -146,6 +161,11 @@ export type StreamStartEvent = {
   type: "start";
   thread_id?: string;
   project_id?: string;
+};
+
+export type StreamStatusEvent = {
+  type: "status";
+  content?: string;
 };
 
 export type StreamChunkEvent = {
@@ -191,7 +211,7 @@ export type StreamOrchestrationEvent = {
     | "post_eval_pro_started"
     | "final_selected";
   task?: string;
-  route?: any;
+  route?: Record<string, any>;
   selected_provider?: string | null;
   judge_confidence?: number;
   conflict_count?: number;
@@ -205,7 +225,7 @@ export type StreamFinalEvent = {
 
 export type StreamDoneEvent = {
   type: "done";
-  payload: any;
+  payload: Record<string, any>;
 };
 
 export type StreamErrorEvent = {
@@ -215,6 +235,7 @@ export type StreamErrorEvent = {
 
 export type StreamEvent =
   | StreamStartEvent
+  | StreamStatusEvent
   | StreamChunkEvent
   | StreamAnswerChunkEvent
   | StreamProviderChunkEvent

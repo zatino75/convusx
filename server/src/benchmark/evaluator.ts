@@ -4,7 +4,8 @@ type EvalInput = {
   final_answer: any
 }
 
-export type BenchmarkTaskType = "dialogue" | "reasoning" | "research" | "code" | "writing" | "long_doc"
+import type { BenchmarkTaskType } from "../types/tasks.js"
+export type { BenchmarkTaskType }
 
 type RubricBreakdown = {
   base_text_quality: number

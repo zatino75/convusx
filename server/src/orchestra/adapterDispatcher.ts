@@ -1,4 +1,7 @@
 import { readModelScoreboard } from "./scoreboard.js"
+import type { CanonicalTask } from "../types/tasks.js"
+import { normalizeTask } from "../types/tasks.js"
+import { MODEL_PRICING_USD_PER_1K_TOKENS, MAX_CONV_MESSAGES } from "../config/defaults.js"
 
 type DispatchInput = {
   provider: string
@@ -21,27 +24,6 @@ type AdapterResolver = {
 
 type AdapterCallable = (payload: any) => Promise<any>
 
-type OrxTask =
-  | "dialogue"
-  | "reasoning"
-  | "research"
-  | "code"
-  | "code_implement"
-  | "code_debug"
-  | "code_refactor_review"
-  | "writing"
-  | "writing_creative"
-  | "writing_business"
-  | "long_doc"
-  | "word"
-  | "pdf"
-  | "excel"
-  | "ppt"
-  | "legal_review"
-  | "data_analysis"
-  | "finance_analysis"
-  | "product_development"
-  | "evidence"
 
 const REGISTRY: Record<string, AdapterResolver[]> = {
   openai: [
@@ -58,19 +40,7 @@ const REGISTRY: Record<string, AdapterResolver[]> = {
   ]
 }
 
-const MODEL_PRICING_USD_PER_1K_TOKENS: Record<string, { input: number; output: number }> = {
-  "gpt-5.2": { input: 0.003, output: 0.009 },
-  "gpt-5.4-pro": { input: 0.015, output: 0.12 },
-  "gpt-5.3-codex": { input: 0.006, output: 0.018 },
-
-  "claude-sonnet-4-6": { input: 0.0035, output: 0.018 },
-  "claude-opus-4-6": { input: 0.018, output: 0.09 },
-
-  "gemini-2.5-pro": { input: 0.00125, output: 0.005 },
-
-  "sonar-reasoning-pro": { input: 0.002, output: 0.008 },
-  "sonar-pro": { input: 0.001, output: 0.004 }
-}
+// MODEL_PRICING_USD_PER_1K_TOKENS → imported from ../config/defaults.js
 
 function round(value: number, digits = 8) {
   return Number(Number(value || 0).toFixed(digits))
@@ -81,43 +51,7 @@ function safeNumber(value: any) {
   return Number.isFinite(v) ? v : 0
 }
 
-function normalizeTask(task: any): OrxTask {
-  const value = String(task ?? "").trim().toLowerCase()
-
-  if (!value) return "dialogue"
-
-  if (value === "code_debug" || value.includes("debug")) return "code_debug"
-  if (
-    value === "code_refactor_review" ||
-    value === "code_refactor" ||
-    value === "code_review" ||
-    value === "code_refactor/review" ||
-    value.includes("refactor") ||
-    value.includes("review")
-  ) return "code_refactor_review"
-  if (value === "code_implement" || value.includes("implement")) return "code_implement"
-  if (value.includes("code")) return "code"
-
-  if (value.includes("long_doc") || value.includes("long_document")) return "long_doc"
-  if (value === "word" || value.includes("document") || value.includes("doc")) return "word"
-  if (value === "pdf") return "pdf"
-  if (value === "excel" || value.includes("spreadsheet") || value.includes("sheet")) return "excel"
-  if (value === "ppt" || value.includes("slide") || value.includes("presentation")) return "ppt"
-
-  if (value.includes("writing_creative") || value.includes("creative_writing")) return "writing_creative"
-  if (value.includes("writing_business") || value.includes("business_writing") || value.includes("email_writing")) return "writing_business"
-  if (value.includes("writing") || value.includes("write")) return "writing"
-
-  if (value.includes("legal")) return "legal_review"
-  if (value.includes("finance")) return "finance_analysis"
-  if (value.includes("data")) return "data_analysis"
-  if (value.includes("product")) return "product_development"
-  if (value.includes("research")) return "research"
-  if (value.includes("reasoning")) return "reasoning"
-  if (value.includes("evidence")) return "evidence"
-
-  return "dialogue"
-}
+// normalizeTask → imported from ../types/tasks.js (with defaultTask="dialogue" at call sites)
 
 function normalizeProvider(provider: any): string {
   const value = String(provider ?? "").trim().toLowerCase()
@@ -139,8 +73,7 @@ async function tryImportModule(modulePath: string): Promise<AdapterModule | null
   }
 }
 
-// 대화 길이 제한 — system 메시지 보존 + 최신 N쌍 유지 (토큰 한계 보호)
-const MAX_CONV_MESSAGES = 20  // system 제외 최대 유지 메시지 수
+// 대화 길이 제한 — MAX_CONV_MESSAGES imported from ../config/defaults.js
 
 function trimContextMessages(
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>
@@ -158,6 +91,14 @@ function trimContextMessages(
 }
 
 function normalizeMessages(input: DispatchInput): Array<{ role: "system" | "user" | "assistant"; content: string }> {
+  // 현재 사용자 입력 (message 필드) — 히스토리와 별도로 전달됨
+  const currentMessage =
+    typeof input?.message === "string" && input.message.trim().length > 0
+      ? input.message.trim()
+      : typeof input?.input?.message === "string" && input.input.message.trim().length > 0
+        ? input.input.message.trim()
+        : ""
+
   const rawMessages =
     Array.isArray(input?.messages) && input.messages.length > 0
       ? input.messages
@@ -201,22 +142,27 @@ function normalizeMessages(input: DispatchInput): Array<{ role: "system" | "user
       if (last && last.role === msg.role && last.content.trim() === msg.content.trim()) continue
       deduped.push(msg)
     }
+
+    // ── 핵심 수정: 현재 사용자 질문이 messages 배열 끝에 없으면 추가 ──
+    // 프론트엔드가 message(현재 입력)와 messages(히스토리)를 별도로 전송하는데,
+    // 여기서 messages만 사용하면 현재 질문이 AI에 전달되지 않는 버그 발생
+    if (currentMessage) {
+      const lastMsg = deduped[deduped.length - 1]
+      const alreadyEndsWithCurrent =
+        lastMsg?.role === "user" && lastMsg.content.includes(currentMessage)
+
+      if (!alreadyEndsWithCurrent) {
+        deduped.push({ role: "user", content: currentMessage })
+      }
+    }
+
     return trimContextMessages(deduped)
   }
-
-  const fallbackMessage =
-    typeof input?.message === "string" && input.message.trim().length > 0
-      ? input.message
-      : typeof input?.input?.message === "string" && input.input.message.trim().length > 0
-        ? input.input.message
-        : typeof input?.input === "string"
-          ? input.input
-          : ""
 
   return [
     {
       role: "user",
-      content: fallbackMessage
+      content: currentMessage || (typeof input?.input === "string" ? input.input : "")
     }
   ]
 }
@@ -287,7 +233,7 @@ function shouldPromoteByBoard(params: {
 }
 
 function shouldForceOpenAIPro(params: {
-  task: OrxTask
+  task: CanonicalTask
   input?: any
 }) {
   const input = params.input ?? {}
@@ -309,7 +255,7 @@ function shouldForceOpenAIPro(params: {
 
 function pickTieredModel(params: {
   provider: string
-  task: OrxTask
+  task: CanonicalTask
   input?: any
 }) {
   const board = readModelScoreboard()
@@ -384,7 +330,7 @@ function pickTieredModel(params: {
   return null
 }
 
-function defaultModel(provider: string, task: OrxTask, input?: any): string {
+function defaultModel(provider: string, task: CanonicalTask, input?: any): string {
   if (provider === "openai") {
     return pickTieredModel({ provider, task, input }) ?? "gpt-5.2"
   }
@@ -405,7 +351,7 @@ function defaultModel(provider: string, task: OrxTask, input?: any): string {
   return "gpt-5.2"
 }
 
-function defaultTemperature(task: OrxTask, role = "primary"): number {
+function defaultTemperature(task: CanonicalTask, role = "primary"): number {
   // synthesis/blend 호출은 자연스러운 텍스트 합성을 위해 온도 고정
   if (role === "synthesis") return 0.25
   if (task === "dialogue") return 0.2
@@ -419,7 +365,7 @@ function defaultTemperature(task: OrxTask, role = "primary"): number {
   return 0.1
 }
 
-function defaultMaxTokens(task: OrxTask, provider: string, input?: any): number {
+function defaultMaxTokens(task: CanonicalTask, provider: string, input?: any): number {
   const explicitModel = String(input?.model ?? "").trim().toLowerCase()
 
   if (provider === "openai" && (task === "research" || task === "reasoning")) {
@@ -441,7 +387,7 @@ function defaultMaxTokens(task: OrxTask, provider: string, input?: any): number 
   return 1400
 }
 
-function buildTimeoutMs(provider: string, task: OrxTask, input?: any): number {
+function buildTimeoutMs(provider: string, task: CanonicalTask, input?: any): number {
   const explicitModel = String(input?.model ?? "").trim().toLowerCase()
 
   if (provider === "openai") {
@@ -451,46 +397,46 @@ function buildTimeoutMs(provider: string, task: OrxTask, input?: any): number {
       return 40000
     }
 
-    if (task === "research") return 25000
-    if (task === "reasoning") return 45000
-    if (task === "code") return 60000
-    return 40000
+    if (task === "research") return 30000
+    if (task === "reasoning") return 60000
+    if (task === "code") return 90000
+    return 45000
   }
 
   if (provider === "gemini") {
-    if (task === "long_doc") return 40000
-    if (task === "research") return 20000
-    if (task === "reasoning") return 20000
-    if (task === "code") return 20000
-    return 20000
+    if (task === "long_doc") return 50000
+    if (task === "research") return 30000
+    if (task === "reasoning") return 30000
+    if (task === "code") return 30000
+    return 30000
   }
 
   if (provider === "claude") {
-    if (task === "writing_creative") return 55000
-    if (task === "writing_business") return 45000
-    if (task === "writing") return 55000
-    if (task === "long_doc") return 70000
-    if (task === "research") return 25000
-    if (task === "reasoning") return 45000
-    if (task === "code") return 60000
-    if (task === "dialogue") return 120000
-    return 120000
+    if (task === "writing_creative") return 70000
+    if (task === "writing_business") return 60000
+    if (task === "writing") return 70000
+    if (task === "long_doc") return 90000
+    if (task === "research") return 40000
+    if (task === "reasoning") return 60000
+    if (task === "code") return 90000
+    if (task === "dialogue") return 150000
+    return 150000
   }
 
   if (provider === "perplexity") {
-    if (task === "research") return 80000
-    if (task === "reasoning") return 70000
-    return 50000
+    if (task === "research") return 100000
+    if (task === "reasoning") return 90000
+    return 60000
   }
 
   // 나머지 provider fallthrough
-  if (task === "research") return 70000
-  if (task === "code") return 60000
-  if (task === "reasoning") return 60000
-  return 45000
+  if (task === "research") return 90000
+  if (task === "code") return 90000
+  if (task === "reasoning") return 90000
+  return 60000
 }
 
-function buildMaxRetries(provider: string, task: OrxTask, input?: any): number {
+function buildMaxRetries(provider: string, task: CanonicalTask, input?: any): number {
   const explicitModel = String(input?.model ?? "").trim().toLowerCase()
 
   if (provider === "openai") {
@@ -512,7 +458,7 @@ function buildMaxRetries(provider: string, task: OrxTask, input?: any): number {
   return 1
 }
 
-function buildTaskSystemPrompt(task: OrxTask, provider: string, structuredOutput = false, role = "primary"): string {
+function buildTaskSystemPrompt(task: CanonicalTask, provider: string, structuredOutput = false, role = "primary"): string {
   const COMMON = [
     "당신은 CORVUS X 멀티 AI 시스템의 일원입니다.",
     "한국어로 질문이 들어오면 반드시 한국어로 답하세요.",
@@ -636,7 +582,7 @@ function buildTaskSystemPrompt(task: OrxTask, provider: string, structuredOutput
 
 function prependSystemMessage(
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
-  task: OrxTask,
+  task: CanonicalTask,
   provider: string,
   structuredOutput = false,
   role = "primary"
@@ -674,7 +620,7 @@ function prependSystemMessage(
 
 function buildPayload(input: DispatchInput) {
   const provider = normalizeProvider(input?.provider)
-  const task = normalizeTask(input?.task ?? input?.input?.task)
+  const task = normalizeTask(String(input?.task ?? input?.input?.task ?? ""), "dialogue")
   const structuredOutput = Boolean(input?.input?.metadata?.planner_signals?.structured_output)
   const role = String(input?.role ?? "primary")
   const messages = prependSystemMessage(normalizeMessages(input), task, provider, structuredOutput, role)
@@ -775,7 +721,7 @@ function buildFallbackResponse(input: DispatchInput, reason?: string, moduleLabe
     answer_text: "",
     error_code: reason ?? "not_found",
     text: "",
-    step_type: normalizeTask(input?.task),
+    step_type: normalizeTask(String(input?.task ?? ""), "dialogue"),
     mode: String(input?.mode ?? "runtime_orchestra"),
     adapter_used: "fallback",
     adapter_reason: reason ?? "not_found",

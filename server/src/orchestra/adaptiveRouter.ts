@@ -1,7 +1,10 @@
 import { decayRecentBanditSignals, readRoutingScores } from "./scoreboard.js"
+import type { CanonicalTask, CodeSubtask as _CodeSubtask } from "../types/tasks.js"
+import { HIGH_STAKES_TASKS } from "../types/tasks.js"
+import { logger } from "../observability/logger.js"
 
-export type AdaptiveTask = "dialogue" | "reasoning" | "research" | "code" | "code_implement" | "code_debug" | "code_refactor_review" | "long_doc" | "writing" | "writing_creative" | "writing_business" | "excel" | "word" | "ppt" | "pdf" | "legal_review" | "data_analysis" | "finance_analysis" | "product_development"
-export type CodeSubtask = "code_implement" | "code_debug" | "code_refactor_review" | "code_review"
+export type AdaptiveTask = CanonicalTask
+export type CodeSubtask = _CodeSubtask | "code_review"
 
 export type ExecutionStrategy =
   | "single_primary"
@@ -104,26 +107,31 @@ function getRoutingRows(task: AdaptiveTask) {
   return readRoutingScores(task)
 }
 
+// A안: Claude primary(대화/코드/글쓰기), Gemini Pro(추론), OpenAI(법률/재무/데이터), Gemini Flash(Judge)
+// 벤치마크 근거: Arena Elo, GPQA, SWE-bench, 블라인드 라이팅 테스트 (2026.04)
 const TASK_WEIGHTS: Record<AdaptiveTask, Record<string, number>> = {
   dialogue:             { claude: 0.14, openai: 0.10, gemini: 0.02, perplexity: 0.01 },
-  reasoning:            { openai: 0.15, claude: 0.10, gemini: 0.06, perplexity: 0.00 },
+  reasoning:            { gemini: 0.16, openai: 0.10, claude: 0.08, perplexity: 0.00 },
   research:             { perplexity: 0.16, claude: 0.10, openai: 0.08, gemini: 0.03 },
   code:                 { claude: 0.16, openai: 0.10, gemini: 0.01, perplexity: 0.00 },
   code_implement:       { claude: 0.16, openai: 0.10, gemini: 0.01, perplexity: 0.00 },
-  code_debug:           { openai: 0.16, claude: 0.10, gemini: 0.01, perplexity: 0.00 },
+  code_debug:           { claude: 0.16, openai: 0.10, gemini: 0.01, perplexity: 0.00 },
   code_refactor_review: { claude: 0.16, openai: 0.10, gemini: 0.02, perplexity: 0.00 },
   writing:              { claude: 0.15, openai: 0.10, gemini: 0.02, perplexity: 0.00 },
   writing_creative:     { claude: 0.16, openai: 0.09, gemini: 0.02, perplexity: 0.00 },
   writing_business:     { claude: 0.15, openai: 0.11, gemini: 0.03, perplexity: 0.00 },
-  long_doc:             { claude: 0.16, gemini: 0.10, openai: 0.05, perplexity: 0.01 },
+  long_doc:             { claude: 0.16, openai: 0.08, gemini: 0.05, perplexity: 0.01 },
   excel:                { openai: 0.15, claude: 0.08, gemini: 0.07, perplexity: 0.00 },
   word:                 { claude: 0.14, openai: 0.10, gemini: 0.04, perplexity: 0.00 },
   ppt:                  { claude: 0.14, openai: 0.10, gemini: 0.08, perplexity: 0.00 },
-  pdf:                  { claude: 0.14, gemini: 0.10, openai: 0.06, perplexity: 0.00 },
+  pdf:                  { claude: 0.14, openai: 0.08, gemini: 0.06, perplexity: 0.00 },
   legal_review:         { openai: 0.16, claude: 0.10, gemini: 0.02, perplexity: 0.02 },
   data_analysis:        { openai: 0.16, claude: 0.09, gemini: 0.03, perplexity: 0.02 },
   finance_analysis:     { openai: 0.16, claude: 0.09, gemini: 0.03, perplexity: 0.02 },
-  product_development:  { claude: 0.15, openai: 0.10, gemini: 0.03, perplexity: 0.02 }
+  product_development:  { claude: 0.15, openai: 0.10, gemini: 0.03, perplexity: 0.02 },
+  generic:              { claude: 0.12, openai: 0.10, gemini: 0.04, perplexity: 0.01 },
+  deep_research:        { perplexity: 0.18, claude: 0.10, openai: 0.08, gemini: 0.04 },
+  evidence:             { perplexity: 0.14, openai: 0.10, claude: 0.08, gemini: 0.04 }
 }
 
 function rankProviders(task: AdaptiveTask) {
@@ -142,13 +150,15 @@ function rankProviders(task: AdaptiveTask) {
 }
 
 function shouldUsePro(task: AdaptiveTask, params: any): boolean {
-  if (task !== "reasoning" && task !== "research") return false
-  return Boolean(
-    params?.force_pro ||
-    params?.benchmark_mode ||
-    params?.deep_analysis ||
-    params?.deep_research
-  )
+  // 명시적 pro 요청
+  if (params?.force_pro || params?.benchmark_mode || params?.deep_analysis || params?.deep_research) {
+    return true
+  }
+  // HIGH_STAKES_TASKS에서 자동 에스컬레이션 (reasoning, code_implement, legal_review 등)
+  if (HIGH_STAKES_TASKS.has(task as CanonicalTask)) {
+    return true
+  }
+  return false
 }
 
 function buildExecutionPolicy(task: AdaptiveTask, params: any) {
@@ -234,9 +244,23 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
   const available = ranked.map((r) => r.provider)
   const codeSubtask = normalizeCodeSubtask(params?.code_subtask)
 
+  // ── Memory-based provider hint: 과거 승자 기반 soft preference ──
+  const preferredProvider = params?.preferred_provider
+    ? String(params.preferred_provider).trim().toLowerCase()
+    : null
+  const withHint = (providers: string[]) => {
+    if (!preferredProvider) return providers
+    const hinted = [preferredProvider, ...providers]
+    // 힌트 provider가 available에 없으면 fallthrough 로깅
+    if (!available.includes(preferredProvider)) {
+      logger.info("[adaptiveRouter] preferred_provider not available, falling through", { preferred: preferredProvider, task, available })
+    }
+    return hinted
+  }
+
   if (task === "research") {
     return {
-      selected_providers: [findAvailable(available, ["perplexity", "openai"]) ?? "perplexity"],
+      selected_providers: [findAvailable(available, withHint(["perplexity", "openai"])) ?? "perplexity"],
       verifier_providers: [findAvailable(available, ["claude"], ["perplexity"])].filter(Boolean),
       optional_providers: [],
       scout_providers: []
@@ -246,18 +270,19 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
   // dialogue: Claude primary, OpenAI verifier — 항상 병렬
   if (task === "dialogue") {
     return {
-      selected_providers: [findAvailable(available, ["claude", "openai"]) ?? "claude"],
+      selected_providers: [findAvailable(available, withHint(["claude", "openai"])) ?? "claude"],
       verifier_providers: [findAvailable(available, ["openai", "claude"], ["claude"])].filter(Boolean),
       optional_providers: [],
       scout_providers: []
     }
   }
 
+  // reasoning: Gemini Pro primary (GPQA 94.3% 1위), Claude verifier
   if (task === "reasoning") {
     return {
-      selected_providers: [findAvailable(available, ["openai", "claude"]) ?? "openai"],
-      verifier_providers: [findAvailable(available, ["claude", "openai"], ["openai"])].filter(Boolean),
-      optional_providers: allowOptional ? [findAvailable(available, ["gemini"], ["openai", "claude"])].filter(Boolean) : [],
+      selected_providers: [findAvailable(available, withHint(["gemini", "openai", "claude"])) ?? "gemini"],
+      verifier_providers: [findAvailable(available, ["claude", "openai"], [findAvailable(available, withHint(["gemini", "openai", "claude"])) ?? "gemini"])].filter(Boolean),
+      optional_providers: allowOptional ? [findAvailable(available, ["openai"], ["gemini", "claude"])].filter(Boolean) : [],
       scout_providers: []
     }
   }
@@ -265,7 +290,7 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
   // writing_creative: Claude primary, OpenAI verifier
   if (task === "writing_creative" || task === "writing") {
     return {
-      selected_providers: [findAvailable(available, ["claude", "openai"]) ?? "claude"],
+      selected_providers: [findAvailable(available, withHint(["claude", "openai"])) ?? "claude"],
       verifier_providers: [findAvailable(available, ["openai", "claude"], ["claude"])].filter(Boolean),
       optional_providers: allowOptional ? [findAvailable(available, ["gemini"], ["claude", "openai"])].filter(Boolean) : [],
       scout_providers: []
@@ -275,18 +300,19 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
   // writing_business: Claude primary, OpenAI verifier
   if (task === "writing_business") {
     return {
-      selected_providers: [findAvailable(available, ["claude", "openai"]) ?? "claude"],
+      selected_providers: [findAvailable(available, withHint(["claude", "openai"])) ?? "claude"],
       verifier_providers: [findAvailable(available, ["openai", "claude"], ["claude"])].filter(Boolean),
       optional_providers: allowOptional ? [findAvailable(available, ["gemini"], ["claude", "openai"])].filter(Boolean) : [],
       scout_providers: []
     }
   }
 
+  // long_doc: Claude primary (128K 출력, 장문 1위), OpenAI verifier
   if (task === "long_doc") {
     return {
-      selected_providers: [findAvailable(available, ["claude", "gemini"]) ?? "claude"],
-      verifier_providers: [findAvailable(available, ["gemini", "openai"], ["claude"])].filter(Boolean),
-      optional_providers: allowOptional ? [findAvailable(available, ["openai"], ["claude", "gemini"])].filter(Boolean) : [],
+      selected_providers: [findAvailable(available, withHint(["claude", "openai"])) ?? "claude"],
+      verifier_providers: [findAvailable(available, ["openai", "claude"], ["claude"])].filter(Boolean),
+      optional_providers: [],
       scout_providers: []
     }
   }
@@ -294,17 +320,18 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
   // code subtask 직접 처리 (planner가 code_implement/debug/refactor_review로 분류한 경우)
   if (task === "code_implement") {
     return {
-      selected_providers: [findAvailable(available, ["claude", "openai"]) ?? "claude"],
+      selected_providers: [findAvailable(available, withHint(["claude", "openai"])) ?? "claude"],
       verifier_providers: [findAvailable(available, ["openai", "claude"], ["claude"])].filter(Boolean),
       optional_providers: [],
       scout_providers: []
     }
   }
 
+  // code_debug: Claude primary (SWE-bench 80.8% 1위), OpenAI verifier
   if (task === "code_debug") {
     return {
-      selected_providers: [findAvailable(available, ["openai", "claude"]) ?? "openai"],
-      verifier_providers: [findAvailable(available, ["claude", "openai"], ["openai"])].filter(Boolean),
+      selected_providers: [findAvailable(available, withHint(["claude", "openai"])) ?? "claude"],
+      verifier_providers: [findAvailable(available, ["openai", "claude"], ["claude"])].filter(Boolean),
       optional_providers: [],
       scout_providers: []
     }
@@ -312,7 +339,7 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
 
   if (task === "code_refactor_review") {
     return {
-      selected_providers: [findAvailable(available, ["claude", "openai"]) ?? "claude"],
+      selected_providers: [findAvailable(available, withHint(["claude", "openai"])) ?? "claude"],
       verifier_providers: [findAvailable(available, ["openai", "claude"], ["claude"])].filter(Boolean),
       optional_providers: allowOptional ? [findAvailable(available, ["gemini"], ["claude", "openai"])].filter(Boolean) : [],
       scout_providers: []
@@ -322,7 +349,7 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
   if (task === "code") {
     if (codeSubtask === "code_debug") {
       return {
-        selected_providers: [findAvailable(available, ["openai", "claude"]) ?? "openai"],
+        selected_providers: [findAvailable(available, withHint(["openai", "claude"])) ?? "openai"],
         verifier_providers: [findAvailable(available, ["claude", "openai"], ["openai"])].filter(Boolean),
         optional_providers: [],
         scout_providers: []
@@ -331,7 +358,7 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
 
     if (codeSubtask === "code_refactor_review" || codeSubtask === "code_review") {
       return {
-        selected_providers: [findAvailable(available, ["claude", "openai"]) ?? "claude"],
+        selected_providers: [findAvailable(available, withHint(["claude", "openai"])) ?? "claude"],
         verifier_providers: [findAvailable(available, ["openai", "claude"], ["claude"])].filter(Boolean),
         optional_providers: allowOptional ? [findAvailable(available, ["gemini"], ["claude", "openai"])].filter(Boolean) : [],
         scout_providers: []
@@ -340,7 +367,7 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
 
     // code 기본(implement): Claude primary, OpenAI verifier
     return {
-      selected_providers: [findAvailable(available, ["claude", "openai"]) ?? "claude"],
+      selected_providers: [findAvailable(available, withHint(["claude", "openai"])) ?? "claude"],
       verifier_providers: [findAvailable(available, ["openai", "claude"], ["claude"])].filter(Boolean),
       optional_providers: [],
       scout_providers: []
@@ -349,7 +376,7 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
 
   if (task === "legal_review") {
     return {
-      selected_providers: [findAvailable(available, ["openai", "claude"]) ?? "openai"],
+      selected_providers: [findAvailable(available, withHint(["openai", "claude"])) ?? "openai"],
       verifier_providers: [findAvailable(available, ["claude", "openai"], ["openai"])].filter(Boolean),
       optional_providers: allowOptional ? [findAvailable(available, ["perplexity"], ["openai", "claude"])].filter(Boolean) : [],
       scout_providers: []
@@ -358,7 +385,7 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
 
   if (task === "data_analysis" || task === "finance_analysis") {
     return {
-      selected_providers: [findAvailable(available, ["openai", "claude"]) ?? "openai"],
+      selected_providers: [findAvailable(available, withHint(["openai", "claude"])) ?? "openai"],
       verifier_providers: [findAvailable(available, ["claude", "openai"], ["openai"])].filter(Boolean),
       optional_providers: allowOptional ? [findAvailable(available, ["gemini"], ["openai", "claude"])].filter(Boolean) : [],
       scout_providers: []
@@ -367,7 +394,7 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
 
   if (task === "product_development") {
     return {
-      selected_providers: [findAvailable(available, ["claude", "openai"]) ?? "claude"],
+      selected_providers: [findAvailable(available, withHint(["claude", "openai"])) ?? "claude"],
       verifier_providers: [findAvailable(available, ["openai", "claude"], ["claude"])].filter(Boolean),
       optional_providers: allowOptional ? [findAvailable(available, ["perplexity"], ["claude", "openai"])].filter(Boolean) : [],
       scout_providers: []
@@ -375,15 +402,15 @@ function chooseRoles(task: AdaptiveTask, ranked: any[], params: any) {
   }
 
   // ── Office: OpenAI 생성 ──
-  if (task === "excel") return { selected_providers: [findAvailable(available, ["openai", "claude"]) ?? "openai"], verifier_providers: [findAvailable(available, ["claude", "gemini"], ["openai"])].filter(Boolean), optional_providers: [], scout_providers: [] }
-  if (task === "word")  return { selected_providers: [findAvailable(available, ["claude", "openai"]) ?? "claude"], verifier_providers: [findAvailable(available, ["openai", "claude"], ["claude"])].filter(Boolean), optional_providers: [], scout_providers: [] }
-  if (task === "ppt")   return { selected_providers: [findAvailable(available, ["claude", "openai"]) ?? "claude"], verifier_providers: [findAvailable(available, ["openai", "gemini"], ["claude"])].filter(Boolean), optional_providers: [], scout_providers: [] }
-  if (task === "pdf")   return { selected_providers: [findAvailable(available, ["claude", "gemini"]) ?? "claude"], verifier_providers: [findAvailable(available, ["gemini", "openai"], ["claude"])].filter(Boolean), optional_providers: [], scout_providers: [] }
+  if (task === "excel") return { selected_providers: [findAvailable(available, withHint(["openai", "claude"])) ?? "openai"], verifier_providers: [findAvailable(available, ["claude", "gemini"], ["openai"])].filter(Boolean), optional_providers: [], scout_providers: [] }
+  if (task === "word")  return { selected_providers: [findAvailable(available, withHint(["claude", "openai"])) ?? "claude"], verifier_providers: [findAvailable(available, ["openai", "claude"], ["claude"])].filter(Boolean), optional_providers: [], scout_providers: [] }
+  if (task === "ppt")   return { selected_providers: [findAvailable(available, withHint(["claude", "openai"])) ?? "claude"], verifier_providers: [findAvailable(available, ["openai", "gemini"], ["claude"])].filter(Boolean), optional_providers: [], scout_providers: [] }
+  if (task === "pdf")   return { selected_providers: [findAvailable(available, withHint(["claude", "openai"])) ?? "claude"], verifier_providers: [findAvailable(available, ["openai", "claude"], ["claude"])].filter(Boolean), optional_providers: [], scout_providers: [] }
 
   // fallback: Claude verifier 항상 포함
   return {
-    selected_providers: [findAvailable(available, ["openai", "claude", "gemini"]) ?? "openai"],
-    verifier_providers: [findAvailable(available, ["claude", "openai"], [findAvailable(available, ["openai", "claude", "gemini"]) ?? "openai"])].filter(Boolean),
+    selected_providers: [findAvailable(available, withHint(["openai", "claude", "gemini"])) ?? "openai"],
+    verifier_providers: [findAvailable(available, ["claude", "openai"], [findAvailable(available, withHint(["openai", "claude", "gemini"])) ?? "openai"])].filter(Boolean),
     optional_providers: [],
     scout_providers: []
   }

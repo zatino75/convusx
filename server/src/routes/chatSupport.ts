@@ -1,11 +1,10 @@
-﻿import { getLatestProjectContext } from "../memory/projectMemory.js"
+﻿import { getLatestProjectContext, appendProjectMemory, findPastWinner, addProjectSourceAsset } from "../memory/projectMemory.js"
+import { getThreadMemory, upsertThreadMemory, findSimilarQuery } from "../memory/threadMemory.js"
+import { logBenchmark } from "../orchestra/benchmark.js"
+import { logger } from "../observability/logger.js"
+import { OPENAI_BASE } from "../config/defaults.js"
 
 const SOURCE_PROMOTE_PATTERNS = ["소스로 등록", "출처로 저장", "프로젝트에 추가", "자료로 저장"]
-
-import { getThreadMemory } from "../memory/threadMemory.js"
-import { logBenchmark } from "../orchestra/benchmark.js";
-import { appendProjectMemory, findPastWinner, addProjectSourceAsset } from "../memory/projectMemory.js";
-import { upsertThreadMemory, findSimilarQuery } from "../memory/threadMemory.js";
 
 export type RouteResponse = {
   json?: (payload: unknown) => unknown
@@ -321,7 +320,7 @@ async function generateThreadTitle(query: string, answerText: string): Promise<s
   if (!openaiKey) return null
   const sample = answerText.slice(0, 400)
   try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    const res = await fetch(`${OPENAI_BASE}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiKey}` },
       signal: AbortSignal.timeout(8000),
@@ -338,7 +337,8 @@ async function generateThreadTitle(query: string, answerText: string): Promise<s
     const d = await res.json() as any
     const title = String(d?.choices?.[0]?.message?.content ?? "").trim().slice(0, 32)
     return title || null
-  } catch {
+  } catch (e) {
+    logger.warn("thread title generation failed", { error: e })
     return null
   }
 }
@@ -420,7 +420,7 @@ async function runSourcePromote(
   if (!relevant.trim()) return { ok: false, title: "", content: "", error: "저장할 내용 없음" }
 
   try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    const res = await fetch(`${OPENAI_BASE}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiKey}` },
       body: JSON.stringify({
@@ -449,55 +449,12 @@ async function runSourcePromote(
   }
 }
 
-// SSE 라우트에서 사용하는 동기 래퍼 — structured memory 기반 즉시 반환 (비동기 불필요)
-export function handleSourcePromoteCommand(input: any): { ok: boolean; message: string } {
-  const projectId = safeString(input?.project_id) || "chat_project"
-  const asset = buildSourceAssetFromThread(input)
-  if (!asset) return { ok: false, message: "현재 스레드에 저장된 내용이 없습니다. 먼저 대화를 진행해주세요." }
-  try {
-    addProjectSourceAsset(projectId, asset)
-    return { ok: true, message: `✅ 프로젝트 소스로 저장했습니다.\n\n**제목:** ${asset.title}\n\n${asset.content.slice(0, 400)}${asset.content.length > 400 ? "\n\n..." : ""}` }
-  } catch {
-    return { ok: false, message: "소스 저장 중 오류가 발생했습니다." }
-  }
-}
-
 export function extractInboundQuery(input: any): string {
   const msg = String(input?.message ?? "").trim()
   if (msg) return msg
   const messages = Array.isArray(input?.messages) ? input.messages : []
   const last = [...messages].reverse().find((m: any) => m?.role === "user")
   return String(last?.content ?? "").trim()
-}
-
-export function buildMessagesWithAttachment(input: any): any[] {
-  const attached = input?.attached_file
-  if (!attached?.base64 || !attached?.type) return []
-  const isImage = String(attached.type).startsWith("image/")
-  const isPdf = attached.type === "application/pdf"
-  const userText = safeString(input?.message) || "이 파일을 분석해줘"
-  if (isImage) return []
-  if (isPdf) return [{ role: "user", content: [{ type: "text", text: `[첨부 파일: ${attached.name}]\n\n${userText}` }] }]
-  try {
-    const textContent = Buffer.from(attached.base64, "base64").toString("utf-8").slice(0, 8000)
-    return [{ role: "user", content: `[첨부 파일: ${attached.name}]\n\n\`\`\`\n${textContent}\n\`\`\`\n\n${userText}` }]
-  } catch {
-    return [{ role: "user", content: `[첨부 파일: ${attached.name} — 읽기 실패]\n\n${userText}` }]
-  }
-}
-
-export function injectAttachmentIntoInput(input: any): any {
-  const attached = input?.attached_file
-  if (!attached?.base64) return input
-  const messages = buildMessagesWithAttachment(input)
-  if (messages.length === 0) return input
-  const existingMessages = safeArray(input?.messages).filter((m: any) => safeString(m?.role) !== "user" || !input?.message)
-  return { ...input, messages: [...existingMessages, ...messages], message: undefined }
-}
-
-export function tryMemoryReuse(_input: any): null {
-  // REUSE 완전 비활성화 — 오염된 캐시 데이터로 인한 엉뚱한 답변 방지
-  return null
 }
 
 

@@ -1,5 +1,6 @@
 ﻿import { useEffect, useRef, useState } from "react";
 import type { ProjectGroup } from "../../types/workspace";
+import { stripMarkdown } from "../../utils/helpers";
 
 type Props = {
   project: ProjectGroup | null;
@@ -11,20 +12,6 @@ type Props = {
   onRemoveFromProject?: (threadId: string) => void;
   onDeleteThread?: (threadId: string) => void;
 };
-
-function stripMarkdown(text: string): string {
-  return text
-    .replace(/```[\s\S]*?```/g, "")
-    .replace(/`[^`]+`/g, "")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/\*([^*]+)\*/g, "$1")
-    .replace(/^#+\s+/gm, "")
-    .replace(/^[-*]\s+/gm, "")
-    .replace(/\[\d+\]/g, "")
-    .replace(/!?\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 function MoreIcon() {
   return (

@@ -1,5 +1,6 @@
 // Gemini Veo 3.1 — 비디오 생성 어댑터
-// API: Google AI Studio / Vertex AI veo-3.0-generate-preview
+// API: Google AI Studio / Vertex AI
+// 모델: 환경변수 VEO_MODEL 또는 기본 veo-3.0-generate-preview
 
 function env(key: string): string {
   return String((globalThis as any)?.process?.env?.[key] ?? "").trim()
@@ -20,8 +21,10 @@ export type VeoResult = {
   error?: string
 }
 
-const VEO_MODEL = "veo-3.0-generate-preview"
-const VEO_BASE = "https://generativelanguage.googleapis.com/v1beta"
+import { GEMINI_BASE } from "../config/defaults.js"
+
+const VEO_MODEL = String((globalThis as any)?.process?.env?.VEO_MODEL ?? "").trim() || "veo-3.0-generate-preview"
+const VEO_BASE = GEMINI_BASE
 const POLL_INTERVAL_MS = 5000
 const POLL_MAX = 60 // 최대 5분 (60 * 5s)
 

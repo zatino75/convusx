@@ -1,4 +1,6 @@
 ﻿import { useEffect, useRef, useState, useCallback } from "react";
+import { t } from "../../i18n";
+import { showToast } from "../ui/Toast";
 import type { ProjectGroup } from "../../types/workspace";
 import { useWorkspaceState } from "../../store/workspaceStore";
 import {
@@ -12,6 +14,10 @@ import {
   type SourceAsset
 } from "../../store/sourceStore";
 import ProjectThreadList from "./ProjectThreadList";
+import { apiFetch } from "../../api/url";
+import { MAX_ATTACHMENTS } from "../../utils/constants";
+
+type AttachedFile = { name: string; type: string; base64: string; size: number };
 
 type Props = {
   project: ProjectGroup | null;
@@ -23,6 +29,8 @@ type Props = {
   onDeleteThread?: (threadId: string) => void;
   onSubmitPrompt?: (value: string) => void;
   isSending?: boolean;
+  attachedFiles?: AttachedFile[];
+  onAttachFiles?: (files: AttachedFile[]) => void;
 };
 
 type Tab = "스레드" | "소스" | "지침";
@@ -87,12 +95,12 @@ function getSourceIcon(type: SourceAsset["type"]) {
   return <FileIcon />;
 }
 function getSourceTypeLabel(type: SourceAsset["type"]) {
-  const m: Record<string, string> = { file: "파일", link: "링크", note: "노트", image: "이미지", thread_summary: "스레드 요약" };
+  const m: Record<string, string> = { file: t("project.file"), link: t("project.link"), note: t("project.note"), image: t("project.image"), thread_summary: t("project.threadSummary") };
   return m[type] ?? type;
 }
 function getSourceTypeColor(type: SourceAsset["type"]) {
   const m: Record<string, string> = {
-    file: "#3b82f6", link: "#10b981", note: "#f59e0b",
+    file: "#3b82f6", link: "#10b981", note: "#c96442",
     image: "#8b5cf6", thread_summary: "#6366f1"
   };
   return m[type] ?? "#6b7280";
@@ -113,23 +121,107 @@ function AddSourceModal({ projectId, onClose, onAdd }: {
   const [content, setContent] = useState("");
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const [processedCount, setProcessedCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+  const [errorMsg, setErrorMsg] = useState("");
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  async function handleFile(file: File) {
+  function isTextFile(file: File): boolean {
+    const name = file.name.toLowerCase();
+    const TEXT_EXTS = /\.(txt|md|json|csv|js|jsx|ts|tsx|py|html|css|xml|yaml|yml|toml|ini|cfg|log|sh|bat|sql|r|rb|go|java|c|cpp|h|swift|kt|rs|vue|svelte|astro|php|pl|lua|dart|scala|clj|ex|erl|hs|ml|lisp|scm|rkt|asm|makefile|dockerfile|gitignore|env)$/i;
+    if (TEXT_EXTS.test(name)) return true;
+    if (file.type.startsWith("text/")) return true;
+    return false;
+  }
+
+  async function handleFiles(files: FileList) {
     setLoading(true);
-    try {
-      const text = await file.text();
-      const asset: SourceAsset = { id: crypto.randomUUID(), projectId, type: "file", title: file.name, content: text, status: "confirmed", createdAt: Date.now(), updatedAt: Date.now() };
-      await persistAsset(projectId, asset);
-      onAdd(asset); onClose();
-    } finally { setLoading(false); }
+    setProcessedCount(0);
+    setErrorMsg("");
+    const fileArray = Array.from(files);
+    setTotalCount(fileArray.length);
+    let successCount = 0;
+    const errors: string[] = [];
+    let doneCount = 0;
+
+    const CONCURRENCY = 3;
+
+    async function processFile(file: File) {
+      try {
+        let text: string;
+        if (isTextFile(file)) {
+          text = await file.text();
+        } else {
+          // 바이너리 파일 → 서버에서 텍스트 추출
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve((reader.result as string).split(",")[1] ?? "");
+            reader.onerror = () => reject(new Error(t("project.readFileFailed")));
+            reader.readAsDataURL(file);
+          });
+          const resp = await apiFetch("/api/extract-text", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: file.name, base64, type: file.type })
+          });
+          const payload = await resp.json().catch(() => ({ ok: false }));
+          text = payload?.ok ? payload.text : `[${t("project.textExtractFailed").replace("{name}", file.name)}]`;
+        }
+        const asset: SourceAsset = { id: crypto.randomUUID(), projectId, type: "file", title: file.name, content: text, status: "confirmed", createdAt: Date.now(), updatedAt: Date.now() };
+        await persistAsset(projectId, asset);
+        onAdd(asset);
+        successCount++;
+      } catch (e: any) {
+        errors.push(`${file.name}: ${e?.message ?? t("settings.unknownError")}`);
+      } finally {
+        doneCount++;
+        setProcessedCount(doneCount);
+      }
+    }
+
+    // 최대 3개씩 병렬 처리
+    for (let i = 0; i < fileArray.length; i += CONCURRENCY) {
+      const chunk = fileArray.slice(i, i + CONCURRENCY);
+      await Promise.all(chunk.map(processFile));
+    }
+
+    setLoading(false);
+
+    if (errors.length > 0) {
+      setErrorMsg(`${errors.length}개 파일 실패: ${errors.join(", ")}`);
+    }
+    if (successCount > 0 && errors.length === 0) {
+      onClose();
+    }
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files) {
+      handleFiles(e.dataTransfer.files);
+    }
   }
 
   async function handleSubmit() {
     if (loading) return;
     setLoading(true);
     try {
-      const asset: SourceAsset = { id: crypto.randomUUID(), projectId, type: tab, title: title.trim() || (tab === "link" ? url : "노트"), content: content.trim() || undefined, url: tab === "link" ? url.trim() : undefined, status: "confirmed", createdAt: Date.now(), updatedAt: Date.now() };
+      const asset: SourceAsset = { id: crypto.randomUUID(), projectId, type: tab, title: title.trim() || (tab === "link" ? url : t("project.note")), content: content.trim() || undefined, url: tab === "link" ? url.trim() : undefined, status: "confirmed", createdAt: Date.now(), updatedAt: Date.now() };
       await persistAsset(projectId, asset);
       onAdd(asset); onClose();
     } finally { setLoading(false); }
@@ -140,45 +232,60 @@ function AddSourceModal({ projectId, onClose, onAdd }: {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.4)" }} onClick={onClose}>
       <div style={{ background: "var(--bg-main, #fff)", borderRadius: 16, padding: 24, width: 480, maxWidth: "90vw", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text-main)", marginBottom: 16 }}>소스 추가</div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text-main)", marginBottom: 16 }}>{t("project.addSource")}</div>
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          {(["file", "link", "note"] as const).map(t => (
-            <button key={t} type="button" onClick={() => setTab(t)}
-              style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid var(--border)", background: tab === t ? "var(--text-main)" : "transparent", color: tab === t ? "var(--bg-main, #fff)" : "var(--text-main)", fontSize: 13, cursor: "pointer", fontWeight: tab === t ? 600 : 400 }}>
-              {t === "file" ? "파일" : t === "link" ? "링크" : "노트"}
+          {(["file", "link", "note"] as const).map(tabType => (
+            <button key={tabType} type="button" onClick={() => setTab(tabType)}
+              style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid var(--border)", background: tab === tabType ? "var(--text-main)" : "transparent", color: tab === tabType ? "var(--bg-main, #fff)" : "var(--text-main)", fontSize: 13, cursor: "pointer", fontWeight: tab === tabType ? 600 : 400 }}>
+              {tabType === "file" ? t("project.file") : tabType === "link" ? t("project.link") : t("project.note")}
             </button>
           ))}
         </div>
         {tab === "file" && (
           <div>
-            <input ref={fileRef} type="file" accept=".txt,.md,.pdf,.js,.ts,.py,.json,.csv" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
-            <div onClick={() => fileRef.current?.click()} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
-              style={{ border: "2px dashed var(--border)", borderRadius: 12, padding: "32px 20px", textAlign: "center", cursor: "pointer", color: "var(--text-sub)" }}>
+            <input ref={fileRef} type="file" multiple style={{ display: "none" }} onChange={e => { if (e.target.files) handleFiles(e.target.files); }} />
+            <div onClick={() => fileRef.current?.click()} onDragOver={handleDragOver} onDragEnter={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
+              style={{ border: `2px dashed ${dragActive ? "var(--text-main)" : "var(--border)"}`, borderRadius: 12, padding: "32px 20px", textAlign: "center", cursor: "pointer", color: "var(--text-sub)", background: dragActive ? "rgba(0,0,0,0.02)" : "transparent", transition: "all 0.2s ease" }}>
               <div style={{ marginBottom: 8, display: "flex", justifyContent: "center" }}><UploadIcon /></div>
-              <div style={{ fontSize: 14, fontWeight: 500 }}>파일을 드래그하거나 클릭해서 업로드</div>
-              <div style={{ fontSize: 12, marginTop: 4 }}>txt, md, pdf, js, ts, py, json, csv</div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>{t("project.dragOrClick")}</div>
+              <div style={{ fontSize: 12, marginTop: 4, color: "var(--text-sub)" }}>{t("project.multiFileSupport")}</div>
+              {loading && (
+                <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-main)", fontWeight: 600 }}>
+                  {t("project.processingFiles").replace("{done}", String(processedCount)).replace("{total}", String(totalCount))}
+                </div>
+              )}
+              {!loading && processedCount > 0 && !errorMsg && (
+                <div style={{ marginTop: 12, fontSize: 12, color: "#10b981", fontWeight: 600 }}>
+                  {t("project.filesAdded").replace("{count}", String(processedCount))}
+                </div>
+              )}
+              {errorMsg && (
+                <div style={{ marginTop: 12, fontSize: 12, color: "#c0392b", fontWeight: 600 }}>
+                  {errorMsg}
+                </div>
+              )}
             </div>
           </div>
         )}
         {tab === "link" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://..." style={inputStyle} />
-            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="제목 (선택)" style={inputStyle} />
-            <textarea value={content} onChange={e => setContent(e.target.value)} placeholder="설명 또는 내용 (선택)" rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+            <input value={title} onChange={e => setTitle(e.target.value)} placeholder={t("project.titleOptional")} style={inputStyle} />
+            <textarea value={content} onChange={e => setContent(e.target.value)} placeholder={t("project.contentOptional")} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
           </div>
         )}
         {tab === "note" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="제목" style={inputStyle} />
-            <textarea value={content} onChange={e => setContent(e.target.value)} placeholder="내용을 입력하세요..." rows={6} style={{ ...inputStyle, resize: "vertical" }} />
+            <input value={title} onChange={e => setTitle(e.target.value)} placeholder={t("project.title")} style={inputStyle} />
+            <textarea value={content} onChange={e => setContent(e.target.value)} placeholder={t("project.contentPlaceholder")} rows={6} style={{ ...inputStyle, resize: "vertical" }} />
           </div>
         )}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-          <button type="button" onClick={onClose} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border)", background: "transparent", fontSize: 13, cursor: "pointer", color: "var(--text-main)" }}>취소</button>
+          <button type="button" onClick={onClose} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border)", background: "transparent", fontSize: 13, cursor: "pointer", color: "var(--text-main)" }}>{t("common.cancel")}</button>
           {tab !== "file" && (
             <button type="button" onClick={handleSubmit} disabled={loading || (tab === "link" ? !url.trim() : !content.trim())}
               style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "var(--text-main)", color: "var(--bg-main, #fff)", fontSize: 13, cursor: "pointer", fontWeight: 600, opacity: loading ? 0.6 : 1 }}>
-              {loading ? "저장 중..." : "추가"}
+              {loading ? t("project.saving") : t("project.add")}
             </button>
           )}
         </div>
@@ -191,30 +298,68 @@ function SourceItem({ asset, onDelete, onToggleConfirmed }: {
   asset: SourceAsset; onDelete: (id: string) => void; onToggleConfirmed: (id: string, s: "draft" | "confirmed") => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const isConfirmed = asset.status === "confirmed";
+
+  async function handleTestSource() {
+    if (!asset.content) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const response = await apiFetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "이 소스를 참조할 수 있나요?",
+          context: asset.content.slice(0, 500)
+        })
+      });
+      if (response.ok) {
+        setTestResult({ success: true, message: t("project.sourceRefOk") });
+      } else {
+        setTestResult({ success: false, message: t("project.sourceRefFail") });
+      }
+    } catch {
+      setTestResult({ success: false, message: t("project.sourceRefFail") });
+    } finally {
+      setTesting(false);
+    }
+  }
+
   return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", background: isConfirmed ? "rgba(99,102,241,0.03)" : "transparent" }}>
+    <div style={{ border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", background: isConfirmed ? "rgba(99,102,241,0.04)" : "transparent" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px" }}>
         <span style={{ color: isConfirmed ? "#6366f1" : "var(--text-sub)", flexShrink: 0 }}>{getSourceIcon(asset.type)}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-main)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{asset.title || "제목 없음"}</div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-main)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{asset.title || t("project.noTitle")}</div>
           <div style={{ fontSize: 11, color: "var(--text-sub)", display: "flex", gap: 6, marginTop: 2, alignItems: "center", flexWrap: "wrap" as const }}>
-            <span style={{ padding: "1px 6px", borderRadius: 4, background: getSourceTypeColor(asset.type) + "18", color: getSourceTypeColor(asset.type), fontWeight: 600 }}>
+            <span style={{ padding: "2px 8px", borderRadius: 4, background: getSourceTypeColor(asset.type) + "18", color: getSourceTypeColor(asset.type), fontWeight: 600, fontSize: 10 }}>
               {getSourceTypeLabel(asset.type)}
             </span>
             {asset.content && <span>{formatSize(asset.content)}</span>}
-            {isConfirmed && <span style={{ color: "#6366f1", fontWeight: 600 }}>● 학습됨</span>}
+            {isConfirmed ? (
+              <span style={{ padding: "1px 6px", borderRadius: 3, background: "#10b9812a", color: "#10b981", fontWeight: 600, fontSize: 10 }}>✓ {t("project.appliedToChat")}</span>
+            ) : (
+              <span style={{ padding: "1px 6px", borderRadius: 3, background: "var(--border)", color: "var(--text-sub)", fontWeight: 500, fontSize: 10 }}>{t("project.notApplied")}</span>
+            )}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
           {asset.content && (
             <button type="button" onClick={() => setExpanded(v => !v)}
               style={{ fontSize: 11, color: "var(--text-sub)", border: "1px solid var(--border)", borderRadius: 6, padding: "3px 8px", background: "transparent", cursor: "pointer" }}>
-              {expanded ? "접기" : "보기"}
+              {expanded ? t("project.collapse") : t("project.expand")}
             </button>
           )}
-          <button type="button" onClick={() => onToggleConfirmed(asset.id, isConfirmed ? "draft" : "confirmed")} title={isConfirmed ? "학습 해제" : "학습에 포함"}
-            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "1px solid var(--border)", borderRadius: 6, background: isConfirmed ? "rgba(99,102,241,0.1)" : "transparent", cursor: "pointer", color: isConfirmed ? "#6366f1" : "var(--text-sub)" }}>
+          {isConfirmed && asset.content && (
+            <button type="button" onClick={handleTestSource} disabled={testing}
+              style={{ fontSize: 11, color: testing ? "var(--text-sub)" : "#6366f1", border: "1px solid #6366f1", borderRadius: 6, padding: "3px 8px", background: "rgba(99,102,241,0.1)", cursor: testing ? "default" : "pointer", fontWeight: 500, opacity: testing ? 0.6 : 1 }}>
+              {testing ? t("project.testing") : t("project.testSource")}
+            </button>
+          )}
+          <button type="button" onClick={() => onToggleConfirmed(asset.id, isConfirmed ? "draft" : "confirmed")} title={isConfirmed ? t("project.unlearn") : t("project.learn")}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "1px solid var(--border)", borderRadius: 6, background: isConfirmed ? "rgba(99,102,241,0.15)" : "transparent", cursor: "pointer", color: isConfirmed ? "#6366f1" : "var(--text-sub)" }}>
             <CheckIcon />
           </button>
           <button type="button" onClick={() => onDelete(asset.id)}
@@ -223,6 +368,11 @@ function SourceItem({ asset, onDelete, onToggleConfirmed }: {
           </button>
         </div>
       </div>
+      {testResult && (
+        <div style={{ borderTop: "1px solid var(--border)", padding: "10px 14px", fontSize: 12, background: testResult.success ? "rgba(16,185,129,0.05)" : "rgba(239,68,68,0.05)", color: testResult.success ? "#10b981" : "#ef4444", fontWeight: 500 }}>
+          {testResult.message}
+        </div>
+      )}
       {expanded && asset.content && (
         <div style={{ borderTop: "1px solid var(--border)", padding: "12px 14px", fontSize: 12, color: "var(--text-sub)", maxHeight: 200, overflowY: "auto", background: "var(--surface-2, #f4f4f4)", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
           {asset.content.slice(0, 2000)}{asset.content.length > 2000 ? "\n..." : ""}
@@ -250,10 +400,10 @@ function InstructionTab({ project }: { project: ProjectGroup }) {
   return (
     <div style={{ paddingBottom: 32 }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)", marginBottom: 8 }}>
-        프로젝트 지침
+        {t("project.projectInstruction")}
       </div>
       <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-sub)", lineHeight: 1.6 }}>
-        이 프로젝트의 모든 대화에 적용됩니다. AI가 따라야 할 역할, 말투, 형식, 제약 조건 등을 입력하세요.
+        {t("project.instructionDesc")}
       </p>
       <textarea
         style={{
@@ -264,12 +414,12 @@ function InstructionTab({ project }: { project: ProjectGroup }) {
           outline: "none", boxSizing: "border-box" as const,
           fontFamily: "inherit"
         }}
-        placeholder={"예시:\n- 당신은 브랜드 전략 전문가입니다.\n- 항상 한국 시장 관점에서 분석하세요.\n- 답변은 실행 가능한 액션 중심으로 작성하세요."}
+        placeholder={t("project.instructionExample")}
         value={value}
         onChange={handleChange}
       />
       <p style={{ margin: "8px 0 0", fontSize: 11, color: "var(--text-soft)" }}>
-        변경사항은 자동 저장됩니다.
+        {t("project.autoSaved")}
       </p>
     </div>
   );
@@ -317,11 +467,11 @@ function SourcesTab({ project }: { project: ProjectGroup }) {
     <div style={{ paddingBottom: 40 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div style={{ fontSize: 13, color: "var(--text-sub)" }}>
-          학습된 소스 <strong style={{ color: "var(--text-main)" }}>{assets.filter(a=>a.status==="confirmed").length}개</strong>{searchQuery || typeFilter !== "all" ? <span style={{ marginLeft: 6, color: "#6366f1" }}>/ 필터 {filtered.length}개</span> : null}
+          {t("project.learnedSources")} <strong style={{ color: "var(--text-main)" }}>{assets.filter(a=>a.status==="confirmed").length}개</strong>{searchQuery || typeFilter !== "all" ? <span style={{ marginLeft: 6, color: "#6366f1" }}>/ {t("project.filterCount").replace("{count}", String(filtered.length))}</span> : null}
         </div>
         <button type="button" onClick={() => setShowAdd(true)}
           style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", border: "none", borderRadius: 10, background: "var(--text-main)", color: "var(--bg-main, #fff)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          <PlusIcon />소스 추가
+          <PlusIcon />{t("project.addSource")}
         </button>
       </div>
       {/* 검색 + 타입 필터 */}
@@ -330,45 +480,55 @@ function SourcesTab({ project }: { project: ProjectGroup }) {
           <input
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="소스 검색..."
+            placeholder={t("project.sourceSearch")}
             style={{ flex: 1, minWidth: 120, padding: "7px 12px", borderRadius: 8, border: "1px solid var(--border)", fontSize: 13, color: "var(--text-main)", background: "var(--bg-main, #fff)", outline: "none" }}
           />
           <div style={{ display: "flex", gap: 4 }}>
-            {(["all", "file", "note", "link", "thread_summary"] as const).map(t => (
-              <button key={t} type="button" onClick={() => setTypeFilter(t)}
+            {(["all", "file", "note", "link", "thread_summary"] as const).map(filterType => (
+              <button key={filterType} type="button" onClick={() => setTypeFilter(filterType)}
                 style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid var(--border)", cursor: "pointer", fontSize: 11, fontWeight: 600,
-                  background: typeFilter === t ? "var(--text-main)" : "transparent",
-                  color: typeFilter === t ? "#fff" : "var(--text-sub)" }}>
-                {t === "all" ? "전체" : getSourceTypeLabel(t)}
+                  background: typeFilter === filterType ? "var(--text-main)" : "transparent",
+                  color: typeFilter === filterType ? "#fff" : "var(--text-sub)" }}>
+                {filterType === "all" ? t("project.sourceAll") : getSourceTypeLabel(filterType)}
               </button>
             ))}
           </div>
         </div>
       )}
       {loading ? (
-        <div style={{ fontSize: 13, color: "var(--text-sub)", padding: "20px 0" }}>불러오는 중...</div>
+        <div style={{ fontSize: 13, color: "var(--text-sub)", padding: "20px 0" }}>{t("dashboard.loading")}</div>
       ) : assets.length === 0 ? (
         <div style={{ textAlign: "center", padding: "48px 20px", color: "var(--text-sub)" }}>
           <div style={{ marginBottom: 12, display: "flex", justifyContent: "center" }}><UploadIcon /></div>
-          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>아직 소스가 없습니다</div>
-          <div style={{ fontSize: 13 }}>파일, 링크, 노트를 추가하면 프로젝트 내 모든 대화에 자동으로 반영됩니다</div>
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>{t("project.noSourcesYet")}</div>
+          <div style={{ fontSize: 13 }}>{t("project.addSourceHint")}</div>
           <button type="button" onClick={() => setShowAdd(true)}
             style={{ marginTop: 16, padding: "8px 20px", borderRadius: 10, border: "1px solid var(--border)", background: "transparent", fontSize: 13, cursor: "pointer", color: "var(--text-main)", fontWeight: 500 }}>
-            첫 소스 추가하기
+            {t("project.addFirstSource")}
           </button>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {confirmed.length > 0 && (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#6366f1", letterSpacing: "0.08em", marginBottom: 8 }}>학습에 포함됨 ({confirmed.length})</div>
-              {confirmed.map(a => <div key={a.id} style={{ marginBottom: 6 }}><SourceItem asset={a} onDelete={handleDelete} onToggleConfirmed={handleToggleConfirmed} /></div>)}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#6366f1", letterSpacing: "0.08em", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#6366f1" }}></span>
+                {t("project.appliedGroup").replace("{count}", String(confirmed.length))}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {confirmed.map(a => <SourceItem key={a.id} asset={a} onDelete={handleDelete} onToggleConfirmed={handleToggleConfirmed} />)}
+              </div>
             </div>
           )}
           {draft.length > 0 && (
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-sub)", letterSpacing: "0.08em", marginBottom: 8 }}>대기 중 ({draft.length})</div>
-              {draft.map(a => <div key={a.id} style={{ marginBottom: 6 }}><SourceItem asset={a} onDelete={handleDelete} onToggleConfirmed={handleToggleConfirmed} /></div>)}
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-sub)", letterSpacing: "0.08em", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--border)" }}></span>
+                {t("project.draftGroup").replace("{count}", String(draft.length))}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {draft.map(a => <SourceItem key={a.id} asset={a} onDelete={handleDelete} onToggleConfirmed={handleToggleConfirmed} />)}
+              </div>
             </div>
           )}
         </div>
@@ -378,24 +538,155 @@ function SourcesTab({ project }: { project: ProjectGroup }) {
   );
 }
 
-function ProjectQuickComposer({ isSending, onSubmit }: { isSending: boolean; onSubmit: (v: string) => void }) {
+function ProjectQuickComposer({
+  isSending,
+  onSubmit,
+  attachedFiles,
+  onAttachFiles
+}: {
+  isSending: boolean;
+  onSubmit: (v: string) => void;
+  attachedFiles?: AttachedFile[];
+  onAttachFiles?: (files: AttachedFile[]) => void;
+}) {
   const [value, setValue] = useState("");
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter" && !e.shiftKey && value.trim() && !isSending) { e.preventDefault(); onSubmit(value.trim()); setValue(""); }
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const hasContent = !!(value.trim() || (attachedFiles && attachedFiles.length > 0));
+
+  function handleSubmit() {
+    if (!hasContent || isSending) return;
+    onSubmit(value.trim());
+    setValue("");
   }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" && !e.shiftKey && hasContent && !isSending) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  }
+
+  async function processFiles(fileList: File[]) {
+    if (fileList.length === 0) return;
+    const maxSize = 20 * 1024 * 1024;
+    const current = attachedFiles ?? [];
+    const remaining = MAX_ATTACHMENTS - current.length;
+    if (remaining <= 0) { showToast(t("chat.maxAttachments").replace("{max}", String(MAX_ATTACHMENTS)), "warning"); return; }
+    const toProcess = fileList.slice(0, remaining).filter(f => f.size <= maxSize);
+    const results = await Promise.all(toProcess.map(file => new Promise<AttachedFile>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        const base64 = result.split(",")[1] ?? result;
+        resolve({ name: file.name, type: file.type, base64, size: file.size });
+      };
+      reader.readAsDataURL(file);
+    })));
+    onAttachFiles?.([...current, ...results]);
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    processFiles(files);
+    e.target.value = "";
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    const files = Array.from(e.dataTransfer.files ?? []);
+    processFiles(files);
+  }
+
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface-1, #f9f9f9)" }}>
-      <input value={value} onChange={e => setValue(e.target.value)} onKeyDown={handleKeyDown} placeholder="이 프로젝트에서 새 채팅 시작..."
-        style={{ flex: 1, border: "none", background: "transparent", fontSize: 14, color: "var(--text-main)", outline: "none" }} />
-      <button type="button" onClick={() => { if (value.trim() && !isSending) { onSubmit(value.trim()); setValue(""); } }} disabled={!value.trim() || isSending}
-        style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: "50%", border: "none", background: value.trim() ? "var(--text-main)" : "var(--border)", color: value.trim() ? "var(--bg-main, #fff)" : "var(--text-sub)", cursor: value.trim() ? "pointer" : "default" }}>
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 5l7 7-7 7" /></svg>
-      </button>
+    <div
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      style={{
+        border: `1px solid ${dragActive ? "var(--text-main)" : "var(--border)"}`,
+        borderRadius: 14,
+        background: dragActive ? "rgba(0,0,0,0.03)" : "var(--surface-1, #f9f9f9)",
+        overflow: "hidden",
+        transition: "border-color 0.15s, background 0.15s",
+        position: "relative"
+      }}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,.pdf,.txt,.md,.csv,.json,.ts,.tsx,.js,.jsx,.py"
+        style={{ display: "none" }}
+        multiple
+        onChange={handleFileChange}
+      />
+
+      {/* 드래그 오버레이 */}
+      {dragActive && (
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, pointerEvents: "none" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)", display: "flex", alignItems: "center", gap: 6 }}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 16V5M7 10l5-5 5 5" /><path d="M5 19h14" /></svg>
+            {t("project.dropToAttach")}
+          </div>
+        </div>
+      )}
+
+      {/* 첨부 파일 미리보기 */}
+      {attachedFiles && attachedFiles.length > 0 && (
+        <div style={{ padding: "8px 14px 0", display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {attachedFiles.map((f, idx) => (
+            <div key={idx} style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 8, background: "var(--surface-2, #f0f0f0)", border: "1px solid var(--border)", fontSize: 12, color: "var(--text-main)", maxWidth: 200 }}>
+              <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ flexShrink: 0, color: "var(--text-sub)" }}>
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+              </svg>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{f.name}</span>
+              <button type="button" onClick={() => onAttachFiles?.(attachedFiles.filter((_, i) => i !== idx))}
+                style={{ display: "flex", alignItems: "center", border: "none", background: "none", cursor: "pointer", color: "var(--text-sub)", padding: 0, flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px" }}>
+        <button type="button" onClick={() => fileInputRef.current?.click()} title={t("chat.attachFile")}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, border: "1px solid var(--border)", background: "transparent", cursor: "pointer", color: "var(--text-sub)", flexShrink: 0 }}>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+        <input
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={attachedFiles && attachedFiles.length > 0 ? t("chat.placeholderWithFile") : t("chat.placeholderProject")}
+          style={{ flex: 1, border: "none", background: "transparent", fontSize: 14, color: "var(--text-main)", outline: "none" }}
+        />
+        <button type="button" onClick={handleSubmit} disabled={!hasContent || isSending}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: "50%", border: "none", background: hasContent ? "var(--text-main)" : "var(--border)", color: hasContent ? "var(--bg-main, #fff)" : "var(--text-sub)", cursor: hasContent ? "pointer" : "default", flexShrink: 0 }}>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 5l7 7-7 7" /></svg>
+        </button>
+      </div>
     </div>
   );
 }
 
-export default function ProjectHomeView({ project, activeThreadId = null, onOpenThread, onRenameThread, onMoveThread, onRemoveFromProject, onDeleteThread, onSubmitPrompt, isSending = false }: Props) {
+export default function ProjectHomeView({ project, activeThreadId = null, onOpenThread, onRenameThread, onMoveThread, onRemoveFromProject, onDeleteThread, onSubmitPrompt, isSending = false, attachedFiles, onAttachFiles }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("스레드");
   if (!project) return null;
   return (
@@ -404,18 +695,23 @@ export default function ProjectHomeView({ project, activeThreadId = null, onOpen
         <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 20px 0" }}>
           <div style={{ marginBottom: 24 }}>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--text-main)", marginBottom: 6 }}>{project.title}</h1>
-            <div style={{ fontSize: 13, color: "var(--text-sub)" }}>스레드 {project.threadCount}개</div>
+            <div style={{ fontSize: 13, color: "var(--text-sub)" }}>{t("project.threadCount").replace("{count}", String(project.threadCount))}</div>
           </div>
           {onSubmitPrompt && (
             <div style={{ marginBottom: 24 }}>
-              <ProjectQuickComposer isSending={isSending} onSubmit={onSubmitPrompt} />
+              <ProjectQuickComposer
+                isSending={isSending}
+                onSubmit={onSubmitPrompt}
+                attachedFiles={attachedFiles}
+                onAttachFiles={onAttachFiles}
+              />
             </div>
           )}
           <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid var(--border)" }}>
             {(["스레드", "소스", "지침"] as Tab[]).map(tab => (
               <button key={tab} type="button" onClick={() => setActiveTab(tab)}
                 style={{ padding: "8px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: 14, fontWeight: activeTab === tab ? 600 : 400, color: activeTab === tab ? "var(--text-main)" : "var(--text-sub)", borderBottom: activeTab === tab ? "2px solid var(--text-main)" : "2px solid transparent", marginBottom: -1 }}>
-                {tab}
+                {tab === "스레드" ? t("project.threads") : tab === "소스" ? t("project.sources") : t("project.instructions")}
               </button>
             ))}
           </div>

@@ -1,37 +1,6 @@
 ﻿import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
-
-function env(name: string): string {
-  const value = (globalThis as any)?.process?.env?.[name]
-  return typeof value === "string" ? value.trim() : ""
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function now() {
-  return Date.now()
-}
-
-function normalizeContent(value: any): string {
-  if (typeof value === "string") return value
-
-  if (Array.isArray(value)) {
-    return value
-      .map((x: any) => {
-        if (typeof x === "string") return x
-        if (typeof x?.text === "string") return x.text
-        if (typeof x?.content === "string") return x.content
-        return ""
-      })
-      .filter(Boolean)
-      .join("\n")
-      .trim()
-  }
-
-  if (value == null) return ""
-  return String(value)
-}
+import { env, sleep, now, normalizeContent, extractProviderError, recordProviderMetric } from "./shared.js"
+import { ADAPTER_TIMEOUT_GEMINI_MS, ADAPTER_TIMEOUT_STREAM_GEMINI_MS, IMAGE_GEN_TIMEOUT_MS, GEMINI_BASE } from "../config/defaults.js"
 
 function splitSystemAndMessages(messages: ModelRequest["messages"]) {
   const system = messages
@@ -151,7 +120,7 @@ async function callGemini(params: {
   const timeoutMs =
     typeof params.req.timeout_ms === "number" && params.req.timeout_ms > 0
       ? params.req.timeout_ms
-      : 20000
+      : ADAPTER_TIMEOUT_GEMINI_MS
 
   const timeoutController = new AbortController()
   const timer = setTimeout(() => timeoutController.abort(), timeoutMs)
@@ -172,7 +141,7 @@ async function callGemini(params: {
 
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${params.model}:generateContent?key=${params.apiKey}`,
+      `${GEMINI_BASE}/models/${params.model}:generateContent?key=${params.apiKey}`,
       {
         method: "POST",
         headers: {
@@ -225,7 +194,7 @@ async function streamGemini(params: {
 }) {
   const timeoutMs = typeof params.timeoutMs === "number" && params.timeoutMs > 0
     ? params.timeoutMs
-    : 60000
+    : ADAPTER_TIMEOUT_STREAM_GEMINI_MS
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -252,7 +221,7 @@ async function streamGemini(params: {
 
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${params.model}:streamGenerateContent?key=${params.apiKey}&alt=sse`,
+      `${GEMINI_BASE}/models/${params.model}:streamGenerateContent?key=${params.apiKey}&alt=sse`,
       {
         method: "POST",
         headers: {
@@ -387,7 +356,7 @@ export const geminiAdapter: ModelAdapter = {
     const timeoutMs =
       typeof req.timeout_ms === "number" && req.timeout_ms > 0
         ? req.timeout_ms
-        : 20000
+        : ADAPTER_TIMEOUT_GEMINI_MS
 
     const requestBody = {
       contents: conversation,
@@ -445,6 +414,7 @@ export const geminiAdapter: ModelAdapter = {
           error_code: streamed.errorCode ?? undefined,
           retriable: !isSuccess && streamed.errorCode !== "aborted"
         })
+        recordProviderMetric("gemini", streamed.latency, isSuccess)
 
         // 클라이언트 abort → 즉시 반환
         if (streamed.errorCode === "aborted") {
@@ -507,8 +477,7 @@ export const geminiAdapter: ModelAdapter = {
         const usage = extractUsage(data)
 
         if (!response.ok) {
-          const apiError = extractApiError(data, response.status)
-          const retriable = isRetriableError(response.status, apiError.code)
+          const apiError = extractProviderError("gemini", data, response.status)
 
           attempts.push({
             provider: req.provider,
@@ -518,12 +487,13 @@ export const geminiAdapter: ModelAdapter = {
             error: apiError.message,
             attempt_no: attemptNo,
             outcome: "error",
-            retriable,
+            retriable: apiError.retriable,
             http_status: response.status,
             error_code: apiError.code
           })
+          recordProviderMetric("gemini", latencyMs, false)
 
-          if (retriable && attemptNo < maxAttempts) {
+          if (apiError.retriable && attemptNo < maxAttempts) {
             await sleep(500 * attemptNo)
             continue
           }
@@ -538,7 +508,7 @@ export const geminiAdapter: ModelAdapter = {
               req.provider,
               `[${model}] ${apiError.message}`,
               apiError.code,
-              retriable
+              apiError.retriable
             )
           }
         }
@@ -558,6 +528,7 @@ export const geminiAdapter: ModelAdapter = {
             http_status: response.status,
             error_code: "empty_response"
           })
+          recordProviderMetric("gemini", latencyMs, false)
 
           if (retriable) {
             await sleep(400 * attemptNo)
@@ -590,6 +561,7 @@ export const geminiAdapter: ModelAdapter = {
           retriable: false,
           http_status: response.status
         })
+        recordProviderMetric("gemini", latencyMs, true)
 
         return {
           provider: req.provider,
@@ -617,6 +589,7 @@ export const geminiAdapter: ModelAdapter = {
             retriable: false,
             error_code: "aborted"
           })
+          recordProviderMetric("gemini", latencyMs, false)
 
           return {
             provider: req.provider,
@@ -643,6 +616,7 @@ export const geminiAdapter: ModelAdapter = {
           retriable,
           error_code: code
         })
+        recordProviderMetric("gemini", latencyMs, false)
 
         if (attemptNo < maxAttempts) {
           await sleep(500 * attemptNo)
@@ -700,7 +674,7 @@ export async function generateImageImagen(params: {
 
   try {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 60000)
+    const timer = setTimeout(() => controller.abort(), IMAGE_GEN_TIMEOUT_MS)
 
     const response = await fetch(
       `https://us-central1-aiplatform.googleapis.com/v1/projects/generativelanguage/locations/us-central1/publishers/google/models/${model}:predict?key=${apiKey}`,
@@ -741,7 +715,7 @@ async function generateImageImagen3Fallback(
 ): Promise<{ ok: boolean; url?: string; base64?: string; mimeType?: string; error?: string }> {
   try {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 60000)
+    const timer = setTimeout(() => controller.abort(), IMAGE_GEN_TIMEOUT_MS)
 
     const body = {
       contents: [{ parts: [{ text: prompt }] }],
@@ -749,7 +723,7 @@ async function generateImageImagen3Fallback(
     }
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${apiKey}`,
+      `${GEMINI_BASE}/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

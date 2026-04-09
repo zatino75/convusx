@@ -1,4 +1,6 @@
 ﻿import type { Message, MessageStatus, Thread } from "./types/workspace";
+import { nowIso } from "./utils/helpers";
+import { t } from "./i18n";
 
 export function createMessage(
   role: "user" | "assistant",
@@ -24,9 +26,8 @@ export function normalizeThreadTitle(input: string | null | undefined) {
     .toLowerCase();
 }
 
-function nowIso() { return new Date().toISOString() }
 
-function isGenericThreadTitle(input: string | null | undefined) {
+export function isGenericThreadTitle(input: string | null | undefined) {
   const normalized = normalizeThreadTitle(input);
 
   if (!normalized) return true;
@@ -52,7 +53,7 @@ function isGenericThreadTitle(input: string | null | undefined) {
 
 export function makeThreadTitle(input: string) {
   const oneLine = input.replace(/\s+/g, " ").trim();
-  if (!oneLine) return "새 채팅";
+  if (!oneLine) return t("chat.newChat");
   return oneLine.slice(0, 32);
 }
 
@@ -60,11 +61,11 @@ export function getVisibleMessages(thread: Thread | null) {
   return (thread?.messages ?? []).filter((message) => !message.isHidden);
 }
 
-function findBaseUserMessageIndex(messages: Message[], messageId: string) {
+export function findBaseUserMessageIndex(messages: Message[], messageId: string) {
   return messages.findIndex((item) => item.id === messageId);
 }
 
-function findNextUserMessageIndex(messages: Message[], startIndex: number) {
+export function findNextUserMessageIndex(messages: Message[], startIndex: number) {
   for (let index = startIndex + 1; index < messages.length; index += 1) {
     if (messages[index]?.role === "user") {
       return index;

@@ -152,7 +152,7 @@ export function findSimilarQuery(
   projectId: string,
   options?: { threshold?: number; limit?: number }
 ): SimilarQueryResult[] {
-  const threshold = options?.threshold ?? 0.15  // 0.18 → 0.15: 한국어 변형어 재현율 개선
+  const threshold = options?.threshold ?? 0.25  // 0.15 → 0.25: 노이즈 감소 (runtimeHelpers는 0.35로 override)
   const limit = options?.limit ?? 5
 
   const queryTokens = tokenize(query)

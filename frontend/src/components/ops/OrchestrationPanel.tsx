@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect } from "react";
+import { t } from "../../i18n";
 import type { UsageSummaryResponse } from "../../api/chat";
 
 type DebugMeta = {
@@ -19,6 +20,7 @@ type DebugMeta = {
   recoveryToModel?: string | null;
   providerStatusMap?: Record<string, any>;
   providerStreamSummary?: Record<string, any>;
+  providerDrafts?: Array<{ provider: string; content: string }>;
   raw?: unknown;
 };
 
@@ -28,15 +30,15 @@ type Props = {
 };
 
 const PROVIDER_COLOR: Record<string, string> = {
-  openai: "#10a37f", claude: "#d97706", gemini: "#3b82f6", perplexity: "#8b5cf6", system: "#6b7280"
+  openai: "#10a37f", claude: "#c96442", gemini: "#3b82f6", perplexity: "#8b5cf6", system: "#6b7280"
 };
 const PROVIDER_LABEL: Record<string, string> = {
   openai: "OpenAI", claude: "Claude", gemini: "Gemini", perplexity: "Perplexity", system: "System"
 };
 const TASK_LABEL: Record<string, string> = {
-  dialogue: "대화", reasoning: "추론", research: "리서치", code: "코드",
-  writing: "글쓰기", long_doc: "긴 문서", source_promote: "소스 저장", slide_generate: "슬라이드",
-  image_generate: "이미지 생성", video_generate: "비디오 생성"
+  dialogue: t("task.dialogue"), reasoning: t("task.reasoning"), research: t("task.research"), code: t("task.code"),
+  writing: t("task.writing"), long_doc: t("task.long_doc"), source_promote: t("task.source_promote"), slide_generate: t("task.slide_generate"),
+  image_generate: t("task.image_generate"), video_generate: t("task.video_generate")
 };
 
 // 벤치마크 기반 라우팅 근거
@@ -57,14 +59,14 @@ const BILLING_LINKS: Record<string, { url: string; label: string }> = {
 
 // synthesis role → 표시 레이블
 const SYNTHESIS_ROLE_LABEL: Record<string, { label: string; color: string }> = {
-  verified:  { label: "논리 검증", color: "#3b82f6" },
-  patched:   { label: "코드 수정", color: "#10a37f" },
-  edited:    { label: "글 편집",   color: "#d97706" },
-  extracted: { label: "문서 추출", color: "#8b5cf6" },
-  critique:  { label: "크리틱",   color: "#ef4444" }
+  verified:  { label: t("orchestration.synthVerified"), color: "#3b82f6" },
+  patched:   { label: t("orchestration.synthPatched"), color: "#10a37f" },
+  edited:    { label: t("orchestration.synthEdited"),   color: "#c96442" },
+  extracted: { label: t("orchestration.synthExtracted"), color: "#8b5cf6" },
+  critique:  { label: t("orchestration.synthCritique"),   color: "#ef4444" }
 };
 
-const PAGES = ["흐름", "비교", "코드"];
+const PAGES = [t("orchestration.tabFlow"), t("orchestration.tabCompare"), t("orchestration.tabCode")];
 
 function pLabel(p: string | null | undefined) {
   const k = String(p ?? "").trim().toLowerCase();
@@ -138,7 +140,7 @@ function JudgeScoreRow({ provider, score, reasons, isWinner }: {
     <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
         <ProviderBadge provider={provider} />
-        {isWinner && <span style={{ fontSize: 10, color: "#10b981", fontWeight: 700 }}>✓ 선택</span>}
+        {isWinner && <span style={{ fontSize: 10, color: "#10b981", fontWeight: 700 }}>{t("orchestration.selected")}</span>}
         <span style={{ marginLeft: "auto", fontSize: 13, fontWeight: 700, color }}>{pct}pt</span>
       </div>
       <div style={{ height: 4, borderRadius: 2, background: "var(--border)", marginBottom: 5 }}>
@@ -161,11 +163,13 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
   const winner = debugMeta.displayWinner?.provider ?? debugMeta.winnerProvider;
   const task = debugMeta.routerTask ?? "";
   const isSourcePromote = task === "source_promote";
-  const internalRationale = (debugMeta.raw as any)?.result?.internal_rationale ?? {};
-  const conflicts: any[] = internalRationale.conflicts ?? [];
+  const rawResult = (debugMeta.raw as Record<string, any>)?.result as Record<string, any> | undefined;
+  const internalRationale = (rawResult?.internal_rationale ?? {}) as Record<string, any>;
+  const conflicts = (internalRationale.conflicts ?? []) as Array<Record<string, any>>;
   const conflictCount = debugMeta.conflictCount ?? conflicts.length;
-  const executedProviders: any[] = internalRationale.executed_providers ?? [];
-  const threadFusionApplied = Boolean((debugMeta.raw as any)?.result?.response_meta?.orchestration?.thread_fusion_applied);
+  const executedProviders = (internalRationale.executed_providers ?? []) as Array<Record<string, any>>;
+  const responseMeta = rawResult?.response_meta as Record<string, any> | undefined;
+  const threadFusionApplied = Boolean((responseMeta?.orchestration as Record<string, any>)?.thread_fusion_applied);
 
   // Judge 점수 비교 데이터
   const judgeScores: Array<{ provider: string; score: number; reasons: string[] }> =
@@ -178,38 +182,39 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
     ? selectionTrace.selected_reasons : [];
 
   // synthesis 적용 여부 (role이 verified/patched/edited/extracted인 항목)
-  const synthProviders = executedProviders.filter((ep: any) => SYNTHESIS_ROLE_LABEL[ep?.role]);
+  const synthProviders = executedProviders.filter((ep) => SYNTHESIS_ROLE_LABEL[String(ep?.role ?? "")]);
 
   const isImageGenerate = task === "image_generate";
   const isVideoGenerate = task === "video_generate";
 
   // 이미지 생성 패널
   if (isImageGenerate) {
-    const imageUrl = (debugMeta.raw as any)?.image_url ?? (debugMeta.raw as any)?.result?.image_url ?? null;
-    const imageUrls: string[] = (debugMeta.raw as any)?.image_urls ?? [];
+    const rawObj = debugMeta.raw as Record<string, any>;
+    const imageUrl = rawObj?.image_url ?? (rawResult as Record<string, any>)?.image_url ?? null;
+    const imageUrls: string[] = (rawObj?.image_urls ?? []) as string[];
     const provider = winner ?? "openai";
     const PROVIDER_LABEL: Record<string, string> = { openai: "DALL-E 3", gemini: "Gemini Imagen 4", midjourney: "Midjourney v6.1" };
     return (
-      <Section title="이미지 생성">
+      <Section title={t("orchestration.imageGen")}>
         <div style={{ padding: 12, borderRadius: 8, background: "var(--bg-sub,#f8fafc)", border: "1px solid var(--border)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <ProviderBadge provider={provider} />
             <span style={{ fontSize: 11, color: "var(--text-sub)" }}>{PROVIDER_LABEL[provider] ?? provider.toUpperCase()}</span>
           </div>
           {imageUrl && (
-            <img src={imageUrl} alt="생성된 이미지" style={{ width: "100%", maxWidth: 320, borderRadius: 8, border: "1px solid var(--border)", display: "block" }}
+            <img src={imageUrl} alt={t("orchestration.generatedImage")} style={{ width: "100%", maxWidth: 320, borderRadius: 8, border: "1px solid var(--border)", display: "block" }}
               onError={e => { (e.target as HTMLImageElement).style.display = "none" }} />
           )}
           {imageUrls.length > 1 && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 6 }}>
               {imageUrls.map((url, i) => (
-                <img key={i} src={url} alt={`이미지 ${i+1}`} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 6, border: "1px solid var(--border)" }}
+                <img key={i} src={url} alt={`${t("orchestration.imageGen")} ${i+1}`} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 6, border: "1px solid var(--border)" }}
                   onError={e => { (e.target as HTMLImageElement).style.display = "none" }} />
               ))}
             </div>
           )}
           {!imageUrl && !imageUrls.length && (
-            <div style={{ fontSize: 12, color: "var(--text-sub)" }}>이미지 URL을 불러오는 중...</div>
+            <div style={{ fontSize: 12, color: "var(--text-sub)" }}>{t("orchestration.imageLoading")}</div>
           )}
         </div>
       </Section>
@@ -223,7 +228,7 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
     const PROVIDER_LABEL: Record<string, string> = { runway: "Runway Gen4 Turbo", gemini: "Gemini Veo 3.1" };
     const isGcs = videoUrl && String(videoUrl).startsWith("gs://");
     return (
-      <Section title="비디오 생성">
+      <Section title={t("orchestration.videoGen")}>
         <div style={{ padding: 12, borderRadius: 8, background: "var(--bg-sub,#f8fafc)", border: "1px solid var(--border)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <ProviderBadge provider={provider} />
@@ -234,11 +239,11 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
           )}
           {videoUrl && isGcs && (
             <div style={{ fontSize: 12, color: "var(--text-sub)", wordBreak: "break-all" }}>
-              <a href={videoUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent,#6366f1)", fontWeight: 600 }}>↗ 비디오 열기 (GCS)</a>
+              <a href={videoUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent,#6366f1)", fontWeight: 600 }}>{t("orchestration.openVideoGcs")}</a>
             </div>
           )}
           {!videoUrl && (
-            <div style={{ fontSize: 12, color: "var(--text-sub)" }}>비디오 URL을 불러오는 중...</div>
+            <div style={{ fontSize: 12, color: "var(--text-sub)" }}>{t("orchestration.videoLoading")}</div>
           )}
         </div>
       </Section>
@@ -247,10 +252,10 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
 
   if (isSourcePromote) {
     return (
-      <Section title="소스 저장">
+      <Section title={t("orchestration.sourcePromote")}>
         <div style={{ padding: 12, borderRadius: 8, background: "#f0fdf4", border: "1px solid #86efac" }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d", marginBottom: 4 }}>✅ 프로젝트 소스 저장 완료</div>
-          <div style={{ fontSize: 12, color: "#166534" }}>현재 스레드 내용이 프로젝트 지식 소스로 승격되었습니다.</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d", marginBottom: 4 }}>{t("orchestration.sourcePromoteDone")}</div>
+          <div style={{ fontSize: 12, color: "#166534" }}>{t("orchestration.sourcePromoteDesc")}</div>
         </div>
       </Section>
     );
@@ -259,7 +264,7 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
   return (
     <>
       {/* 이번 요청 */}
-      <Section title="이번 요청">
+      <Section title={t("orchestration.thisRequest")}>
         <Row label="Winner">
           {winner ? <ProviderBadge provider={winner} /> : <span style={{ fontSize: 12, color: "var(--text-soft)" }}>-</span>}
         </Row>
@@ -270,17 +275,17 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
         </Row>
         {debugMeta.judgeConfidence != null && (
           <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-            <div style={{ fontSize: 12, color: "var(--text-sub)", marginBottom: 6 }}>Judge 신뢰도</div>
+            <div style={{ fontSize: 12, color: "var(--text-sub)", marginBottom: 6 }}>{t("orchestration.judgeConfidence")}</div>
             <ConfidenceBar value={debugMeta.judgeConfidence} />
           </div>
         )}
         {debugMeta.executionStrategy && (
-          <Row label="전략">
+          <Row label={t("orchestration.strategy")}>
             <span style={{ fontSize: 11, color: "var(--text-sub)", fontFamily: "monospace" }}>{debugMeta.executionStrategy}</span>
           </Row>
         )}
         {(debugMeta.requestLatencyMs ?? 0) > 0 && (
-          <Row label="응답 시간">
+          <Row label={t("orchestration.responseTime")}>
             <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)" }}>{((debugMeta.requestLatencyMs ?? 0) / 1000).toFixed(1)}s</span>
           </Row>
         )}
@@ -288,11 +293,11 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
 
       {/* Judge 점수 비교 - 2개 이상 candidate가 있을 때만 */}
       {judgeScores.length >= 2 && (
-        <Section title="Judge 점수 비교">
+        <Section title={t("orchestration.judgeScoreCompare")}>
           {judgeScores
             .slice()
             .sort((a, b) => b.score - a.score)
-            .map((s: any) => (
+            .map((s: { provider: string; score: number; reasons: string[] }) => (
               <JudgeScoreRow
                 key={s.provider}
                 provider={s.provider}
@@ -306,7 +311,7 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
 
       {/* 선택 근거 */}
       {(judgeRationale || selectedReasons.length > 0) && (
-        <Section title="선택 근거">
+        <Section title={t("orchestration.selectionReason")}>
           {judgeRationale && (
             <div style={{ fontSize: 11, color: "var(--text-sub)", marginBottom: 8, lineHeight: 1.6, fontStyle: "italic", padding: "6px 8px", borderRadius: 6, background: "#f9fafb", border: "1px solid var(--border)" }}>
               "{judgeRationale}"
@@ -330,7 +335,7 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
       {/* 라우팅 근거 */}
       {task && TASK_RATIONALE[task] && (
         <div style={{ padding: 10, borderRadius: 8, background: "#f9fafb", border: "1px solid var(--border)", marginBottom: 16 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-soft)", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 6 }}>라우팅 근거</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-soft)", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 6 }}>{t("orchestration.routingReason")}</div>
           <div style={{ fontSize: 11, color: "var(--text-sub)", lineHeight: 1.6 }}>{TASK_RATIONALE[task]}</div>
         </div>
       )}
@@ -343,14 +348,14 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
         if (providers.length === 0) return null;
         const maxScore = Math.max(...providers.map(p => dynScores[p]?.score ?? 0), 1);
         const BREAKDOWN_LABEL: Record<string, string> = {
-          quality: "품질", success: "성공률", latency: "속도", cost_efficiency: "비용효율",
-          freshness: "최신성", confidence: "신뢰도", recent_winner_bonus: "최근승리",
-          conflicts: "충돌↓", fallback: "폴백↓", claims: "근거", decisions: "판단"
+          quality: t("orchestration.breakdownQuality"), success: t("orchestration.breakdownSuccess"), latency: t("orchestration.breakdownLatency"), cost_efficiency: t("orchestration.breakdownCostEfficiency"),
+          freshness: t("orchestration.breakdownFreshness"), confidence: t("orchestration.breakdownConfidence"), recent_winner_bonus: t("orchestration.breakdownRecentWinner"),
+          conflicts: t("orchestration.breakdownConflicts"), fallback: t("orchestration.breakdownFallback"), claims: t("orchestration.breakdownClaims"), decisions: t("orchestration.breakdownDecisions")
         };
         return (
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-soft)", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 8 }}>
-              Dynamic Router Score <span style={{ fontSize: 9, fontWeight: 500, color: "var(--text-soft)", textTransform: "none" as const }}>v4 · 12지표</span>
+              Dynamic Router Score <span style={{ fontSize: 9, fontWeight: 500, color: "var(--text-soft)", textTransform: "none" as const }}>v4 · {t("orchestration.dynamicIndicator")}</span>
             </div>
             {providers.map((p) => {
               const { score, breakdown } = dynScores[p] ?? { score: 0, breakdown: {} };
@@ -364,7 +369,7 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
                 <div key={p} style={{ marginBottom: 10 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                     <ProviderBadge provider={p} />
-                    {isWinner && <span style={{ fontSize: 10, color: "#10b981", fontWeight: 700 }}>선택됨</span>}
+                    {isWinner && <span style={{ fontSize: 10, color: "#10b981", fontWeight: 700 }}>{t("orchestration.selectedLabel")}</span>}
                     <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: "var(--text-main)", fontVariantNumeric: "tabular-nums" as const }}>
                       {score.toFixed(0)}<span style={{ fontSize: 9, color: "var(--text-soft)", fontWeight: 400 }}>/1000</span>
                     </span>
@@ -394,21 +399,21 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
         if (!hasInfo) return null;
         return (
           <div style={{ padding: 10, borderRadius: 8, background: "#eff6ff", border: "1px solid #bfdbfe", marginBottom: 16 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#1d4ed8", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 6 }}>Retrieval 주입</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#1d4ed8", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 6 }}>{t("orchestration.retrievalInjection")}</div>
             <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6 }}>
               {rm.thread_fusions > 0 && (
                 <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#dbeafe", color: "#1d4ed8", fontWeight: 600 }}>
-                  🔗 스레드 {rm.thread_fusions}개
+                  {t("orchestration.threads").replace("{n}", String(rm.thread_fusions))}
                 </span>
               )}
               {rm.matched_sources > 0 && (
                 <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#dbeafe", color: "#1d4ed8", fontWeight: 600 }}>
-                  📄 소스 {rm.matched_sources}개
+                  {t("orchestration.sources").replace("{n}", String(rm.matched_sources))}
                 </span>
               )}
               {rm.project_facts > 0 && (
                 <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "#dbeafe", color: "#1d4ed8", fontWeight: 600 }}>
-                  📌 Facts {rm.project_facts}개
+                  {t("orchestration.facts").replace("{n}", String(rm.project_facts))}
                 </span>
               )}
             </div>
@@ -417,15 +422,15 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
       })()}
 
       {(debugMeta.selectedProviders.length > 0 || (debugMeta.verifierProviders?.length ?? 0) > 0) && (
-        <Section title="Provider 구성">
+        <Section title={t("orchestration.providerConfig")}>
           {debugMeta.selectedProviders.map(p => <div key={p} style={{ marginBottom: 4 }}><ProviderBadge provider={p} role="primary" /></div>)}
           {(debugMeta.verifierProviders ?? []).map(p => <div key={p} style={{ marginBottom: 4 }}><ProviderBadge provider={p} role="verifier" /></div>)}
         </Section>
       )}
 
       {executedProviders.length > 0 && (
-        <Section title="실행 결과">
-          {executedProviders.map((ep: any, idx: number) => {
+        <Section title={t("orchestration.executionResult")}>
+          {executedProviders.map((ep: Record<string, any>, idx: number) => {
             const synthInfo = SYNTHESIS_ROLE_LABEL[ep.role];
             return (
               <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 0", borderBottom: "1px solid var(--border)" }}>
@@ -453,9 +458,9 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
       {/* Synthesis 적용 요약 - synthesis가 실행된 경우 */}
       {synthProviders.length > 0 && (
         <div style={{ padding: 10, borderRadius: 8, background: "#fefce8", border: "1px solid #fde68a", marginBottom: 16 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#92400e", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 6 }}>Synthesis 적용</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#92400e", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 6 }}>{t("orchestration.synthesisApplied")}</div>
           <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 5 }}>
-            {synthProviders.map((ep: any, i: number) => {
+            {synthProviders.map((ep: Record<string, any>, i: number) => {
               const info = SYNTHESIS_ROLE_LABEL[ep.role];
               return (
                 <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, padding: "2px 8px", borderRadius: 10, background: info.color + "15", color: info.color, fontWeight: 600 }}>
@@ -468,31 +473,31 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
         </div>
       )}
 
-      <Section title="검증">
-        <Row label="충돌">
+      <Section title={t("orchestration.validation")}>
+        <Row label={t("orchestration.conflict")}>
           <span style={{ fontSize: 12, fontWeight: 600, color: conflictCount > 0 ? "#f59e0b" : "#10b981" }}>
-            {conflictCount > 0 ? `${conflictCount}건 감지` : "없음 ✓"}
+            {conflictCount > 0 ? t("orchestration.conflictDetected").replace("{n}", String(conflictCount)) : t("orchestration.conflictNone")}
           </span>
         </Row>
-        {conflicts.slice(0, 2).map((c: any, idx: number) => (
+        {conflicts.slice(0, 2).map((c: Record<string, any>, idx: number) => (
           <div key={idx} style={{ padding: "6px 8px", borderRadius: 6, background: "#fffbeb", border: "1px solid #fde68a", marginTop: 6 }}>
             <div style={{ fontSize: 11, color: "#92400e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
-              {c.type?.replace(/_/g, " ")} — {c.summary?.slice(0, 60)}
+              {String(c.type ?? "").replace(/_/g, " ")} — {String(c.summary ?? "").slice(0, 60)}
             </div>
           </div>
         ))}
         {debugMeta.primaryRecovered && (
-          <Row label="복구"><span style={{ fontSize: 11, color: "#f59e0b" }}>Primary 복구됨</span></Row>
+          <Row label={t("orchestration.recovery")}><span style={{ fontSize: 11, color: "#f59e0b" }}>{t("orchestration.primaryRecovered")}</span></Row>
         )}
       </Section>
 
       {/* Conflict Decision 레코드 — 충돌에서 신뢰 provider 판단 */}
       {(() => {
-        const decisions: any[] = internalRationale.conflict_decisions ?? [];
+        const decisions = (internalRationale.conflict_decisions ?? []) as Array<Record<string, any>>;
         if (decisions.length === 0) return null;
         return (
-          <Section title="Conflict Decision">
-            {decisions.slice(0, 4).map((d: any, idx: number) => {
+          <Section title={t("orchestration.conflict")}>
+            {decisions.slice(0, 4).map((d: Record<string, any>, idx: number) => {
               const ctype = String(d.conflict_type ?? "").replace(/_conflict$/, "").replace(/_/g, " ");
               const severityColor = d.severity === "high" ? "#ef4444" : d.severity === "medium" ? "#f59e0b" : "#6b7280";
               const confidencePct = Math.round(Math.min(1, Math.max(0, Number(d.confidence ?? 0))) * 100);
@@ -548,8 +553,10 @@ function PageOrchestration({ debugMeta }: { debugMeta: DebugMeta }) {
 function PageComparison({ debugMeta }: { debugMeta: DebugMeta }) {
   const winner = debugMeta.displayWinner?.provider ?? debugMeta.winnerProvider ?? null;
   const losers: string[] = debugMeta.displayLosers ?? [];
-  const drafts: Array<{ provider: string; content: string }> = (debugMeta as any).providerDrafts ?? [];
-  const executed: any[] = (debugMeta.raw as any)?.result?.internal_rationale?.executed_providers ?? [];
+  const drafts: Array<{ provider: string; content: string }> = debugMeta.providerDrafts ?? [];
+  const rawResultComp = (debugMeta.raw as Record<string, any>)?.result as Record<string, any> | undefined;
+  const internalComp = (rawResultComp?.internal_rationale ?? {}) as Record<string, any>;
+  const executed = (internalComp?.executed_providers ?? []) as Array<Record<string, any>>;
 
   // provider → 응답 텍스트 매핑
   const textMap: Record<string, string> = {};
@@ -566,7 +573,7 @@ function PageComparison({ debugMeta }: { debugMeta: DebugMeta }) {
   if (allProviders.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-soft)", fontSize: 13 }}>
-        대화를 시작하면 AI 응답 비교가 표시됩니다
+        {t("orchestration.noComparison")}
       </div>
     );
   }
@@ -602,7 +609,7 @@ function PageComparison({ debugMeta }: { debugMeta: DebugMeta }) {
               whiteSpace: "pre-wrap", wordBreak: "break-word",
               maxHeight: 220, overflowY: "auto"
             }}>
-              {text || <span style={{ color: "var(--text-soft)", fontStyle: "italic" }}>응답 없음</span>}
+              {text || <span style={{ color: "var(--text-soft)", fontStyle: "italic" }}>{t("orchestration.noResponse")}</span>}
             </div>
           </div>
         );
@@ -626,12 +633,12 @@ function PageCodeFiles({ artifactList }: { artifactList: Array<{ id: string; tit
   }
 
   if (artifactList.length === 0) {
-    return <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-soft)", fontSize: 13 }}>대화 중 생성된 코드 파일이 없습니다</div>;
+    return <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-soft)", fontSize: 13 }}>{t("orchestration.noCodeFiles")}</div>;
   }
 
   return (
     <>
-      <Section title="파일 목록">
+      <Section title={t("orchestration.fileList")}>
         {artifactList.map(artifact => (
           <button key={artifact.id} type="button"
             onClick={() => setSelectedId(artifact.id === selectedId ? null : artifact.id)}
@@ -655,7 +662,7 @@ function PageCodeFiles({ artifactList }: { artifactList: Array<{ id: string; tit
             <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)" }}>{selected.title}</span>
             <button type="button" onClick={handleCopy}
               style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border)", background: copied ? "#10b981" : "transparent", color: copied ? "#fff" : "var(--text-sub)", cursor: "pointer" }}>
-              {copied ? "복사됨 ✓" : "복사"}
+              {copied ? t("orchestration.copiedCheck") : t("orchestration.copy")}
             </button>
           </div>
           <textarea readOnly value={selected.code}
@@ -677,7 +684,7 @@ function PagePreviews({ debugMeta }: { debugMeta: DebugMeta }) {
         <div key={provider} style={{ marginBottom: 12, padding: 12, borderRadius: 10, border: "1px solid var(--border)", background: provider === winner ? pColor(provider) + "06" : "transparent" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
             <ProviderBadge provider={provider} />
-            {provider === winner && <span style={{ fontSize: 10, color: "#10b981", fontWeight: 700 }}>✓ 선택됨</span>}
+            {provider === winner && <span style={{ fontSize: 10, color: "#10b981", fontWeight: 700 }}>✓ {t("orchestration.selectedLabel")}</span>}
             {summary?.chunk_count > 0 && <span style={{ fontSize: 10, color: "var(--text-sub)", marginLeft: "auto" }}>{summary.chunk_count} chunks</span>}
           </div>
           {summary?.preview_excerpt && (
@@ -702,11 +709,11 @@ export default function OrchestrationPanel({ debugMeta, artifactList = [], initi
   }, [initialPage]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "linear-gradient(135deg, #fefef9 0%, #fcfaf2 30%, #f9f5ea 55%, #fcfaf3 80%, #fefef9 100%)" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "linear-gradient(135deg, #fefef9 0%, #f6ede8 30%, #f1e9e6 55%, #f6ede8 80%, #fefef9 100%)" }}>
       {/* 헤더 */}
       <div style={{ padding: "12px 16px 0", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)", display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-          오케스트레이션
+          {t("orchestration.header")}
         </div>
         {/* 탭 */}
         <div style={{ display: "flex", alignItems: "center", gap: 1 }}>

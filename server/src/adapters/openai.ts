@@ -1,4 +1,7 @@
 import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
+import { env, sleep, now, normalizeContent, extractProviderError, recordProviderMetric } from "./shared.js"
+import { ADAPTER_TIMEOUT_MS, IMAGE_GEN_TIMEOUT_MS, OPENAI_BASE } from "../config/defaults.js"
+import { logger } from "../observability/logger.js"
 
 function shouldFallbackToChat(params: { status?: number; code?: string | null; message?: string | null; model?: string | null }): boolean {
   if (String((globalThis as any)?.process?.env?.OPENAI_FORCE_CHAT_COMPLETIONS ?? "").toLowerCase() === "true") return true
@@ -9,37 +12,6 @@ function shouldFallbackToChat(params: { status?: number; code?: string | null; m
   const message = String(params.message ?? "").toLowerCase()
   const hints = ["responses", "unsupported", "unknown parameter", "invalid parameter", "does not support", "input_text", "max_output_tokens"]
   return (status === 400 || status === 404) && hints.some((h) => code.includes(h) || message.includes(h))
-}
-
-function env(name: string): string {
-  const value = (globalThis as any)?.process?.env?.[name]
-  return typeof value === "string" ? value.trim() : ""
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function now() {
-  return Date.now()
-}
-
-function normalizeContent(value: any): string {
-  if (typeof value === "string") return value
-  if (Array.isArray(value)) {
-    return value
-      .map((x: any) => {
-        if (typeof x === "string") return x
-        if (typeof x?.text === "string") return x.text
-        if (typeof x?.content === "string") return x.content
-        return ""
-      })
-      .filter(Boolean)
-      .join("\n")
-      .trim()
-  }
-  if (value == null) return ""
-  return String(value)
 }
 
 function normalizeMessages(messages: ModelRequest["messages"]) {
@@ -137,13 +109,13 @@ function extractUsage(data: any) {
 }
 
 async function callOpenAI(params: { apiKey: string; model: string; req: ModelRequest; body: any }) {
-  const timeoutMs = typeof params.req.timeout_ms === "number" && params.req.timeout_ms > 0 ? params.req.timeout_ms : 60000
+  const timeoutMs = typeof params.req.timeout_ms === "number" && params.req.timeout_ms > 0 ? params.req.timeout_ms : ADAPTER_TIMEOUT_MS
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   const startedAt = now()
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await fetch(`${OPENAI_BASE}/v1/responses`, {
       method: "POST",
       headers: { Authorization: `Bearer ${params.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(params.body),
@@ -168,7 +140,7 @@ async function callOpenAI(params: { apiKey: string; model: string; req: ModelReq
         max_tokens: params.body.max_output_tokens ?? 16384,
         ...(params.body.temperature !== undefined ? { temperature: params.body.temperature } : {})
       }
-      const chatResp = await fetch("https://api.openai.com/v1/chat/completions", {
+      const chatResp = await fetch(`${OPENAI_BASE}/v1/chat/completions`, {
         method: "POST",
         headers: { Authorization: `Bearer ${params.apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify(chatBody),
@@ -189,13 +161,13 @@ async function callOpenAI(params: { apiKey: string; model: string; req: ModelReq
 }
 
 async function callOpenAIStreaming(params: { apiKey: string; model: string; req: ModelRequest; body: any }): Promise<{ text: string; usage: any; latencyMs: number; timedOut: boolean; errorData?: any; httpStatus?: number }> {
-  const timeoutMs = typeof params.req.timeout_ms === "number" && params.req.timeout_ms > 0 ? params.req.timeout_ms : 60000
+  const timeoutMs = typeof params.req.timeout_ms === "number" && params.req.timeout_ms > 0 ? params.req.timeout_ms : ADAPTER_TIMEOUT_MS
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   const startedAt = now()
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await fetch(`${OPENAI_BASE}/v1/responses`, {
       method: "POST",
       headers: { Authorization: `Bearer ${params.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ ...params.body, stream: true }),
@@ -282,7 +254,7 @@ export const openaiAdapter: ModelAdapter = {
     }
 
     const systemPrompt = req.system_prompt ??
-      "You are CORVUS X, a powerful multi-AI workspace that uses GPT-5.2 / GPT-5.4-pro, Claude Sonnet 4.6 / Opus 4.6, Gemini 3.0 Flash / 3.1 Pro, and Perplexity Pro. These models are dynamically selected based on task complexity. These are the actual models running in this system. Answer questions about these models based on your knowledge. Respond in the same language the user writes in. Be concise, accurate, and genuinely helpful."
+      "You are CORVUS X, a powerful multi-AI workspace that uses GPT-5.2 / GPT-5.4-pro, Claude Sonnet 4.6 / Opus 4.6, Gemini 2.5 Pro / 2.0 Flash, and Perplexity Pro. These models are dynamically selected based on task complexity. These are the actual models running in this system. Answer questions about these models based on your knowledge. Respond in the same language the user writes in. Be concise, accurate, and genuinely helpful."
 
     const body: any = {
       model,
@@ -302,7 +274,7 @@ export const openaiAdapter: ModelAdapter = {
       try {
         const streamResult = await callOpenAIStreaming({ apiKey, model, req, body })
         if (streamResult.httpStatus !== undefined && streamResult.httpStatus >= 400) {
-          console.warn(`[OpenAI] streaming HTTP ${streamResult.httpStatus}, falling back to non-streaming`)
+          logger.warn(`[OpenAI] streaming HTTP ${streamResult.httpStatus}, falling back to non-streaming`)
         } else if (streamResult.text || !streamResult.errorData) {
           const text = streamResult.text.trim()
           const latencyMs = streamResult.latencyMs
@@ -317,6 +289,7 @@ export const openaiAdapter: ModelAdapter = {
               outcome: "success",
               retriable: false
             })
+            recordProviderMetric("openai", latencyMs, true)
             return {
               provider: req.provider,
               model,
@@ -326,7 +299,7 @@ export const openaiAdapter: ModelAdapter = {
               streaming_supported: true
             }
           }
-          console.warn("[OpenAI] streaming returned empty text, falling back to non-streaming")
+          logger.warn("[OpenAI] streaming returned empty text, falling back to non-streaming")
         }
       } catch (e: any) {
         const isAbort = e?.name === "AbortError" ||
@@ -345,6 +318,7 @@ export const openaiAdapter: ModelAdapter = {
             retriable: false,
             error_code: "aborted"
           })
+          recordProviderMetric("openai", 0, false)
           return {
             provider: req.provider,
             model,
@@ -354,7 +328,7 @@ export const openaiAdapter: ModelAdapter = {
           }
         }
 
-        console.warn("[OpenAI] streaming error, falling back to non-streaming:", e?.original?.message ?? e?.message ?? "unknown")
+        logger.warn("[OpenAI] streaming error, falling back to non-streaming:", { detail: e?.original?.message ?? e?.message ?? "unknown" })
       }
     }
 
@@ -365,8 +339,7 @@ export const openaiAdapter: ModelAdapter = {
         const usage = extractUsage(data)
 
         if (!response.ok) {
-          const apiError = extractApiError(data, response.status)
-          const retriable = isRetriableError(response.status, apiError.code)
+          const apiError = extractProviderError("openai", data, response.status)
           attempts.push({
             provider: req.provider,
             model,
@@ -375,12 +348,13 @@ export const openaiAdapter: ModelAdapter = {
             error: apiError.message,
             attempt_no: attemptNo,
             outcome: "error",
-            retriable,
+            retriable: apiError.retriable,
             http_status: response.status,
             error_code: apiError.code
           })
+          recordProviderMetric("openai", latencyMs, false)
 
-          if (retriable && attemptNo < maxAttempts) {
+          if (apiError.retriable && attemptNo < maxAttempts) {
             await sleep(500 * attemptNo)
             continue
           }
@@ -391,7 +365,7 @@ export const openaiAdapter: ModelAdapter = {
             answer: "",
             attempts,
             usage,
-            error: buildError(req.provider, `[${model}] ${apiError.message}`, apiError.code, retriable)
+            error: buildError(req.provider, `[${model}] ${apiError.message}`, apiError.code, apiError.retriable)
           }
         }
 
@@ -409,6 +383,7 @@ export const openaiAdapter: ModelAdapter = {
             http_status: response.status,
             error_code: "empty_response"
           })
+          recordProviderMetric("openai", latencyMs, false)
 
           if (retriable) {
             await sleep(400 * attemptNo)
@@ -436,6 +411,7 @@ export const openaiAdapter: ModelAdapter = {
           retriable: false,
           http_status: response.status
         })
+        recordProviderMetric("openai", latencyMs, true)
 
         return {
           provider: req.provider,
@@ -463,6 +439,7 @@ export const openaiAdapter: ModelAdapter = {
           retriable,
           error_code: code
         })
+        recordProviderMetric("openai", latencyMs, false)
 
         if (attemptNo < maxAttempts) {
           await sleep(500 * attemptNo)
@@ -514,8 +491,8 @@ export async function generateImage(params: {
 
   try {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 60000)
-    const response = await fetch("https://api.openai.com/v1/images/generations", {
+    const timer = setTimeout(() => controller.abort(), IMAGE_GEN_TIMEOUT_MS)
+    const response = await fetch(`${OPENAI_BASE}/v1/images/generations`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),

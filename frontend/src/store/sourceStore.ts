@@ -18,7 +18,7 @@ const state: SourceState = {
   assets: []
 };
 
-const API_BASE = "http://localhost:8000";
+import { apiFetch } from "../api/url"
 
 function normalizeText(value: string): string {
   return String(value ?? "").trim();
@@ -97,12 +97,7 @@ export async function fetchProjectAssets(projectId: string): Promise<SourceAsset
   const safeProjectId = normalizeText(projectId);
   if (!safeProjectId) return [];
 
-  const url = new URL("/api/project-sources", API_BASE);
-  url.searchParams.set("projectId", safeProjectId);
-
-  const response = await fetch(url.toString(), {
-    method: "GET"
-  });
+  const response = await apiFetch(`/api/project-sources?projectId=${encodeURIComponent(safeProjectId)}`);
 
   if (!response.ok) {
     throw new Error("failed_to_fetch_project_sources");
@@ -141,7 +136,7 @@ export async function persistAsset(projectId: string, asset: SourceAsset): Promi
     projectId: safeProjectId
   });
 
-  const response = await fetch(`${API_BASE}/api/project-sources`, {
+  const response = await apiFetch("/api/project-sources", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -174,13 +169,11 @@ export async function persistAsset(projectId: string, asset: SourceAsset): Promi
 }
 
 export async function deleteAssetFromServer(projectId: string, assetId: string): Promise<void> {
-  const url = new URL(`/api/project-sources/${assetId}`, API_BASE);
-  url.searchParams.set("projectId", projectId);
-  await fetch(url.toString(), { method: "DELETE" }).catch(() => {});
+  await apiFetch(`/api/project-sources/${assetId}?projectId=${encodeURIComponent(projectId)}`, { method: "DELETE" }).catch(() => {});
 }
 
 export async function patchAssetOnServer(projectId: string, assetId: string, patch: Partial<SourceAsset>): Promise<void> {
-  await fetch(`${API_BASE}/api/project-sources/${assetId}`, {
+  await apiFetch(`/api/project-sources/${assetId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ projectId, ...patch })

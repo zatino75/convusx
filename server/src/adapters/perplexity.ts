@@ -1,17 +1,6 @@
 ﻿import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
-
-function env(name: string): string {
-  const value = (globalThis as any)?.process?.env?.[name]
-  return typeof value === "string" ? value.trim() : ""
-}
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms))
-}
-
-function now() {
-  return Date.now()
-}
+import { env, sleep, now, extractProviderError, recordProviderMetric } from "./shared.js"
+import { ADAPTER_TIMEOUT_MS, PERPLEXITY_BASE } from "../config/defaults.js"
 
 function isRetriableStatus(status: number): boolean {
   return status >= 500 || status === 429 || status === 408
@@ -31,7 +20,7 @@ async function callPerplexity(params: {
   const start = now()
 
   try {
-    const response = await fetch("https://api.perplexity.ai/chat/completions", {
+    const response = await fetch(`${PERPLEXITY_BASE}/chat/completions`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${params.apiKey}`,
@@ -66,7 +55,7 @@ export const perplexityAdapter: ModelAdapter = {
     const timeoutMs =
       typeof (req as any).timeout_ms === "number" && (req as any).timeout_ms > 0
         ? (req as any).timeout_ms
-        : 60000
+        : ADAPTER_TIMEOUT_MS
 
     const maxAttempts =
       typeof req.max_retries === "number" && req.max_retries >= 1
@@ -101,23 +90,22 @@ export const perplexityAdapter: ModelAdapter = {
         const { response, data, latency } = await callPerplexity({ apiKey, body, timeoutMs })
 
         if (!response.ok) {
-          const errMsg = data?.error?.message ?? `http_${response.status}`
-          const errCode = data?.error?.type ?? `http_${response.status}`
-          const retriable = isRetriableStatus(response.status)
+          const apiError = extractProviderError("perplexity", data, response.status)
 
           attempts.push({
             provider: req.provider,
             model,
             status: "error",
             latency_ms: latency,
-            error: errMsg,
+            error: apiError.message,
             attempt_no: attemptNo,
             http_status: response.status,
-            error_code: errCode,
-            retriable
+            error_code: apiError.code,
+            retriable: apiError.retriable
           })
+          recordProviderMetric("perplexity", latency, false)
 
-          if (retriable && attemptNo < maxAttempts) {
+          if (apiError.retriable && attemptNo < maxAttempts) {
             await sleep(500 * attemptNo)
             continue
           }
@@ -128,7 +116,7 @@ export const perplexityAdapter: ModelAdapter = {
             answer: "",
             attempts,
             usage: data?.usage,
-            error: buildError(req.provider, errMsg, errCode, retriable)
+            error: buildError(req.provider, apiError.message, apiError.code, apiError.retriable)
           }
         }
 
@@ -149,6 +137,7 @@ export const perplexityAdapter: ModelAdapter = {
             error_code: "empty_response",
             retriable: attemptNo < maxAttempts
           })
+          recordProviderMetric("perplexity", latency, false)
 
           if (attemptNo < maxAttempts) {
             await sleep(400 * attemptNo)
@@ -182,6 +171,7 @@ export const perplexityAdapter: ModelAdapter = {
           error_code: undefined,
           retriable: false
         })
+        recordProviderMetric("perplexity", latency, true)
 
         return {
           provider: req.provider,
@@ -208,6 +198,7 @@ export const perplexityAdapter: ModelAdapter = {
           error_code: code,
           retriable: true
         })
+        recordProviderMetric("perplexity", latency, false)
 
         if (attemptNo < maxAttempts) {
           await sleep(500 * attemptNo)

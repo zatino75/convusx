@@ -1,4 +1,5 @@
 ﻿import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { t } from "../../i18n";
 
 function FolderIcon() {
   return (
@@ -57,6 +58,9 @@ function ProjectCreateModal({
   return (
     <div
       className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("nav.newProject")}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
           onClose();
@@ -65,22 +69,23 @@ function ProjectCreateModal({
     >
       <div className="project-modal" onMouseDown={(event) => event.stopPropagation()}>
         <div className="project-modal__header">
-          <div className="project-modal__title">새 프로젝트</div>
+          <div className="project-modal__title" id="project-modal-title">{t("nav.newProject")}</div>
 
           <div className="project-modal__actions">
-            <button type="button" className="project-modal__icon-btn" onClick={onClose} aria-label="닫기">
+            <button type="button" className="project-modal__icon-btn" onClick={onClose} aria-label={t("common.close")} style={{ minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <CloseIcon />
             </button>
           </div>
         </div>
 
-        <div className="project-modal__label">프로젝트 이름</div>
+        <label className="project-modal__label" htmlFor="project-name-input">{t("project.projectName")}</label>
 
         <div className="project-modal__input-wrap">
-          <span className="project-modal__input-icon">
+          <span className="project-modal__input-icon" aria-hidden="true">
             <FolderIcon />
           </span>
           <input
+            id="project-name-input"
             ref={inputRef}
             value={value}
             onChange={(event) => onChange(event.target.value)}
@@ -91,24 +96,16 @@ function ProjectCreateModal({
               }
             }}
             className="project-modal__input"
-            placeholder="예: CORVUS X 분석 리서치"
+            placeholder={t("project.namePlaceholder")}
+            aria-required="true"
+            aria-invalid={value.trim().length === 0 && value.length > 0 ? "true" : undefined}
+            maxLength={100}
+            autoComplete="off"
           />
         </div>
 
-        <div className="project-modal__chips">
-          <button type="button" className="project-modal__chip" onClick={() => onChange("CORVUS X")}>
-            CORVUS X
-          </button>
-          <button type="button" className="project-modal__chip" onClick={() => onChange("멀티 AI 리서치")}>
-            멀티 AI 리서치
-          </button>
-          <button type="button" className="project-modal__chip" onClick={() => onChange("UI 고도화")}>
-            UI 고도화
-          </button>
-        </div>
-
         <div className="project-modal__notice">
-          프로젝트를 만들면 프로젝트 홈과 스레드 구조가 분리되어 관리됩니다.
+          {t("project.createNotice")}
         </div>
 
         <div className="project-modal__footer">
@@ -117,8 +114,9 @@ function ProjectCreateModal({
             className="project-modal__submit"
             onClick={onSubmit}
             disabled={!value.trim()}
+            style={{ minHeight: 44 }}
           >
-            생성
+            {t("project.create")}
           </button>
         </div>
       </div>

@@ -1,5 +1,7 @@
 ﻿import { useState } from "react";
 import type { ReactNode } from "react";
+import { copyText } from "../../utils/helpers";
+import { t } from "../../i18n";
 
 function escapeHtml(input: string) {
   return input
@@ -12,7 +14,7 @@ function inlineMarkdown(input: string) {
   const linkPlaceholders: string[] = [];
   const withLinks = input.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, (_, text, url) => {
     const idx = linkPlaceholders.length;
-    linkPlaceholders.push('<a href="' + url + '" target="_blank" rel="noopener noreferrer" style="color:#b8860b;text-decoration:underline;word-break:break-all;">' + escapeHtml(text) + '</a>');
+    linkPlaceholders.push('<a href="' + url + '" target="_blank" rel="noopener noreferrer" style="color:#c96442;text-decoration:underline;word-break:break-all;">' + escapeHtml(text) + '</a>');
     return "\x00LINK" + idx + "\x00";
   });
   let result = escapeHtml(withLinks)
@@ -68,9 +70,6 @@ function alignFromDivider(cell: string): "left" | "center" | "right" {
   return "left";
 }
 
-function copyText(text: string): Promise<void> {
-  return navigator.clipboard.writeText(text).catch(() => {});
-}
 
 const COPY_SVG = <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="9" y="9" width="10" height="10" rx="2" /><path d="M5 15V7a2 2 0 0 1 2-2h8" /></svg>;
 const CHECK_SVG = <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#10a37f" strokeWidth="2.5"><path d="M5 13l4 4L19 7" /></svg>;
@@ -233,7 +232,7 @@ function ChartBlock({ raw }: { raw: string }) {
   const data = parseChartData(raw)
   if (!data) return (
     <div style={{ padding: 12, background: "#fef2f2", borderRadius: 8, color: "#b91c1c", fontSize: 13 }}>
-      차트 데이터 파싱 실패. 형식: type: bar|line|pie / label: value
+      {t("message.chartParseError")}
     </div>
   )
   return (
@@ -291,7 +290,7 @@ function highlightCode(code: string, lang: string): string {
 }
 function CopyButton({
   text,
-  label = "복사"
+  label = t("button.copy")
 }: {
   text: string;
   label?: string;
@@ -310,7 +309,7 @@ function CopyButton({
       type="button"
       className="assistant-inline-copy__button"
       onClick={handleCopy}
-      title={isCopied ? "복사됨!" : label}
+      title={isCopied ? t("button.copyDone") : label}
       style={{ flex: "0 0 auto" }}
     >
       {isCopied ? CHECK_SVG : COPY_SVG}
@@ -402,7 +401,7 @@ function TableBlock({
         }}
       >
         <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(140, 120, 60, 0.7)", textTransform: "lowercase" as const }}>table</span>
-        <CopyButton text={rawTable} label="표 복사" />
+        <CopyButton text={rawTable} label={t("button.copyTable")} />
       </div>
 
       <div
@@ -455,6 +454,24 @@ function TableBlock({
   );
 }
 
+function downloadCode(code: string, language: string) {
+  const extMap: Record<string, string> = {
+    javascript: "js", typescript: "ts", jsx: "jsx", tsx: "tsx",
+    python: "py", java: "java", go: "go", rust: "rs", c: "c", cpp: "cpp",
+    html: "html", css: "css", scss: "scss", json: "json", yaml: "yml",
+    sql: "sql", bash: "sh", shell: "sh", markdown: "md", xml: "xml",
+    ruby: "rb", php: "php", swift: "swift", kotlin: "kt", dart: "dart"
+  };
+  const ext = extMap[language.toLowerCase()] ?? (language.toLowerCase() || "txt");
+  const blob = new Blob([code], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `code.${ext}`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function CodeBlock({
   language,
   code,
@@ -472,16 +489,20 @@ function CodeBlock({
         overflow: "hidden"
       }}
     >
-      <div style={{ position: "sticky", top: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "space-between", height: 42, padding: "0 10px 0 14px", borderBottom: "1px solid var(--code-border)", background: "#f4f6f8" }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", textTransform: "lowercase" }}>{language || "code"}</span>
+      <div style={{ position: "sticky", top: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "space-between", height: 42, padding: "0 10px 0 14px", borderBottom: "1px solid var(--border, #e5e2d9)", background: "var(--bg-soft, rgba(228, 226, 218, 0.50))" }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub, #78716c)", textTransform: "lowercase" }}>{language || "code"}</span>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
           {onOpen ? (
             <button type="button" onClick={onOpen} title="패널에서 열기"
-              style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--text-sub)", border: "1px solid var(--border)", borderRadius: 5, padding: "2px 8px", background: "transparent", cursor: "pointer" }}>
+              style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--text-sub, #78716c)", border: "1px solid var(--border, #e5e2d9)", borderRadius: 5, padding: "2px 8px", background: "transparent", cursor: "pointer" }}>
               <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
               열기
             </button>
           ) : null}
+          <button type="button" onClick={() => downloadCode(code, language)} title="파일 다운로드"
+            style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--text-sub, #78716c)", border: "1px solid var(--border, #e5e2d9)", borderRadius: 5, padding: "2px 8px", background: "transparent", cursor: "pointer" }}>
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
+          </button>
           <CopyButton text={code} label="코드 복사" />
         </div>
       </div>
@@ -571,7 +592,7 @@ export default function renderMessageContent(content: string, options?: { onRela
             return (
               <a key={i} href={m[2]} target="_blank" rel="noopener noreferrer"
                 style={{ fontSize: 11, color: "var(--text-sub, #888)", textDecoration: "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 200 }}
-                onMouseOver={e => (e.currentTarget.style.color = "#b8860b")}
+                onMouseOver={e => (e.currentTarget.style.color = "#c96442")}
                 onMouseOut={e => (e.currentTarget.style.color = "var(--text-sub, #888)")}
               >
                 {m[1]}

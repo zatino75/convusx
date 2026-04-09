@@ -1,22 +1,38 @@
-﻿import { logBenchmark, normalizeBenchmarkCase } from "../orchestra/benchmark.js"
+import { logBenchmark, normalizeBenchmarkCase } from "../orchestra/benchmark.js"
 import { resetScoreboard, recordProviderExecution } from "../orchestra/scoreboard.js"
 import { executeOrchestra } from "../orchestra/runtime.js"
 import { evaluateBenchmarkResult } from "../benchmark/evaluator.js"
 import { buildBenchmarkComparison, buildDefaultBenchmarkCases, toBenchmarkRunResult } from "../benchmark/scoreboard.js"
 import fs from "fs"
 import path from "path"
+import { logger } from "../observability/logger.js"
+import { broadcast } from "../http/websocket.js"
+import type { ParsedRequest } from "../http/router.js"
+import type { ExpressLikeResponse } from "../http/response.js"
 
 // ─── 벤치마크 히스토리 ────────────────────────────────────────────────────────
 const HISTORY_FILE = path.resolve(process.cwd(), "server", "data", "benchmark-history.json")
 
-function loadHistory(): any[] {
+interface BenchmarkHistoryEntry {
+  run_at: string
+  case_count: number
+  single_providers: string[]
+  orchestra_wins: number
+  total_cases: number
+  win_rate: number
+  avg_quality_orchestra: number
+  avg_quality_single: number
+  comparison: unknown
+}
+
+function loadHistory(): BenchmarkHistoryEntry[] {
   try {
     if (!fs.existsSync(HISTORY_FILE)) return []
     return JSON.parse(fs.readFileSync(HISTORY_FILE, "utf-8")) ?? []
-  } catch { return [] }
+  } catch (e) { logger.warn("benchmark history load failed", { error: e }); return [] }
 }
 
-function saveHistory(entry: any) {
+function saveHistory(entry: BenchmarkHistoryEntry) {
   try {
     const dir = path.dirname(HISTORY_FILE)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
@@ -25,18 +41,19 @@ function saveHistory(entry: any) {
     // 최근 30개만 유지
     const trimmed = history.slice(-30)
     fs.writeFileSync(HISTORY_FILE, JSON.stringify(trimmed, null, 2), "utf-8")
-  } catch (e: any) {
-    console.error("[BENCHMARK] 히스토리 저장 실패:", e?.message)
+  } catch (e: unknown) {
+    const errMsg = e instanceof Error ? e.message : String(e)
+    logger.error("[BENCHMARK] 히스토리 저장 실패:", { message: errMsg })
   }
 }
 
-export async function runBenchmarkHistoryRoute(_req: any, res: any) {
+export async function runBenchmarkHistoryRoute(_req: unknown, res: ExpressLikeResponse) {
   const history = loadHistory()
   return res.json({ ok: true, count: history.length, history })
 }
 
-export async function runBenchmarkRoute(req: any, res: any) {
-  const body = req?.body ?? {}
+export async function runBenchmarkRoute(req: ParsedRequest, res: ExpressLikeResponse) {
+  const body = (req?.body ?? {}) as Record<string, unknown>
   const cases = Array.isArray(body?.cases) ? body.cases : null
 
   if (!cases) {
@@ -68,7 +85,7 @@ export async function runBenchmarkRoute(req: any, res: any) {
 }
 
 // 단일 provider 실행
-async function runSingleProvider(provider: string, input: any): Promise<any> {
+async function runSingleProvider(provider: string, input: Record<string, unknown>): Promise<Record<string, unknown> | null> {
   try {
     const result = await executeOrchestra({
       ...input,
@@ -78,28 +95,31 @@ async function runSingleProvider(provider: string, input: any): Promise<any> {
       // 단일 모델 강제: verifier/optional 없이 primary만
       _single_provider_override: provider
     })
-    return result
-  } catch {
+    return result as Record<string, unknown>
+  } catch (e) {
+    logger.warn("single provider benchmark run failed", { error: e })
     return null
   }
 }
 
 // orchestra 실행
-async function runOrchestra(input: any): Promise<any> {
+async function runOrchestra(input: Record<string, unknown>): Promise<Record<string, unknown> | null> {
   try {
     const result = await executeOrchestra({
       ...input,
       mode: "runtime_orchestra",
       benchmark_mode: true
     })
-    return result
-  } catch {
+    return result as Record<string, unknown>
+  } catch (e) {
+    logger.warn("orchestra benchmark run failed", { error: e })
     return null
   }
 }
 
-function buildEvalInput(label: string, mode: string, result: any) {
-  const rawJudge = result?.internal_rationale?.judge ?? null
+function buildEvalInput(label: string, mode: string, result: Record<string, unknown>) {
+  const internal = result?.internal_rationale as Record<string, unknown> | undefined
+  const rawJudge = (internal?.judge as Record<string, unknown>) ?? null
   // evaluator의 hasJudgeTrace = !!judgeTrace?.winner 이므로
   // runtime judge는 selected_provider를 사용 → winner로 매핑
   const judgeTrace = rawJudge ? {
@@ -108,62 +128,68 @@ function buildEvalInput(label: string, mode: string, result: any) {
     rationale: rawJudge.rationale ?? rawJudge.decision_rationale ?? (rawJudge.selected_provider ? `selected ${rawJudge.selected_provider} as winner` : null)
   } : null
 
+  const executedProviders = internal?.executed_providers as Array<Record<string, unknown>> | undefined
+  const finalAnswer = result?.final_answer as Record<string, unknown> | undefined
+  const verifier = result?.verifier as Record<string, unknown> | undefined
+
   return {
     label,
     mode,
     final_answer: {
-      answer: result?.final_answer ?? null,
-      provider_chain: result?.internal_rationale?.executed_providers?.map((p: any) => p.provider) ?? [],
-      scoreboard_summary: result?.internal_rationale?.scoreboard_after ?? null,
+      answer: finalAnswer ?? null,
+      provider_chain: executedProviders?.map((p: Record<string, unknown>) => p.provider) ?? [],
+      scoreboard_summary: internal?.scoreboard_after ?? null,
       judge_trace: judgeTrace,
-      claims: result?.internal_rationale?.claims ?? [],
-      conflict_count: result?.internal_rationale?.conflict_count ?? 0,
+      claims: internal?.claims ?? [],
+      conflict_count: internal?.conflict_count ?? 0,
       decision_rationale: rawJudge?.rationale ?? rawJudge?.decision_rationale ?? (rawJudge?.selected_provider ? `selected ${rawJudge.selected_provider}` : null),
-      winner_snapshot: result?.final_answer ? {
-        provider: result.final_answer.provider,
-        text: result.final_answer.text?.slice(0, 200)
+      winner_snapshot: finalAnswer ? {
+        provider: (finalAnswer as Record<string, unknown>).provider,
+        text: String((finalAnswer as Record<string, unknown>).text ?? "").slice(0, 200)
       } : null,
-      runner_up_snapshot: result?.verifier ? {
-        provider: result.verifier.provider,
-        text: result.verifier.text?.slice(0, 200)
+      runner_up_snapshot: verifier ? {
+        provider: verifier.provider,
+        text: String(verifier.text ?? "").slice(0, 200)
       } : null
     }
   }
 }
 
-export async function runBenchmarkRunRoute(req: any, res: any) {
-  const body = req?.body ?? {}
+export async function runBenchmarkRunRoute(req: ParsedRequest | { body: Record<string, unknown> }, res: ExpressLikeResponse) {
+  const body = (req?.body ?? {}) as Record<string, unknown>
 
   // cases: 직접 지정 or 기본 테스트셋 사용
-  const cases = Array.isArray(body?.cases) && body.cases.length > 0
-    ? body.cases
+  const cases = Array.isArray(body?.cases) && (body.cases as unknown[]).length > 0
+    ? body.cases as Array<Record<string, unknown>>
     : buildDefaultBenchmarkCases()
 
   // single_providers: 비교할 단일 모델 목록 (gemini 포함 — reasoning/long_doc 공정 비교)
-  const singleProviders: string[] = Array.isArray(body?.single_providers) && body.single_providers.length > 0
-    ? body.single_providers
+  const singleProviders: string[] = Array.isArray(body?.single_providers) && (body.single_providers as unknown[]).length > 0
+    ? body.single_providers as string[]
     : ["openai", "claude", "gemini", "perplexity"]
 
   // max_cases: 최대 실행 케이스 수 (기본 18개 — task당 3케이스 균등 커버)
   const maxCases = Number(body?.max_cases ?? 18)
 
   // 태스크별 균등 선택 — dialogue만 나오는 문제 해결
-  const taskGroups: Record<string, any[]> = {}
+  const taskGroups: Record<string, Array<Record<string, unknown>>> = {}
   for (const c of cases) {
-    const t = c.input?.task ?? "dialogue"
+    const caseObj = c as Record<string, unknown>
+    const input = caseObj.input as Record<string, unknown> | undefined
+    const t = String(input?.task ?? "dialogue")
     if (!taskGroups[t]) taskGroups[t] = []
-    taskGroups[t].push(c)
+    taskGroups[t].push(caseObj)
   }
   const taskKeys = Object.keys(taskGroups)
   const perTask = Math.max(1, Math.floor(maxCases / taskKeys.length))
-  const selectedCases: any[] = []
+  const selectedCases: Array<Record<string, unknown>> = []
   for (const t of taskKeys) {
     selectedCases.push(...taskGroups[t].slice(0, perTask))
     if (selectedCases.length >= maxCases) break
   }
   // 부족하면 나머지 채우기
   if (selectedCases.length < maxCases) {
-    const remaining = cases.filter((c: any) => !selectedCases.includes(c))
+    const remaining = (cases as Array<Record<string, unknown>>).filter((c) => !selectedCases.includes(c))
     selectedCases.push(...remaining.slice(0, maxCases - selectedCases.length))
   }
 
@@ -171,9 +197,10 @@ export async function runBenchmarkRunRoute(req: any, res: any) {
   const orchestraRuns: any[] = []
 
   for (const benchCase of selectedCases) {
-    const input = {
-      message: benchCase.input.message,
-      task: benchCase.input.task,
+    const caseInput = benchCase.input as Record<string, unknown>
+    const input: Record<string, unknown> = {
+      message: caseInput.message,
+      task: caseInput.task,
       thread_id: `benchmark_${benchCase.id}`,
       project_id: "benchmark"
     }
@@ -181,18 +208,19 @@ export async function runBenchmarkRunRoute(req: any, res: any) {
     // 1. Orchestra 실행
     const orchestraResult = await runOrchestra(input)
     if (orchestraResult) {
-      const evalInput = buildEvalInput(benchCase.label, "orchestra", orchestraResult)
+      const evalInput = buildEvalInput(benchCase.label as string, "orchestra", orchestraResult)
       const evaluation = evaluateBenchmarkResult(evalInput)
       orchestraRuns.push(
         toBenchmarkRunResult(orchestraResult, benchCase, "orchestra", evaluation)
       )
 
+      const responseMeta = orchestraResult?.response_meta as Record<string, unknown> | undefined
       // benchmark.jsonl 로깅
       await logBenchmark({
         ...normalizeBenchmarkCase({
-          meta: { orchestration: orchestraResult?.response_meta?.orchestration }
+          meta: { orchestration: responseMeta?.orchestration }
         }),
-        task: benchCase.input.task,
+        task: caseInput.task,
         case_id: benchCase.id,
         mode: "orchestra"
       })
@@ -202,7 +230,7 @@ export async function runBenchmarkRunRoute(req: any, res: any) {
     for (const provider of singleProviders) {
       const singleResult = await runSingleProvider(provider, input)
       if (singleResult) {
-        const evalInput = buildEvalInput(benchCase.label, `single_${provider}`, singleResult)
+        const evalInput = buildEvalInput(benchCase.label as string, `single_${provider}`, singleResult)
         const evaluation = evaluateBenchmarkResult(evalInput)
         singleRuns.push(
           toBenchmarkRunResult(singleResult, benchCase, `single_${provider}`, evaluation)
@@ -212,18 +240,18 @@ export async function runBenchmarkRunRoute(req: any, res: any) {
   }
 
   // 3. 비교 결과 생성
-  const comparison = buildBenchmarkComparison(singleRuns, orchestraRuns)
+  const comparison = buildBenchmarkComparison(singleRuns, orchestraRuns) as Record<string, unknown>
 
   // ─── Pairwise 승자 → Scoreboard 자동 반영 ────────────────────────────────────
   // 벤치마크 비교 결과를 routing 학습에 직접 피드백
-  // - orchestra 승: winning provider에 weight 1.8 win 기록
-  // - single 승: 해당 single provider에 weight 1.5 win 기록
-  // - tie: 양쪽 모두 weight 0.5 중립 기록
-  for (const pair of comparison.pairwise ?? []) {
+  const pairwise = (comparison.pairwise ?? []) as Array<Record<string, unknown>>
+  for (const pair of pairwise) {
     const task = String(pair?.task ?? "dialogue").trim().toLowerCase()
     const winner = String(pair?.benchmark_winner ?? "")
-    const orchestraProvider = String(pair?.orchestra_provider_chain?.[0] ?? "").toLowerCase() ||
-      String(pair?.winner_snapshot?.provider ?? "").toLowerCase()
+    const providerChain = pair?.orchestra_provider_chain as string[] | undefined
+    const winnerSnapshot = pair?.winner_snapshot as Record<string, unknown> | undefined
+    const orchestraProvider = String(providerChain?.[0] ?? "").toLowerCase() ||
+      String(winnerSnapshot?.provider ?? "").toLowerCase()
     const bestSingleProvider = String(pair?.best_single_provider ?? "").toLowerCase()
 
     if (winner === "orchestra" && orchestraProvider) {
@@ -254,19 +282,31 @@ export async function runBenchmarkRunRoute(req: any, res: any) {
     }
   }
 
+  const summary = (comparison.summary ?? {}) as Record<string, unknown>
+
   // 히스토리 저장
-  const historyEntry = {
+  const historyEntry: BenchmarkHistoryEntry = {
     run_at: new Date().toISOString(),
     case_count: selectedCases.length,
     single_providers: singleProviders,
-    orchestra_wins: comparison?.summary?.orchestra_wins ?? 0,
-    total_cases: comparison?.summary?.total_cases ?? 0,
-    win_rate: comparison?.summary?.win_rate ?? 0,
-    avg_quality_orchestra: comparison?.summary?.avg_quality_orchestra ?? 0,
-    avg_quality_single: comparison?.summary?.avg_quality_single ?? 0,
+    orchestra_wins: Number(summary?.orchestra_wins ?? 0),
+    total_cases: Number(summary?.total_cases ?? 0),
+    win_rate: Number(summary?.win_rate ?? 0),
+    avg_quality_orchestra: Number(summary?.avg_quality_orchestra ?? 0),
+    avg_quality_single: Number(summary?.avg_quality_single ?? 0),
     comparison
   }
   saveHistory(historyEntry)
+
+  // ── WebSocket broadcast: 벤치마크 완료 알림 ──
+  try {
+    broadcast("benchmark:done", {
+      case_count: selectedCases.length,
+      single_providers: singleProviders,
+      win_rate: Number(summary?.win_rate ?? 0),
+      run_at: historyEntry.run_at,
+    })
+  } catch { /* broadcast 실패 무시 */ }
 
   return res.json({
     ok: true,
@@ -282,14 +322,17 @@ const AUTO_BENCHMARK_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24시간
 
 async function runAutoBenchmark() {
   try {
-    const fakeReq = { body: { max_cases: 12 } }
+    const fakeReq = { body: { max_cases: 12 }, method: undefined, url: undefined, headers: {} } as unknown as ParsedRequest
     const results: any[] = []
     const fakeRes = {
-      json: (data: any) => { results.push(data) }
-    }
+      json: (data: unknown) => { results.push(data); return fakeRes },
+      status: (_code: number) => fakeRes,
+      setHeader: (_k: string, _v: string) => fakeRes
+    } as ExpressLikeResponse
     await runBenchmarkRunRoute(fakeReq, fakeRes)
-  } catch (e: any) {
-    console.error("[BENCHMARK] 자동 벤치마크 실패:", e?.message)
+  } catch (e: unknown) {
+    const errMsg = e instanceof Error ? e.message : String(e)
+    logger.error("[BENCHMARK] 자동 벤치마크 실패:", { message: errMsg })
   }
 }
 

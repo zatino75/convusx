@@ -1,4 +1,6 @@
+import { t } from "../../i18n";
 import type { MainViewMode, WorkspaceKind } from "../../types/workspace";
+import type { ConnectionState } from "../../hooks/useConnectionStatus";
 
 type Props = {
   mode: MainViewMode;
@@ -8,6 +10,7 @@ type Props = {
   projectMemoryEnabled?: boolean;
   onBackToHome: () => void;
   panelToggle?: React.ReactNode;
+  connectionStatus?: ConnectionState;
 };
 
 function GridIcon() {
@@ -54,13 +57,32 @@ function ChevronDownIcon() {
   );
 }
 
+function ConnectionBanner({ status }: { status: ConnectionState }) {
+  if (status === "online") return null;
+  const isOffline = status === "offline";
+  const style: React.CSSProperties = {
+    position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999,
+    padding: "6px 16px", textAlign: "center",
+    fontSize: 13, fontWeight: 600, letterSpacing: 0.2,
+    background: isOffline ? "#ef4444" : "#f59e0b",
+    color: "#fff",
+    transition: "all 0.3s ease",
+  };
+  return (
+    <div style={style}>
+      {isOffline ? t("status.offline") : t("status.reconnecting")}
+    </div>
+  );
+}
+
 export default function Topbar({
   mode,
   workspaceKind,
   projectTitle,
   threadTitle,
   onBackToHome,
-  panelToggle
+  panelToggle,
+  connectionStatus
 }: Props) {
   const isThread = mode === "thread-chat";
   const isProject = workspaceKind === "project";
@@ -83,9 +105,11 @@ export default function Topbar({
   };
 
   return (
+    <>
+    {connectionStatus && <ConnectionBanner status={connectionStatus} />}
     <header className="ui-topbar">
       <div className="ui-topbar__left" style={{ gap: 4, overflow: "hidden" }}>
-        <button type="button" onClick={onBackToHome} style={crumbStyle} title="홈으로">
+        <button type="button" onClick={onBackToHome} style={crumbStyle} title={t("nav.goHome")}>
           <GridIcon />
         </button>
 
@@ -127,5 +151,6 @@ export default function Topbar({
         {panelToggle ?? null}
       </div>
     </header>
+    </>
   );
 }

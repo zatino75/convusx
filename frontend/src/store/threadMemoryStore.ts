@@ -19,7 +19,7 @@ const state: State = {
   memories: []
 };
 
-const API_BASE = "http://localhost:8000";
+import { apiFetch } from "../api/url"
 
 function normalizeText(value: string): string {
   return String(value ?? "").trim();
@@ -96,12 +96,7 @@ export async function fetchThreadMemory(threadId: string): Promise<ThreadMemory 
   const safeThreadId = normalizeText(threadId);
   if (!safeThreadId) return null;
 
-  const url = new URL("/api/thread-memory", API_BASE);
-  url.searchParams.set("threadId", safeThreadId);
-
-  const response = await fetch(url.toString(), {
-    method: "GET"
-  });
+  const response = await apiFetch(`/api/thread-memory?threadId=${encodeURIComponent(safeThreadId)}`);
 
   if (!response.ok) {
     throw new Error("failed_to_fetch_thread_memory");
@@ -136,12 +131,7 @@ export async function fetchProjectThreadMemories(projectId: string): Promise<Thr
   const safeProjectId = normalizeText(projectId);
   if (!safeProjectId) return [];
 
-  const url = new URL("/api/project-thread-memories", API_BASE);
-  url.searchParams.set("projectId", safeProjectId);
-
-  const response = await fetch(url.toString(), {
-    method: "GET"
-  });
+  const response = await apiFetch(`/api/project-thread-memories?projectId=${encodeURIComponent(safeProjectId)}`);
 
   if (!response.ok) {
     throw new Error("failed_to_fetch_project_thread_memories");

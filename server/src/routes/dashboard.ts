@@ -1,6 +1,6 @@
 import fs from "fs"
-import { readRoutingScores, readScoreboard, readTaskRoutingScores } from "../orchestra/scoreboard.js"
-import { readModelScoreboard } from "../orchestra/scoreboard.js"
+import { logger } from "../observability/logger.js"
+import { readRoutingScores, readScoreboard, readTaskRoutingScores, readModelScoreboard } from "../orchestra/scoreboard.js"
 
 const BENCH_PATH = "server/data/benchmark.jsonl"
 
@@ -11,7 +11,8 @@ function readJsonl(path: string) {
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line))
-  } catch {
+  } catch (e) {
+    logger.warn("benchmark jsonl read failed", { error: e })
     return []
   }
 }

@@ -7,6 +7,7 @@ export type RunJudgeStepInput = {
   primaryProvider?: string
   projectId?: string
   threadId?: string
+  executionStrategy?: string
 }
 
 export async function runJudgeStep(input: RunJudgeStepInput) {
@@ -17,6 +18,7 @@ export async function runJudgeStep(input: RunJudgeStepInput) {
     primaryProvider: input.primaryProvider,
     projectId: input.projectId,
     threadId: input.threadId,
+    executionStrategy: input.executionStrategy,
   })
 
   return finalizeEvaluationArtifacts(artifacts)

@@ -1,17 +1,7 @@
 ﻿import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
-
-function env(name: string): string {
-  const value = (globalThis as any)?.process?.env?.[name]
-  return typeof value === "string" ? value.trim() : ""
-}
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms))
-}
-
-function now() {
-  return Date.now()
-}
+import { env, sleep, now, normalizeContent, recordProviderMetric } from "./shared.js"
+import { ADAPTER_TIMEOUT_MS, ANTHROPIC_BASE } from "../config/defaults.js"
+import { logger } from "../observability/logger.js"
 
 function isRetriableError(status: number, code?: string): boolean {
   if (status >= 500) return true
@@ -31,26 +21,6 @@ function buildError(provider: ModelRequest["provider"], message: string, code?: 
   }
 }
 
-function normalizeContent(value: any): string {
-  if (typeof value === "string") return value
-
-  if (Array.isArray(value)) {
-    return value
-      .map((x: any) => {
-        if (typeof x === "string") return x
-        if (typeof x?.text === "string") return x.text
-        if (typeof x?.content === "string") return x.content
-        return ""
-      })
-      .filter(Boolean)
-      .join("\n")
-      .trim()
-  }
-
-  if (value == null) return ""
-  return String(value)
-}
-
 function splitSystemAndMessages(messages: ModelRequest["messages"]) {
   const system = messages
     .filter((m) => m.role === "system")
@@ -65,6 +35,11 @@ function splitSystemAndMessages(messages: ModelRequest["messages"]) {
       content: normalizeContent((m as any).content)
     }))
     .filter((m) => m.content.length > 0)
+
+  // Anthropic API requires the last message to be a user message (no assistant prefill)
+  while (conversation.length > 0 && conversation[conversation.length - 1].role === "assistant") {
+    conversation.pop()
+  }
 
   return {
     system,
@@ -97,14 +72,14 @@ async function callAnthropic(params: {
 }) {
   const timeoutMs = typeof params.timeoutMs === "number" && params.timeoutMs > 0
     ? params.timeoutMs
-    : 60000
+    : ADAPTER_TIMEOUT_MS
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   const start = now()
 
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch(`${ANTHROPIC_BASE}/v1/messages`, {
       method: "POST",
       headers: {
         "x-api-key": params.apiKey,
@@ -139,14 +114,14 @@ async function streamAnthropic(params: {
 }) {
   const timeoutMs = typeof params.timeoutMs === "number" && params.timeoutMs > 0
     ? params.timeoutMs
-    : 60000
+    : ADAPTER_TIMEOUT_MS
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   const start = now()
 
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch(`${ANTHROPIC_BASE}/v1/messages`, {
       method: "POST",
       headers: {
         "x-api-key": params.apiKey,
@@ -167,6 +142,8 @@ async function streamAnthropic(params: {
         const text = await response.text().catch(() => "")
         return { error: { type: "request_failed", message: text } }
       })
+
+      logger.error("[CLAUDE_ADAPTER] API error:", { error: data?.error ?? data })
 
       return {
         ok: false,
@@ -287,7 +264,7 @@ export const claudeAdapter: ModelAdapter = {
     const timeoutMs =
       typeof (req as any).timeout_ms === "number" && (req as any).timeout_ms > 0
         ? (req as any).timeout_ms
-        : 60000
+        : ADAPTER_TIMEOUT_MS
 
     if (!apiKey) {
       return {
@@ -310,42 +287,86 @@ export const claudeAdapter: ModelAdapter = {
       }))
     }
 
-    // ── 스트리밍 경로: 재시도 1회
+    // ── 스트리밍 경로: 실패 시 비스트리밍 폴백
     if (onToken) {
-      const maxAttempts = 2
+      const streamed = await streamAnthropic({ apiKey, payload, onToken, timeoutMs })
 
-      for (let attemptNo = 1; attemptNo <= maxAttempts; attemptNo += 1) {
-        const streamed = await streamAnthropic({ apiKey, payload, onToken, timeoutMs })
+      const isSuccess = streamed.ok && !!streamed.text
+      attempts.push({
+        provider: req.provider,
+        model,
+        status: isSuccess ? "success" : "error",
+        latency_ms: streamed.latency,
+        error: streamed.errorCode,
+        attempt_no: 1,
+        http_status: isSuccess ? 200 : 500,
+        error_code: streamed.errorCode ?? undefined,
+        retriable: !!streamed.errorCode
+      })
+      recordProviderMetric("claude", streamed.latency, isSuccess)
 
-        const isSuccess = streamed.ok && !!streamed.text
-        attempts.push({
+      if (isSuccess) {
+        return {
           provider: req.provider,
           model,
-          status: isSuccess ? "success" : "error",
-          latency_ms: streamed.latency,
-          error: streamed.errorCode,
-          attempt_no: attemptNo,
-          http_status: isSuccess ? 200 : 500,
-          error_code: streamed.errorCode ?? undefined,
-          retriable: !!streamed.errorCode
-        })
+          answer: streamed.text,
+          usage: streamed?.data?.usage,
+          attempts,
+          streaming_supported: true
+        }
+      }
 
-        if (isSuccess) {
+      // 스트리밍 실패 → 비스트리밍 폴백 (OpenAI 어댑터와 동일한 패턴)
+      logger.warn("[CLAUDE_ADAPTER] streaming failed, falling back to non-streaming:", { errorCode: streamed.errorCode })
+      try {
+        const { response, data, latency } = await callAnthropic({ apiKey, payload, timeoutMs })
+        const answer = extractText(data)
+        const code = typeof data?.error?.type === "string" ? data.error.type : undefined
+
+        if (response.ok && answer) {
+          attempts.push({
+            provider: req.provider,
+            model,
+            status: "success",
+            latency_ms: latency,
+            error: null,
+            attempt_no: 2,
+            http_status: response.status,
+            error_code: undefined,
+            retriable: false
+          })
+          recordProviderMetric("claude", latency, true)
+
+          // 비스트리밍 결과를 onToken 으로 전달
+          if (onToken) {
+            await onToken(answer)
+          }
+
           return {
             provider: req.provider,
             model,
-            answer: streamed.text,
-            usage: streamed?.data?.usage,
+            answer,
+            usage: data?.usage,
             attempts,
-            streaming_supported: true
+            streaming_supported: false
           }
         }
 
-        // 재시도 가능 + 남은 시도 있을 때만 대기
-        if (attemptNo < maxAttempts) {
-          await sleep(500 * attemptNo)
-          continue
-        }
+        logger.error("[CLAUDE_ADAPTER] non-streaming fallback also failed:", { error: data?.error ?? data })
+        attempts.push({
+          provider: req.provider,
+          model,
+          status: "error",
+          latency_ms: latency,
+          error: code ?? "request_failed",
+          attempt_no: 2,
+          http_status: response.status,
+          error_code: code,
+          retriable: false
+        })
+        recordProviderMetric("claude", latency, false)
+      } catch (fallbackErr: any) {
+        logger.error("[CLAUDE_ADAPTER] non-streaming fallback error:", { error: fallbackErr?.original?.message ?? fallbackErr })
       }
 
       return {
@@ -383,6 +404,7 @@ export const claudeAdapter: ModelAdapter = {
             error_code: code,
             retriable
           })
+          recordProviderMetric("claude", latency, false)
 
           if (retriable && attemptNo < maxAttempts) {
             await sleep(500 * attemptNo)
@@ -411,6 +433,7 @@ export const claudeAdapter: ModelAdapter = {
             error_code: "empty_response",
             retriable: attemptNo < maxAttempts
           })
+          recordProviderMetric("claude", latency, false)
 
           if (attemptNo < maxAttempts) {
             await sleep(400 * attemptNo)
@@ -438,6 +461,7 @@ export const claudeAdapter: ModelAdapter = {
           error_code: undefined,
           retriable: false
         })
+        recordProviderMetric("claude", latency, true)
 
         return {
           provider: req.provider,
@@ -464,6 +488,7 @@ export const claudeAdapter: ModelAdapter = {
           error_code: code,
           retriable: true
         })
+        recordProviderMetric("claude", latency, false)
 
         if (attemptNo < maxAttempts) {
           await sleep(500 * attemptNo)

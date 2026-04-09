@@ -22,6 +22,7 @@
     // 🔥 이거 없으면 지금 에러 계속 남
     "baseUrl": "."
   },
-  "include": ["server"]
+  "include": ["server/src"],
+  "exclude": ["server/tests"]
 }
 

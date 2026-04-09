@@ -1,4 +1,6 @@
-﻿export type ChatRequest = {
+﻿import { apiFetch } from "./url"
+
+export type ChatRequest = {
   message: string;
   thread_id?: string;
   project_id?: string;
@@ -392,7 +394,7 @@ export function extractDebugMeta(response: ChatResponse | null | undefined): Deb
 }
 
 export async function sendChat(input: ChatRequest): Promise<ChatResponse> {
-  const response = await fetch("http://localhost:8000/api/chat", {
+  const response = await apiFetch("/api/chat", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -412,27 +414,59 @@ export async function sendChat(input: ChatRequest): Promise<ChatResponse> {
   return payload as ChatResponse;
 }
 
+// ── 대시보드 데이터 메모리 캐시 (stale-while-revalidate) ──
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5분
+const apiCache = new Map<string, { data: any; fetchedAt: number }>();
+
+function getCachedOrFetch<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+  const cached = apiCache.get(key);
+  const now = Date.now();
+  if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
+    return Promise.resolve(cached.data as T);
+  }
+  // stale 데이터가 있으면 즉시 반환 + 백그라운드 갱신
+  if (cached) {
+    fetcher().then((fresh) => apiCache.set(key, { data: fresh, fetchedAt: Date.now() })).catch(() => {});
+    return Promise.resolve(cached.data as T);
+  }
+  // 캐시 없으면 fresh fetch
+  return fetcher().then((data) => {
+    apiCache.set(key, { data, fetchedAt: Date.now() });
+    return data;
+  });
+}
+
+/** 캐시 무효화 (설정 변경, 데이터 리셋 후 호출) */
+export function invalidateDashboardCache() {
+  apiCache.delete("usage");
+  apiCache.delete("scoreboard");
+  apiCache.delete("dashboard");
+}
+
 export async function fetchUsageSummary(): Promise<UsageSummaryResponse> {
-  const response = await fetch("http://localhost:8000/api/usage");
-  const payload = await safeJson(response);
-  return payload as UsageSummaryResponse;
+  return getCachedOrFetch("usage", async () => {
+    const response = await apiFetch("/api/usage");
+    return await safeJson(response) as UsageSummaryResponse;
+  });
 }
 
 export async function fetchScoreboard(): Promise<ScoreboardResponse> {
-  const response = await fetch("http://localhost:8000/api/scoreboard");
-  const payload = await safeJson(response);
-  return payload as ScoreboardResponse;
+  return getCachedOrFetch("scoreboard", async () => {
+    const response = await apiFetch("/api/scoreboard");
+    return await safeJson(response) as ScoreboardResponse;
+  });
 }
 
 export async function fetchDashboard(): Promise<DashboardResponse> {
-  const response = await fetch("http://localhost:8000/api/dashboard");
-  const payload = await safeJson(response);
-  return payload as DashboardResponse;
+  return getCachedOrFetch("dashboard", async () => {
+    const response = await apiFetch("/api/dashboard");
+    return await safeJson(response) as DashboardResponse;
+  });
 }
 
 export async function fetchSettingsKeys(): Promise<{ ok: boolean; keys: Record<string, string> }> {
   try {
-    const res = await fetch("http://localhost:8000/api/settings/keys");
+    const res = await apiFetch("/api/settings/keys");
     return await res.json();
   } catch {
     return { ok: false, keys: {} };
@@ -441,7 +475,7 @@ export async function fetchSettingsKeys(): Promise<{ ok: boolean; keys: Record<s
 
 export async function saveSettingsKeys(keys: Record<string, string>): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch("http://localhost:8000/api/settings/keys", {
+    const res = await apiFetch("/api/settings/keys", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(keys),
@@ -454,12 +488,15 @@ export async function saveSettingsKeys(keys: Record<string, string>): Promise<{ 
 
 export async function resetSettingsData(target: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch("http://localhost:8000/api/settings/reset", {
+    const res = await apiFetch("/api/settings/reset", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Confirm-Reset": "true" },
       body: JSON.stringify({ target }),
     });
-    return await res.json();
+    const result = await res.json();
+    // 데이터 리셋 후 대시보드 캐시 무효화
+    if (result.ok) invalidateDashboardCache();
+    return result;
   } catch {
     return { ok: false, error: "network_error" };
   }

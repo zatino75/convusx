@@ -1,15 +1,64 @@
 import { getLatestProjectContext } from "../memory/projectMemory.js";
 import { getProjectThreadMemories, findSimilarQuery } from "../memory/threadMemory.js";
 
-export function hasText(value: any) {
+/** Loose record type for orchestration data bags */
+type R = Record<string, unknown>
+
+/** Provider execution result */
+interface ProviderResult {
+  provider: string
+  role?: string
+  ok?: boolean
+  text?: string
+  model?: string | null
+  latency_ms?: number
+  usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number; estimated_cost_usd?: number }
+  error_code?: string | null
+  [key: string]: unknown
+}
+
+/** Conflict item from conflict detection */
+interface ConflictItem {
+  type?: string
+  severity?: string
+  weight?: number
+  providers?: string[]
+  [key: string]: unknown
+}
+
+/** Chat message in history */
+interface ChatMessage {
+  role?: string
+  content?: string | Array<string | { text?: string }>
+  [key: string]: unknown
+}
+
+/** Orchestration input */
+export interface OrchestraInput {
+  message?: string
+  messages?: ChatMessage[]
+  project_id?: string
+  thread_id?: string
+  task?: string
+  model?: string
+  metadata?: R
+  benchmark_mode?: boolean
+  deep_analysis?: boolean
+  deep_research?: boolean
+  force_pro?: boolean
+  structured_output?: boolean
+  [key: string]: unknown
+}
+
+export function hasText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0
 }
 
-export function normalizeProvider(value: any) {
+export function normalizeProvider(value: unknown) {
   return String(value ?? "").trim().toLowerCase()
 }
 
-export function uniqueProviders(values: any[]) {
+export function uniqueProviders(values: unknown[]) {
   const seen = new Set<string>()
   const out: string[] = []
 
@@ -24,21 +73,21 @@ export function uniqueProviders(values: any[]) {
   return out
 }
 
-export function extractInboundMessage(input: any) {
+export function extractInboundMessage(input: OrchestraInput) {
   if (hasText(input?.message)) {
     return String(input.message).trim()
   }
 
   if (Array.isArray(input?.messages)) {
     return input.messages
-      .filter((item: any) => String(item?.role ?? "user").trim().toLowerCase() === "user")
-      .map((item: any) => {
+      .filter((item: ChatMessage) => String(item?.role ?? "user").trim().toLowerCase() === "user")
+      .map((item: ChatMessage) => {
         if (typeof item?.content === "string") return item.content
         if (Array.isArray(item?.content)) {
           return item.content
-            .map((part: any) => {
+            .map((part) => {
               if (typeof part === "string") return part
-              if (typeof part?.text === "string") return part.text
+              if (typeof part === "object" && part !== null && typeof part?.text === "string") return part.text
               return ""
             })
             .join("\n")
@@ -101,6 +150,7 @@ function buildThreadFusionBlock(
     .map((w) => w.toLowerCase())
 
   const entityMatchThreads = allThreads.filter((t) => {
+    if (t.thread_id === currentThreadId) return false
     if (relevantThreads.some((r) => r.thread_id === t.thread_id)) return false
     const threadText = [
       t.title ?? "",
@@ -152,7 +202,7 @@ function buildThreadFusionBlock(
     if (charBudget <= 0) break
     const summary = thread.structured?.summary ?? ""
     if (!summary) continue
-    const winnerTag = (thread as any).winner_provider ? ` [${(thread as any).winner_provider.toUpperCase()}]` : ""
+    const winnerTag = (thread as R).winner_provider ? ` [${String((thread as R).winner_provider).toUpperCase()}]` : ""
     const header = `[관련 스레드${thread.title ? ` — ${thread.title}` : ""}${winnerTag}]`
     const body = smartTruncate(summary, Math.min(400, charBudget))
     lines.push(header)
@@ -178,8 +228,8 @@ function buildThreadFusionBlock(
   return { block: lines.join("\n").trim(), matchedCount }
 }
 
-function buildProjectContextBlock(projectContext: any) {
-  const retrieval = projectContext?.retrieval_context ?? {}
+function buildProjectContextBlock(projectContext: R | null) {
+  const retrieval = (projectContext?.retrieval_context ?? {}) as R
 
   const summary = Array.isArray(retrieval?.summary) ? retrieval.summary : []
   const decisions = Array.isArray(retrieval?.decisions) ? retrieval.decisions : []
@@ -211,7 +261,7 @@ function buildProjectContextBlock(projectContext: any) {
   ].join("\n").trim()
 }
 
-export function buildInputWithRetrievalContext(input: any, rawInboundMessage: string) {
+export function buildInputWithRetrievalContext(input: OrchestraInput, rawInboundMessage: string) {
   const projectId = String(input?.project_id ?? "").trim()
   if (!projectId) {
     return {
@@ -278,42 +328,31 @@ export function buildInputWithRetrievalContext(input: any, rawInboundMessage: st
 [USER INPUT]
 ${rawText}`.trim()
 
-  // messages 배열이 있을 경우 마지막 user 메시지를 enrichedInboundMessage로 교체
-  // 그렇지 않으면 adapterDispatcher가 messages 배열을 우선 사용하여 PROJECT CONTEXT가 무시됨
+  // messages 배열(히스토리)은 그대로 유지하고, enrichedInboundMessage를 맨 끝에 추가
+  // 이전 방식: 히스토리의 마지막 user를 대체 → 그 뒤 assistant 응답이 남아 AI가 이미 답변 완료로 착각하는 버그 발생
+  // 수정: 히스토리 전체 보존 + 현재 질문을 끝에 append → AI가 최신 질문에 정확히 응답
   const inputMessages = Array.isArray(input?.messages) ? input.messages : []
   let updatedMessages: typeof inputMessages | undefined = undefined
 
   if (inputMessages.length > 0) {
-    // 마지막 user 메시지 인덱스 찾기
-    let lastUserIdx = -1
-    for (let i = inputMessages.length - 1; i >= 0; i--) {
-      if (String(inputMessages[i]?.role ?? "").trim().toLowerCase() === "user") {
-        lastUserIdx = i
-        break
+    // 히스토리 보존 (assistant 메시지 코드블록 truncate만 적용)
+    const preserved = inputMessages.map((msg: ChatMessage) => {
+      const role = String(msg?.role ?? "").toLowerCase()
+      if (role === "assistant") {
+        const content = typeof msg?.content === "string" ? msg.content : ""
+        const hasCode = (content.match(/```/g) ?? []).length >= 2
+        if (hasCode && content.length > 6000) {
+          return { ...msg, content: content.slice(0, 6000) + "..." }
+        }
+        if (content.length > 8000) {
+          return { ...msg, content: content.slice(0, 8000) + "..." }
+        }
       }
-    }
+      return msg
+    })
 
-    if (lastUserIdx >= 0) {
-      updatedMessages = inputMessages.map((msg: any, idx: number) => {
-        // 마지막 user 메시지: enrichedInboundMessage로 교체
-        if (idx === lastUserIdx) {
-          return { ...msg, content: enrichedInboundMessage }
-        }
-        // 이전 assistant 메시지: 코드블록 포함 시 truncate (오염 방지)
-        const role = String(msg?.role ?? "").toLowerCase()
-        if (role === "assistant") {
-          const content = String(msg?.content ?? "")
-          const hasCode = (content.match(/```/g) ?? []).length >= 2
-          if (hasCode && content.length > 6000) {
-            return { ...msg, content: content.slice(0, 6000) + "..." }
-          }
-          if (content.length > 8000) {
-            return { ...msg, content: content.slice(0, 8000) + "..." }
-          }
-        }
-        return msg
-      })
-    }
+    // 현재 enriched 메시지를 끝에 추가 (AI가 이 질문에 응답하도록)
+    updatedMessages = [...preserved, { role: "user", content: enrichedInboundMessage }]
   }
 
   const retrievalMeta = {
@@ -342,7 +381,7 @@ ${rawText}`.trim()
   }
 }
 
-export function pickText(result: any, partialText: string) {
+export function pickText(result: R | null, partialText: string) {
   if (hasText(partialText)) return String(partialText)
   if (hasText(result?.answer_text)) return String(result.answer_text)
   if (hasText(result?.text)) return String(result.text)
@@ -351,13 +390,15 @@ export function pickText(result: any, partialText: string) {
   return ""
 }
 
-export function buildProviderInput(params: any, task: string, route: any, provider: string, plannerSignals: any, usePro: boolean) {
+export function buildProviderInput(params: OrchestraInput, task: string, route: R, provider: string, plannerSignals: R, usePro: boolean) {
   const explicitModel =
     typeof params?.model === "string" && params.model.trim().length > 0
       ? params.model
       : provider === "openai" && usePro
         ? "gpt-5.4-pro"
-        : undefined
+        : provider === "claude" && usePro
+          ? "claude-opus-4-6"
+          : undefined
 
   return {
     ...params,
@@ -375,7 +416,7 @@ export function buildProviderInput(params: any, task: string, route: any, provid
   }
 }
 
-function buildCandidates(results: any[]) {
+function buildCandidates(results: ProviderResult[]) {
   return results
     .filter((item) => Boolean(item?.ok) && hasText(item?.text))
     .map((item) => ({
@@ -411,7 +452,7 @@ function getSeverityMultiplier(severity: string) {
   return 0.85
 }
 
-export function calculateConflictScore(conflicts: any[]) {
+export function calculateConflictScore(conflicts: ConflictItem[]) {
   let total = 0
 
   for (const conflict of conflicts ?? []) {
@@ -427,7 +468,7 @@ export function calculateConflictScore(conflicts: any[]) {
   return Number(total.toFixed(4))
 }
 
-export function summarizeConflictBuckets(conflicts: any[]) {
+export function summarizeConflictBuckets(conflicts: ConflictItem[]) {
   const rows = Array.isArray(conflicts) ? conflicts : []
 
   const contextConflicts = rows.filter((item) =>
@@ -448,18 +489,19 @@ export function summarizeConflictBuckets(conflicts: any[]) {
   }
 }
 
-export function buildSelectionTrace(judged: any, finalProvider: string, finalRole: string, finalConflicts: any[]) {
-  const scores = Array.isArray(judged?.meta?.judge_scores) ? judged.meta.judge_scores : []
-  const selected = scores.find((row: any) => normalizeProvider(row?.provider) === normalizeProvider(finalProvider)) ?? null
+export function buildSelectionTrace(judged: R | null, finalProvider: string, finalRole: string, finalConflicts: ConflictItem[]) {
+  const meta = (judged?.meta ?? {}) as R
+  const scores = Array.isArray(meta?.judge_scores) ? (meta.judge_scores as R[]) : []
+  const selected = scores.find((row) => normalizeProvider(row?.provider) === normalizeProvider(finalProvider)) ?? null
   const buckets = summarizeConflictBuckets(finalConflicts)
 
   return {
     selected_provider: finalProvider,
     selected_role: finalRole,
-    judge_rationale: judged?.meta?.judge_rationale ?? null,
+    judge_rationale: meta?.judge_rationale ?? null,
     judge_confidence: Number(
-      judged?.meta?.judge_confidence ??
-      judged?.meta?.judge_scores?.[0]?.score ??
+      meta?.judge_confidence ??
+      (scores[0] as R | undefined)?.score ??
       1
     ),
     selected_score: Number(selected?.score ?? 0),
@@ -468,7 +510,7 @@ export function buildSelectionTrace(judged: any, finalProvider: string, finalRol
   }
 }
 
-export function buildWinnerReason(trace: any) {
+export function buildWinnerReason(trace: R) {
   const reasons = Array.isArray(trace?.selected_reasons) ? trace.selected_reasons : []
   const topReasons = reasons.slice(0, 6)
 
@@ -478,12 +520,12 @@ export function buildWinnerReason(trace: any) {
     rationale: trace?.judge_rationale ?? null,
     confidence: Number(trace?.judge_confidence ?? 0),
     top_reasons: topReasons,
-    context_conflicts: Number(trace?.conflict_buckets?.context_conflicts ?? 0),
-    provider_conflicts: Number(trace?.conflict_buckets?.provider_conflicts ?? 0)
+    context_conflicts: Number((trace?.conflict_buckets as R)?.context_conflicts ?? 0),
+    provider_conflicts: Number((trace?.conflict_buckets as R)?.provider_conflicts ?? 0)
   }
 }
 
-export function summarizeProviderConflictLearning(conflicts: any[], providerInput: string) {
+export function summarizeProviderConflictLearning(conflicts: ConflictItem[], providerInput: string) {
   const provider = normalizeProvider(providerInput)
   if (!provider) {
     return {
@@ -583,7 +625,7 @@ export function shouldEscalateAfterEval(params: {
   return false
 }
 
-export function summarizeProviderUsage(results: any[]) {
+export function summarizeProviderUsage(results: ProviderResult[]) {
   return results.map((item) => ({
     provider: item.provider,
     role: item.role ?? "optional",
@@ -600,7 +642,7 @@ export function summarizeProviderUsage(results: any[]) {
   }))
 }
 
-export function buildProviderStatusMap(results: any[], finalProvider: string) {
+export function buildProviderStatusMap(results: ProviderResult[], finalProvider: string) {
   const map: Record<string, {
     provider: string
     role: string
@@ -889,13 +931,13 @@ export function shouldKeepPrimaryWinner(params: {
   const confidence = Number(params?.judged?.meta?.judge_confidence ?? 0)
 
   if (selectedRole === "optional") {
-    return gap < 0.08 || confidence < 0.72
+    return gap < 0.05 && confidence < 0.65
   }
 
   if (selectedRole === "verifier") {
-    // verifier가 이기더라도 점수 차이가 작으면 primary(Claude) 유지
-    // 점수 차이가 0.12 미만 또는 신뢰도 0.75 미만이면 primary 유지
-    return gap < 0.12 || confidence < 0.75
+    // verifier가 이기면 점수 차이가 아주 작고 신뢰도도 낮을 때만 primary 유지
+    // 점수 차이 0.05 미만이고 신뢰도 0.65 미만일 때만 primary 유지
+    return gap < 0.05 && confidence < 0.65
   }
 
   return false

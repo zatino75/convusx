@@ -722,6 +722,12 @@ export function resetScoreboard() {
   return {}
 }
 
+/** 대시보드 표시 값(model_scoreboard)만 초기화 — Judge 이력(scoreboard) 보존 */
+export function resetModelScoreboardAll() {
+  saveModelScoreboard({})
+  return {}
+}
+
 export function updateScoreboardFromBenchmark(record: {
   executed_providers?: unknown[]
   final_provider?: unknown

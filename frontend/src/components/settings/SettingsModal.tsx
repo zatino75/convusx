@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-
-const BASE_URL = "http://localhost:8000";
+import { apiFetch } from "../../api/url";
+import { t } from "../../i18n";
+import { showConfirm } from "../ui/Toast";
+import { validateField } from "../../utils/validation";
+import type { FieldRule } from "../../utils/validation";
 
 type ApiKeys = {
   openai: string;
@@ -29,7 +32,15 @@ const PROVIDER_LINKS: Record<keyof ApiKeys, string> = {
   runway:     "https://app.runwayml.com/settings",
 };
 
-type Tab = "api" | "interface" | "instruction" | "data";
+type Tab = "api" | "interface" | "instruction" | "connector" | "data";
+
+type Instruction = {
+  id: string;
+  title: string;
+  content: string;
+  active: boolean;
+  createdAt: string;
+};
 
 type Props = {
   open: boolean;
@@ -50,9 +61,81 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
   const [resetting, setResetting] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
+  // Key validation state
+  const [keyStatus, setKeyStatus] = useState<Record<string, "idle" | "checking" | "valid" | "invalid">>({});
+  // Inline form validation errors
+  const [keyErrors, setKeyErrors] = useState<Record<string, string | null>>({});
+
+  /** API 키 인라인 검증 */
+  function handleKeyInputValidation(provider: string, value: string) {
+    if (!value.trim()) {
+      // 빈 값은 기존 키 유지 의미이므로 에러 제거
+      setKeyErrors(prev => ({ ...prev, [provider]: null }));
+      return;
+    }
+    const rule: FieldRule = { field: provider, minLength: 10, maxLength: 256 };
+    const error = validateField(value, rule);
+    setKeyErrors(prev => ({ ...prev, [provider]: error }));
+  }
+
+  async function handleValidateKey(provider: string) {
+    setKeyStatus(prev => ({ ...prev, [provider]: "checking" }));
+    try {
+      const res = await apiFetch("/api/settings/validate-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider }),
+      });
+      const data = await res.json();
+      setKeyStatus(prev => ({ ...prev, [provider]: data.ok && data.valid ? "valid" : "invalid" }));
+    } catch {
+      setKeyStatus(prev => ({ ...prev, [provider]: "invalid" }));
+    }
+  }
+
+  function keyStatusIcon(provider: string): string {
+    const s = keyStatus[provider];
+    if (s === "checking") return "⏳";
+    if (s === "valid") return "✅";
+    if (s === "invalid") return "❌";
+    return "";
+  }
+
+  // Interface settings (fonts, line-height)
+  const [fontFamily, setFontFamily] = useState(() => {
+    try { return localStorage.getItem("corvus-x.font-family") ?? "Pretendard"; } catch { return "Pretendard"; }
+  });
+  const [codeFont, setCodeFont] = useState(() => {
+    try { return localStorage.getItem("corvus-x.code-font") ?? "Fira Code"; } catch { return "Fira Code"; }
+  });
+  const [lineHeight, setLineHeight] = useState(() => {
+    try { return parseFloat(localStorage.getItem("corvus-x.line-height") ?? "1.7"); } catch { return 1.7; }
+  });
+
+  // Instructions management
+  const [instructions, setInstructions] = useState<Instruction[]>(() => {
+    try {
+      const stored = localStorage.getItem("corvus-x.instructions");
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
+  const [editingInstruction, setEditingInstruction] = useState<Instruction | null>(null);
+  const [showInstructionForm, setShowInstructionForm] = useState(false);
+
+  // Active providers
+  const [activeProviders, setActiveProviders] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem("corvus-x.active-providers");
+      return stored ? JSON.parse(stored) : ["openai", "anthropic", "gemini", "perplexity"];
+    } catch { return ["openai", "anthropic", "gemini", "perplexity"]; }
+  });
+
+  // Connector expand state
+  const [connectorExpanded, setConnectorExpanded] = useState(false);
+
   useEffect(() => {
     if (!open) return;
-    fetch(`${BASE_URL}/api/settings/keys`)
+    apiFetch("/api/settings/keys")
       .then(r => r.json())
       .then(data => {
         if (data.ok && data.keys) {
@@ -61,28 +144,136 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
         }
       })
       .catch(() => {});
+
+    // Apply CSS variables for fonts and line-height
+    applyInterfaceSettings();
   }, [open]);
+
+  useEffect(() => {
+    applyInterfaceSettings();
+  }, [fontFamily, codeFont, lineHeight]);
+
+  function applyInterfaceSettings() {
+    const root = document.documentElement;
+    root.style.setProperty("--msg-font-family", fontFamily);
+    root.style.setProperty("--code-font-family", codeFont);
+    root.style.setProperty("--msg-line-height", String(lineHeight));
+  }
+
+  function saveFontSettings() {
+    try {
+      localStorage.setItem("corvus-x.font-family", fontFamily);
+      localStorage.setItem("corvus-x.code-font", codeFont);
+      localStorage.setItem("corvus-x.line-height", String(lineHeight));
+    } catch {}
+  }
+
+  function saveInstructions() {
+    try {
+      localStorage.setItem("corvus-x.instructions", JSON.stringify(instructions));
+    } catch {}
+    // Sync global instruction
+    syncGlobalInstruction();
+  }
+
+  function syncGlobalInstruction() {
+    const activeInstructions = instructions.filter(i => i.active).map(i => i.content);
+    const concatenated = activeInstructions.join("\n\n");
+    onGlobalInstructionChange(concatenated);
+  }
+
+  function createOrUpdateInstruction(title: string, content: string) {
+    if (editingInstruction) {
+      // Update
+      const updated = instructions.map(i =>
+        i.id === editingInstruction.id
+          ? { ...i, title, content }
+          : i
+      );
+      setInstructions(updated);
+      saveInstructions();
+    } else {
+      // Create new
+      const newInstruction: Instruction = {
+        id: `instr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        title,
+        content,
+        active: true,
+        createdAt: new Date().toISOString(),
+      };
+      const updated = [newInstruction, ...instructions];
+      setInstructions(updated);
+      saveInstructions();
+    }
+    setEditingInstruction(null);
+    setShowInstructionForm(false);
+  }
+
+  function deleteInstruction(id: string) {
+    const updated = instructions.filter(i => i.id !== id);
+    setInstructions(updated);
+    saveInstructions();
+  }
+
+  function toggleInstructionActive(id: string) {
+    const updated = instructions.map(i =>
+      i.id === id ? { ...i, active: !i.active } : i
+    );
+    setInstructions(updated);
+    saveInstructions();
+  }
+
+  function saveActiveProviders() {
+    try {
+      localStorage.setItem("corvus-x.active-providers", JSON.stringify(activeProviders));
+    } catch {}
+  }
+
+  function toggleProvider(provider: string) {
+    const updated = activeProviders.includes(provider)
+      ? activeProviders.filter(p => p !== provider)
+      : [...activeProviders, provider];
+    setActiveProviders(updated);
+    saveActiveProviders();
+  }
 
   if (!open) return null;
 
   async function handleSaveKeys() {
+    // 저장 전 전체 키 유효성 검사
+    const newErrors: Record<string, string | null> = {};
+    let hasError = false;
+    for (const provider of Object.keys(editKeys) as (keyof ApiKeys)[]) {
+      const value = editKeys[provider];
+      if (!value.trim()) continue; // 빈 값은 기존 키 유지
+      const rule: FieldRule = { field: provider, minLength: 10, maxLength: 256 };
+      const error = validateField(value, rule);
+      newErrors[provider] = error;
+      if (error) hasError = true;
+    }
+    setKeyErrors(prev => ({ ...prev, ...newErrors }));
+    if (hasError) {
+      setSaveMsg(t("settings.saveFailed") + " 입력값을 확인해주세요.");
+      return;
+    }
+
     setSaving(true);
     setSaveMsg("");
     try {
-      const res = await fetch(`${BASE_URL}/api/settings/keys`, {
+      const res = await apiFetch("/api/settings/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(editKeys),
       });
       const data = await res.json();
       if (data.ok) {
-        setSaveMsg("저장됐습니다.");
+        setSaveMsg(t("settings.saved"));
         setKeys({ ...editKeys });
       } else {
-        setSaveMsg("저장 실패: " + (data.error ?? "알 수 없는 오류"));
+        setSaveMsg(t("settings.saveFailed") + (data.error ?? t("settings.unknownError")));
       }
     } catch {
-      setSaveMsg("서버 연결 오류");
+      setSaveMsg(t("settings.serverError"));
     } finally {
       setSaving(false);
       setTimeout(() => setSaveMsg(""), 3000);
@@ -90,30 +281,38 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
   }
 
   async function handleReset(target: string, label: string) {
-    if (!window.confirm(`${label}을 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) return;
+    const confirmed = await showConfirm({
+      message: t("settings.resetConfirmMsg").replace("{label}", label),
+      danger: true,
+    });
+    if (!confirmed) return;
     setResetting(target);
     setResetMsg("");
     try {
-      const res = await fetch(`${BASE_URL}/api/settings/reset`, {
+      const res = await apiFetch("/api/settings/reset", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Confirm-Reset": "true" },
         body: JSON.stringify({ target }),
       });
       const data = await res.json();
-      setResetMsg(data.ok ? `${label} 초기화 완료` : `초기화 실패: ${data.error ?? ""}`);
+      if (data.ok) {
+        setResetMsg(t("settings.resetComplete").replace("{label}", label));
+        setTimeout(() => window.location.reload(), 1200);
+      } else {
+        setResetMsg(t("settings.resetFailed") + (data.error ?? ""));
+      }
     } catch {
-      setResetMsg("서버 연결 오류");
+      setResetMsg(t("settings.serverError"));
     } finally {
       setResetting(null);
-      setTimeout(() => setResetMsg(""), 4000);
     }
   }
 
-  const tabStyle = (t: Tab): React.CSSProperties => ({
+  const tabStyle = (t_tab: Tab): React.CSSProperties => ({
     padding: "8px 18px", borderRadius: 8, border: "none", cursor: "pointer",
     fontSize: 13, fontWeight: 600,
-    background: tab === t ? "var(--accent)" : "transparent",
-    color: tab === t ? "var(--accent-inverse)" : "var(--text-sub)",
+    background: tab === t_tab ? "var(--accent)" : "transparent",
+    color: tab === t_tab ? "var(--accent-inverse)" : "var(--text-sub)",
     transition: "background 0.15s, color 0.15s",
   });
 
@@ -152,18 +351,19 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
       }}>
         {/* 헤더 */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 24px 16px", borderBottom: "1px solid var(--border-soft)" }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: "var(--text-main)" }}>설정</span>
+          <span style={{ fontSize: 16, fontWeight: 700, color: "var(--text-main)" }}>{t("settings.title")}</span>
           <button type="button" onClick={onClose} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: "1px solid var(--border)", background: "transparent", cursor: "pointer", color: "var(--text-sub)" }}>
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
         </div>
 
         {/* 탭 */}
-        <div style={{ display: "flex", gap: 4, padding: "12px 24px", borderBottom: "1px solid var(--border-soft)" }}>
-          <button type="button" style={tabStyle("api")} onClick={() => setTab("api")}>API 키</button>
-          <button type="button" style={tabStyle("interface")} onClick={() => setTab("interface")}>인터페이스</button>
-          <button type="button" style={tabStyle("instruction")} onClick={() => setTab("instruction")}>지침</button>
-          <button type="button" style={tabStyle("data")} onClick={() => setTab("data")}>데이터 관리</button>
+        <div style={{ display: "flex", gap: 4, padding: "12px 24px", borderBottom: "1px solid var(--border-soft)", overflowX: "auto" }}>
+          <button type="button" style={tabStyle("api")} onClick={() => setTab("api")}>{t("settings.apiKeys")}</button>
+          <button type="button" style={tabStyle("interface")} onClick={() => setTab("interface")}>{t("settings.interface")}</button>
+          <button type="button" style={tabStyle("instruction")} onClick={() => setTab("instruction")}>{t("settings.instruction")}</button>
+          <button type="button" style={tabStyle("connector")} onClick={() => setTab("connector")}>{t("settings.connector")}</button>
+          <button type="button" style={tabStyle("data")} onClick={() => setTab("data")}>{t("settings.dataManagement")}</button>
         </div>
 
         {/* 본문 */}
@@ -171,30 +371,74 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
 
           {/* API 키 탭 */}
           {tab === "api" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               <p style={{ margin: 0, fontSize: 13, color: "var(--text-sub)", lineHeight: 1.6 }}>
-                API 키는 서버의 <code style={{ fontSize: 12, background: "var(--bg-soft)", padding: "1px 5px", borderRadius: 4 }}>server/.env</code> 파일에 저장됩니다. 마스킹된 값은 변경되지 않습니다.
+                {t("settings.apiKeyInfo")}
               </p>
-              {(Object.keys(PROVIDER_LABELS) as (keyof ApiKeys)[]).map(provider => (
-                <div key={provider}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                    <label style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)" }}>{PROVIDER_LABELS[provider]}</label>
-                    <a href={PROVIDER_LINKS[provider]} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--accent)", textDecoration: "none" }}>키 발급 →</a>
+
+              {/* 주요 AI 제공자 */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.5px" }}>{t("settings.majorProviders")}</div>
+                {(["openai", "anthropic", "gemini", "perplexity"] as (keyof ApiKeys)[]).map(provider => (
+                  <div key={provider} style={{ marginBottom: 16 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                      <label style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)" }}>
+                        {PROVIDER_LABELS[provider]} {keyStatusIcon(provider) && <span style={{ marginLeft: 4 }}>{keyStatusIcon(provider)}</span>}
+                      </label>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {keys[provider] && (
+                          <button type="button" onClick={() => handleValidateKey(provider)} disabled={keyStatus[provider] === "checking"}
+                            style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, border: "1px solid var(--border)", background: "transparent", color: "var(--text-sub)", cursor: "pointer", whiteSpace: "nowrap" }}>
+                            {keyStatus[provider] === "checking" ? t("settings.validating") : t("settings.validateKey")}
+                          </button>
+                        )}
+                        <a href={PROVIDER_LINKS[provider]} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--accent)", textDecoration: "none" }}>{t("settings.getKey")}</a>
+                      </div>
+                    </div>
+                    <input
+                      type="password"
+                      style={{ ...inputStyle, ...(keyErrors[provider] ? { borderColor: "var(--danger-text)" } : {}) }}
+                      placeholder={keys[provider] || t("settings.keepExisting")}
+                      value={editKeys[provider]}
+                      onChange={e => {
+                        setEditKeys(prev => ({ ...prev, [provider]: e.target.value }));
+                        handleKeyInputValidation(provider, e.target.value);
+                      }}
+                    />
+                    {keyErrors[provider] && (
+                      <div style={{ fontSize: 11, color: "var(--danger-text)", marginTop: 4 }}>{keyErrors[provider]}</div>
+                    )}
                   </div>
-                  <input
-                    type="password"
-                    style={inputStyle}
-                    placeholder={keys[provider] || "입력하지 않으면 기존 값 유지"}
-                    value={editKeys[provider]}
-                    onChange={e => setEditKeys(prev => ({ ...prev, [provider]: e.target.value }))}
-                  />
+                ))}
+              </div>
+
+              {/* 기타 제공자 (콜랩스) */}
+              <details style={{ marginTop: 8 }}>
+                <summary style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", userSelect: "none" }}>{t("settings.otherProviders")}</summary>
+                <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 16 }}>
+                  {(["midjourney", "runway"] as (keyof ApiKeys)[]).map(provider => (
+                    <div key={provider}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                        <label style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)" }}>{PROVIDER_LABELS[provider]}</label>
+                        <a href={PROVIDER_LINKS[provider]} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--accent)", textDecoration: "none" }}>{t("settings.getKey")}</a>
+                      </div>
+                      <input
+                        type="password"
+                        style={inputStyle}
+                        placeholder={keys[provider] || t("settings.keepExisting")}
+                        value={editKeys[provider]}
+                        onChange={e => setEditKeys(prev => ({ ...prev, [provider]: e.target.value }))}
+                      />
+                    </div>
+                  ))}
                 </div>
-              ))}
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 4 }}>
+              </details>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
                 <button type="button" style={btnStyle} onClick={handleSaveKeys} disabled={saving}>
-                  {saving ? "저장 중..." : "저장"}
+                  {saving ? t("settings.saving") : t("settings.save")}
                 </button>
-                {saveMsg && <span style={{ fontSize: 13, color: saveMsg.includes("실패") || saveMsg.includes("오류") ? "var(--danger-text)" : "var(--accent)" }}>{saveMsg}</span>}
+                {saveMsg && <span style={{ fontSize: 13, color: saveMsg.includes(t("settings.saveFailed").slice(0, 4)) || saveMsg.includes(t("settings.serverError").slice(0, 4)) ? "var(--danger-text)" : "var(--accent)" }}>{saveMsg}</span>}
               </div>
             </div>
           )}
@@ -202,44 +446,326 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
           {/* 인터페이스 탭 */}
           {tab === "interface" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+              {/* 글꼴 선택 */}
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)", marginBottom: 12 }}>메시지 폰트 크기</div>
+                <label style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: 8 }}>{t("settings.fontFamily")}</label>
+                <select
+                  value={fontFamily}
+                  onChange={e => { setFontFamily(e.target.value); saveFontSettings(); }}
+                  style={{ ...inputStyle, appearance: "none", paddingRight: 32 }}
+                >
+                  <option value="Pretendard">Pretendard</option>
+                  <option value="Noto Sans KR">Noto Sans KR</option>
+                  <option value="IBM Plex Sans KR">IBM Plex Sans KR</option>
+                  <option value="system-ui">{t("settings.systemDefault")}</option>
+                </select>
+              </div>
+
+              {/* 코드 글꼴 */}
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: 8 }}>{t("settings.codeFont")}</label>
+                <select
+                  value={codeFont}
+                  onChange={e => { setCodeFont(e.target.value); saveFontSettings(); }}
+                  style={{ ...inputStyle, appearance: "none", paddingRight: 32 }}
+                >
+                  <option value="Fira Code">Fira Code</option>
+                  <option value="JetBrains Mono">JetBrains Mono</option>
+                  <option value="Consolas">Consolas</option>
+                  <option value="monospace">{t("settings.systemDefault")}</option>
+                </select>
+              </div>
+
+              {/* 메시지 폰트 크기 */}
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)", marginBottom: 12 }}>{t("settings.messageFontSize")}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                  <span style={{ fontSize: 12, color: "var(--text-soft)", width: 24 }}>작게</span>
+                  <span style={{ fontSize: 12, color: "var(--text-soft)", width: 24 }}>{t("settings.small")}</span>
                   <input
                     type="range" min={13} max={20} step={1}
                     value={fontSize}
                     onChange={e => onFontSizeChange(Number(e.target.value))}
                     style={{ flex: 1, accentColor: "var(--accent)" }}
                   />
-                  <span style={{ fontSize: 12, color: "var(--text-soft)", width: 24 }}>크게</span>
+                  <span style={{ fontSize: 12, color: "var(--text-soft)", width: 24 }}>{t("settings.large")}</span>
                   <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-main)", minWidth: 36, textAlign: "right" }}>{fontSize}px</span>
                 </div>
-                <div style={{ marginTop: 16, padding: "14px 18px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-soft)" }}>
-                  <p style={{ margin: 0, fontSize: fontSize, lineHeight: 1.82, color: "var(--text-main)" }}>
-                    안녕하세요. 이것은 폰트 크기 미리보기 텍스트입니다. CORVUS X에서 AI 답변이 이 크기로 표시됩니다.
-                  </p>
+              </div>
+
+              {/* 줄간격 */}
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)", marginBottom: 12 }}>{t("settings.lineHeight")}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-soft)", minWidth: 32 }}>{t("settings.tight")}</span>
+                  <input
+                    type="range" min={1.4} max={2.0} step={0.1}
+                    value={lineHeight}
+                    onChange={e => { setLineHeight(Number(e.target.value)); saveFontSettings(); }}
+                    style={{ flex: 1, accentColor: "var(--accent)" }}
+                  />
+                  <span style={{ fontSize: 12, color: "var(--text-soft)", minWidth: 32 }}>{t("settings.loose")}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-main)", minWidth: 40, textAlign: "right" }}>{lineHeight.toFixed(1)}</span>
                 </div>
+              </div>
+
+              {/* 미리보기 */}
+              <div style={{ marginTop: 8, padding: "14px 18px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-soft)" }}>
+                <p style={{ margin: 0, fontSize: fontSize, lineHeight: lineHeight, color: "var(--text-main)", fontFamily: fontFamily }}>
+                  {t("settings.previewText")}
+                </p>
               </div>
             </div>
           )}
 
           {/* 지침 탭 */}
           {tab === "instruction" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)", marginBottom: 6 }}>전체 지침</div>
-                <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--text-sub)", lineHeight: 1.6 }}>
-                  모든 대화에 적용됩니다. AI가 항상 따라야 할 규칙, 말투, 형식 등을 입력하세요.
-                </p>
-                <textarea
-                  style={{ width: "100%", minHeight: 140, padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-main)", color: "var(--text-main)", fontSize: 13, lineHeight: 1.7, resize: "vertical", outline: "none", boxSizing: "border-box" as const, fontFamily: "inherit" }}
-                  placeholder={"예시:\n- 항상 한국어로 답변하세요.\n- 답변은 간결하게 핵심만 작성하세요.\n- 코드는 반드시 주석을 포함하세요."}
-                  value={globalInstruction}
-                  onChange={e => onGlobalInstructionChange(e.target.value)}
-                />
-                <p style={{ margin: "8px 0 0", fontSize: 11, color: "var(--text-soft)" }}>변경사항은 자동 저장됩니다.</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* 헤더 및 통계 */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)", marginBottom: 4 }}>{t("settings.manageInstructions")}</div>
+                  <p style={{ margin: 0, fontSize: 12, color: "var(--text-sub)" }}>{t("settings.activeCount").replace("{active}", String(instructions.filter(i => i.active).length)).replace("{total}", String(instructions.length))}</p>
+                </div>
+                <button
+                  type="button"
+                  style={{ ...btnStyle, fontSize: 12 }}
+                  onClick={() => { setEditingInstruction(null); setShowInstructionForm(true); }}
+                >
+                  {t("settings.addInstruction")}
+                </button>
               </div>
+
+              {/* 지침 입력 폼 */}
+              {showInstructionForm && (
+                <div style={{ padding: 16, borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-soft)" }}>
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: 6 }}>{t("settings.titleLabel")}</label>
+                    <input
+                      type="text"
+                      style={inputStyle}
+                      placeholder={t("settings.instructionTitle")}
+                      defaultValue={editingInstruction?.title ?? ""}
+                      id="instruction-title-input"
+                    />
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: 6 }}>{t("settings.contentLabel")}</label>
+                    <textarea
+                      style={{ width: "100%", minHeight: 100, padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-main)", color: "var(--text-main)", fontSize: 13, lineHeight: 1.6, resize: "vertical", outline: "none", boxSizing: "border-box" as const, fontFamily: "monospace" }}
+                      placeholder={t("settings.instructionMarkdown")}
+                      defaultValue={editingInstruction?.content ?? ""}
+                      id="instruction-content-input"
+                    />
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      type="button"
+                      style={btnStyle}
+                      onClick={() => {
+                        const title = (document.getElementById("instruction-title-input") as HTMLInputElement)?.value.trim();
+                        const content = (document.getElementById("instruction-content-input") as HTMLTextAreaElement)?.value.trim();
+                        if (title && content) {
+                          createOrUpdateInstruction(title, content);
+                        }
+                      }}
+                    >
+                      {editingInstruction ? t("settings.edit") : t("settings.add")}
+                    </button>
+                    <button
+                      type="button"
+                      style={{ ...btnStyle, background: "transparent", color: "var(--text-sub)", border: "1px solid var(--border)" }}
+                      onClick={() => { setEditingInstruction(null); setShowInstructionForm(false); }}
+                    >
+                      {t("common.cancel")}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 지침 목록 */}
+              {instructions.length === 0 ? (
+                <p style={{ margin: 0, fontSize: 12, color: "var(--text-soft)", fontStyle: "italic" }}>{t("settings.noInstructions")}</p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {instructions.map(instr => (
+                    <div
+                      key={instr.id}
+                      style={{
+                        padding: 12,
+                        borderRadius: 8,
+                        border: "1px solid var(--border)",
+                        background: instr.active ? "var(--surface-active)" : "transparent",
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 12,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={instr.active}
+                        onChange={() => toggleInstructionActive(instr.id)}
+                        style={{ marginTop: 3, cursor: "pointer", accentColor: "var(--accent)" }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)" }}>{instr.title}</div>
+                        <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-soft)", lineHeight: 1.5 }}>
+                          {instr.content.split("\n")[0].substring(0, 60)}
+                          {instr.content.split("\n")[0].length > 60 ? "..." : ""}
+                        </p>
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          type="button"
+                          style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", cursor: "pointer", fontSize: 11, color: "var(--accent)" }}
+                          onClick={() => { setEditingInstruction(instr); setShowInstructionForm(true); }}
+                        >
+                          {t("settings.edit")}
+                        </button>
+                        <button
+                          type="button"
+                          style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--danger-border)", background: "transparent", cursor: "pointer", fontSize: 11, color: "var(--danger-text)" }}
+                          onClick={() => deleteInstruction(instr.id)}
+                        >
+                          {t("settings.delete")}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 커넥터 탭 */}
+          {tab === "connector" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              <p style={{ margin: 0, fontSize: 13, color: "var(--text-sub)" }}>
+                {t("settings.connectorDesc")}
+              </p>
+
+              {/* AI 제공자 섹션 */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.5px" }}>{t("settings.aiProviders")}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  {["openai", "anthropic", "gemini", "perplexity"].map(provider => (
+                    <div
+                      key={provider}
+                      style={{
+                        padding: 14,
+                        borderRadius: 8,
+                        border: "1px solid var(--border)",
+                        background: "var(--bg-soft)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 10,
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)" }}>
+                          {PROVIDER_LABELS[provider as keyof ApiKeys]}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: "2px 8px",
+                            borderRadius: 4,
+                            background: keys[provider as keyof ApiKeys] ? "var(--surface-active)" : "var(--border)",
+                            color: keys[provider as keyof ApiKeys] ? "var(--accent)" : "var(--text-soft)",
+                          }}
+                        >
+                          {keys[provider as keyof ApiKeys] ? t("settings.connected") : t("settings.disconnected")}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input
+                          type="checkbox"
+                          checked={activeProviders.includes(provider)}
+                          onChange={() => toggleProvider(provider)}
+                          disabled={!keys[provider as keyof ApiKeys]}
+                          style={{ cursor: keys[provider as keyof ApiKeys] ? "pointer" : "not-allowed", accentColor: "var(--accent)" }}
+                        />
+                        <label style={{ fontSize: 11, color: "var(--text-sub)", flex: 1 }}>{t("settings.enableOrchestration")}</label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 외부 서비스 섹션 */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.5px" }}>{t("settings.externalServices")}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  {["GitHub", "Notion", "Figma"].map(service => (
+                    <div
+                      key={service}
+                      style={{
+                        padding: 14,
+                        borderRadius: 8,
+                        border: "1px solid var(--border)",
+                        background: "var(--bg-soft)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 10,
+                        opacity: 0.6,
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)" }}>{service}</div>
+                        <div
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: "2px 8px",
+                            borderRadius: 4,
+                            background: "var(--border)",
+                            color: "var(--text-soft)",
+                          }}
+                        >
+                          {t("settings.comingSoon")}
+                        </div>
+                      </div>
+                      <p style={{ margin: 0, fontSize: 11, color: "var(--text-soft)", fontStyle: "italic" }}>
+                        {t("settings.comingSoonDesc")}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Agent 설정 섹션 */}
+              <details style={{ marginTop: 8 }}>
+                <summary style={{ fontSize: 12, fontWeight: 700, color: "var(--text-sub)", cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", userSelect: "none" }}>{t("settings.agentSettings")}</summary>
+                <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+                  {[
+                    { key: "dialogue", label: t("task.dialogue") },
+                    { key: "reasoning", label: t("task.reasoning") },
+                    { key: "research", label: t("task.research") },
+                    { key: "code", label: t("task.code") },
+                    { key: "writing", label: t("task.writing") },
+                  ].map(({ key, label: taskLabel }) => (
+                    <div
+                      key={key}
+                      style={{
+                        padding: 12,
+                        borderRadius: 8,
+                        border: "1px solid var(--border)",
+                        background: "var(--bg-soft)",
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-main)", marginBottom: 8 }}>{taskLabel}</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 11, color: "var(--text-soft)" }}>
+                        <div>
+                          <span style={{ fontWeight: 500 }}>{t("settings.primary")}</span> OpenAI
+                        </div>
+                        <div>
+                          <span style={{ fontWeight: 500 }}>{t("settings.verifier")}</span> Anthropic
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
             </div>
           )}
 
@@ -247,13 +773,13 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
           {tab === "data" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               <p style={{ margin: 0, fontSize: 13, color: "var(--text-sub)", lineHeight: 1.6 }}>
-                초기화 작업은 되돌릴 수 없습니다. 신중하게 진행하세요.
+                {t("settings.dataWarning")}
               </p>
               {[
-                { target: "thread-memory", label: "대화 메모리", desc: "모든 스레드 대화 내용과 요약을 삭제합니다." },
-                { target: "project-memory", label: "프로젝트 메모리", desc: "프로젝트별 학습 데이터와 소스 자산을 삭제합니다." },
-                { target: "scoreboard", label: "스코어보드", desc: "AI 성능 점수와 사용량 통계를 초기화합니다." },
-                { target: "all", label: "전체 초기화", desc: "위 모든 데이터를 한번에 삭제합니다." },
+                { target: "thread-memory", label: t("settings.chatMemory"), desc: t("settings.chatMemoryDesc") },
+                { target: "project-memory", label: t("settings.projectMemory"), desc: t("settings.projectMemoryDesc") },
+                { target: "scoreboard", label: t("settings.scoreboard"), desc: t("settings.scoreboardDesc") },
+                { target: "all", label: t("settings.resetAll"), desc: t("settings.resetAllDesc") },
               ].map(({ target, label, desc }) => (
                 <div key={target} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, padding: "14px 16px", borderRadius: 10, border: "1px solid var(--border)", background: target === "all" ? "var(--danger-bg)" : "transparent" }}>
                   <div>
@@ -266,12 +792,12 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
                     onClick={() => handleReset(target, label)}
                     disabled={resetting !== null}
                   >
-                    {resetting === target ? "초기화 중..." : "초기화"}
+                    {resetting === target ? t("settings.resetting") : t("settings.reset")}
                   </button>
                 </div>
               ))}
               {resetMsg && (
-                <div style={{ padding: "10px 14px", borderRadius: 8, background: resetMsg.includes("완료") ? "var(--surface-active)" : "var(--danger-bg)", color: resetMsg.includes("완료") ? "var(--accent)" : "var(--danger-text)", fontSize: 13, fontWeight: 600 }}>
+                <div style={{ padding: "10px 14px", borderRadius: 8, background: resetMsg.includes(t("settings.resetComplete").slice(0, 4)) ? "var(--surface-active)" : "var(--danger-bg)", color: resetMsg.includes(t("settings.resetComplete").slice(0, 4)) ? "var(--accent)" : "var(--danger-text)", fontSize: 13, fontWeight: 600 }}>
                   {resetMsg}
                 </div>
               )}

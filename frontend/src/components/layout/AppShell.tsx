@@ -1,7 +1,8 @@
-﻿import { useCallback, useRef, useState, type ReactNode } from "react";
+﻿import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { t } from "../../i18n";
 
 type Props = {
-  sidebar: ReactNode;
+  sidebar: ReactNode | ((options: { onCloseSidebar: () => void }) => ReactNode);
   topbar: ReactNode;
   main: ReactNode;
   artifact?: ReactNode;
@@ -9,16 +10,18 @@ type Props = {
   onTogglePanel?: () => void;
 };
 
-function HamburgerButton({ onClick, title }: { onClick: () => void; title: string }) {
+function HamburgerButton({ onClick, title, ariaExpanded }: { onClick: () => void; title: string; ariaExpanded?: boolean }) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
+      aria-label={title}
+      aria-expanded={ariaExpanded}
       style={{
         flexShrink: 0,
-        width: 36,
-        height: 36,
+        width: 44,
+        height: 44,
         border: "none",
         borderRadius: 8,
         background: "transparent",
@@ -41,12 +44,30 @@ function HamburgerButton({ onClick, title }: { onClick: () => void; title: strin
 
 export default function AppShell({ sidebar, topbar, main, artifact, showPanel = true, onTogglePanel }: Props) {
   const [panelWidth, setPanelWidth] = useState(380);
+  const panelWidthRef = useRef(panelWidth);
+  panelWidthRef.current = panelWidth;
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
   const dragRef = useRef<{ startX: number; startW: number } | null>(null);
+
+  // Detect mobile viewport changes
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 768px)");
+    const handleChange = (e: MediaQueryListEvent | MediaQueryList) => {
+      setIsMobile(e.matches);
+    };
+
+    // Set initial value
+    setIsMobile(mediaQuery.matches);
+
+    // Add listener
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    dragRef.current = { startX: e.clientX, startW: panelWidth };
+    dragRef.current = { startX: e.clientX, startW: panelWidthRef.current };
 
     function onMove(ev: MouseEvent) {
       if (!dragRef.current) return;
@@ -63,28 +84,42 @@ export default function AppShell({ sidebar, topbar, main, artifact, showPanel = 
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [panelWidth]);
+  }, []);
 
   const hasPanel = Boolean(artifact) && showPanel;
 
   return (
     <div className={"app-shell" + (hasPanel ? " app-shell--with-artifact" : "")}>
-      <aside className={"app-shell__sidebar" + (sidebarOpen ? "" : " is-collapsed")} style={{ position: "relative" }}>
-        {sidebar}
+      {/* Backdrop overlay for mobile */}
+      {isMobile && (
+        <div
+          className={"sidebar-backdrop" + (sidebarOpen ? " visible" : "")}
+          onClick={() => setSidebarOpen(false)}
+          style={{ transition: "opacity 0.25s ease" }}
+        />
+      )}
+
+      <aside
+        className={"app-shell__sidebar" + ((sidebarOpen && !hasPanel) ? "" : " is-collapsed")}
+        style={{ position: "relative" }}
+        role="navigation"
+        aria-label={t("nav.sidebar")}
+      >
+        {typeof sidebar === "function" ? sidebar({ onCloseSidebar: () => setSidebarOpen(false) }) : sidebar}
         <div style={{ position: "absolute", top: 8, right: 6, zIndex: 10 }}>
-          <HamburgerButton onClick={() => setSidebarOpen(false)} title="사이드바 닫기" />
+          <HamburgerButton onClick={() => setSidebarOpen(false)} title={t("ui.closeSidebar")} ariaExpanded={true} />
         </div>
       </aside>
 
-      <main className="app-shell__main">
-        <div className="app-shell__topbar">
+      <main className="app-shell__main" role="main" aria-label={t("nav.mainContent")}>
+        <header className="app-shell__topbar" role="banner">
           {!sidebarOpen && (
-            <HamburgerButton onClick={() => setSidebarOpen(true)} title="사이드바 열기" />
+            <HamburgerButton onClick={() => setSidebarOpen(true)} title={t("ui.openSidebar")} ariaExpanded={false} />
           )}
           {topbar}
-        </div>
+        </header>
         <div className="app-shell__body">
-          <section className="app-shell__content">{main}</section>
+          <section className="app-shell__content" aria-label={t("nav.contentArea")}>{main}</section>
 
           {artifact && (
             <>
@@ -102,7 +137,7 @@ export default function AppShell({ sidebar, topbar, main, artifact, showPanel = 
                   }}
                   onMouseEnter={e => (e.currentTarget.style.background = "var(--border)")}
                   onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-                  title="드래그하여 너비 조절"
+                  title={t("ui.dragResize")}
                 />
               )}
               <aside

@@ -1,12 +1,8 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ProjectGroup, Thread } from "../../types/workspace";
-
-type ArtifactItem = {
-  id: string;
-  title: string;
-  code: string;
-  language: string;
-};
+import { t } from "../../i18n";
+import { DashboardIcon, ImageIcon, PlusIcon, SearchIcon, SettingsIcon } from "./SidebarIcons";
+import { type ArtifactItem, ProjectRow, RecentThreadRow, WorkspaceRow } from "./SidebarRows";
 
 type Props = {
   generalThreads: Thread[];
@@ -35,769 +31,8 @@ type Props = {
   onToggleProjectMemory: (projectId: string) => void;
   onToggleThreadPinned?: (threadId: string) => void;
   onOpenSettings?: () => void;
+  onClose?: () => void;
 };
-
-function stripMarkdown(text: string): string {
-  return text
-    .replace(/```[\s\S]*?```/g, "")
-    .replace(/`[^`]+`/g, "")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/\*([^*]+)\*/g, "$1")
-    .replace(/^#+\s+/gm, "")
-    .replace(/^[-*]\s+/gm, "")
-    .replace(/\[\d+\]/g, "")
-    .replace(/!?\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function LogoIcon() {
-  const [failed, setFailed] = useState(false);
-  if (failed) {
-    return (
-      <span style={{
-        display: "inline-flex", alignItems: "center", justifyContent: "center",
-        width: 26, height: 26, borderRadius: "50%",
-        background: "#2a2a2a", color: "#e8d66e",
-        fontSize: 13, fontWeight: 800, fontFamily: "sans-serif", flexShrink: 0
-      }}>X</span>
-    );
-  }
-  return (
-    <img
-      src="/corvus-logo.png"
-      alt="CORVUS X"
-      width="26"
-      height="26"
-      style={{ objectFit: "contain", display: "block" }}
-      onError={() => setFailed(true)}
-    />
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9">
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
-}
-
-function SearchIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9">
-      <circle cx="11" cy="11" r="6" />
-      <path d="M20 20l-4-4" />
-    </svg>
-  );
-}
-
-function ImageIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9">
-      <rect x="4" y="5" width="16" height="14" rx="2" />
-      <circle cx="9" cy="10" r="1.5" />
-      <path d="m20 16-4.5-4.5L8 19" />
-    </svg>
-  );
-}
-
-function FileIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6" />
-    </svg>
-  );
-}
-
-function DashboardIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
-    </svg>
-  );
-}
-function BenchmarkIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9">
-      <path d="M18 20V10M12 20V4M6 20v-6" />
-    </svg>
-  );
-}
-
-function FolderIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9">
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-    </svg>
-  );
-}
-
-function SettingsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.9">
-      <circle cx="12" cy="12" r="3.2" />
-      <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a1 1 0 0 1-1.4 1.4l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V19a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a1 1 0 1 1-1.4-1.4l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H5a1 1 0 0 1-1-1v-1a1 1 0 0 1 1-1h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a1 1 0 1 1 1.4-1.4l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V5a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a1 1 0 1 1 1.4 1.4l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6H19a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1h-.2a1 1 0 0 0-.9.6z" />
-    </svg>
-  );
-}
-
-function PinBadgeIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M8 4h8" />
-      <path d="M9 4v5l-3 4h12l-3-4V4" />
-      <path d="M12 13v7" />
-    </svg>
-  );
-}
-
-function Chevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="11"
-      height="11"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.14s ease" }}
-    >
-      <path d="M9 6l6 6-6 6" />
-    </svg>
-  );
-}
-
-function DotsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
-      <circle cx="5" cy="12" r="1.7" />
-      <circle cx="12" cy="12" r="1.7" />
-      <circle cx="19" cy="12" r="1.7" />
-    </svg>
-  );
-}
-
-function PencilIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M4 20h4l10.5-10.5a2.1 2.1 0 1 0-4-4L4.5 16v4z" />
-    </svg>
-  );
-}
-
-function RemoveIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M5 12h14" />
-      <path d="M12 5v14" opacity="0.35" />
-    </svg>
-  );
-}
-
-function PinIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="m8 4 8 8" />
-      <path d="m9 9 6-6" />
-      <path d="M14 14 7 21" />
-      <path d="m15 5 4 4" />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M4 7h16" />
-      <path d="M10 11v6M14 11v6" />
-      <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" />
-      <path d="M9 7V4h6v3" />
-    </svg>
-  );
-}
-
-function WorkspaceRow({
-  active,
-  icon,
-  label,
-  onClick,
-  emphasized
-}: {
-  active?: boolean;
-  icon?: React.ReactNode;
-  label: string;
-  onClick: () => void;
-  emphasized?: boolean;
-}) {
-  return (
-    <div className={"sidebar-row" + (active ? " is-active" : "") + (emphasized ? " is-emphasized" : "")}>
-      <button type="button" onClick={onClick} className="sidebar-row__main">
-        <span className="sidebar-row__icon">{icon}</span>
-        <span className="sidebar-row__text">{label}</span>
-      </button>
-    </div>
-  );
-}
-
-function MenuButton({
-  title,
-  onClick,
-  danger,
-  children
-}: {
-  title: string;
-  onClick: () => void;
-  danger?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button type="button" className={"menu-item-button" + (danger ? " is-danger" : "")} onClick={onClick}>
-      {children}
-      <span>{title}</span>
-    </button>
-  );
-}
-
-function ProjectActions({
-  open,
-  onToggle,
-  onClose,
-  projectId,
-  onRenameProject,
-  onDeleteProject
-}: {
-  open: boolean;
-  onToggle: () => void;
-  onClose: () => void;
-  projectId: string;
-  onRenameProject: (projectId: string) => void;
-  onDeleteProject: (projectId: string) => void;
-}) {
-  return (
-    <div className="row-menu" data-menu-root>
-      <button type="button" className="row-menu__trigger" onClick={onToggle} aria-expanded={open}>
-        <DotsIcon />
-      </button>
-
-      {open ? (
-        <div className="row-menu__panel">
-          <MenuButton
-            title="이름 바꾸기"
-            onClick={() => {
-              onRenameProject(projectId);
-              onClose();
-            }}
-          >
-            <PencilIcon />
-          </MenuButton>
-
-          <MenuButton
-            title="삭제"
-            danger
-            onClick={() => {
-              onDeleteProject(projectId);
-              onClose();
-            }}
-          >
-            <TrashIcon />
-          </MenuButton>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function ProjectThreadActions({
-  open,
-  onToggle,
-  onClose,
-  thread,
-  projects,
-  onRenameThread,
-  onDeleteThread,
-  onMoveThread
-}: {
-  open: boolean;
-  onToggle: () => void;
-  onClose: () => void;
-  thread: Thread;
-  projects: ProjectGroup[];
-  onRenameThread: (threadId: string) => void;
-  onDeleteThread: (threadId: string) => void;
-  onMoveThread: (threadId: string, nextProjectId: string) => void;
-}) {
-  const moveTargets = projects.filter((item) => item.id !== thread.projectId);
-
-  return (
-    <div className="row-menu row-menu--hover" data-menu-root>
-      <button type="button" className="row-menu__trigger" onClick={onToggle} aria-expanded={open}>
-        <DotsIcon />
-      </button>
-
-      {open ? (
-        <div className="row-menu__panel">
-          <MenuButton
-            title="이름 바꾸기"
-            onClick={() => {
-              onRenameThread(thread.id);
-              onClose();
-            }}
-          >
-            <PencilIcon />
-          </MenuButton>
-
-          <div className="row-menu__section">
-            <div className="row-menu__label">프로젝트 이동</div>
-
-            <div className="row-menu__move-list">
-              {moveTargets.length > 0 ? (
-                moveTargets.map((target) => (
-                  <button
-                    key={target.id}
-                    type="button"
-                    className="row-menu__move-button"
-                    onClick={() => {
-                      onMoveThread(thread.id, target.id);
-                      onClose();
-                    }}
-                  >
-                    <span>{target.title}</span>
-                  </button>
-                ))
-              ) : (
-                <div className="row-menu__empty">이동할 프로젝트 없음</div>
-              )}
-            </div>
-          </div>
-
-          <MenuButton
-            title="해당 프로젝트에서 삭제"
-            onClick={() => {
-              onMoveThread(thread.id, "__general__");
-              onClose();
-            }}
-          >
-            <RemoveIcon />
-          </MenuButton>
-
-          <MenuButton
-            title="삭제"
-            danger
-            onClick={() => {
-              onDeleteThread(thread.id);
-              onClose();
-            }}
-          >
-            <TrashIcon />
-          </MenuButton>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function GeneralThreadActions({
-  open,
-  onToggle,
-  onClose,
-  thread,
-  projects,
-  onRenameThread,
-  onDeleteThread,
-  onMoveThread,
-  onToggleThreadPinned
-}: {
-  open: boolean;
-  onToggle: () => void;
-  onClose: () => void;
-  thread: Thread;
-  projects: ProjectGroup[];
-  onRenameThread: (threadId: string) => void;
-  onDeleteThread: (threadId: string) => void;
-  onMoveThread: (threadId: string, nextProjectId: string) => void;
-  onToggleThreadPinned?: (threadId: string) => void;
-}) {
-  const isPinned = Boolean(thread.meta?.pinned);
-
-  return (
-    <div className="row-menu row-menu--hover" data-menu-root>
-      <button type="button" className="row-menu__trigger" onClick={onToggle} aria-expanded={open}>
-        <DotsIcon />
-      </button>
-
-      {open ? (
-        <div className="row-menu__panel">
-          <MenuButton
-            title="이름 바꾸기"
-            onClick={() => {
-              onRenameThread(thread.id);
-              onClose();
-            }}
-          >
-            <PencilIcon />
-          </MenuButton>
-
-          <div className="row-menu__section">
-            <div className="row-menu__label">프로젝트로 이동</div>
-
-            <div className="row-menu__move-list">
-              {projects.length > 0 ? (
-                projects.map((target) => (
-                  <button
-                    key={target.id}
-                    type="button"
-                    className="row-menu__move-button"
-                    onClick={() => {
-                      onMoveThread(thread.id, target.id);
-                      onClose();
-                    }}
-                  >
-                    <span>{target.title}</span>
-                  </button>
-                ))
-              ) : (
-                <div className="row-menu__empty">이동할 프로젝트 없음</div>
-              )}
-            </div>
-          </div>
-
-          <MenuButton
-            title={isPinned ? "채팅 고정 해제" : "채팅 고정"}
-            onClick={() => {
-              onToggleThreadPinned?.(thread.id);
-              onClose();
-            }}
-          >
-            <PinIcon />
-          </MenuButton>
-
-          <MenuButton
-            title="삭제"
-            danger
-            onClick={() => {
-              onDeleteThread(thread.id);
-              onClose();
-            }}
-          >
-            <TrashIcon />
-          </MenuButton>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function ThreadLeaf({
-  thread,
-  active,
-  projects,
-  menuOpen,
-  onToggleMenu,
-  onCloseMenu,
-  onSelectThread,
-  onRenameThread,
-  onDeleteThread,
-  onMoveThread
-}: {
-  thread: Thread;
-  active: boolean;
-  projects: ProjectGroup[];
-  menuOpen: boolean;
-  onToggleMenu: () => void;
-  onCloseMenu: () => void;
-  onSelectThread: (threadId: string) => void;
-  onRenameThread: (threadId: string) => void;
-  onDeleteThread: (threadId: string) => void;
-  onMoveThread: (threadId: string, nextProjectId: string) => void;
-}) {
-  const rawPv = [...thread.messages].reverse().find((item) => item.content?.trim() && !item.isHidden)?.content ?? "";
-  const preview = rawPv ? stripMarkdown(rawPv).slice(0, 42) || thread.meta?.lastSummary || "아직 대화 없음" : thread.meta?.lastSummary ?? "아직 대화 없음";
-
-  return (
-    <div className="thread-row">
-      <button
-        type="button"
-        onClick={() => onSelectThread(thread.id)}
-        className={"thread-leaf" + (active ? " is-active" : "")}
-      >
-        <div className="thread-leaf__title">{thread.title}</div>
-        <div className="thread-leaf__preview">{preview}</div>
-      </button>
-
-      <ProjectThreadActions
-        open={menuOpen}
-        onToggle={onToggleMenu}
-        onClose={onCloseMenu}
-        thread={thread}
-        projects={projects}
-        onRenameThread={onRenameThread}
-        onDeleteThread={onDeleteThread}
-        onMoveThread={onMoveThread}
-      />
-    </div>
-  );
-}
-
-function ProjectRow({
-  project,
-  open,
-  active,
-  activeThreadId,
-  menuOpen,
-  onToggleMenu,
-  onCloseMenu,
-  onToggle,
-  onSelectProject,
-  onSelectThread,
-  onRenameProject,
-  onDeleteProject,
-  onRenameThread,
-  onDeleteThread,
-  onMoveThread,
-  projects,
-  openThreadMenuId,
-  onToggleThreadMenu,
-  onCloseThreadMenu
-}: {
-  project: ProjectGroup;
-  open: boolean;
-  active: boolean;
-  activeThreadId: string | null;
-  menuOpen: boolean;
-  onToggleMenu: () => void;
-  onCloseMenu: () => void;
-  onToggle: () => void;
-  onSelectProject: () => void;
-  onSelectThread: (threadId: string) => void;
-  onRenameProject: (projectId: string) => void;
-  onDeleteProject: (projectId: string) => void;
-  onRenameThread: (threadId: string) => void;
-  onDeleteThread: (threadId: string) => void;
-  onMoveThread: (threadId: string, nextProjectId: string) => void;
-  projects: ProjectGroup[];
-  openThreadMenuId: string | null;
-  onToggleThreadMenu: (threadId: string) => void;
-  onCloseThreadMenu: () => void;
-}) {
-  return (
-    <div className="project-block">
-      <div className={"sidebar-row sidebar-row--project" + (active ? " is-active" : "")}>
-        <button
-          type="button"
-          onClick={() => {
-            onToggle();
-            onSelectProject();
-          }}
-          className="sidebar-row__main"
-        >
-          <span className="sidebar-row__icon">
-            <Chevron open={open} />
-          </span>
-          <span className="sidebar-row__icon">
-            <FolderIcon />
-          </span>
-          <span className="sidebar-row__stack">
-            <span className="sidebar-row__text">{project.title}</span>
-            <span className="sidebar-row__meta">{project.threadCount}개 스레드</span>
-          </span>
-        </button>
-
-        <ProjectActions
-          open={menuOpen}
-          onToggle={onToggleMenu}
-          onClose={onCloseMenu}
-          projectId={project.id}
-          onRenameProject={onRenameProject}
-          onDeleteProject={onDeleteProject}
-        />
-      </div>
-
-      {open ? (
-        <div className="project-block__threads">
-          {project.threads.length > 0 ? (
-            project.threads.map((thread) => (
-              <ThreadLeaf
-                key={thread.id}
-                thread={thread}
-                active={activeThreadId === thread.id}
-                projects={projects}
-                menuOpen={openThreadMenuId === thread.id}
-                onToggleMenu={() => onToggleThreadMenu(thread.id)}
-                onCloseMenu={onCloseThreadMenu}
-                onSelectThread={onSelectThread}
-                onRenameThread={onRenameThread}
-                onDeleteThread={onDeleteThread}
-                onMoveThread={onMoveThread}
-              />
-            ))
-          ) : (
-            <div className="sidebar-empty-text">스레드 없음</div>
-          )}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function RecentThreadRow({
-  thread,
-  active,
-  projects,
-  menuOpen,
-  onToggleMenu,
-  onCloseMenu,
-  onClick,
-  onRenameThread,
-  onDeleteThread,
-  onMoveThread,
-  onToggleThreadPinned
-}: {
-  thread: Thread;
-  active: boolean;
-  projects: ProjectGroup[];
-  menuOpen: boolean;
-  onToggleMenu: () => void;
-  onCloseMenu: () => void;
-  onClick: () => void;
-  onRenameThread: (threadId: string) => void;
-  onDeleteThread: (threadId: string) => void;
-  onMoveThread: (threadId: string, nextProjectId: string) => void;
-  onToggleThreadPinned?: (threadId: string) => void;
-}) {
-  const rawPreview2 = [...thread.messages].reverse().find((item) => item.content?.trim() && !item.isHidden)?.content ?? "";
-  const preview = rawPreview2 ? stripMarkdown(rawPreview2).slice(0, 34) || thread.meta?.lastSummary || "아직 대화 없음" : thread.meta?.lastSummary ?? "아직 대화 없음";
-
-  const isPinned = Boolean(thread.meta?.pinned);
-
-  return (
-    <div className="thread-row">
-      <button type="button" onClick={onClick} className={"recent-thread-row" + (active ? " is-active" : "")}>
-        <div
-          className="recent-thread-row__title"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            minWidth: 0
-          }}
-        >
-          <span
-            style={{
-              minWidth: 0,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap"
-            }}
-          >
-            {thread.title}
-          </span>
-
-          {isPinned ? (
-            <span
-              aria-label="고정됨"
-              title="고정됨"
-              style={{
-                flex: "0 0 auto",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 4,
-                height: 22,
-                padding: "0 8px",
-                borderRadius: 999,
-                background: "rgba(15, 23, 42, 0.08)",
-                color: "var(--text-main)",
-                fontSize: 11,
-                fontWeight: 700,
-                lineHeight: 1
-              }}
-            >
-              <PinBadgeIcon />
-              <span>고정</span>
-            </span>
-          ) : null}
-        </div>
-
-        <div className="recent-thread-row__preview">{preview}</div>
-      </button>
-
-      <GeneralThreadActions
-        open={menuOpen}
-        onToggle={onToggleMenu}
-        onClose={onCloseMenu}
-        thread={thread}
-        projects={projects}
-        onRenameThread={onRenameThread}
-        onDeleteThread={onDeleteThread}
-        onMoveThread={onMoveThread}
-        onToggleThreadPinned={onToggleThreadPinned}
-      />
-    </div>
-  );
-}
-
-function ArtifactRow({
-  artifact,
-  onClick
-}: {
-  artifact: ArtifactItem;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        width: "100%",
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "5px 2px",
-        border: "none",
-        background: "none",
-        cursor: "pointer",
-        borderRadius: 6,
-        color: "var(--text-main)",
-        textAlign: "left",
-        minWidth: 0
-      }}
-      onMouseEnter={e => (e.currentTarget.style.background = "rgba(15,23,42,0.05)")}
-      onMouseLeave={e => (e.currentTarget.style.background = "none")}
-    >
-      <span style={{ flex: "0 0 auto", color: "var(--text-sub)", display: "flex", alignItems: "center" }}>
-        <FileIcon />
-      </span>
-      <span style={{
-        fontSize: 13,
-        fontWeight: 500,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-        minWidth: 0
-      }}>
-        {artifact.title}
-      </span>
-      {artifact.language ? (
-        <span style={{
-          flex: "0 0 auto",
-          fontSize: 10,
-          fontWeight: 600,
-          padding: "1px 6px",
-          borderRadius: 4,
-          background: "rgba(15,23,42,0.07)",
-          color: "var(--text-sub)",
-          marginLeft: "auto"
-        }}>
-          {artifact.language}
-        </span>
-      ) : null}
-    </button>
-  );
-}
 
 export default function Sidebar({
   generalThreads,
@@ -805,8 +40,6 @@ export default function Sidebar({
   activeProjectId,
   activeThreadId,
   sidebarView,
-  artifacts = [],
-  onOpenArtifact,
   onOpenGeneralHome,
   onOpenSearch,
   onOpenImages,
@@ -821,17 +54,31 @@ export default function Sidebar({
   onRenameThread,
   onDeleteThread,
   onMoveThread,
+  onToggleProjectMemory,
   onToggleThreadPinned,
-  onOpenSettings
+  onOpenSettings,
+  onClose
 }: Props) {
   const [openProjectIds, setOpenProjectIds] = useState<string[]>([]);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     if (activeProjectId && activeProjectId !== "__general__") {
       setOpenProjectIds((current) => (current.includes(activeProjectId) ? current : [...current, activeProjectId]));
     }
   }, [activeProjectId]);
+
+  // Detect mobile viewport changes
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 768px)");
+    const handleChange = (e: MediaQueryListEvent | MediaQueryList) => {
+      setIsMobile(e.matches);
+    };
+    setIsMobile(mediaQuery.matches);
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -856,7 +103,7 @@ export default function Sidebar({
   }, []);
 
   const sortedProjects = useMemo(
-    () => [...projects].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
+    () => [...projects].filter((p) => p.id !== "__general__").sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
     [projects]
   );
 
@@ -869,6 +116,50 @@ export default function Sidebar({
   function toggleMenu(menuId: string) {
     setOpenMenuId((current) => (current === menuId ? null : menuId));
   }
+
+  // Auto-close sidebar on mobile when navigating
+  function handleSelectThread(threadId: string) {
+    onSelectThread(threadId);
+    if (isMobile && onClose) onClose();
+  }
+
+  function handleSelectProject(projectId: string) {
+    onSelectProject(projectId);
+    if (isMobile && onClose) onClose();
+  }
+
+  function handleOpenGeneralHome() {
+    onOpenGeneralHome();
+    if (isMobile && onClose) onClose();
+  }
+
+  function handleOpenSearch() {
+    onOpenSearch();
+    if (isMobile && onClose) onClose();
+  }
+
+  function handleOpenImages() {
+    onOpenImages();
+    if (isMobile && onClose) onClose();
+  }
+
+  function handleOpenBenchmark() {
+    onOpenBenchmark();
+    if (isMobile && onClose) onClose();
+  }
+
+  function handleOpenDashboard() {
+    onOpenDashboard();
+    if (isMobile && onClose) onClose();
+  }
+
+  function handleNewChat() {
+    onNewChat();
+    if (isMobile && onClose) onClose();
+  }
+
+  // kept for possible future use (currently not wired in JSX)
+  void handleOpenBenchmark;
 
   return (
     <div className="sidebar">
@@ -890,10 +181,7 @@ export default function Sidebar({
           }}
         >
           <div className="sidebar__top" style={{ position: "relative", paddingRight: 36 }}>
-            <button type="button" className="sidebar-logo" onClick={onOpenGeneralHome}>
-              <span className="sidebar-logo__icon">
-                <LogoIcon />
-              </span>
+            <button type="button" className="sidebar-logo" onClick={handleOpenGeneralHome}>
               <span style={{ fontWeight: 800, fontSize: 15, color: "var(--text-main)", letterSpacing: -0.3 }}>
                 CORVUS X
               </span>
@@ -901,21 +189,19 @@ export default function Sidebar({
           </div>
 
           <div className="sidebar__menu">
-            <WorkspaceRow icon={<PlusIcon />} label="새 채팅" onClick={onNewChat} />
-            <WorkspaceRow active={sidebarView === "search"} icon={<SearchIcon />} label="채팅 검색" onClick={onOpenSearch} />
-            <WorkspaceRow active={sidebarView === "images"} icon={<ImageIcon />} label="이미지" onClick={onOpenImages} />
-            <WorkspaceRow active={sidebarView === "dashboard"} icon={<DashboardIcon />} label="대시보드" onClick={onOpenDashboard ?? (() => {})} />
-  
+            <WorkspaceRow icon={<PlusIcon />} label={t("nav.newThread")} onClick={handleNewChat} />
+            <WorkspaceRow active={sidebarView === "search"} icon={<SearchIcon />} label={t("nav.search")} onClick={handleOpenSearch} />
+            <WorkspaceRow active={sidebarView === "images"} icon={<ImageIcon />} label={t("nav.images")} onClick={handleOpenImages} />
+            <WorkspaceRow active={sidebarView === "dashboard"} icon={<DashboardIcon />} label={t("nav.dashboard")} onClick={handleOpenDashboard} />
           </div>
-
 
           <div className="sidebar__section-block">
             <div className="sidebar__section-header">
-              <div className="sidebar__section-label sidebar__section-label--large">프로젝트</div>
+              <div className="sidebar__section-label sidebar__section-label--large">{t("sidebar.projects")}</div>
             </div>
 
             <div className="sidebar__project-list">
-              <WorkspaceRow icon={<PlusIcon />} label="새 프로젝트" onClick={onCreateProject} emphasized />
+              <WorkspaceRow icon={<PlusIcon />} label={t("nav.newProject")} onClick={onCreateProject} emphasized />
 
               {sortedProjects.map((project) => (
                 <ProjectRow
@@ -928,13 +214,14 @@ export default function Sidebar({
                   onToggleMenu={() => toggleMenu(`project:${project.id}`)}
                   onCloseMenu={() => setOpenMenuId(null)}
                   onToggle={() => toggleProject(project.id)}
-                  onSelectProject={() => onSelectProject(project.id)}
-                  onSelectThread={onSelectThread}
+                  onSelectProject={() => handleSelectProject(project.id)}
+                  onSelectThread={handleSelectThread}
                   onRenameProject={onRenameProject}
                   onDeleteProject={onDeleteProject}
                   onRenameThread={onRenameThread}
                   onDeleteThread={onDeleteThread}
                   onMoveThread={onMoveThread}
+                  onToggleProjectMemory={onToggleProjectMemory}
                   projects={sortedProjects}
                   openThreadMenuId={openMenuId?.startsWith("project-thread:") ? openMenuId.replace("project-thread:", "") : null}
                   onToggleThreadMenu={(threadId) => toggleMenu(`project-thread:${threadId}`)}
@@ -945,25 +232,65 @@ export default function Sidebar({
           </div>
 
           <div className="sidebar__section-block">
-            <div className="sidebar__section-label sidebar__section-label--large">최근</div>
+            <div className="sidebar__section-label sidebar__section-label--large">{t("sidebar.recentChats")}</div>
 
             <div className="sidebar__recent-list">
-              {generalThreads.map((thread) => (
-                <RecentThreadRow
-                  key={thread.id}
-                  thread={thread}
-                  active={thread.id === activeThreadId && activeProjectId === "__general__"}
-                  projects={sortedProjects}
-                  menuOpen={openMenuId === `general-thread:${thread.id}`}
-                  onToggleMenu={() => toggleMenu(`general-thread:${thread.id}`)}
-                  onCloseMenu={() => setOpenMenuId(null)}
-                  onClick={() => onSelectThread(thread.id)}
-                  onRenameThread={onRenameThread}
-                  onDeleteThread={onDeleteThread}
-                  onMoveThread={onMoveThread}
-                  onToggleThreadPinned={onToggleThreadPinned}
-                />
-              ))}
+              {(() => {
+                const now = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const yesterday = new Date(today);
+                yesterday.setDate(yesterday.getDate() - 1);
+                const sevenDaysAgo = new Date(today);
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+                const groups: Record<string, typeof generalThreads> = {
+                  [t("sidebar.today")]: [],
+                  [t("sidebar.yesterday")]: [],
+                  [t("sidebar.last7days")]: [],
+                  [t("sidebar.older")]: []
+                };
+
+                for (const thread of generalThreads) {
+                  const threadDate = new Date(thread.updatedAt);
+                  const threadDay = new Date(threadDate.getFullYear(), threadDate.getMonth(), threadDate.getDate());
+
+                  if (threadDay.getTime() === today.getTime()) {
+                    groups[t("sidebar.today")].push(thread);
+                  } else if (threadDay.getTime() === yesterday.getTime()) {
+                    groups[t("sidebar.yesterday")].push(thread);
+                  } else if (threadDay.getTime() >= sevenDaysAgo.getTime()) {
+                    groups[t("sidebar.last7days")].push(thread);
+                  } else {
+                    groups[t("sidebar.older")].push(thread);
+                  }
+                }
+
+                return Object.entries(groups).map(([groupLabel, threads]) =>
+                  threads.length > 0 ? (
+                    <div key={groupLabel}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-sub)", letterSpacing: "0.05em", marginTop: groupLabel === t("sidebar.today") ? 0 : 12, marginBottom: 8 }}>
+                        {groupLabel}
+                      </div>
+                      {threads.map((thread) => (
+                        <RecentThreadRow
+                          key={thread.id}
+                          thread={thread}
+                          active={thread.id === activeThreadId && activeProjectId === "__general__"}
+                          projects={sortedProjects}
+                          menuOpen={openMenuId === `general-thread:${thread.id}`}
+                          onToggleMenu={() => toggleMenu(`general-thread:${thread.id}`)}
+                          onCloseMenu={() => setOpenMenuId(null)}
+                          onClick={() => handleSelectThread(thread.id)}
+                          onRenameThread={onRenameThread}
+                          onDeleteThread={onDeleteThread}
+                          onMoveThread={onMoveThread}
+                          onToggleThreadPinned={onToggleThreadPinned}
+                        />
+                      ))}
+                    </div>
+                  ) : null
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -977,6 +304,7 @@ export default function Sidebar({
             background: "transparent"
           }}
         >
+          <div style={{ marginTop: "auto", borderTop: "1px solid var(--border-soft)" }} />
           <button
             type="button"
             onClick={() => onOpenSettings?.()}
@@ -1012,7 +340,7 @@ export default function Sidebar({
                 lineHeight: 1.2
               }}
             >
-              설정
+              {t("nav.settings")}
             </span>
           </button>
         </div>
