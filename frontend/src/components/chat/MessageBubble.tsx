@@ -34,61 +34,43 @@ function categorizeStep(step: string): { label: string; color: string } {
 
 function StatusHistoryBlock({ steps, isPending }: { steps: string[]; isPending?: boolean }) {
   const [open, setOpen] = useState(true);
-  const [detailOpen, setDetailOpen] = useState(true);
   if (!steps || steps.length === 0) return null;
 
   const lastStep = steps[steps.length - 1];
-  const categorized = steps.map(s => ({ text: s, ...categorizeStep(s) }));
-
-  const counts: Record<string, number> = {};
-  categorized.forEach(c => { counts[c.label] = (counts[c.label] || 0) + 1; });
-  const summaryText = Object.entries(counts).map(([l, n]) => `${l} ${n}건`).join(" · ");
 
   return (
     <div className="tp">
-      {/* 헤더: 사고 과정 */}
+      {/* 헤더: 진행 중일 때 현재 단계, 완료 시 "과정 보기" 토글 */}
       <button className="tp__header" onClick={() => setOpen(p => !p)} type="button">
-        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"
+        {isPending && <span className="tp__spinner" />}
+        <span className="tp__title">
+          {isPending ? lastStep : t("chat.thinkingProcess")}
+        </span>
+        <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2"
           className="tp__chevron" style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}>
           <path d="M6 3l5 5-5 5" />
         </svg>
-        <span className="tp__title">{t("chat.thinkingProcess")}</span>
-        {isPending && <span className="tp__spinner" />}
       </button>
 
       {/* 접혀있을 때: 마지막 단계 미리보기 */}
-      {!open && lastStep && (
+      {!open && !isPending && lastStep && (
         <div className="tp__preview">{lastStep}</div>
       )}
 
-      {/* 펼쳐졌을 때 */}
+      {/* 펼쳐졌을 때: 단계 목록 (박스 없이 자연스럽게) */}
       {open && (
         <div className="tp__body">
-          {/* 카운터 요약 (2단계 토글) */}
-          <button className="tp__counter" onClick={() => setDetailOpen(p => !p)} type="button">
-            <span>{summaryText}{isPending ? " · 진행 중" : ""}</span>
-            <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2"
-              className="tp__chevron" style={{ transform: detailOpen ? "rotate(90deg)" : "rotate(0deg)" }}>
-              <path d="M6 3l5 5-5 5" />
-            </svg>
-          </button>
-
-          {/* 개별 단계 (아이콘 + 텍스트 + 뱃지) */}
-          {detailOpen && (
-            <ul className="tp__list">
-              {categorized.map((item, i) => (
-                <li key={i} className="tp__item">
-                  <svg viewBox="0 0 8 8" width="7" height="7" className="tp__dot" style={{ color: item.color }}>
-                    <circle cx="4" cy="4" r="3.5" fill="currentColor" />
-                  </svg>
-                  <span className="tp__item-text">{item.text}</span>
-                  <span className="tp__badge" style={{ background: item.color + "15", color: item.color, borderColor: item.color + "30" }}>
-                    {item.label}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          {steps.map((step, i) => {
+            const cat = categorizeStep(step);
+            return (
+              <div key={i} className="tp__line">
+                <svg viewBox="0 0 6 6" width="5" height="5" className="tp__dot-small" style={{ color: cat.color }}>
+                  <circle cx="3" cy="3" r="2.5" fill="currentColor" />
+                </svg>
+                <span className="tp__step-text">{step}</span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

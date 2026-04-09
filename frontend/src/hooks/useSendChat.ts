@@ -254,7 +254,9 @@ export function useSendChat({
     workspace.touchProject(target.projectId, timestamp);
 
     setIsSending(true);
-    // ✅ setAttachedFiles([]) 여기서 하지 않음 — 전송 실패 시 파일 유지를 위해 onDone 성공 시점에만 초기화
+    // ✅ 전송 즉시 입력창 파일 제거 (UX: 파일이 "전송됨" 상태로 인식)
+    // 오류 발생 시 catch/onDone 에러 핸들러에서 files 변수로 복원
+    setAttachedFiles([]);
     setComposerOptions(null);
     setLastError(null);
     setDebugMeta(createDefaultDebugMeta());
@@ -584,7 +586,8 @@ export function useSendChat({
                 activeStreamRef.current = null;
               }
               setIsSending(false);
-              // ✅ 에러 시 setAttachedFiles([]) 하지 않음 — 파일 유지하여 재시도 가능하게
+              // ✅ 서버 에러 시 파일 복원 — 재시도를 위해 원본 files 복구
+              setAttachedFiles(files);
               focusComposer();
               return;
             }
@@ -735,13 +738,14 @@ export function useSendChat({
 
         workspace.touchProject(target.projectId);
         setLastError(message);
+        // ✅ 네트워크/런타임 오류 시 파일 복원 — 재시도를 위해 원본 files 복구
+        setAttachedFiles(files);
       }
     } finally {
       if (activeStreamRef.current?.placeholderId === assistantPlaceholder.id) {
         activeStreamRef.current = null;
       }
       setIsSending(false);
-      // ✅ finally에서 setAttachedFiles([]) 제거 — 에러 시에도 실행되어 파일을 지우는 버그 수정
       focusComposer();
     }
   }
@@ -766,7 +770,6 @@ export function useSendChat({
         projectId: GENERAL_PROJECT_ID,
         currentTitle: ""
       });
-      // ✅ setAttachedFiles([]) 제거 — sendMessageToThread 내부 onDone 성공 시 처리됨
       return;
     }
 
@@ -778,7 +781,6 @@ export function useSendChat({
       projectId,
       currentTitle: ""
     });
-    // ✅ setAttachedFiles([]) 제거 — sendMessageToThread 내부 onDone 성공 시 처리됨
   }
 
   async function handleSubmitEditMessage(messageId: string) {
