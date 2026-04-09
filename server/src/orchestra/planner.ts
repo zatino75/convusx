@@ -11,7 +11,6 @@ export type PlannerSignals = {
   structured_output: boolean
 }
 
-
 function normalizeText(input: string) {
   return String(input ?? "").trim().toLowerCase()
 }
@@ -20,32 +19,22 @@ function includesAny(text: string, keywords: string[]) {
   return keywords.some((keyword) => text.includes(keyword))
 }
 
-function hasSpreadsheetIntent(text: string) {
-  return includesAny(text, [
-    "excel", "spreadsheet", "sheet", "google sheet", "google sheets", "xlsx", "csv",
-    "엑셀", "스프레드시트", "시트", "표 계산", "함수", "피벗", "피벗테이블", "수식",
-    "xlookup", "vlookup", "sumif", "sumifs", "index match"
-  ])
-}
-
-function hasSlideIntent(text: string) {
-  return includesAny(text, [
-    "ppt", "powerpoint", "slides", "slide deck", "presentation", "deck",
-    "슬라이드", "발표자료", "피치덱", "프레젠테이션", "파워포인트"
-  ])
-}
-
-function hasWordIntent(text: string) {
-  return includesAny(text, [
-    "word", "docx", "문서 작성", "워드 문서", "워드파일", "보고서 문안",
-    "formal document", "business document"
-  ])
-}
-
-function hasPdfIntent(text: string) {
-  return includesAny(text, [
-    "pdf", "pdf 분석", "pdf 검토", "pdf 요약", "pdf 추출", "문서에서 추출"
-  ])
+// ── 점수 기반 의도 분류 핵심 함수 ──
+// Claude/ChatGPT/Gemini 모두 LLM 자체로 라우팅을 결정하지만,
+// 레이턴시 제약상 CORVUS X는 복합 시그널 스코어링으로 근사 구현.
+// 규칙: 복합 표현("법률 검토") > 단일 키워드, 동사+목적어 > 동사 단독, 최고 점수 태스크 선택
+function scoreTask(
+  scores: Map<string, number>,
+  task: string,
+  keywords: string[],
+  text: string,
+  weight: number
+) {
+  for (const kw of keywords) {
+    if (text.includes(kw)) {
+      scores.set(task, (scores.get(task) ?? 0) + weight)
+    }
+  }
 }
 
 export function extractPlanningSignals(input: string): PlannerSignals {
@@ -58,7 +47,9 @@ export function extractPlanningSignals(input: string): PlannerSignals {
   const deep_analysis = includesAny(text, [
     "deep analysis", "analyze deeply", "심층분석", "깊게 분석", "정밀 분석", "자세히 분석",
     "종합 분석", "전체적으로 분석", "다각도로", "다방면으로", "종합적으로", "철저하게",
-    "상세히 분석", "자세하게 분석", "완전히 분석", "치밀하게", "면밀히"
+    "상세히 분석", "자세하게 분석", "완전히 분석", "치밀하게", "면밀히",
+    // 법률·계약 문서 분석은 본질적으로 심층 분석
+    "법률 검토", "법적 검토", "소장", "소송장", "판결문", "계약서 분석", "계약서 검토"
   ])
 
   const deep_research = includesAny(text, [
@@ -115,178 +106,221 @@ export function detectCodeSubtask(input: string): CodeSubtask | null {
   return "code_implement"
 }
 
+// ── 메인 의도 분류 ──
+// 설계 원칙 (ChatGPT/Claude/Gemini가 LLM 라우팅으로 하는 것을 휴리스틱으로 근사):
+// 1. 복합 표현 (법률 검토, 코드 짜줘) = 단일 키워드 × 2배 이상 가중치
+// 2. 도메인 객체 (소장, 판결문) = 고확신 시그널, 동사 맥락 없어도 충분
+// 3. 동사 단독 (검토해줘, 분석해줘) = 약한 시그널 — 목적어 맥락이 있어야 확정
+// 4. 모든 시그널 스캔 후 최고 점수 선택 (선착순 X)
+// 5. 특수 태스크 (legal, code, finance) > 일반 태스크 (writing, reasoning)
 export function detectTaskType(input: string): CanonicalTask {
   const text = normalizeText(input)
+  const scores = new Map<string, number>()
+  const s = (task: string, keywords: string[], weight: number) =>
+    scoreTask(scores, task, keywords, text, weight)
 
-  if (includesAny(text, [
-    "계약서", "약관", "법률", "법적", "독소조항", "리걸", "legal", "compliance", "규제 검토", "규정 검토",
-    "소장", "소송", "소송장", "이혼소송", "이혼 소송", "답변서", "준비서면", "판결", "판결문",
-    "조정", "가사소송", "고소", "고발", "피고", "원고", "청구취지", "청구원인", "법원",
-    "소송위임장", "위임장", "소제기", "민사소송", "형사소송", "행정소송",
-    "부정행위", "이혼사유", "위자료", "양육권", "재산분할", "법적 검토", "법률 검토",
-    "소송 대응", "법적 대응", "변호사", "소송 리스크"
-  ])) {
-    return "legal_review"
+  // ══════════════════════════════════════════
+  // LEGAL REVIEW
+  // ══════════════════════════════════════════
+  // 법률 문서 객체 — 이게 있으면 무조건 legal_review (가장 강한 시그널)
+  s("legal_review", [
+    "소장", "소송장", "이혼소송장", "판결문", "고소장", "고발장", "소송위임장",
+    "답변서", "준비서면", "기소장", "공소장", "항소장", "상고장", "조정조서"
+  ], 12)
+  // 법률 복합 표현 — "법률 검토", "법적 분석" 등 동사+도메인 조합
+  s("legal_review", [
+    "법률 검토", "법적 검토", "법률적인 검토", "법률적 검토", "법적 분석", "법률 분석",
+    "법률적으로", "법률 리뷰", "법적 리뷰", "소송 대응", "법적 대응", "법적 위험",
+    "법률 리스크", "법적 리스크", "법적 쟁점", "법률 자문", "법적 자문",
+    "계약서 검토", "계약서 분석", "약관 검토", "약관 분석", "독소조항 확인"
+  ], 10)
+  // 법률 도메인 키워드 (단독으로도 strong)
+  s("legal_review", [
+    "소송", "계약서", "약관", "피고", "원고", "청구취지", "청구원인", "독소조항",
+    "위자료", "양육권", "재산분할", "이혼", "고소", "고발", "가사소송", "민사소송",
+    "형사소송", "행정소송", "법원", "판결", "조정", "이혼사유", "부정행위",
+    "compliance", "규제 검토", "규정 검토"
+  ], 5)
+  // 약한 법률 시그널 (단독으로는 부족, 다른 시그널과 함께일 때 의미)
+  s("legal_review", [
+    "법률", "법적", "법학", "리걸", "legal", "변호사", "기한", "소제기", "위임장"
+  ], 3)
+
+  // ══════════════════════════════════════════
+  // CODE
+  // ══════════════════════════════════════════
+  // 코드 복합 표현
+  s("code_implement", [
+    "코드 짜줘", "코드 작성해줘", "코드 만들어줘", "코드 구현", "스크립트 작성",
+    "함수 만들어", "함수 작성", "컴포넌트 만들어", "api 만들어", "모듈 작성"
+  ], 12)
+  s("code_debug", [
+    "코드 고쳐줘", "버그 고쳐", "에러 고쳐", "오류 수정", "디버그해줘",
+    "왜 안 돼", "왜 에러", "stack trace", "수정해줘"
+  ], 12)
+  s("code_refactor_review", [
+    "코드 검토해줘", "코드 리뷰해줘", "pr 리뷰", "리팩터링해줘", "코드 개선해줘",
+    "구조 개선", "코드 품질"
+  ], 12)
+  // 코드 언어/기술 키워드
+  s("code_implement", [
+    "typescript", "javascript", "python", "react", "node", "nodejs", "sql",
+    "html", "css", "java", "golang", "rust", "swift", "kotlin", "api endpoint",
+    "rest api", "코드", "스크립트", "함수", "클래스", "알고리즘", "구현"
+  ], 5)
+  s("code_debug", [
+    "버그", "에러", "오류", "디버그", "fix", "빌드 오류", "실패", "안 돌아가"
+  ], 6)
+
+  // ══════════════════════════════════════════
+  // FINANCE ANALYSIS
+  // ══════════════════════════════════════════
+  s("finance_analysis", [
+    "재무 분석", "투자 분석", "재무제표 분석", "수익성 분석", "밸류에이션 분석",
+    "손익 분석", "현금흐름 분석"
+  ], 12)
+  s("finance_analysis", [
+    "재무", "재무제표", "손익", "현금흐름", "밸류에이션", "valuation",
+    "투자 분석", "financial analysis", "finance", "pbr", "roe", "per"
+  ], 6)
+
+  // ══════════════════════════════════════════
+  // SPREADSHEET / SLIDES / WORD / PDF
+  // ══════════════════════════════════════════
+  s("excel", [
+    "excel", "spreadsheet", "xlsx", "csv", "구글 시트", "google sheet",
+    "엑셀", "스프레드시트", "피벗", "수식", "xlookup", "vlookup", "sumif"
+  ], 10)
+  s("ppt", [
+    "ppt", "powerpoint", "presentation", "deck", "슬라이드", "발표자료",
+    "피치덱", "프레젠테이션", "파워포인트"
+  ], 10)
+  s("word", [
+    "word", "docx", "워드 문서", "워드파일", "formal document"
+  ], 10)
+  s("pdf", [
+    "pdf 만들어", "pdf 생성", "pdf 변환", "pdf로"
+  ], 8)
+
+  // ══════════════════════════════════════════
+  // DATA ANALYSIS
+  // ══════════════════════════════════════════
+  s("data_analysis", [
+    "데이터 분석", "통계 분석", "kpi 분석", "차트 분석", "상관관계 분석",
+    "지표 분석", "수치 분석"
+  ], 10)
+
+  // ══════════════════════════════════════════
+  // PRODUCT DEVELOPMENT
+  // ══════════════════════════════════════════
+  s("product_development", [
+    "상품 개발", "제품 개발", "상품 기획", "브랜딩 전략", "시장 진입", "유통 전략",
+    "gtm", "go-to-market", "pricing strategy"
+  ], 10)
+
+  // ══════════════════════════════════════════
+  // LONG DOC (대형 문서 처리)
+  // ══════════════════════════════════════════
+  s("long_doc", [
+    "전체 문서 분석", "문서 전체 분석", "pdf 분석", "pdf 검토", "pdf 요약",
+    "계약서 전체", "swot 분석", "경쟁사 분석", "전략 보고서 작성",
+    "분석 보고서 작성", "전체 리포트"
+  ], 10)
+  s("long_doc", [
+    "전체 내용", "문서 전체", "긴 문서", "장문", "전문 요약", "경영진 보고"
+  ], 5)
+
+  // ══════════════════════════════════════════
+  // RESEARCH
+  // ══════════════════════════════════════════
+  s("research", [
+    "최신 정보 조사", "시장 조사", "경쟁사 조사", "트렌드 조사", "업계 동향 조사"
+  ], 10)
+  s("research", [
+    "리서치해줘", "리서치 해줘", "조사해줘", "검색해줘", "최신 정보", "팩트체크",
+    "출처 확인", "트렌드 분석", "시장 동향", "업계 동향", "최근 동향",
+    "최신 트렌드", "실시간", "오늘 기준", "현재 기준", "경쟁 브랜드",
+    "ingredient research", "vaping regulation"
+  ], 5)
+
+  // ══════════════════════════════════════════
+  // CREATIVE WRITING
+  // ══════════════════════════════════════════
+  s("writing_creative", [
+    "소설 써줘", "시 써줘", "대본 써줘", "스토리 만들어줘", "광고 카피 써줘",
+    "랩 가사 써줘", "가사 써줘", "동화 써줘"
+  ], 12)
+  s("writing_creative", [
+    "소설", "단편소설", "장편소설", "시나리오", "대본", "극본", "드라마 대본",
+    "광고 카피", "카피라이팅", "창작", "가사", "동화", "판타지", "sf 소설",
+    "웹툰", "웹소설", "creative writing", "fiction", "poem", "lyrics", "screenplay"
+  ], 6)
+
+  // ══════════════════════════════════════════
+  // BUSINESS WRITING
+  // ══════════════════════════════════════════
+  s("writing_business", [
+    "이메일 초안", "이메일 작성해줘", "메일 초안", "제안서 작성", "기획서 작성",
+    "사업계획서 작성", "투자 제안서", "ir 자료 작성", "공지문 작성", "보도자료 작성"
+  ], 12)
+  s("writing_business", [
+    "이메일 써줘", "메일 작성", "답장 초안", "회신 초안", "공문 작성",
+    "마케팅 문구", "홍보 문구", "피치덱 스크립트", "사업계획서", "비즈니스 플랜",
+    "press release", "newsletter", "draft a", "write a proposal", "write an email",
+    "랜딩페이지 카피", "상세페이지 작성", "회의록", "주간 보고", "인수인계 문서"
+  ], 6)
+
+  // ══════════════════════════════════════════
+  // REASONING (판단·비교·설명)
+  // ══════════════════════════════════════════
+  s("reasoning", [
+    "장단점 분석해줘", "pros and cons", "어떻게 생각해", "어느 쪽이 나아",
+    "어떻게 판단해", "뭐가 더 좋아", "비교해줘"
+  ], 10)
+  s("reasoning", [
+    "왜", "비교", "판단", "추론", "설계", "전략", "어떻게 결정", "어떻게 봐",
+    "어떤 게 맞아", "뭐가 나아", "분석해줘", "평가해줘", "검토해줘",
+    "리스크", "roi", "수익성", "장단점", "우선순위", "논리적으로",
+    "근거를 들어", "최종 추천", "선택해야",
+    "설명해줘", "알려줘", "뜻이 뭐야", "무슨 뜻", "차이가 뭐야", "차이점",
+    "explain", "what is", "how does", "definition", "쉽게 설명"
+  ], 3)
+
+  // ══════════════════════════════════════════
+  // GENERAL WRITING (요약·번역·정리 등 범용)
+  // ── 가장 낮은 가중치 — 특수 태스크 신호가 있으면 항상 밀림 ──
+  // ══════════════════════════════════════════
+  s("writing", [
+    "요약해줘", "요약해", "정리해줘", "정리해", "핵심만", "핵심 정리",
+    "요점 정리", "한줄로", "summarize", "summary", "key points",
+    "번역해줘", "번역해", "영어로", "한국어로", "translate",
+    "표로 정리", "표 만들어", "테이블로", "비교표",
+    "다시 써줘", "고쳐 써", "rewrite", "rephrase",
+    "추천해줘", "제안해줘", "골라줘"
+  ], 2)
+
+  // ══════════════════════════════════════════
+  // 최고 점수 태스크 선택
+  // ══════════════════════════════════════════
+  let bestTask: CanonicalTask = "dialogue"
+  let bestScore = 0
+
+  for (const [task, score] of scores.entries()) {
+    if (score > bestScore) {
+      bestScore = score
+      bestTask = task as CanonicalTask
+    }
   }
 
-  if (includesAny(text, [
-    "재무", "재무제표", "손익", "현금흐름", "밸류에이션", "valuation", "per", "pbr", "roe",
-    "투자 분석", "financial analysis", "finance"
-  ])) {
-    return "finance_analysis"
+  // 신호 없으면 dialogue
+  if (bestScore < 3) return "dialogue"
+
+  // code_implement/debug/refactor → detectCodeSubtask로 세분화
+  if (["code_implement", "code_debug", "code_refactor_review"].includes(bestTask)) {
+    return bestTask
   }
 
-  if (hasSpreadsheetIntent(text)) {
-    return "excel"
-  }
-
-  if (hasSlideIntent(text)) {
-    return "ppt"
-  }
-
-  if (hasPdfIntent(text)) {
-    return "pdf"
-  }
-
-  if (hasWordIntent(text)) {
-    return "word"
-  }
-
-  if (includesAny(text, [
-    "data analysis", "데이터 분석", "통계 분석", "지표 분석", "kpi 분석", "수치 분석", "차트 분석", "상관관계"
-  ])) {
-    return "data_analysis"
-  }
-
-  if (includesAny(text, [
-    "product development", "상품 개발", "제품 개발", "상품 기획", "gtm", "go-to-market", "브랜드 포지셔닝",
-    "브랜딩 전략", "시장 진입", "유통 전략", "pricing strategy"
-  ])) {
-    return "product_development"
-  }
-
-  const codeSubtask = detectCodeSubtask(text)
-  if (codeSubtask) {
-    return codeSubtask
-  }
-
-  if (includesAny(text, [
-    "long document", "summarize document", "document analysis", "전체 문서", "긴 문서", "장문", "전문 요약",
-    "전체 내용 분석", "문서 전체", "전체 리포트", "보고서 전체", "긴 보고서", "pdf 요약", "pdf 분석",
-    "pdf 검토", "계약서 전체", "계약서 분석", "계약서 검토", "계약서 리뷰", "약관 분석", "약관 검토",
-    "법적 검토", "법률 검토", "법적 위험", "법률 분석", "법률 리뷰", "법적 리스크", "독소조항",
-    "보고서 작성", "리포트 작성", "분석 보고서", "분석 리포트", "인사이트 문서", "실행 계획서", "전략 보고서",
-    "경영진 보고", "보고서 보완", "계획서 보완", "경쟁사 분석", "포지셔닝 보고서", "swot 분석"
-  ])) {
-    return "long_doc"
-  }
-
-  if (includesAny(text, [
-    "소설", "단편소설", "장편소설", "시 써", "시를 써", "시 작성", "스크립트", "대본", "극본", "시나리오",
-    "드라마 대본", "웹드라마", "광고 카피", "카피라이팅", "카피 작성", "슬로건", "스토리", "이야기를 써",
-    "이야기를 만들어", "창작", "가사", "랩 가사", "동화", "판타지", "sf 소설", "호러", "로맨스", "추리소설",
-    "에피소드", "웹툰", "웹소설", "단막극", "creative writing", "fiction", "short story", "poem", "lyrics",
-    "screenplay", "copywriting", "write a story", "write a poem", "sns 글", "sns 포스팅", "인스타그램 글",
-    "유튜브 스크립트", "브랜드 스토리", "브랜드 나레이티브", "자기소개서", "자소서", "cover letter",
-    "블로그 포스트", "블로그 글", "에세이", "칼럼", "기고문"
-  ])) {
-    const hasAnalysisIntent = includesAny(text, ["분석해", "분석하고", "요약해", "검토해", "리뷰해", "analyze", "summarize", "review", "extract"])
-    return hasAnalysisIntent ? "long_doc" : "writing_creative"
-  }
-
-  if (includesAny(text, [
-    "이메일 초안", "이메일 작성", "이메일 써줘", "메일 작성", "메일 초안", "답장 초안", "회신 초안", "공문 작성",
-    "공지문 작성", "기사 작성", "소개문", "마케팅 문구", "광고 문구", "홍보 문구", "브랜드 문서", "피치덱 스크립트",
-    "ir 문서", "ir 자료", "제안서 작성", "기획서 작성", "전략 문서 작성", "b2b 제안서", "입점 제안서",
-    "파트너십 제안서", "투자 제안서", "사업계획서", "비즈니스 플랜", "newsletter", "press release", "article writing",
-    "draft a", "create a document", "write me a", "write a proposal", "write a report", "write an email",
-    "마케팅 콘텐츠", "콘텐츠 작성", "상품 소개문", "제품 소개", "서비스 소개", "제품 설명서", "랜딩페이지 카피",
-    "상세페이지 작성", "회의록", "회의 요약", "업무 보고", "주간 보고", "월간 보고", "인수인계 문서", "매뉴얼 작성", "가이드 작성"
-  ])) {
-    const hasAnalysisIntent = includesAny(text, ["분석해", "분석하고", "요약해", "검토해", "리뷰해", "analyze", "summarize", "review", "extract"])
-    return hasAnalysisIntent ? "long_doc" : "writing_business"
-  }
-
-  if (includesAny(text, [
-    "research", "fact-check", "fact check", "latest", "recent", "current", "verify with sources",
-    "시장조사", "리서치", "조사해줘", "조사해", "최신 정보", "팩트체크", "출처 확인", "트렌드 분석",
-    "시장 동향", "업계 동향", "최근 동향", "최신 트렌드", "news search", "검색해줘", "검색해", "실시간", "오늘 기준",
-    "현재 기준", "데이터 조사", "통계 조사", "market data", "경쟁사 조사", "경쟁 브랜드", "유통 채널 조사",
-    "입점 조건", "플랫폼 조사", "소비자 조사", "target audience", "ingredient research", "vaping regulation"
-  ])) {
-    return "research"
-  }
-
-  if (includesAny(text, [
-    "reason", "reasoning", "why", "compare", "tradeoff", "trade-off", "decision", "설계", "전략", "판단", "비교", "추론",
-    "왜", "어떻게 결정", "어떻게 생각해", "어떻게 봐", "어떻게 판단", "어떤 게 맞아", "뭐가 나아", "분석해줘",
-    "평가해줘", "검토해줘", "리스크", "마진", "roi", "수익성", "어떤 것이 더", "어느 쪽이", "무엇이 더 나은",
-    "더 적합", "장단점", "pros and cons", "우선순위", "단계적으로", "논리적으로", "근거를 들어", "최종 추천",
-    "최종 결정", "선택해야"
-  ])) {
-    return "reasoning"
-  }
-
-  if (includesAny(text, ["write", "작성", "문안", "초안", "draft", "copy"])) {
-    return "writing"
-  }
-
-  // ── 일반 유틸리티 커맨드 (dialogue 방지) ──
-
-  // 요약/정리 → writing (짧은 요약은 writing, 긴 문서 요약은 long_doc에서 이미 잡힘)
-  if (includesAny(text, [
-    "요약해줘", "요약해", "요약 좀", "요약 부탁", "정리해줘", "정리해", "정리 좀", "깔끔하게 정리",
-    "핵심만", "핵심 정리", "요점 정리", "간단히 정리", "한 줄로", "한줄로", "한마디로",
-    "summarize", "summary", "sum up", "tldr", "tl;dr", "key points", "key takeaways"
-  ])) {
-    return "writing"
-  }
-
-  // 번역 → writing
-  if (includesAny(text, [
-    "번역해줘", "번역해", "번역 좀", "영어로", "한국어로", "일본어로", "중국어로", "스페인어로",
-    "프랑스어로", "독일어로", "영문으로", "국문으로", "한영", "영한", "translate", "translation",
-    "into english", "into korean", "into japanese", "into chinese"
-  ])) {
-    return "writing"
-  }
-
-  // 표/테이블/리스트 생성 → writing
-  if (includesAny(text, [
-    "표 만들어", "표로 만들어", "표로 정리", "테이블로", "테이블 만들어", "표 형태로",
-    "비교표", "비교 표", "comparison table", "make a table", "create a table", "tabulate",
-    "리스트로", "리스트 만들어", "목록으로", "목록 만들어", "list out", "bullet points"
-  ])) {
-    return "writing"
-  }
-
-  // 설명/해석 → reasoning
-  if (includesAny(text, [
-    "설명해줘", "설명해", "설명 좀", "알려줘", "알려 줘", "뜻이 뭐야", "무슨 뜻", "의미가 뭐야",
-    "차이가 뭐야", "차이점", "다른 점", "구별해", "구분해", "explain", "what is", "what does",
-    "how does", "describe", "definition", "의미를 알려", "개념 설명", "쉽게 설명"
-  ])) {
-    return "reasoning"
-  }
-
-  // 변환/포맷팅 → writing
-  if (includesAny(text, [
-    "변환해줘", "변환해", "바꿔줘", "바꿔 줘", "형식으로", "포맷으로", "json으로", "csv로",
-    "markdown으로", "html로", "xml로", "다시 써줘", "다시 작성", "고쳐 써", "rewrite", "rephrase",
-    "reformat", "convert to", "change to", "tone 변경", "톤 바꿔", "문체 바꿔"
-  ])) {
-    return "writing"
-  }
-
-  // 추천/제안 → reasoning
-  if (includesAny(text, [
-    "추천해줘", "추천해", "추천 좀", "제안해줘", "제안해", "골라줘", "뭐가 좋을까", "뭐가 나을까",
-    "어떤 게 좋", "suggest", "recommend", "which one", "what should", "pick one", "best option"
-  ])) {
-    return "reasoning"
-  }
-
-  return "dialogue"
+  return bestTask
 }
 
 export function planRequest(input: string) {
