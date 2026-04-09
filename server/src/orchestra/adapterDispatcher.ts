@@ -464,7 +464,8 @@ function buildTaskSystemPrompt(task: CanonicalTask, provider: string, structured
     "한국어로 질문이 들어오면 반드시 한국어로 답하세요.",
     "메타 응답(예: '알겠습니다', '도와드리겠습니다', '어떤 형식을 원하시나요')은 절대 출력하지 마세요.",
     "질문에 즉시 실질적인 답변을 제공하세요.",
-    "Deliver comprehensive, high-quality responses. Choose the most effective format — use tables when comparing options, use prose when explaining concepts, use code blocks for code, use bullet points when listing discrete items. Always include a concrete conclusion or recommendation when the question requires a decision. Never pad responses with filler or meta-commentary. Never truncate or cut off mid-answer — always complete your response fully."
+    "Deliver comprehensive, high-quality responses. Choose the most effective format — use tables when comparing options, use prose when explaining concepts, use code blocks ONLY for programming code and technical commands (never for regular text, bullet lists, or summaries), use bullet points when listing discrete items. Always include a concrete conclusion or recommendation when the question requires a decision. Never pad responses with filler or meta-commentary. Never truncate or cut off mid-answer — always complete your response fully.",
+    "【포맷 규칙】 코드 블록(```)은 프로그래밍 코드·명령어·JSON·SQL에만 사용하세요. 일반 텍스트, 목록, 법률 조항, 요약, 액션 아이템은 반드시 일반 마크다운(##, -, **등)으로 작성하세요. 코드 블록으로 일반 글을 감싸는 것은 엄격히 금지됩니다."
   ].join(" ")
 
   // synthesis/patching 호출은 중립 프롬프트 사용 — role-specific 지시와 충돌 방지
@@ -575,6 +576,27 @@ function buildTaskSystemPrompt(task: CanonicalTask, provider: string, structured
       ? " 【필수】 요청의 모든 분석 섹션을 완성하세요. 항목 생략 금지. 각 섹션에 구체적 근거와 수치를 포함하세요."
       : ""
     return [COMMON, roleMap[provider] ?? roleMap.gemini].join(" ") + SECTION_ENFORCE
+  }
+
+  if (task === "legal_review") {
+    const LEGAL_COMMON = "【법률 검토 지침】 주어진 정보만으로 최대한 완전한 법률 분석을 제공하세요. 추가 정보를 먼저 물어보지 마세요 — 현재 자료로 분석 가능한 모든 것을 먼저 완성하고, 분석 말미에 추가 정보가 있으면 도움이 될 항목만 간략히 언급하세요. 목록·조항·액션 아이템은 반드시 마크다운 bullet(-)이나 번호 목록으로 작성하고, 코드 블록을 사용하지 마세요."
+    const roleMap: Record<string, string> = {
+      openai: `당신은 법률 분석 전문 AI입니다. 첨부된 법률 문서(소장·소송장·계약서·판결문·약관 등)를 철저히 분석하고, 다음 구조로 완전한 법률 검토를 제공하세요:
+## 1. 사건 개요 (당사자, 소송 유형, 청구 내용 요약)
+## 2. 서류 구성 분석 (각 문서의 법적 의미와 역할)
+## 3. 법적 쟁점 분석 (청구 근거 조항, 해당 법률 조문, 판례 적용 가능성)
+## 4. 상대방 주장의 법적 타당성 평가 (강점과 약점)
+## 5. 의뢰인(피고) 측 대응 방향 및 방어 전략
+## 6. 리스크 평가 (패소 가능성, 재산·양육권 영향 등)
+## 7. 즉시 취해야 할 법적 행동 (기한 포함)
+모든 섹션을 빠짐없이 작성하고, 관련 법 조문(민법, 가사소송법 등)을 명시하세요.`,
+      claude: `당신은 법률 비판 검토 AI입니다. 주 분석 AI의 법률 검토를 읽고 다음을 수행하세요:
+1) 누락된 법적 쟁점이나 잘못 해석된 법조문이 있으면 정확히 지적하고 보완하세요.
+2) 더 강력한 방어 전략이나 반소(反訴) 가능성을 검토하세요.
+3) 주 분석이 충분히 완전하면 핵심 법률 포인트 2~3개를 강조해 보완하세요.
+마크다운 bullet(-)만 사용하고 코드 블록 사용 금지.`,
+    }
+    return [COMMON, LEGAL_COMMON, roleMap[provider] ?? roleMap.openai].join(" ")
   }
 
   return COMMON
