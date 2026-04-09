@@ -116,11 +116,13 @@ async function checkProviderHealth() {
 
     const start = Date.now()
     try {
-      // HEAD/GET 으로 가벼운 체크 (모델 목록 등)
-      const method = p.name === "anthropic" ? "POST" : "GET"
+      // Perplexity / Anthropic은 POST, OpenAI는 GET (모델 목록)
+      const method = (p.name === "anthropic" || p.name === "perplexity") ? "POST" : "GET"
       const body = p.name === "anthropic"
         ? JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1, messages: [{ role: "user", content: "ping" }] })
-        : undefined
+        : p.name === "perplexity"
+          ? JSON.stringify({ model: "sonar", messages: [{ role: "user", content: "hi" }], max_tokens: 1 })
+          : undefined
 
       const resp = await fetch(p.url, {
         method,
@@ -129,8 +131,12 @@ async function checkProviderHealth() {
         signal: AbortSignal.timeout(10000)
       })
 
-      // Anthropic은 401=invalid key, 기타는 서버 접근 가능 = healthy
-      const healthy = p.name === "anthropic" ? resp.status !== 401 : resp.ok
+      // Anthropic: 401=invalid key / Perplexity: 200 or 400 = healthy / OpenAI: resp.ok
+      const healthy = p.name === "anthropic"
+        ? resp.status !== 401
+        : p.name === "perplexity"
+          ? resp.status === 200 || resp.status === 400
+          : resp.ok
       healthState[p.name] = {
         provider: p.name,
         healthy,
