@@ -1,6 +1,7 @@
 import { TITLE_GEN_TIMEOUT_MS, OPENAI_BASE } from "../config/defaults.js"
 import { logger } from "../observability/logger.js"
 import { executeOrchestra } from "../orchestra/runtime.js"
+import { routeWithLLM } from "../orchestra/llmRouter.js"
 import { logBenchmark } from "../orchestra/benchmark.js"
 import { appendProjectMemory, getLatestProjectContext, findPastWinner } from "../memory/projectMemory.js"
 import { upsertThreadMemory, findSimilarQuery, getThreadMemory } from "../memory/threadMemory.js"
@@ -626,6 +627,10 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     const effectiveInput = normalizedInput?.attached_file ? injectAttachmentIntoInput(normalizedInput) : normalizedInput
     const inboundQuery = extractInboundQuery(effectiveInput)
 
+    // ── Haiku LLM 라우팅 — 키워드 분류 완전 제거, LLM이 의도 파악 ──
+    const _streamAnthropicKey = String(process.env.ANTHROPIC_API_KEY ?? "").trim()
+    const haikuRoute = await routeWithLLM(inboundQuery, _streamAnthropicKey)
+
     // ── 슬라이드 ──
     if (detectSlideCommand(inboundQuery)) {
       const slideResult = await handleSlideCommand(normalizedInput, inboundQuery)
@@ -732,8 +737,8 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       res.end?.(); return
     }
 
-    // ── 법률 검토 ──
-    if (detectLegalReviewCommand(inboundQuery)) {
+    // ── 법률 검토 (Haiku 라우팅) — 파일 없는 텍스트 요청만 ──
+    if (haikuRoute.task === "legal_review" && !normalizedInput?.attached_file) {
       writeSse(res, { type: "chunk", content: "⚖️ 법률 검토를 시작합니다...\n\n" })
       const result = await runLegalReview(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? "").trim(), (_, text) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
       const finalText = result.ok ? result.report : `❌ 법률 검토 실패: ${result.error}`
@@ -743,8 +748,8 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       res.end?.(); return
     }
 
-    // ── 데이터 분석 ──
-    if (detectDataAnalysisCommand(inboundQuery)) {
+    // ── 데이터 분석 (Haiku 라우팅) ──
+    if (haikuRoute.task === "data_analysis" && !normalizedInput?.attached_file) {
       writeSse(res, { type: "chunk", content: "📊 데이터 분석을 시작합니다...\n\n" })
       const result = await runDataAnalysis(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? normalizedInput?.csv_text ?? "").trim(), (_, text) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
       const finalText = result.ok ? result.report : `❌ 데이터 분석 실패: ${result.error}`
@@ -754,8 +759,8 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       res.end?.(); return
     }
 
-    // ── 기업 재무 ──
-    if (detectFinanceCommand(inboundQuery)) {
+    // ── 기업 재무 (Haiku 라우팅) ──
+    if (haikuRoute.task === "finance_analysis" && !normalizedInput?.attached_file) {
       writeSse(res, { type: "chunk", content: "💹 기업 재무 분석을 시작합니다...\n\n" })
       const result = await runFinanceAnalysis(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? "").trim(), (_, text) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
       const finalText = result.ok ? result.report : `❌ 재무 분석 실패: ${result.error}`
@@ -765,8 +770,8 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       res.end?.(); return
     }
 
-    // ── 상품 개발 ──
-    if (detectProductDevCommand(inboundQuery)) {
+    // ── 상품 개발 (Haiku 라우팅) ──
+    if (haikuRoute.task === "product_development" && !normalizedInput?.attached_file) {
       writeSse(res, { type: "chunk", content: "📦 상품 개발 분석을 시작합니다...\n\n" })
       const result = await runProductDevelopment(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? "").trim(), (_, text) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
       const finalText = result.ok ? result.report : `❌ 상품 기획 실패: ${result.error}`
@@ -877,7 +882,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
 
         // PDF 병렬 분석 — 기존 직렬(N × 40초) → 병렬(~20초 고정)
         const allResults: string[] = []
-        const isLegalZip = detectLegalReviewCommand(userText)
+        const isLegalZip = haikuRoute.task === "legal_review"
 
         if (extractedPdfs.length > 0) {
           writeSse(res, { type: "provider_chunk", provider: "claude", content: `📄 PDF ${extractedPdfs.length}개 병렬 분석 중...\n\n` })
@@ -935,9 +940,10 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       const startMs = Date.now()
 
       if (_attachedType === "application/pdf") {
-        const isLegal   = detectLegalReviewCommand(userText)
-        const isFinance = detectFinanceCommand(userText)
-        const isData    = detectDataAnalysisCommand(userText)
+        // Haiku 라우팅 결과 사용 — inboundQuery에 파일명 포함됨 (injectAttachmentIntoInput)
+        const isLegal   = haikuRoute.task === "legal_review"
+        const isFinance = haikuRoute.task === "finance_analysis"
+        const isData    = haikuRoute.task === "data_analysis"
         const needsPipeline = isLegal || isFinance || isData
 
         if (needsPipeline) {
@@ -1033,6 +1039,11 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
         res.end?.(); return
       }
     } catch (e) { logger.warn("[chat/stream] beforeChat hook failed", { error: e }) }
+
+    // ── Haiku 라우팅 결과를 effectiveInput에 주입 (runtime에서 이중 Haiku 호출 방지) ──
+    if (haikuRoute.task && haikuRoute.task !== "dialogue") {
+      (effectiveInput as any).task = haikuRoute.task
+    }
 
     // ── 오케스트라 ──
     writeSse(res, { type: "status", content: "AI 오케스트라 실행 중..." })

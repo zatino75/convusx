@@ -168,8 +168,12 @@ export async function executeOrchestra(input: any, stream?: OrchestraEmitFn) {
   const rawInboundMessage = extractInboundMessage(input)
 
   // Claude Haiku로 의도 분류 — 실패 시 자동으로 heuristic 폴백
+  // chat.ts SSE 경로에서 이미 haikuRoute를 계산해 input.task에 주입한 경우 재호출 생략
   const anthropicKey = String(process.env.ANTHROPIC_API_KEY ?? "").trim()
-  const planner = await routeWithLLM(rawInboundMessage, anthropicKey)
+  const _preRoutedTask = String((input as any)?.task ?? "").trim()
+  const planner = (_preRoutedTask && _preRoutedTask !== "dialogue")
+    ? { task: _preRoutedTask as import("../types/tasks.js").CanonicalTask, signals: planRequest(rawInboundMessage).signals, via: "pre-routed" as const }
+    : await routeWithLLM(rawInboundMessage, anthropicKey)
   const plannerSignals = planner.signals
   const transientFailures: any[] = []
   const recoveryMeta = createRecoveryMeta()
