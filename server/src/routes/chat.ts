@@ -946,34 +946,64 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
         const isData    = haikuRoute.task === "data_analysis"
         const needsPipeline = isLegal || isFinance || isData
 
+        // 다중 첨부 처리: pending_analysis_files에서 PDF와 비-PDF 분리
+        // _attached(첫 번째 PDF)만 파이프라인에 가고 나머지가 버려지던 버그 수정
+        const allPendingFiles: any[] = Array.isArray(normalizedInput?.pending_analysis_files) ? normalizedInput.pending_analysis_files : []
+        const pendingPdfs = allPendingFiles.filter((f: any) => String(f?.type ?? "") === "application/pdf")
+        const pendingNonPdfs = allPendingFiles.filter((f: any) => String(f?.type ?? "") !== "application/pdf")
+        const hasMultiplePdfs = pendingPdfs.length > 0
+        const totalPdfCount = 1 + pendingPdfs.length
+
         if (needsPipeline) {
-          // 법률/재무/데이터: 텍스트만 추출 (1 API 호출) → 파이프라인에 전달
-          writeSse(res, { type: "status", content: "PDF 텍스트 추출 중..." })
-          writeSse(res, { type: "provider_chunk", provider: "claude", content: "📄 PDF 텍스트 추출 중...\n\n" })
-          const pdfText = await analyzePdfExtractOnly(_attached)
+          // 법률/재무/데이터: _attached + pending PDFs 전부 병렬 텍스트 추출 → 파이프라인에 1회 전달
+          writeSse(res, { type: "status", content: hasMultiplePdfs ? `PDF ${totalPdfCount}개 텍스트 병렬 추출 중...` : "PDF 텍스트 추출 중..." })
+          writeSse(res, { type: "provider_chunk", provider: "claude", content: hasMultiplePdfs ? `📄 PDF ${totalPdfCount}개 병렬 텍스트 추출 중...\n\n` : "📄 PDF 텍스트 추출 중...\n\n" })
+
+          const extractTargets = [_attached, ...pendingPdfs]
+          const extractResults = await Promise.allSettled(
+            extractTargets.map((pdf: any) => analyzePdfExtractOnly(pdf))
+          )
+          const combinedPdfText = extractTargets
+            .map((pdf: any, i: number) => {
+              const r = extractResults[i]
+              const text = r.status === "fulfilled" ? String(r.value ?? "") : ""
+              const name = String(pdf?.name ?? `pdf_${i}`)
+              return text ? `=== ${name} ===\n${text}` : ""
+            })
+            .filter(Boolean)
+            .join("\n\n")
 
           if (isLegal) {
-            writeSse(res, { type: "provider_chunk", provider: "claude", content: "법률 문서 감지 — 법률 검토 파이프라인 실행 중...\n\n" })
-            const result = await runLegalReview(userText, pdfText, (_, text) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) }, _attached)
-            const finalText = result.ok ? result.report : pdfText
+            writeSse(res, { type: "provider_chunk", provider: "claude", content: hasMultiplePdfs ? `법률 문서 ${totalPdfCount}개 감지 — 통합 법률 검토 파이프라인 실행 중...\n\n` : "법률 문서 감지 — 법률 검토 파이프라인 실행 중...\n\n" })
+            // 단일 PDF일 때만 Claude document API 직접 전달, 다중 PDF는 텍스트 합침 경로
+            const result = await runLegalReview(
+              userText,
+              combinedPdfText,
+              (_, text) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) },
+              hasMultiplePdfs ? undefined : _attached
+            )
+            const finalText = result.ok ? result.report : combinedPdfText
             writeSse(res, { type: "final", provider: "openai", content: finalText })
-            writeSse(res, { type: "done", payload: makeDonePayload("openai", finalText, true, "legal_review_pdf", "research", ["claude", "openai"]) })
+            const extraPending = await processPendingFiles(pendingNonPdfs, userText, res, signal)
+            writeSse(res, { type: "done", payload: makeDonePayload("openai", finalText + extraPending, true, "legal_review_pdf", "research", ["claude", "openai"]) })
             res.end?.(); return
           }
           if (isFinance) {
-            writeSse(res, { type: "provider_chunk", provider: "claude", content: "재무 분석 파이프라인으로 연결합니다...\n\n" })
-            const result = await runFinanceAnalysis(userText, pdfText, (_, text) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) })
-            const finalText = result.ok ? result.report : pdfText
+            writeSse(res, { type: "provider_chunk", provider: "claude", content: hasMultiplePdfs ? `재무 문서 ${totalPdfCount}개 — 통합 재무 분석 파이프라인으로 연결합니다...\n\n` : "재무 분석 파이프라인으로 연결합니다...\n\n" })
+            const result = await runFinanceAnalysis(userText, combinedPdfText, (_, text) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) })
+            const finalText = result.ok ? result.report : combinedPdfText
             writeSse(res, { type: "final", provider: "claude", content: finalText })
-            writeSse(res, { type: "done", payload: makeDonePayload("claude", finalText, true, "finance_pdf", "research", ["openai", "claude"]) })
+            const extraPending = await processPendingFiles(pendingNonPdfs, userText, res, signal)
+            writeSse(res, { type: "done", payload: makeDonePayload("claude", finalText + extraPending, true, "finance_pdf", "research", ["openai", "claude"]) })
             res.end?.(); return
           }
           if (isData) {
-            writeSse(res, { type: "provider_chunk", provider: "claude", content: "데이터 분석 파이프라인으로 연결합니다...\n\n" })
-            const result = await runDataAnalysis(userText, pdfText, (_, text) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) })
-            const finalText = result.ok ? result.report : pdfText
+            writeSse(res, { type: "provider_chunk", provider: "claude", content: hasMultiplePdfs ? `데이터 문서 ${totalPdfCount}개 — 통합 데이터 분석 파이프라인으로 연결합니다...\n\n` : "데이터 분석 파이프라인으로 연결합니다...\n\n" })
+            const result = await runDataAnalysis(userText, combinedPdfText, (_, text) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) })
+            const finalText = result.ok ? result.report : combinedPdfText
             writeSse(res, { type: "final", provider: "claude", content: finalText })
-            writeSse(res, { type: "done", payload: makeDonePayload("claude", finalText, true, "data_analysis_pdf", "research", ["openai", "claude"]) })
+            const extraPending = await processPendingFiles(pendingNonPdfs, userText, res, signal)
+            writeSse(res, { type: "done", payload: makeDonePayload("claude", finalText + extraPending, true, "data_analysis_pdf", "research", ["openai", "claude"]) })
             res.end?.(); return
           }
         }

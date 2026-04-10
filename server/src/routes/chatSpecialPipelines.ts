@@ -234,14 +234,15 @@ export async function runLegalReview(
   let legalSearchResult = ""
   if (perplexityKey) {
     try {
-      const searchQuery = `다음 법률 검토 요청과 관련된 법령, 판례를 검색해줘:\n\n${query}${attachedText ? `\n\n[문서 요약]\n${attachedText.slice(0, 2000)}` : ""}`
+      // 사용자 요청을 최우선, 문서는 보조 컨텍스트(최대 500자)만 — 검색이 문서에 쏠리는 것 방지
+      const searchQuery = `사용자 요청: ${query}\n\n위 요청에 직접 관련된 한국 법령·조문·판례를 우선 검색해줘.${attachedText ? `\n\n[참고 문서 발췌]\n${attachedText.slice(0, 500)}` : ""}`
       const pResp = await fetch(`${PERPLEXITY_BASE}/chat/completions`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${perplexityKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "sonar-pro",
           messages: [
-            { role: "system", content: "한국 법률 전문가로서 관련 법령, 판례, 규정을 검색하여 제공하세요." },
+            { role: "system", content: "한국 법률 전문가로서 사용자가 요청한 범위에 맞춰 관련 법령, 판례, 규정을 검색하여 제공하세요." },
             { role: "user", content: searchQuery }
           ],
           max_tokens: 16384
@@ -256,6 +257,15 @@ export async function runLegalReview(
   let clauseAnalysis = ""
   const claudeSystemPrompt = `당신은 한국 법정에서 25년 이상 활동한 소송 전문 변호사입니다.
 
+[최우선 원칙 — 절대 준수]
+사용자 요청을 먼저 정확히 읽고, 사용자가 원하는 범위·형식·분량·톤에 맞춰 응답하세요.
+사용자가 "요약"을 원하면 요약으로, "정리"를 원하면 정리로, "대응 전략"을 원하면 전략 중심으로,
+"특정 부분 검토"를 원하면 그 부분에 집중하세요. 사용자 의도가 출력 형식을 결정합니다.
+첨부 문서는 사용자 요청에 답하기 위한 재료일 뿐이며, 문서 내용 자체를 단순 재나열하지 마세요.
+사용자가 명시적으로 질문하지 않은 항목은 생략해도 됩니다.
+여러 첨부 문서가 함께 있으면 각 문서의 성격과 상호 관계를 먼저 파악한 뒤 통합 관점으로 답하세요.
+
+[문서 유형 식별]
 제출된 법원 문서, 소송 서류, 법적 의견서, 계약서 등 문서 유형을 먼저 정확히 식별하고,
 해당 문서가 소송 절차상 어떤 단계에 해당하는지 파악하세요.
 
@@ -266,7 +276,8 @@ export async function runLegalReview(
 - 문서 내용 단순 나열 금지
 - 반드시 서술형 문장으로 작성
 
-[분석 항목 — 빠짐없이 작성]
+[분석 항목 — 사용자가 전체 법률 검토를 명시적으로 요청한 경우에만 전부 작성]
+사용자 요청이 특정 범위에 한정된 경우에는 필요한 항목만 선별해 작성합니다.
 1. 문서의 법적 성격과 소송 절차상 의미 (법령 조문 번호 명시)
 2. 가사소송법, 민사소송법, 민법, 가족관계등록법 관련 조문 인용
 3. 실제 대법원 판례 또는 하급심 판례 인용 (사건번호·판결 취지 포함)
@@ -287,7 +298,7 @@ export async function runLegalReview(
             role: "user",
             content: [
               { type: "document", source: { type: "base64", media_type: "application/pdf", data: attachedFile!.base64 } },
-              { type: "text", text: `다음 법률 문서 전체를 분석해줘:\n\n${query}\n\n[참고 법령 및 판례]\n${legalSearchResult || "없음"}` }
+              { type: "text", text: `[사용자 요청 — 최우선]\n${query}\n\n위 요청에 맞춰 첨부 PDF를 검토해줘. 사용자가 원하는 범위·형식·분량을 먼저 지키고, 요청되지 않은 항목은 생략해도 된다.\n\n[참고 법령 및 판례]\n${legalSearchResult || "없음"}` }
             ]
           }]
         }),
@@ -296,12 +307,12 @@ export async function runLegalReview(
       const data = await resp.json().catch(() => ({}))
       clauseAnalysis = String(data?.content?.[0]?.text ?? "")
     } else {
-      // 텍스트 기반 (파일 없음) — runAdapter 사용
+      // 텍스트 기반 (파일 없음 또는 다중 PDF 텍스트 합침) — runAdapter 사용
       const cr = await runAdapter({
         provider: "claude", task: "research",
         messages: [
           { role: "system", content: claudeSystemPrompt },
-          { role: "user", content: `다음 내용을 법률적으로 분석해줘:\n\n${query}${docContext}\n\n[참고 법령 및 판례]\n${legalSearchResult || "없음"}` }
+          { role: "user", content: `[사용자 요청 — 최우선]\n${query}\n\n위 요청에 맞춰 다음 첨부 문서(들)를 검토해줘. 사용자가 원하는 범위·형식·분량을 먼저 지키고, 요청되지 않은 항목은 생략해도 된다.${docContext}\n\n[참고 법령 및 판례]\n${legalSearchResult || "없음"}` }
         ],
         input: { model: "claude-sonnet-4-6", max_tokens: 16384, temperature: 0.1 }
       })
@@ -313,8 +324,8 @@ export async function runLegalReview(
   try {
     const gptUserContent = hasPdfFile
       // PDF 원본은 Claude가 이미 완전 분석 — Claude 분석 결과만 전달
-      ? `법률 검토 요청: ${query}\n\n[Claude 전문 분석 (PDF 전체 기반)]\n${clauseAnalysis || "없음"}\n\n[관련 법령 및 판례]\n${legalSearchResult || "없음"}\n\n위 분석을 바탕으로 최종 법률 의견서를 작성해줘.`
-      : `법률 검토 대상: ${query}${docContext}\n\n[Claude 분석]\n${clauseAnalysis || "없음"}\n\n[관련 법령 및 판례]\n${legalSearchResult || "없음"}\n\n최종 법률 의견서를 작성해줘.`
+      ? `[사용자 요청 — 최우선]\n${query}\n\n위 요청에 맞춰 최종 법률 의견을 작성해줘. 사용자가 요청한 범위·형식·분량을 먼저 지킬 것.\n\n[Claude 전문 분석 (PDF 전체 기반)]\n${clauseAnalysis || "없음"}\n\n[관련 법령 및 판례]\n${legalSearchResult || "없음"}`
+      : `[사용자 요청 — 최우선]\n${query}\n\n위 요청에 맞춰 최종 법률 의견을 작성해줘. 사용자가 요청한 범위·형식·분량을 먼저 지킬 것.${docContext}\n\n[Claude 분석]\n${clauseAnalysis || "없음"}\n\n[관련 법령 및 판례]\n${legalSearchResult || "없음"}`
 
     const oData = await (await fetch(`${OPENAI_BASE}/v1/chat/completions`, {
       method: "POST",
@@ -326,6 +337,13 @@ export async function runLegalReview(
             role: "system",
             content: `당신은 25년 경력의 한국 소송 전문 변호사로서 법률 의견서를 작성합니다.
 
+[최우선 원칙 — 절대 준수]
+사용자 요청을 먼저 정확히 읽고, 사용자가 원하는 범위·형식·분량·톤에 맞춰 응답하세요.
+사용자가 "요약"이면 요약, "정리"면 정리, "대응 전략"이면 전략, "특정 조항 검토"면 그 조항만 —
+사용자 의도가 최종 출력의 형식과 분량을 결정합니다.
+문서 내용을 단순히 재나열하지 마세요. 사용자가 명시하지 않은 항목은 생략해도 됩니다.
+아래 "작성 기준"은 사용자가 전체 법률 검토를 명시적으로 요청한 경우에만 전부 적용합니다.
+
 [출력 형식 — 절대 준수]
 - 표(table) 사용 금지
 - 코드 블록(\`\`\`) 사용 금지
@@ -333,13 +351,13 @@ export async function runLegalReview(
 - 문서 내용 단순 재나열 금지
 - 번호 목록은 반드시 일반 텍스트(1. 2. 3.)로 작성, 코드 블록 사용 절대 금지
 
-[작성 기준]
-- 최소 3000자 이상의 서술형 산문으로 작성
+[작성 기준 — 전체 법률 검토 요청 시에만 적용]
+- 분량은 사용자 요청에 맞춤. 명시가 없으면 사건 복잡도에 비례한 적정 분량으로 작성
 - 가사소송법, 민사소송법, 민법 등 해당 법령 조문 번호를 본문에 직접 인용
 - 실제 대법원 판례를 사건번호와 함께 인용하고 판결 취지 설명
 - 의뢰인에게 유리한 논거와 불리한 논거를 모두 검토 후 실질적 대응 전략 제시
 - 즉시 취해야 할 법적 행동을 기한과 함께 구체적으로 제시
-- 마지막 문단: "이 의견서는 참고용이며 실제 법적 효력이 없습니다. 구체적인 사건에 대해서는 담당 변호사와 상담하시기 바랍니다."`
+- 전체 의견서 작성 시 마지막 문단: "이 의견서는 참고용이며 실제 법적 효력이 없습니다. 구체적인 사건에 대해서는 담당 변호사와 상담하시기 바랍니다."`
           },
           { role: "user", content: gptUserContent }
         ],
@@ -377,13 +395,13 @@ export async function runDataAnalysis(query: string, attachedText: string, onPro
   let analysisResult = ""
   if (openaiKey) {
     try {
-      const oData = await (await fetch(`${OPENAI_BASE}/v1/chat/completions`, { method: "POST", headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "데이터 사이언티스트로서 핵심지표요약, 트렌드/패턴식별, 상관관계분석, 이상치, 비즈니스해석을 제공하세요." }, { role: "user", content: `다음 데이터를 분석해줘:\n\n${query}${dataContext}\n\n${benchmarkResult ? `[벤치마크]\n${benchmarkResult.slice(0, 1000)}` : ""}` }], max_tokens: 16384 }), signal: AbortSignal.timeout(ROUTE_TIMEOUT_MS) })).json().catch(() => ({}))
+      const oData = await (await fetch(`${OPENAI_BASE}/v1/chat/completions`, { method: "POST", headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "데이터 사이언티스트입니다. [최우선 원칙] 사용자 요청을 먼저 정확히 읽고, 사용자가 원하는 범위·형식·분량에 맞춰 응답하세요. 사용자가 요약/특정 지표/특정 비교만 원하면 그 부분에 집중하세요. 요청되지 않은 항목은 생략해도 됩니다. 일반 분석 요청 시에는 핵심지표요약, 트렌드/패턴식별, 상관관계분석, 이상치, 비즈니스해석을 제공하세요." }, { role: "user", content: `[사용자 요청 — 최우선]\n${query}${dataContext}\n\n${benchmarkResult ? `[벤치마크]\n${benchmarkResult.slice(0, 1000)}` : ""}` }], max_tokens: 16384 }), signal: AbortSignal.timeout(ROUTE_TIMEOUT_MS) })).json().catch(() => ({}))
       analysisResult = String(oData?.choices?.[0]?.message?.content ?? "").trim()
     } catch (e) { logger.warn("data analysis step failed", { error: e }) }
   }
   onProgress("report", "📝 Claude가 분석 보고서 작성 중...")
   try {
-    const cr = await runAdapter({ provider: "claude", task: "research", messages: [{ role: "system", content: "데이터 분석 보고서 전문가입니다. 형식: ## 📊 데이터 분석 보고서 / ###1.분석개요 / ###2.핵심지표요약 / ###3.주요발견사항 / ###4.트렌드및패턴 / ###5.인사이트 / ###6.시각화제안 / ###7.권고사항" }, { role: "user", content: `보고서 작성:\n[요청] ${query}${dataContext}\n[OpenAI분석]\n${analysisResult || "없음"}\n[벤치마크]\n${benchmarkResult || "없음"}` }], input: { model: "claude-sonnet-4-6", max_tokens: 16384, temperature: 0.2 } })
+    const cr = await runAdapter({ provider: "claude", task: "research", messages: [{ role: "system", content: "데이터 분석 보고서 전문가입니다. [최우선 원칙] 사용자 요청을 먼저 정확히 읽고, 사용자가 원하는 범위·형식·분량·톤에 맞춰 응답하세요. 사용자가 명시하지 않은 항목은 생략해도 됩니다. 사용자가 전체 분석 보고서를 명시적으로 요청한 경우에만 다음 형식을 전부 따르세요: ## 📊 데이터 분석 보고서 / ###1.분석개요 / ###2.핵심지표요약 / ###3.주요발견사항 / ###4.트렌드및패턴 / ###5.인사이트 / ###6.시각화제안 / ###7.권고사항" }, { role: "user", content: `[사용자 요청 — 최우선]\n${query}${dataContext}\n[OpenAI분석]\n${analysisResult || "없음"}\n[벤치마크]\n${benchmarkResult || "없음"}` }], input: { model: "claude-sonnet-4-6", max_tokens: 16384, temperature: 0.2 } })
     const report = String(cr?.text ?? cr?.answer_text ?? "").trim()
     if (!report) throw new Error("empty")
     return { ok: true, report }
@@ -414,13 +432,13 @@ export async function runFinanceAnalysis(query: string, attachedText: string, on
   let financeAnalysis = ""
   if (openaiKey) {
     try {
-      const oData = await (await fetch(`${OPENAI_BASE}/v1/chat/completions`, { method: "POST", headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "CFA 수준의 재무 분석가로서 PER/PBR/ROE/EBITDA 계산, 수익성/안정성/성장성 분석, 업계 비교, 리스크 요인을 분석하세요. ※투자 권유 아님" }, { role: "user", content: `재무 정보 분석:\n\n${query}${docContext}\n\n[검색 데이터]\n${financeSearch || "없음"}` }], max_tokens: 16384 }), signal: AbortSignal.timeout(ROUTE_TIMEOUT_MS) })).json().catch(() => ({}))
+      const oData = await (await fetch(`${OPENAI_BASE}/v1/chat/completions`, { method: "POST", headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "system", content: "CFA 수준의 재무 분석가입니다. [최우선 원칙] 사용자 요청을 먼저 정확히 읽고, 사용자가 원하는 범위·형식·분량에 맞춰 응답하세요. 사용자가 특정 지표나 특정 항목만 원하면 그 부분에 집중하세요. 요청되지 않은 항목은 생략해도 됩니다. 일반 재무 분석 요청 시 PER/PBR/ROE/EBITDA 계산, 수익성/안정성/성장성 분석, 업계 비교, 리스크 요인을 분석하세요. ※투자 권유 아님" }, { role: "user", content: `[사용자 요청 — 최우선]\n${query}${docContext}\n\n[검색 데이터]\n${financeSearch || "없음"}` }], max_tokens: 16384 }), signal: AbortSignal.timeout(ROUTE_TIMEOUT_MS) })).json().catch(() => ({}))
       financeAnalysis = String(oData?.choices?.[0]?.message?.content ?? "").trim()
     } catch (e) { logger.warn("finance pipeline analysis step failed", { error: e }) }
   }
   onProgress("report", "📋 Claude가 재무 분석 보고서 작성 중...")
   try {
-    const cr = await runAdapter({ provider: "claude", task: "research", messages: [{ role: "system", content: "기업 재무 보고서 전문가입니다. 형식: ## 💹 기업 재무 분석 보고서 / ###1.분석개요 / ###2.핵심재무지표요약(표) / ###3.수익성분석 / ###4.안정성분석 / ###5.성장성분석 / ###6.주요리스크 / ###7.종합평가 / ※참고용, 투자권유아님" }, { role: "user", content: `재무 보고서 작성:\n[대상] ${query}${docContext}\n[OpenAI분석]\n${financeAnalysis || "없음"}\n[시장데이터]\n${financeSearch || "없음"}` }], input: { model: "claude-sonnet-4-6", max_tokens: 16384, temperature: 0.15 } })
+    const cr = await runAdapter({ provider: "claude", task: "research", messages: [{ role: "system", content: "기업 재무 보고서 전문가입니다. [최우선 원칙] 사용자 요청을 먼저 정확히 읽고, 사용자가 원하는 범위·형식·분량·톤에 맞춰 응답하세요. 사용자가 명시하지 않은 항목은 생략해도 됩니다. 사용자가 전체 재무 분석 보고서를 명시적으로 요청한 경우에만 다음 형식을 전부 따르세요: ## 💹 기업 재무 분석 보고서 / ###1.분석개요 / ###2.핵심재무지표요약(표) / ###3.수익성분석 / ###4.안정성분석 / ###5.성장성분석 / ###6.주요리스크 / ###7.종합평가 / ※참고용, 투자권유아님" }, { role: "user", content: `[사용자 요청 — 최우선]\n${query}${docContext}\n[OpenAI분석]\n${financeAnalysis || "없음"}\n[시장데이터]\n${financeSearch || "없음"}` }], input: { model: "claude-sonnet-4-6", max_tokens: 16384, temperature: 0.15 } })
     const report = String(cr?.text ?? cr?.answer_text ?? "").trim()
     if (!report) throw new Error("empty")
     return { ok: true, report }
