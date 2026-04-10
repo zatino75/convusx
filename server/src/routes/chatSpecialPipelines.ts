@@ -4,7 +4,7 @@ import { runAdapter } from "../orchestra/adapterDispatcher.js"
 import { appendProjectMemory, getLatestProjectContext, addProjectSourceAsset } from "../memory/projectMemory.js"
 import { getThreadMemory } from "../memory/threadMemory.js"
 import { logger } from "../observability/logger.js"
-import { ROUTE_TIMEOUT_MS, OPENAI_BASE, PERPLEXITY_BASE } from "../config/defaults.js"
+import { ROUTE_TIMEOUT_MS, OPENAI_BASE, PERPLEXITY_BASE, ANTHROPIC_BASE } from "../config/defaults.js"
 
 // ===== Helper Functions =====
 function safeArray(value: any): any[] {
@@ -216,55 +216,106 @@ const LEGAL_REVIEW_PATTERNS = ["법률 검토","계약서 검토","법적 검토
 
 export function detectLegalReviewCommand(message: string): boolean { return LEGAL_REVIEW_PATTERNS.some((p) => String(message ?? "").toLowerCase().includes(p)) }
 
-export async function runLegalReview(query: string, attachedText: string, onProgress: (step: string, text: string) => void): Promise<{ ok: boolean; report: string; error?: string }> {
+export async function runLegalReview(
+  query: string,
+  attachedText: string,
+  onProgress: (step: string, text: string) => void,
+  attachedFile?: { base64: string; name: string; type: string }
+): Promise<{ ok: boolean; report: string; error?: string }> {
   const openaiKey = String((globalThis as any)?.process?.env?.OPENAI_API_KEY ?? "").trim()
+  const anthropicKey = String((globalThis as any)?.process?.env?.ANTHROPIC_API_KEY ?? "").trim()
   const perplexityKey = String((globalThis as any)?.process?.env?.PERPLEXITY_API_KEY ?? "").trim()
-  const docContext = attachedText ? `\n\n[첨부 문서 내용]\n${attachedText.slice(0, 8000)}` : ""
-  onProgress("search", "⚖️ 관련 법령 및 판례 검색 중...")
+
+  // PDF 원본이 있으면 그대로 사용, 없으면 추출 텍스트 — truncation 제거
+  const hasPdfFile = attachedFile?.type === "application/pdf" && !!attachedFile?.base64
+  const docContext = attachedText ? `\n\n[첨부 문서 내용]\n${attachedText}` : ""
+
+  onProgress("search", "관련 법령 및 판례 검색 중...")
   let legalSearchResult = ""
   if (perplexityKey) {
     try {
-      const pResp = await fetch(`${PERPLEXITY_BASE}/chat/completions`, { method: "POST", headers: { "Authorization": `Bearer ${perplexityKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "한국 법률 전문가로서 관련 법령, 판례, 규정을 검색하여 제공하세요." }, { role: "user", content: `다음 법률 검토 요청과 관련된 법령, 판례를 검색해줘:\n\n${query}${docContext}` }], max_tokens: 16384 }), signal: AbortSignal.timeout(30000) })
+      const searchQuery = `다음 법률 검토 요청과 관련된 법령, 판례를 검색해줘:\n\n${query}${attachedText ? `\n\n[문서 요약]\n${attachedText.slice(0, 2000)}` : ""}`
+      const pResp = await fetch(`${PERPLEXITY_BASE}/chat/completions`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${perplexityKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "sonar-pro",
+          messages: [
+            { role: "system", content: "한국 법률 전문가로서 관련 법령, 판례, 규정을 검색하여 제공하세요." },
+            { role: "user", content: searchQuery }
+          ],
+          max_tokens: 16384
+        }),
+        signal: AbortSignal.timeout(30000)
+      })
       legalSearchResult = String((await pResp.json().catch(() => ({})))?.choices?.[0]?.message?.content ?? "")
     } catch (e) { logger.warn("legal review search step failed", { error: e }) }
   }
-  onProgress("analyze", "Claude가 문서 유형 및 법적 쟁점 분석 중...")
+
+  onProgress("analyze", "Claude가 법률 문서 전체 분석 중...")
   let clauseAnalysis = ""
-  try {
-    const cr = await runAdapter({
-      provider: "claude", task: "research",
-      messages: [
-        {
-          role: "system",
-          content: `당신은 한국 법정에서 25년 이상 활동한 소송 전문 변호사입니다.
+  const claudeSystemPrompt = `당신은 한국 법정에서 25년 이상 활동한 소송 전문 변호사입니다.
 
-제출된 법원 문서, 소송 서류, 법적 의견서, 계약서 등 문서 유형을 먼저 정확히 식별하고, 해당 문서가 소송 절차상 어떤 단계에 해당하는지 파악하세요.
+제출된 법원 문서, 소송 서류, 법적 의견서, 계약서 등 문서 유형을 먼저 정확히 식별하고,
+해당 문서가 소송 절차상 어떤 단계에 해당하는지 파악하세요.
 
-[절대 금지]
+[출력 형식 — 절대 준수]
 - 표(table) 사용 금지
 - 코드 블록(\`\`\`) 사용 금지
-- HIGH/MEDIUM/LOW 위험도 분류 체계 사용 금지
 - 이모지(emoji) 사용 금지
 - 문서 내용 단순 나열 금지
+- 반드시 서술형 문장으로 작성
 
-[분석 기준]
-- 문서의 법적 성격과 소송 절차상 의미를 서술형 문장으로 기술
-- 가사소송법, 민사소송법, 민법, 가족관계등록법 등 해당 법령 조문 번호 명시
-- 실제 대법원 판례 또는 하급심 판례 인용 (판결 취지 포함)
-- 의뢰인 관점에서 유리한 논거와 불리한 논거를 모두 객관적으로 검토
-- 이 문서가 사건 전체에서 갖는 전략적 의미 분석`
-        },
-        {
-          role: "user",
-          content: `다음 내용을 법률적으로 분석해줘:\n\n${query}${docContext}\n\n[참고 법령 및 판례]\n${legalSearchResult || "없음"}`
-        }
-      ],
-      input: { model: "claude-sonnet-4-6", max_tokens: 16384, temperature: 0.1 }
-    })
-    clauseAnalysis = String(cr?.text ?? cr?.answer_text ?? "")
+[분석 항목 — 빠짐없이 작성]
+1. 문서의 법적 성격과 소송 절차상 의미 (법령 조문 번호 명시)
+2. 가사소송법, 민사소송법, 민법, 가족관계등록법 관련 조문 인용
+3. 실제 대법원 판례 또는 하급심 판례 인용 (사건번호·판결 취지 포함)
+4. 의뢰인(피고)에게 유리한 논거와 불리한 논거 객관적 검토
+5. 이 문서가 사건 전체에서 갖는 전략적 의미와 즉각 취해야 할 행동`
+
+  try {
+    if (hasPdfFile) {
+      // PDF 원본을 Claude document API로 직접 전달 — 텍스트 추출·truncation 없음
+      const resp = await fetch(`${ANTHROPIC_BASE}/v1/messages`, {
+        method: "POST",
+        headers: { "x-api-key": anthropicKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 16384,
+          system: claudeSystemPrompt,
+          messages: [{
+            role: "user",
+            content: [
+              { type: "document", source: { type: "base64", media_type: "application/pdf", data: attachedFile!.base64 } },
+              { type: "text", text: `다음 법률 문서 전체를 분석해줘:\n\n${query}\n\n[참고 법령 및 판례]\n${legalSearchResult || "없음"}` }
+            ]
+          }]
+        }),
+        signal: AbortSignal.timeout(120000)
+      })
+      const data = await resp.json().catch(() => ({}))
+      clauseAnalysis = String(data?.content?.[0]?.text ?? "")
+    } else {
+      // 텍스트 기반 (파일 없음) — runAdapter 사용
+      const cr = await runAdapter({
+        provider: "claude", task: "research",
+        messages: [
+          { role: "system", content: claudeSystemPrompt },
+          { role: "user", content: `다음 내용을 법률적으로 분석해줘:\n\n${query}${docContext}\n\n[참고 법령 및 판례]\n${legalSearchResult || "없음"}` }
+        ],
+        input: { model: "claude-sonnet-4-6", max_tokens: 16384, temperature: 0.1 }
+      })
+      clauseAnalysis = String(cr?.text ?? cr?.answer_text ?? "")
+    }
   } catch (e) { logger.warn("legal pipeline clause analysis failed", { error: e }) }
+
   onProgress("report", "OpenAI가 최종 법률 의견서 작성 중...")
   try {
+    const gptUserContent = hasPdfFile
+      // PDF 원본은 Claude가 이미 완전 분석 — Claude 분석 결과만 전달
+      ? `법률 검토 요청: ${query}\n\n[Claude 전문 분석 (PDF 전체 기반)]\n${clauseAnalysis || "없음"}\n\n[관련 법령 및 판례]\n${legalSearchResult || "없음"}\n\n위 분석을 바탕으로 최종 법률 의견서를 작성해줘.`
+      : `법률 검토 대상: ${query}${docContext}\n\n[Claude 분석]\n${clauseAnalysis || "없음"}\n\n[관련 법령 및 판례]\n${legalSearchResult || "없음"}\n\n최종 법률 의견서를 작성해줘.`
+
     const oData = await (await fetch(`${OPENAI_BASE}/v1/chat/completions`, {
       method: "POST",
       headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
@@ -275,27 +326,22 @@ export async function runLegalReview(query: string, attachedText: string, onProg
             role: "system",
             content: `당신은 25년 경력의 한국 소송 전문 변호사로서 법률 의견서를 작성합니다.
 
-[절대 금지]
+[출력 형식 — 절대 준수]
 - 표(table) 사용 금지
 - 코드 블록(\`\`\`) 사용 금지
-- HIGH/MEDIUM/LOW 위험도 분류 체계 사용 금지
 - 이모지(emoji) 사용 금지
 - 문서 내용 단순 재나열 금지
+- 번호 목록은 반드시 일반 텍스트(1. 2. 3.)로 작성, 코드 블록 사용 절대 금지
 
 [작성 기준]
-- 최소 2000자 이상의 서술형 산문으로 작성하세요
-- 제출된 문서의 법적 성격과 소송 맥락을 먼저 명확히 파악하세요
-- 가사소송법, 민사소송법, 민법 등 해당 법령 조문 번호를 본문에 자연스럽게 인용하세요
-- 실제 대법원 판례 또는 헌법재판소 결정례를 구체적으로 인용하고 판결 취지를 설명하세요
-- 의뢰인에게 유리한 논거와 불리한 논거를 모두 검토한 후 실질적 대응 전략을 제시하세요
-- 다음 단계에서 취해야 할 구체적 행동 지침을 제시하세요
-- 전문 법률 용어를 사용할 경우 그 의미와 실무상 함의까지 설명하세요
-- 마지막 문단에 반드시 "이 의견서는 참고용이며 실제 법적 효력이 없습니다. 구체적인 사건에 대해서는 담당 변호사와 상담하시기 바랍니다."라는 문구를 포함하세요`
+- 최소 3000자 이상의 서술형 산문으로 작성
+- 가사소송법, 민사소송법, 민법 등 해당 법령 조문 번호를 본문에 직접 인용
+- 실제 대법원 판례를 사건번호와 함께 인용하고 판결 취지 설명
+- 의뢰인에게 유리한 논거와 불리한 논거를 모두 검토 후 실질적 대응 전략 제시
+- 즉시 취해야 할 법적 행동을 기한과 함께 구체적으로 제시
+- 마지막 문단: "이 의견서는 참고용이며 실제 법적 효력이 없습니다. 구체적인 사건에 대해서는 담당 변호사와 상담하시기 바랍니다."`
           },
-          {
-            role: "user",
-            content: `법률 검토 대상: ${query}${docContext}\n\n[Claude 분석]\n${clauseAnalysis || "없음"}\n\n[관련 법령 및 판례]\n${legalSearchResult || "없음"}\n\n최종 법률 의견서를 작성해줘.`
-          }
+          { role: "user", content: gptUserContent }
         ],
         max_tokens: 16384
       }),
@@ -306,7 +352,7 @@ export async function runLegalReview(query: string, attachedText: string, onProg
     return { ok: true, report }
   } catch (e: any) {
     const fallback = clauseAnalysis || legalSearchResult
-    return fallback ? { ok: true, report: `## ⚖️ 법률 검토\n\n${fallback}` } : { ok: false, report: "", error: e?.message }
+    return fallback ? { ok: true, report: fallback } : { ok: false, report: "", error: e?.message }
   }
 }
 

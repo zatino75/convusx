@@ -954,7 +954,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
 
           if (isLegal) {
             writeSse(res, { type: "provider_chunk", provider: "claude", content: "법률 문서 감지 — 법률 검토 파이프라인 실행 중...\n\n" })
-            const result = await runLegalReview(userText, pdfText, (_, text) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) })
+            const result = await runLegalReview(userText, pdfText, (_, text) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) }, _attached)
             const finalText = result.ok ? result.report : pdfText
             writeSse(res, { type: "final", provider: "openai", content: finalText })
             writeSse(res, { type: "done", payload: makeDonePayload("openai", finalText, true, "legal_review_pdf", "research", ["claude", "openai"]) })
