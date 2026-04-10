@@ -2,6 +2,7 @@
 import { resolveAdaptiveRoute } from "./adaptiveRouter.js"
 import { judge } from "./judge.js"
 import { detectTaskType, planRequest } from "./planner.js"
+import { routeWithLLM } from "./llmRouter.js"
 import { extractClaims } from "./claims.js"
 import { detectConflicts, resolveConflictDecisions } from "./conflicts.js"
 import { readScoreboard, recordProviderExecution, recordProviderConflict, updateModelScoreboard } from "./scoreboard.js"
@@ -165,7 +166,10 @@ function shouldRecoverClaudePrimary(result: any): boolean {
 export async function executeOrchestra(input: any, stream?: OrchestraEmitFn) {
   const startedAt = Date.now()
   const rawInboundMessage = extractInboundMessage(input)
-  const planner = planRequest(rawInboundMessage)
+
+  // Claude Haiku로 의도 분류 — 실패 시 자동으로 heuristic 폴백
+  const anthropicKey = String(process.env.ANTHROPIC_API_KEY ?? "").trim()
+  const planner = await routeWithLLM(rawInboundMessage, anthropicKey)
   const plannerSignals = planner.signals
   const transientFailures: any[] = []
   const recoveryMeta = createRecoveryMeta()
