@@ -246,11 +246,8 @@ export function loadWorkspace(): WorkspaceSnapshot {
     return {
       projects,
       threads,
-      activeProjectId:
-        typeof rawActiveProjectId === "string" && rawActiveProjectId.trim()
-          ? rawActiveProjectId
-          : GENERAL_PROJECT_ID,
-      // 브라우저 재시작 시 항상 홈 화면으로 시작
+      // 브라우저 재시작/새탭 시 항상 앱 홈 화면으로 시작
+      activeProjectId: GENERAL_PROJECT_ID,
       activeThreadId: null
     };
   } catch {
@@ -339,8 +336,8 @@ export async function loadWorkspaceAsync(): Promise<WorkspaceSnapshot & { global
         return {
           projects: normalizeProjects(Array.isArray(projects) ? projects : []),
           threads: normalizeThreads(threads),
-          activeProjectId: activeProjectId || GENERAL_PROJECT_ID,
-          activeThreadId: null, // 브라우저 재접속 시 항상 홈 화면으로 시작
+          activeProjectId: GENERAL_PROJECT_ID, // 브라우저 재접속/새탭 시 항상 앱 홈 화면으로 시작
+          activeThreadId: null,
           globalInstruction: globalInstruction ?? ""
         };
       }
