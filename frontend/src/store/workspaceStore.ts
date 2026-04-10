@@ -340,7 +340,7 @@ export async function loadWorkspaceAsync(): Promise<WorkspaceSnapshot & { global
           projects: normalizeProjects(Array.isArray(projects) ? projects : []),
           threads: normalizeThreads(threads),
           activeProjectId: activeProjectId || GENERAL_PROJECT_ID,
-          activeThreadId: activeThreadId || null,
+          activeThreadId: null, // 브라우저 재접속 시 항상 홈 화면으로 시작
           globalInstruction: globalInstruction ?? ""
         };
       }
