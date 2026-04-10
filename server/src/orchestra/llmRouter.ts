@@ -27,35 +27,49 @@ const VALID_TASKS: CanonicalTask[] = [
 ]
 
 const ROUTER_SYSTEM_PROMPT = `당신은 사용자 메시지의 진짜 의도를 파악해 태스크를 분류하는 라우터입니다.
-키워드가 없어도 문맥, 상황, 뉘앙스를 종합해 판단하세요.
+키워드가 없어도 문맥, 상황, 감정, 뉘앙스를 종합해 판단하세요.
 
 반환 형식 (JSON만, 다른 텍스트 없이):
 {"task":"<task>","deep_analysis":<bool>,"deep_research":<bool>,"structured_output":<bool>,"reason":"<한 줄 이유>"}
 
-task 선택 기준:
-- legal_review: 법률 문서(소장/판결문/계약서/약관 등) 분석, 법적 검토/대응, 소송 관련
-- code_implement: 코드 작성/구현 요청
-- code_debug: 버그 수정, 에러 해결
+task 선택 기준 (위에서 아래로 우선순위 순):
+
+[최우선 — 도메인 특화]
+- legal_review: 법률/소송/계약 관련 문서를 분석하거나 법적 검토·대응이 필요한 모든 경우.
+  PDF나 첨부파일이 있어도 내용이 법률 문서(소장, 이혼소송, 판결문, 계약서, 약관, 합의서 등)이면 반드시 legal_review.
+  "정리해줘", "파악해줘" 같은 표현이 있어도 대상이 법률 문서면 legal_review.
+  예) "와이프가 이혼소송장 보내왔어" → legal_review / "계약서 봐줘" → legal_review
+- finance_analysis: 재무제표, 투자, 밸류에이션 분석
+- data_analysis: 데이터/통계/KPI 수치 분석
+- product_development: 상품·브랜드·유통 전략
+
+[코드]
+- code_implement: 코드 작성/구현
+- code_debug: 버그·에러 수정
 - code_refactor_review: 코드 검토/리팩터링
-- research: 최신 정보 조사, 시장조사, 팩트체크 (웹 검색 필요)
-- reasoning: 판단/비교/전략 분석, 설명 요청
-- data_analysis: 데이터/통계/KPI 분석
-- finance_analysis: 재무제표, 투자 분석
-- legal_review: 법률 문서, 계약서, 소송 관련
-- long_doc: 장문 문서 처리, 보고서 작성
+
+[문서 생성]
+- excel: 엑셀/스프레드시트 생성·편집
+- ppt: 프레젠테이션 생성
+- word: 워드 문서 생성
+- pdf: PDF 변환·병합·추출 등 파일 조작 (법률/계약 내용 분석이 아닌 순수 파일 처리)
+  ※ 주의: PDF 파일이 첨부됐다고 무조건 pdf 태스크가 아님. 내용이 법률이면 legal_review.
+
+[리서치·분석]
+- research: 최신 정보 조사, 시장조사, 웹 검색 필요
+- reasoning: 판단/비교/설명 요청
+- long_doc: 비법률 장문 문서 처리
+
+[글쓰기]
 - writing_creative: 소설/시/대본/카피 창작
-- writing_business: 이메일/제안서/기획서/보고서 작성
-- writing: 요약/번역/정리/표 작성 등 범용
-- excel: 엑셀/스프레드시트
-- ppt: 프레젠테이션/슬라이드
-- word: 워드 문서
-- pdf: PDF 처리
-- product_development: 상품/브랜드/유통 전략
+- writing_business: 이메일/제안서/기획서 작성
+- writing: 요약/번역/정리/표 작성
+
 - dialogue: 단순 대화, 위 어디에도 해당 없음
 
-deep_analysis: 문서/데이터를 깊이 분석해야 하면 true (법률 검토, 계약서 분석 등은 항상 true)
-deep_research: 웹 검색/최신 정보가 필요하면 true
-structured_output: 특정 섹션 구조로 출력해야 하면 true`
+deep_analysis: 법률 검토·계약 분석·심층 문서 분석이면 항상 true
+deep_research: 웹 검색·최신 정보 필요하면 true
+structured_output: "반드시 포함", 섹션 요구 등 구조화 출력 요청이면 true`
 
 function buildRouterUserPrompt(message: string): string {
   // 너무 길면 앞 600자만 (라우팅에는 충분)

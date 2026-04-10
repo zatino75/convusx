@@ -764,8 +764,8 @@ export default function MessageBubble({
                 ))}
               </div>
             ) : null}
-            {/* 진행과정 접기/펼치기 블록 */}
-            {statusHistoryBlock}
+            {/* 진행과정: 완료 후엔 위(요약), 스트리밍 중엔 아래(따라다님) */}
+            {!isPending && statusHistoryBlock}
 
             <div
               className={"message__text" + (isUser ? " message__text--user" : "")}
@@ -802,6 +802,9 @@ export default function MessageBubble({
                 `}</style>
               )}
             </div>
+
+            {/* 진행과정: 스트리밍 중에는 컨텐츠 바로 아래 따라다님 */}
+            {isPending && statusHistoryBlock}
 
             {/* 슬라이드 다운로드 버튼 */}
             {!isUser && !!message.requestMeta?.slide_data && onDownloadSlide && (
