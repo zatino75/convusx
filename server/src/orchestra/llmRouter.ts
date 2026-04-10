@@ -138,8 +138,8 @@ export async function routeWithLLM(
           { role: "user", content: buildRouterUserPrompt(trimmed) }
         ]
       }),
-      // 라우팅은 400ms 안에 안 되면 폴백
-      signal: AbortSignal.timeout(400)
+      // 라우팅 타임아웃 — 한국 서버→Anthropic API 왕복 200-300ms 감안
+      signal: AbortSignal.timeout(3000)
     })
 
     if (!response.ok) return fallback

@@ -69,6 +69,8 @@ type UseSendChatOptions = {
   focusComposer: () => void;
   setPanelPage: (page: number) => void;
   setShowScrollToBottom: (value: boolean) => void;
+  /** 전송 후 입력창 텍스트 초기화 */
+  onDraftClear: () => void;
   /** 서버 연결 상태 — offline 시 전송 차단 */
   connectionStatus?: ConnectionState;
 };
@@ -83,6 +85,7 @@ export function useSendChat({
   focusComposer,
   setPanelPage,
   setShowScrollToBottom,
+  onDraftClear,
   connectionStatus,
 }: UseSendChatOptions) {
   const [isSending, setIsSending] = useState(false);
@@ -254,8 +257,8 @@ export function useSendChat({
     workspace.touchProject(target.projectId, timestamp);
 
     setIsSending(true);
-    // ✅ 전송 즉시 입력창 파일 제거 (UX: 파일이 "전송됨" 상태로 인식)
-    // 오류 발생 시 catch/onDone 에러 핸들러에서 files 변수로 복원
+    // ✅ 전송 즉시 입력창 초기화 (텍스트 + 파일)
+    onDraftClear();
     setAttachedFiles([]);
     setComposerOptions(null);
     setLastError(null);

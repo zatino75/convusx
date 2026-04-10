@@ -175,6 +175,7 @@ export default function App() {
     focusComposer,
     setPanelPage,
     setShowScrollToBottom,
+    onDraftClear: () => setDraft(""),
   });
 
   // ── 메시지 버전 훅 ──────────────────────────────────────────────────────
