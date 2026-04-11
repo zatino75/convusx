@@ -16,6 +16,7 @@
 
 import { runAgentLoop, type AgentLoopInput, type AgentLoopResult } from "./agentLoop.js"
 import { logger } from "../observability/logger.js"
+import { decideHighValue, buildDomainHint } from "./triggerDetection.js"
 
 function safeString(value: any): string {
   return String(value ?? "").trim()
@@ -26,72 +27,6 @@ function safeString(value: any): string {
  * Phase 2.5 에선 최소 이벤트(route_decided / provider_start / final_answer) 만 발행.
  */
 export type OrchestraEventCallback = (event: any) => Promise<void> | void
-
-/**
- * Phase 5 — 고가치 경로 자동 감지 키워드.
- * 메시지에 아래 패턴이 포함되면 parallel_ensemble + adversarial_critique 가
- * 자동 발동하도록 high_value path 로 끌어올린다. 한국어·영어 혼용.
- */
-const HIGH_VALUE_KEYWORDS: RegExp[] = [
-  // 한국어 — 법률/계약/답변서/규제
-  /답변서/, /준비서면/, /소장/, /계약(서|조항|검토)/, /약관\s*검토/, /법률\s*검토/,
-  /규제\s*(검토|분석|확인)/, /컴플라이언스/, /인허가/, /고시\s*(검토|변경)/,
-  // 한국어 — 비즈니스/전략/재무
-  /사업\s*계획/, /비즈니스\s*플랜/, /IR\s*자료/, /투자\s*제안/, /M&A/, /IPO/,
-  /리스크\s*(분석|평가|검토)/, /전략\s*(수립|분석|기획)/, /최종\s*검토/,
-  /재무\s*(분석|모델|검토)/, /밸류에이션/, /DCF/,
-  // 한국어 — 상품/브랜드 (사용자 도메인)
-  /상품\s*(개발|기획|런칭)/, /브랜드\s*(전략|포지셔닝|런칭)/, /제품\s*개발/,
-  // 영어
-  /\blegal\s+(review|opinion|memo)\b/i, /\bcontract\s+review\b/i, /\bcompliance\b/i,
-  /\bbusiness\s+plan\b/i, /\bpitch\s+deck\b/i, /\bdue\s+diligence\b/i,
-  /\brisk\s+(analysis|assessment)\b/i, /\bfinal\s+review\b/i, /\bM&A\b/i,
-  /\bvaluation\b/i, /\bproduct\s+(development|launch)\b/i,
-]
-
-function detectHighValueByKeywords(message: string): boolean {
-  const m = safeString(message)
-  if (!m) return false
-  // 너무 짧은 질의는 제외 (잡음 방지)
-  if (m.length < 15) return false
-  return HIGH_VALUE_KEYWORDS.some((re) => re.test(m))
-}
-
-/**
- * 어떤 effectiveInput 을 받았을 때 agent loop 를 high-value path 로 띄울지 결정.
- * Phase 5 정책:
- *  1) effectiveInput.force_high_value === true (UI 토글) → 즉시 true
- *  2) task 기반 매핑 (legal_review / finance_analysis / ...)
- *  3) 메시지 키워드 자동 감지
- */
-function decideHighValue(effectiveInput: any): boolean {
-  // 1) 명시적 UI 토글 — 최우선
-  if (effectiveInput?.force_high_value === true) return true
-
-  // 2) task 기반 매핑
-  const task = safeString(effectiveInput?.task)
-  if (task && task !== "dialogue") {
-    if (task === "code_debug" || task === "code_implement" || task === "code_refactor_review") return true
-    if (task === "legal_review" || task === "finance_analysis" || task === "product_development") return true
-    if (task === "writing_business" || task === "long_doc" || task === "deep_research") return true
-    if (task === "data_analysis" || task === "research") return true
-  }
-
-  // 3) 메시지 키워드 자동 감지
-  const msg =
-    safeString(effectiveInput?.message) ||
-    (() => {
-      const msgs = Array.isArray(effectiveInput?.messages) ? effectiveInput.messages : []
-      for (let i = msgs.length - 1; i >= 0; i -= 1) {
-        const m = msgs[i]
-        if (m?.role === "user" && typeof m.content === "string") return safeString(m.content)
-      }
-      return ""
-    })()
-  if (detectHighValueByKeywords(msg)) return true
-
-  return false
-}
 
 function safeParseJson(raw: string | undefined): any {
   if (!raw || typeof raw !== "string") return null
@@ -319,7 +254,13 @@ export async function runAgentLoopAsOrchestraResult(
     message,
     normalizedInput: effectiveInput,
     high_value: highValue,
-    extra_system: safeString(effectiveInput?.system_prompt) || safeString(effectiveInput?.project_instructions),
+    extra_system: (() => {
+      const base = safeString(effectiveInput?.system_prompt) || safeString(effectiveInput?.project_instructions)
+      const domainProfile = safeString(effectiveInput?.domain_profile) || "general"
+      const domainHint = buildDomainHint(domainProfile)
+      if (domainHint) return domainHint + (base ? "\n\n" + base : "")
+      return base
+    })(),
     signal: effectiveInput?.__abort_signal,
     onToolCall: liveToolCall,
   }

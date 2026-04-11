@@ -49,3 +49,6 @@ import "./tools/domain/cosmetic/manufacturingCheck.js"
 import "./tools/domain/general/marketAnalyze.js"
 import "./tools/domain/general/businessAnalyze.js"
 import "./tools/domain/general/financeAnalyze.js"
+
+// Phase 5 — 웹 페이지 전체 콘텐츠 조회 (URL → 텍스트)
+import "./tools/webFetch.js"

@@ -402,6 +402,7 @@ export function useSendChat({
           messages: threadMessages,
           global_instruction: globalInstruction?.trim() || null,
           project_instruction: workspace.activeProject?.meta?.instruction?.trim() || null,
+          domain_profile: localStorage.getItem("corvus-x.domain-profile") ?? "general",
           ...(currentComposerOptions ?? {}),
           ...(files.length > 0 ? {
             attached_files: files.map((f: { name: string; type: string; base64: string; size: number }) => ({
