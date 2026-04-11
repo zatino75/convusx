@@ -43,6 +43,7 @@ import { runSlidesGenerateRoute as generateSlidesRoute } from "./routes/slides.j
 import { chatRoute, chatStreamRoute } from "./routes/chat.js"
 import { usageRoute, scoreboardRoute, usageResetRoute } from "./routes/usage.js"
 import { dashboardRoute } from "./routes/dashboard.js"
+import { getSalesRoute, addSalesRoute, deleteSalesRoute } from "./routes/sales.js"
 import { getSettingsKeys, saveSettingsKeys, resetSettings, validateKey } from "./routes/settings.js"
 import { exportThreadRoute } from "./routes/export.js"
 import { analyzePdfWithGemini, analyzeOfficeFileWithClaude, analyzeOfficeFileWithGemini } from "./routes/chatFileAnalysis.js"
@@ -162,6 +163,11 @@ router.post("/api/usage/reset", async (req: ParsedRequest, res: ExpressLikeRespo
 router.get("/api/usage", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await usageRoute.handler({}, res) })
 router.get("/api/scoreboard", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await scoreboardRoute.handler({}, res) })
 router.get("/api/dashboard", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await dashboardRoute.handler({}, res) })
+
+// ── Sales Dashboard ──
+router.get("/api/sales", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await getSalesRoute({}, res) })
+router.post("/api/sales", addSalesRoute)
+router.post("/api/sales/delete", deleteSalesRoute)
 
 // ── Memory API ──
 router.get("/api/project-memory", async (req: IncomingMessage, res: ServerResponse) => {

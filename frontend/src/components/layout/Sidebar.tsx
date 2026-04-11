@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ProjectGroup, Thread } from "../../types/workspace";
 import { t } from "../../i18n";
-import { DashboardIcon, ImageIcon, PlusIcon, SearchIcon, SettingsIcon } from "./SidebarIcons";
+import { DashboardIcon, ImageIcon, PlusIcon, SearchIcon, SettingsIcon, SalesIcon } from "./SidebarIcons";
 import { type ArtifactItem, ProjectRow, RecentThreadRow, WorkspaceRow } from "./SidebarRows";
 
 type Props = {
@@ -10,7 +10,7 @@ type Props = {
   projects: ProjectGroup[];
   activeProjectId: string;
   activeThreadId: string | null;
-  sidebarView: "default" | "search" | "images" | "benchmark" | "dashboard";
+  sidebarView: "default" | "search" | "images" | "benchmark" | "dashboard" | "sales";
   artifacts?: ArtifactItem[];
   onOpenArtifact?: (title: string, code: string, language: string) => void;
   onOpenGeneralHome: () => void;
@@ -18,6 +18,7 @@ type Props = {
   onOpenImages: () => void;
   onOpenBenchmark: () => void;
   onOpenDashboard: () => void;
+  onOpenSales: () => void;
   onSelectProject: (projectId: string) => void;
   onSelectThread: (threadId: string) => void;
   onNewChat: () => void;
@@ -45,6 +46,7 @@ export default function Sidebar({
   onOpenImages,
   onOpenBenchmark,
   onOpenDashboard,
+  onOpenSales,
   onSelectProject,
   onSelectThread,
   onNewChat,
@@ -153,6 +155,11 @@ export default function Sidebar({
     if (isMobile && onClose) onClose();
   }
 
+  function handleOpenSales() {
+    onOpenSales();
+    if (isMobile && onClose) onClose();
+  }
+
   function handleNewChat() {
     onNewChat();
     if (isMobile && onClose) onClose();
@@ -193,6 +200,7 @@ export default function Sidebar({
             <WorkspaceRow active={sidebarView === "search"} icon={<SearchIcon />} label={t("nav.search")} onClick={handleOpenSearch} />
             <WorkspaceRow active={sidebarView === "images"} icon={<ImageIcon />} label={t("nav.images")} onClick={handleOpenImages} />
             <WorkspaceRow active={sidebarView === "dashboard"} icon={<DashboardIcon />} label={t("nav.dashboard")} onClick={handleOpenDashboard} />
+            <WorkspaceRow active={sidebarView === "sales"} icon={<SalesIcon />} label={t("nav.sales")} onClick={handleOpenSales} />
           </div>
 
           <div className="sidebar__section-block">

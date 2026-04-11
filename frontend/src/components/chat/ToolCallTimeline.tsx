@@ -32,7 +32,9 @@ function iconFor(tool: string): string {
   if (tool.includes("regulation") || tool.includes("legal")) return "⚖️"
   if (tool.includes("food") || tool.includes("ecig") || tool.includes("cosmetic")) return "🏷️"
   if (tool.includes("finance") || tool.includes("market") || tool.includes("business")) return "📈"
-  if (tool.includes("image") || tool.includes("video")) return "🎨"
+  if (tool === "generate_video" || tool.includes("video_generate") || tool.includes("video")) return "🎬"
+  if (tool === "generate_image" || tool.includes("image_generate") || tool.includes("image")) return "🎨"
+  if (tool.includes("slide")) return "📊"
   return "🔧"
 }
 

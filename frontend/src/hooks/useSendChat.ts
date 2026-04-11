@@ -447,7 +447,8 @@ export function useSendChat({
                   started_at: Date.now(),
                 });
 
-                // parallel_ensemble / adversarial_critique 은 full output_text 를 가져온다
+                // parallel_ensemble / adversarial_critique / generate_image / generate_video
+                // full output_text 파싱 → live 업데이트
                 const raw = (event as any).output_text;
                 if (typeof raw === "string" && raw.length > 0) {
                   try {
@@ -470,6 +471,33 @@ export function useSendChat({
                       if (liveEnsembleData) {
                         liveEnsembleData = { ...liveEnsembleData, critique: liveCritiqueData ?? undefined };
                       }
+                    } else if (toolName === "generate_image" && parsed?.ok && parsed?.image_url) {
+                      // 이미지 생성 완료 → live preview (done 이벤트 전 즉시 표시)
+                      workspace.updateThreadById(target.threadId, (thread: Thread) => ({
+                        ...thread,
+                        messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (msg: Message) => ({
+                          ...msg,
+                          requestMeta: {
+                            ...(msg.requestMeta ?? {}),
+                            is_image: true,
+                            image_url: parsed.image_url,
+                            image_urls: parsed.image_urls ?? null,
+                          },
+                        })),
+                      }));
+                    } else if (toolName === "generate_video" && parsed?.ok && parsed?.video_url) {
+                      // 영상 생성 완료 → live preview
+                      workspace.updateThreadById(target.threadId, (thread: Thread) => ({
+                        ...thread,
+                        messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (msg: Message) => ({
+                          ...msg,
+                          requestMeta: {
+                            ...(msg.requestMeta ?? {}),
+                            is_video: true,
+                            video_url: parsed.video_url,
+                          },
+                        })),
+                      }));
                     }
                   } catch { /* JSON 파싱 실패 무시 */ }
                 }

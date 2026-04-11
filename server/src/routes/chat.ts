@@ -25,11 +25,12 @@ import {
 } from "./chatMediaGen.js"
 import {
   detectSlideCommand, handleSlideCommand, detectWebSearchCommand, runWebSearch,
-  detectDeepResearchCommand, runDeepResearch, detectLegalReviewCommand, runLegalReview,
-  detectDataAnalysisCommand, runDataAnalysis, detectFinanceCommand, runFinanceAnalysis,
-  detectProductDevCommand, runProductDevelopment, detectSourcePromoteCommand,
-  handleSourcePromoteCommand, detectHandoffCommand, runHandoffSummary
+  detectDeepResearchCommand, runDeepResearch,
+  detectSourcePromoteCommand, handleSourcePromoteCommand,
+  detectHandoffCommand, runHandoffSummary
 } from "./chatSpecialPipelines.js"
+// runLegalReview / runDataAnalysis / runFinanceAnalysis / runProductDevelopment
+// 전부 stub(return null) — 삭제. 해당 task는 agent loop + domain tool로 처리.
 import {
   buildMessagesWithAttachment, injectAttachmentIntoInput, extractUrlsFromMessage,
   enrichMessageWithUrls, normalizeMultipleAttachments
@@ -217,10 +218,41 @@ function buildChatPayload(result: any) {
 
   const finalAnswer = result?.final_answer ?? { provider: null, text: "", ok: false }
   // preview_text 폴백 제거 — final_answer.text가 항상 완전한 텍스트
-  // (preview_text는 420자로 잘려있어 답이 중간에 끊기는 원인이었음)
+
+  // ── 에이전트 도구로 생성된 이미지/비디오 추출 ──
+  // generate_image / generate_video tool call 결과에서 URL 꺼내 done payload에 주입.
+  // 프론트엔드 useSendChat.ts 의 is_image / is_video 핸들러가 소비.
+  const toolCalls: any[] = Array.isArray(result?.internal_rationale?.tool_calls)
+    ? result.internal_rationale.tool_calls : []
+  const mediaFields: Record<string, any> = {}
+  for (let i = toolCalls.length - 1; i >= 0; i--) {
+    const tc = toolCalls[i]
+    if (!tc?.ok || !tc?.output_text) continue
+    if (tc.tool_name === "generate_image" && !mediaFields.image_url) {
+      try {
+        const p = JSON.parse(tc.output_text)
+        if (p?.ok && p?.image_url) {
+          mediaFields.is_image = true
+          mediaFields.image_url = p.image_url
+          if (p.image_urls) mediaFields.image_urls = p.image_urls
+        }
+      } catch { /* JSON 파싱 실패 무시 */ }
+    }
+    if (tc.tool_name === "generate_video" && !mediaFields.video_url) {
+      try {
+        const p = JSON.parse(tc.output_text)
+        if (p?.ok && p?.video_url) {
+          mediaFields.is_video = true
+          mediaFields.video_url = p.video_url
+        }
+      } catch { /* JSON 파싱 실패 무시 */ }
+    }
+    if (mediaFields.image_url && mediaFields.video_url) break
+  }
 
   return {
     ok: true,
+    ...mediaFields,
     answer: finalAnswer,
     meta: { orchestration },
     orchestration,
@@ -816,50 +848,6 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
         }),
         thread_title: await generateThreadTitle(inboundQuery, finalText) ?? null
       } })
-      res.end?.(); return
-    }
-
-    // ── 법률 검토 (Haiku 라우팅) — 파일 없는 텍스트 요청만 ──
-    if (haikuRoute.task === "legal_review" && !normalizedInput?.attached_file) {
-      writeSse(res, { type: "chunk", content: "⚖️ 법률 검토를 시작합니다...\n\n" })
-      const result = await runLegalReview(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? "").trim(), (_: any, text: string) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
-      const finalText = result.ok ? result.report : `❌ 법률 검토 실패: ${result.error}`
-      writeSse(res, { type: "chunk", content: "\n\n---\n\n" })
-      for (const chunk of finalText.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
-      writeSse(res, { type: "done", payload: { ...makeDonePayload("openai", finalText, result.ok, "legal_review", "research", ["perplexity", "claude", "openai"]), thread_title: await generateThreadTitle(inboundQuery, finalText) ?? null } })
-      res.end?.(); return
-    }
-
-    // ── 데이터 분석 (Haiku 라우팅) ──
-    if (haikuRoute.task === "data_analysis" && !normalizedInput?.attached_file) {
-      writeSse(res, { type: "chunk", content: "📊 데이터 분석을 시작합니다...\n\n" })
-      const result = await runDataAnalysis(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? normalizedInput?.csv_text ?? "").trim(), (_: any, text: string) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
-      const finalText = result.ok ? result.report : `❌ 데이터 분석 실패: ${result.error}`
-      writeSse(res, { type: "chunk", content: "\n\n---\n\n" })
-      for (const chunk of finalText.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
-      writeSse(res, { type: "done", payload: { ...makeDonePayload("claude", finalText, result.ok, "data_analysis", "research", ["openai", "claude"]), thread_title: await generateThreadTitle(inboundQuery, finalText) ?? null } })
-      res.end?.(); return
-    }
-
-    // ── 기업 재무 (Haiku 라우팅) ──
-    if (haikuRoute.task === "finance_analysis" && !normalizedInput?.attached_file) {
-      writeSse(res, { type: "chunk", content: "💹 기업 재무 분석을 시작합니다...\n\n" })
-      const result = await runFinanceAnalysis(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? "").trim(), (_: any, text: string) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
-      const finalText = result.ok ? result.report : `❌ 재무 분석 실패: ${result.error}`
-      writeSse(res, { type: "chunk", content: "\n\n---\n\n" })
-      for (const chunk of finalText.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
-      writeSse(res, { type: "done", payload: { ...makeDonePayload("claude", finalText, result.ok, "finance_analysis", "research", ["perplexity", "openai", "claude"]), thread_title: await generateThreadTitle(inboundQuery, finalText) ?? null } })
-      res.end?.(); return
-    }
-
-    // ── 상품 개발 (Haiku 라우팅) ──
-    if (haikuRoute.task === "product_development" && !normalizedInput?.attached_file) {
-      writeSse(res, { type: "chunk", content: "📦 상품 개발 분석을 시작합니다...\n\n" })
-      const result = await runProductDevelopment(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? "").trim(), (_: any, text: string) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
-      const finalText = result.ok ? result.report : `❌ 상품 기획 실패: ${result.error}`
-      writeSse(res, { type: "chunk", content: "\n\n---\n\n" })
-      for (const chunk of finalText.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
-      writeSse(res, { type: "done", payload: { ...makeDonePayload("claude", finalText, result.ok, "product_development", "research", ["perplexity", "openai", "claude"]), thread_title: await generateThreadTitle(inboundQuery, finalText) ?? null } })
       res.end?.(); return
     }
 

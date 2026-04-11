@@ -15,7 +15,7 @@ import SettingsModal from "./components/settings/SettingsModal";
 import Topbar from "./components/layout/Topbar";
 import InlineDialog, { type DialogState } from "./components/chat/InlineDialog";
 import ArtifactPanel, { type Artifact } from "./components/chat/ArtifactPanel";
-import { BenchmarkView, DashboardView, ImageGalleryView, SearchView } from "./components/chat/AppViews";
+import { BenchmarkView, DashboardView, ImageGalleryView, SearchView, SalesView } from "./components/chat/AppViews";
 import ProjectCreateModal from "./components/chat/ProjectCreateModal";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import {
@@ -51,7 +51,7 @@ export default function App() {
 
   // ── UI 상태 ──────────────────────────────────────────────────────────────
   const [draft, setDraft] = useState("");
-  const [sidebarView, setSidebarView] = useState<"default" | "search" | "images" | "benchmark" | "dashboard">("default");
+  const [sidebarView, setSidebarView] = useState<"default" | "search" | "images" | "benchmark" | "dashboard" | "sales">("default");
   const [showSettings, setShowSettings] = useState(false);
   const [msgFontSize, setMsgFontSize] = useState(() => {
     const saved = localStorage.getItem("corvus-x.msg-font-size");
@@ -192,6 +192,7 @@ export default function App() {
   function handleOpenSearch() { workspace.setActiveThreadId(null); setSidebarView("search"); resetEditingState(); markScrollToBottom("auto"); }
   function handleOpenImages() { workspace.setActiveThreadId(null); setSidebarView("images"); resetEditingState(); markScrollToBottom("auto"); }
   function handleOpenBenchmark() { workspace.setActiveThreadId(null); setSidebarView("benchmark"); resetEditingState(); markScrollToBottom("auto"); }
+  function handleOpenSales() { workspace.setActiveThreadId(null); setSidebarView("sales"); resetEditingState(); markScrollToBottom("auto"); }
   function handleCreateThreadInProject(projectId: string) { workspace.createThreadInProject(projectId); resetNav(); focusComposer(); }
   function backToHome() { workspace.setActiveThreadId(null); setSidebarView("default"); resetEditingState(); markScrollToBottom("auto"); }
 
@@ -283,6 +284,7 @@ export default function App() {
             onOpenImages={handleOpenImages}
             onOpenSettings={() => setShowSettings(true)}
             onOpenDashboard={() => { setSidebarView("dashboard"); }}
+            onOpenSales={handleOpenSales}
             onOpenBenchmark={handleOpenBenchmark}
             onSelectProject={handleSelectProject}
             onSelectThread={handleOpenThread}
@@ -312,6 +314,7 @@ export default function App() {
               sidebarView === "search" ? t("nav.search")
               : sidebarView === "images" ? t("nav.images")
               : sidebarView === "benchmark" ? t("nav.benchmark")
+              : sidebarView === "sales" ? t("nav.sales")
               : workspace.activeProject?.title ?? "CORVUS X"
             }
             threadTitle={workspace.activeThread?.title ?? undefined}
@@ -348,6 +351,10 @@ export default function App() {
           ) : sidebarView === "dashboard" ? (
             <ViewErrorBoundary name="Dashboard">
               <DashboardView />
+            </ViewErrorBoundary>
+          ) : sidebarView === "sales" ? (
+            <ViewErrorBoundary name="Sales">
+              <SalesView />
             </ViewErrorBoundary>
           ) : sidebarView === "benchmark" ? (
             <ViewErrorBoundary name="Benchmark">

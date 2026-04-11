@@ -21,3 +21,7 @@ export const BenchmarkView = lazy(() =>
 export const ImageGalleryView = lazy(() =>
   import("./ImageGalleryView").then(m => ({ default: m.ImageGalleryView }))
 );
+
+export const SalesView = lazy(() =>
+  import("./SalesView").then(m => ({ default: m.SalesView }))
+);

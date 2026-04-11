@@ -1,4 +1,4 @@
-# CORVUS X Deploy Script (Phase 5) - PowerShell
+# CORVUS X Deploy Script - PowerShell
 # Run: powershell -ExecutionPolicy Bypass -File ".\deploy\deploy.ps1"
 Set-Location "C:\Users\User\Desktop\CONVUS X"
 $SERVER = "root@1.201.125.92"
@@ -15,16 +15,29 @@ if (Test-Path ".git\index.lock") {
 # 2) git add
 Write-Host "[2] git add..." -ForegroundColor Cyan
 git add `
+  "server/src/routes/chat.ts" `
   "server/src/agent/agentLoop.ts" `
-  "frontend/src/components/settings/SettingsModal.tsx" `
+  "server/src/agent/toolBootstrap.ts" `
+  "server/src/agent/tools/generateImage.ts" `
+  "server/src/agent/tools/generateVideo.ts" `
+  "server/src/index.ts" `
+  "server/src/routes/sales.ts" `
+  "frontend/src/App.tsx" `
+  "frontend/src/hooks/useSendChat.ts" `
+  "frontend/src/components/chat/AppViews.tsx" `
+  "frontend/src/components/chat/SalesView.tsx" `
   "frontend/src/components/chat/ToolCallTimeline.tsx" `
+  "frontend/src/components/layout/Sidebar.tsx" `
+  "frontend/src/components/layout/SidebarIcons.tsx" `
+  "frontend/src/components/settings/SettingsModal.tsx" `
+  "frontend/src/i18n/ko.json" `
   "deploy/deploy.ps1"
 if ($LASTEXITCODE -ne 0) { Write-Host "git add failed" -ForegroundColor Red; exit 1 }
 Write-Host "    Staged OK" -ForegroundColor Green
 
 # 3) git commit
 Write-Host "[3] git commit..." -ForegroundColor Cyan
-git commit -m "feat: Phase 5b - regulation cache hint in agentLoop + SettingsModal watcher status + ToolCallTimeline icons"
+git commit -m "feat: agent loop image/video tool 결과 프론트 렌더링 연결 + stub 파이프라인 제거"
 if ($LASTEXITCODE -ne 0) { Write-Host "    Nothing new to commit" -ForegroundColor Yellow; git status }
 
 # 4) git push
@@ -34,14 +47,40 @@ if ($LASTEXITCODE -ne 0) { Write-Host "    Push failed" -ForegroundColor Yellow 
 
 # 5) scp to server
 Write-Host "[5] scp to server..." -ForegroundColor Cyan
-scp "server/src/agent/agentLoop.ts"                                      "${SERVER}:/opt/corvusx/server/src/agent/"
-scp "frontend/src/components/settings/SettingsModal.tsx"                 "${SERVER}:/opt/corvusx/frontend/src/components/settings/"
-scp "frontend/src/components/chat/ToolCallTimeline.tsx"                  "${SERVER}:/opt/corvusx/frontend/src/components/chat/"
+# 백엔드
+scp "server/src/routes/chat.ts"                                              "${SERVER}:/opt/corvusx/server/src/routes/"
+scp "server/src/agent/agentLoop.ts"                                          "${SERVER}:/opt/corvusx/server/src/agent/"
+scp "server/src/agent/toolBootstrap.ts"                                      "${SERVER}:/opt/corvusx/server/src/agent/"
+scp "server/src/agent/tools/generateImage.ts"                                "${SERVER}:/opt/corvusx/server/src/agent/tools/"
+scp "server/src/agent/tools/generateVideo.ts"                                "${SERVER}:/opt/corvusx/server/src/agent/tools/"
+scp "server/src/index.ts"                                                    "${SERVER}:/opt/corvusx/server/src/"
+scp "server/src/routes/sales.ts"                                             "${SERVER}:/opt/corvusx/server/src/routes/"
+# 프론트엔드
+scp "frontend/src/App.tsx"                                                   "${SERVER}:/opt/corvusx/frontend/src/"
+scp "frontend/src/hooks/useSendChat.ts"                                      "${SERVER}:/opt/corvusx/frontend/src/hooks/"
+scp "frontend/src/components/chat/AppViews.tsx"                              "${SERVER}:/opt/corvusx/frontend/src/components/chat/"
+scp "frontend/src/components/chat/SalesView.tsx"                             "${SERVER}:/opt/corvusx/frontend/src/components/chat/"
+scp "frontend/src/components/chat/ToolCallTimeline.tsx"                      "${SERVER}:/opt/corvusx/frontend/src/components/chat/"
+scp "frontend/src/components/layout/Sidebar.tsx"                             "${SERVER}:/opt/corvusx/frontend/src/components/layout/"
+scp "frontend/src/components/layout/SidebarIcons.tsx"                        "${SERVER}:/opt/corvusx/frontend/src/components/layout/"
+scp "frontend/src/components/settings/SettingsModal.tsx"                     "${SERVER}:/opt/corvusx/frontend/src/components/settings/"
+scp "frontend/src/i18n/ko.json"                                              "${SERVER}:/opt/corvusx/frontend/src/i18n/"
 Write-Host "    scp done" -ForegroundColor Green
 
-# 6) server build
-Write-Host "[6] server build + restart..." -ForegroundColor Cyan
-ssh $SERVER "set -e; echo '=== tsc ==='; cd /opt/corvusx/server; rm -rf dist; ./node_modules/.bin/tsc 2>&1 | tail -20; systemctl restart corvusx-backend; sleep 2; systemctl is-active corvusx-backend; echo '=== frontend ==='; cd /opt/corvusx/frontend; npm run build 2>&1 | tail -20; rsync -a --delete dist/ /var/www/corvusx/; echo '=== DONE ==='"
+# 6) server-side: orchestra dead code 삭제 (0 importer 확인 완료)
+Write-Host "[6] orchestra dead code cleanup..." -ForegroundColor Cyan
+$deadOrchestra = @(
+  "runtime.ts", "runtimeHelpers.ts", "adaptiveRouter.ts", "adapterDispatcher.ts",
+  "scoreboard.ts", "judge.ts", "planner.ts", "claims.ts", "conflicts.ts",
+  "evaluationPipeline.ts", "runtimePipeline.ts", "orchestrationHandler.ts"
+)
+$rmCmd = ($deadOrchestra | ForEach-Object { "rm -f /opt/corvusx/server/src/orchestra/$_" }) -join " && "
+ssh $SERVER $rmCmd
+Write-Host "    orchestra cleanup done" -ForegroundColor Green
+
+# 7) server build
+Write-Host "[7] server build + restart..." -ForegroundColor Cyan
+ssh $SERVER "bash /opt/corvusx/deploy/server-build.sh"
 
 Write-Host ""
 Write-Host "Deploy complete!  https://app.cloudcookie.co.kr" -ForegroundColor Green
