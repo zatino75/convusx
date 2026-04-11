@@ -4,6 +4,19 @@
     "tagline": "멀티-AI 워크스페이스",
     "disclaimer": "CORVUS X는 실수를 할 수 있습니다. 중요한 정보는 확인하십시오."
   },
+  "auth": {
+    "loading": "세션 확인 중…",
+    "subtitle": "단일 유저 전용 워크스페이스",
+    "passwordLabel": "비밀번호",
+    "submit": "로그인",
+    "submitting": "확인 중…",
+    "footer": "허가되지 않은 접근은 차단됩니다.",
+    "errorInvalidPassword": "비밀번호가 올바르지 않습니다.",
+    "errorPasswordRequired": "비밀번호를 입력하세요.",
+    "errorTooManyAttempts": "시도 횟수 초과. 잠시 후 다시 시도하세요.",
+    "errorDisabled": "서버에서 로그인이 비활성화되어 있습니다.",
+    "errorGeneric": "로그인에 실패했습니다. 다시 시도해 주세요."
+  },
   "nav": {
     "home": "홈",
     "chat": "대화",
@@ -55,6 +68,9 @@
     "webSearchDesc": "Perplexity Pro로 바로 웹검색",
     "deepResearchBadge": "⚡ 심층리서치 (GPT-5.4 Pro + Claude Opus 4.6)",
     "webSearchBadge": "🔍 웹검색 (Perplexity Scout)",
+    "parallelEnsemble": "3-AI 병렬 모드",
+    "parallelEnsembleDesc": "GPT-5.4 Pro + Claude Opus 4.6 + Gemini 3.1 Pro Ultra 동시 생성 + 적대적 비평",
+    "parallelEnsembleBadge": "⚡ 3-AI 병렬 앙상블 (비용·지연 증가)",
     "dropToAttach": "파일을 놓아 첨부하세요",
     "fileAnalysis": "파일 분석",
     "compressionPrompt": "다음 대화 내용을 핵심만 500자 이내로 압축 요약하세요. 중요한 결정사항, 코드, 숫자는 반드시 포함하세요.",
@@ -77,20 +93,7 @@
     "thinkingProcess": "진행과정"
   },
   "message": {
-    "copyMessage": "메시지 복사",
-    "editMessage": "메시지 편집",
-    "like": "좋아요",
-    "dislike": "별로예요",
-    "export": "대화 내보내기",
-    "exportMarkdown": "Markdown으로 내보내기",
-    "exportText": "텍스트로 내보내기",
-    "exportFailed": "내보내기에 실패했습니다.",
-    "downloadPptx": "PPTX 다운로드",
-    "aiImage": "AI 생성 이미지",
-    "imageN": "이미지 {n}",
-    "videoComplete": "🎬 비디오 생성 완료",
-    "openVideo": "↗ 비디오 열기",
-    "feedbackFailed": "feedback 전송 실패"
+    "chartParseError": "차트 데이터 파싱 실패. 형식: type: bar|line|pie / label: value"
   },
   "home": {
     "searchPlaceholder": "대화 내용, 스레드 제목 검색...",
@@ -524,9 +527,6 @@
   "search": {
     "noResults": "결과가 없습니다",
     "countSuffix": "개 대화"
-  },
-  "message": {
-    "chartParseError": "차트 데이터 파싱 실패. 형식: type: bar|line|pie / label: value"
   },
   "button": {
     "copy": "복사",

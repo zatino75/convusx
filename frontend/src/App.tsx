@@ -416,11 +416,20 @@ export default function App() {
               onDownloadSlide={handleDownloadSlide}
               attachedFiles={attachedFiles}
               onAttachFiles={setAttachedFiles}
-              composerMode={composerOptions ? (composerOptions.force_pro ? "deep-think" : composerOptions.task === "research" ? "web-search" : null) : null}
+              composerMode={composerOptions
+                ? (composerOptions.force_high_value
+                    ? "parallel-ensemble"
+                    : composerOptions.force_pro
+                      ? "deep-think"
+                      : composerOptions.task === "research"
+                        ? "web-search"
+                        : null)
+                : null}
               onClearComposerMode={() => setComposerOptions(null)}
               onComposerAction={(action) => {
                 if (action === "deep-think") setComposerOptions({ force_pro: true, deep_research: true });
                 else if (action === "web-search") setComposerOptions({ task: "research" });
+                else if (action === "parallel-ensemble") setComposerOptions({ force_high_value: true });
                 else setComposerOptions(null);
               }}
               messageVersionMap={messageVersionMap}
@@ -448,6 +457,7 @@ export default function App() {
           setProjectTitleDraft("");
         }}
       />
+
 
       <SettingsModal
         open={showSettings}

@@ -1,4 +1,5 @@
 export type Role = "user" | "assistant";
+
 export type MainViewMode = "home" | "thread-chat";
 export type WorkspaceKind = "general" | "project";
 export type MessageStatus = "pending" | "done" | "error";
@@ -148,6 +149,44 @@ export type DebugMeta = {
   providerStatusMap?: Record<string, unknown>;
   providerStreamSummary?: Record<string, unknown>;
   timelineEvents?: unknown[];
+  // ── Phase 3 Agent Loop 전용 확장 ───────────────────────────────────
+  /** 도구 호출 타임라인 (agentLoop → ToolCallTimeline 컴포넌트로 직접 전달) */
+  toolTimeline?: Array<{
+    tool_name: string;
+    ok: boolean;
+    latency_ms?: number;
+    summary?: string;
+    error?: string | null;
+    started_at?: number;
+  }>;
+  /** 병렬 앙상블 결과 — 4탭 비교 뷰용 */
+  ensembleData?: {
+    drafts: Array<{
+      provider: string;
+      model: string;
+      ok: boolean;
+      draft: string;
+      latency_ms?: number;
+      usage?: any;
+      error?: string | null;
+    }>;
+    synthesized?: string;
+    instruction_preview?: string;
+    total_latency_ms?: number;
+    critique?: {
+      critic_provider?: string;
+      critic_model?: string;
+      draft_provider?: string;
+      critique?: string;
+    };
+  } | null;
+  /** 적대적 비평 단독 결과 (ensembleData 없이 critique 만 있는 케이스) */
+  critiqueData?: {
+    critic_provider?: string;
+    critic_model?: string;
+    draft_provider?: string;
+    critique?: string;
+  } | null;
 };
 
 export type WorkspaceSnapshot = {
@@ -233,6 +272,40 @@ export type StreamErrorEvent = {
   error?: string;
 };
 
+// Phase 3 Agent Loop events
+export type StreamRouteDecidedEvent = {
+  type: "route_decided";
+  task?: string;
+  provider?: string;
+  strategy?: string;
+  high_value?: boolean;
+};
+
+export type StreamAgentProviderStartEvent = {
+  type: "provider_start";
+  provider?: string;
+  model?: string;
+  task?: string;
+};
+
+export type StreamToolCallEvent = {
+  type: "tool_call";
+  tool_name?: string;
+  ok?: boolean;
+  latency_ms?: number;
+  summary?: string;
+  error?: string | null;
+  output_text?: string;
+};
+
+export type StreamFinalAnswerEvent = {
+  type: "final_answer";
+  provider?: string;
+  text?: string;
+  ok?: boolean;
+  latency_ms?: number;
+};
+
 export type StreamEvent =
   | StreamStartEvent
   | StreamStatusEvent
@@ -244,4 +317,8 @@ export type StreamEvent =
   | StreamOrchestrationEvent
   | StreamFinalEvent
   | StreamDoneEvent
-  | StreamErrorEvent;
+  | StreamErrorEvent
+  | StreamRouteDecidedEvent
+  | StreamAgentProviderStartEvent
+  | StreamToolCallEvent
+  | StreamFinalAnswerEvent;

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent }
 import type { Message, ProjectGroup, Thread } from "../../types/workspace";
 import renderMessageContent from "./MessageRenderer";
 import { FilePreviewThumbnail, FilePreviewCompact } from "./FilePreview";
+import ToolCallTimeline, { type ToolCallTimelineEntry } from "./ToolCallTimeline";
+import EnsembleCompareView, { type EnsembleCompareData } from "./EnsembleCompareView";
 import {
   CopyIcon, EditIcon, ChevronLeftIcon, ChevronRightIcon,
   ThumbUpIcon, ThumbDownIcon, RegenerateIcon
@@ -592,7 +594,7 @@ export default function MessageBubble({
   onDeleteMessage?: (messageId: string) => void;
   onRelatedQuestion?: (q: string) => void;
   onOpenArtifact?: (title: string, code: string, language: string) => void;
-  onComposerAction?: (action: "deep-think" | "web-search" | "upload") => void;
+  onComposerAction?: (action: "deep-think" | "web-search" | "upload" | "parallel-ensemble") => void;
   onDownloadSlide?: (slideData: any) => void;
 }) {
   const isUser = message.role === "user";
@@ -805,6 +807,27 @@ export default function MessageBubble({
 
             {/* 진행과정: 스트리밍 중에는 컨텐츠 바로 아래 따라다님 */}
             {isPending && statusHistoryBlock}
+
+            {/* Phase 3 — 에이전트 루프 도구 호출 타임라인 */}
+            {!isUser &&
+              Array.isArray((message.requestMeta as any)?.toolTimeline) &&
+              ((message.requestMeta as any).toolTimeline as ToolCallTimelineEntry[]).length > 0 && (
+                <div style={{ margin: "6px 18px 0" }}>
+                  <ToolCallTimeline
+                    entries={(message.requestMeta as any).toolTimeline as ToolCallTimelineEntry[]}
+                    compact={isPending}
+                  />
+                </div>
+              )}
+
+            {/* Phase 3 — 병렬 앙상블 4탭 비교 뷰 */}
+            {!isUser && !isPending && (message.requestMeta as any)?.ensembleData && (
+              <div style={{ margin: "0 18px" }}>
+                <EnsembleCompareView
+                  data={(message.requestMeta as any).ensembleData as EnsembleCompareData}
+                />
+              </div>
+            )}
 
             {/* 슬라이드 다운로드 버튼 */}
             {!isUser && !!message.requestMeta?.slide_data && onDownloadSlide && (

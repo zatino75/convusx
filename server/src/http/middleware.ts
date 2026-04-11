@@ -10,14 +10,23 @@ export function initCorsOrigins(origins: string[]): void {
 
 export function setCorsHeaders(res: ServerResponse, req?: IncomingMessage) {
   const origin = String(req?.headers?.origin ?? "").trim()
+  let originSet = false
 
   if (_corsOrigins.length === 0) {
     // 화이트리스트 미설정 → 전체 허용 (개발 환경)
-    res.setHeader("Access-Control-Allow-Origin", "*")
+    // credentials 쿠키 사용 시 "*"는 브라우저가 거부하므로 origin 을 그대로 반사
+    if (origin) {
+      res.setHeader("Access-Control-Allow-Origin", origin)
+      res.setHeader("Vary", "Origin")
+    } else {
+      res.setHeader("Access-Control-Allow-Origin", "*")
+    }
+    originSet = true
   } else if (origin && _corsOrigins.includes(origin)) {
     // 화이트리스트 매치 → 해당 origin만 허용
     res.setHeader("Access-Control-Allow-Origin", origin)
     res.setHeader("Vary", "Origin")
+    originSet = true
   } else if (origin) {
     // 화이트리스트에 없는 origin → 허용 안 함 (헤더 미설정)
     return
@@ -25,9 +34,19 @@ export function setCorsHeaders(res: ServerResponse, req?: IncomingMessage) {
     // origin 헤더 없음 (same-origin 또는 비브라우저) → 첫 번째 도메인
     res.setHeader("Access-Control-Allow-Origin", _corsOrigins[0])
     res.setHeader("Vary", "Origin")
+    originSet = true
   }
 
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Correlation-Id, X-Confirm-Reset")
+  // credentials(쿠키) 허용 — 단일 유저 세션 쿠키 지원에 필요
+  // 단, Origin 이 "*" 인 경우에는 브라우저가 거부하므로 반사된 경우에만 설정
+  if (originSet && res.getHeader("Access-Control-Allow-Origin") !== "*") {
+    res.setHeader("Access-Control-Allow-Credentials", "true")
+  }
+
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, X-Correlation-Id, X-Confirm-Reset, Cookie"
+  )
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 }
 

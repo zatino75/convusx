@@ -4,7 +4,8 @@ import { showToast } from "../ui/Toast";
 import { FilePreviewThumbnail } from "./FilePreview";
 import { PlusIcon, UploadIcon, SearchIcon, SparkleIcon, StopIcon } from "./ChatIcons";
 
-export type ComposerMenuAction = "upload" | "deep-think" | "web-search";
+export type ComposerMenuAction = "upload" | "deep-think" | "web-search" | "parallel-ensemble";
+export type ComposerModeValue = "deep-think" | "web-search" | "parallel-ensemble" | null;
 
 type SlashCommand = {
   trigger: string;        // /dalle, /midjourney 등
@@ -99,6 +100,22 @@ function ComposerMenu({
           <span className="composer-menu__meta">{t("chat.webSearchDesc")}</span>
         </span>
       </button>
+
+      {/* Phase 5 — 3-AI 병렬 앙상블 모드 (GPT-5.4-pro + Claude Opus 4.6 + Gemini 3.1 Pro Ultra) */}
+      <button
+        type="button"
+        className="composer-menu__item"
+        onClick={() => {
+          onAction("parallel-ensemble");
+          onClose();
+        }}
+      >
+        <span className="composer-menu__icon">⚡</span>
+        <span className="composer-menu__stack">
+          <span className="composer-menu__text">{t("chat.parallelEnsemble")}</span>
+          <span className="composer-menu__meta">{t("chat.parallelEnsembleDesc")}</span>
+        </span>
+      </button>
     </div>
   );
 }
@@ -124,7 +141,7 @@ export default function Composer({
   onStopGenerating?: () => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   onComposerAction?: (action: ComposerMenuAction) => void;
-  composerMode?: "deep-think" | "web-search" | null;
+  composerMode?: ComposerModeValue;
   onClearComposerMode?: () => void;
   attachedFiles?: { name: string; type: string; base64: string; size: number }[];
 }) {
@@ -356,25 +373,33 @@ export default function Composer({
         </div>
       )}
 
-      {composerMode && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px 0" }}>
-          <span style={{
-            display: "inline-flex", alignItems: "center", gap: 5,
-            padding: "3px 10px", borderRadius: 20,
-            background: composerMode === "deep-think" ? "rgba(99,102,241,0.1)" : "rgba(16,185,129,0.1)",
-            color: composerMode === "deep-think" ? "#6366f1" : "#10b981",
-            fontSize: 12, fontWeight: 600
-          }}>
-            {composerMode === "deep-think" ? t("chat.deepResearchBadge") : t("chat.webSearchBadge")}
-            <button type="button" onClick={onClearComposerMode}
-              style={{ display: "flex", alignItems: "center", border: "none", background: "none", cursor: "pointer", padding: 0, color: "inherit", opacity: 0.7 }}>
-              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
-            </button>
-          </span>
-        </div>
-      )}
+      {composerMode && (() => {
+        const modeStyles: Record<NonNullable<ComposerModeValue>, { bg: string; color: string; label: string }> = {
+          "deep-think":        { bg: "rgba(99,102,241,0.1)",  color: "#6366f1", label: t("chat.deepResearchBadge") },
+          "web-search":        { bg: "rgba(16,185,129,0.1)",  color: "#10b981", label: t("chat.webSearchBadge") },
+          "parallel-ensemble": { bg: "rgba(217,119,6,0.12)",  color: "#b45309", label: t("chat.parallelEnsembleBadge") },
+        };
+        const s = modeStyles[composerMode];
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px 0" }}>
+            <span style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              padding: "3px 10px", borderRadius: 20,
+              background: s.bg,
+              color: s.color,
+              fontSize: 12, fontWeight: 600
+            }}>
+              {s.label}
+              <button type="button" onClick={onClearComposerMode}
+                style={{ display: "flex", alignItems: "center", border: "none", background: "none", cursor: "pointer", padding: 0, color: "inherit", opacity: 0.7 }}>
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </span>
+          </div>
+        );
+      })()}
       {/* slash 커맨드 팝오버 */}
       {slashOpen && slashFiltered.length > 0 && (
         <div

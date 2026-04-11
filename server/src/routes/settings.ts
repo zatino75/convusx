@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import { logger } from "../observability/logger.js"
 import { clearAllThreadMemory } from "../memory/threadMemory.js"
 import { clearAllProjectMemory } from "../memory/projectMemory.js"
-import { resetModelScoreboardAll } from "../orchestra/scoreboard.js"
+// NOTE (2026-04-11): orchestra/scoreboard 폐기 — resetModelScoreboardAll 제거
 import { validateBody, settingsResetRules, validateKeyRules } from "../http/validation.js"
 import type { ParsedRequest } from "../http/router.js"
 import type { ExpressLikeResponse } from "../http/response.js"
@@ -188,7 +188,7 @@ export function resetSettings(req: ParsedRequest, res: ExpressLikeResponse) {
       cleared.push("project-memory")
     }
     if (target === "scoreboard" || target === "all") {
-      resetModelScoreboardAll()
+      // scoreboard 폐기 — 리셋 대상 없음 (tool_call_log 기반으로 전환됨)
       cleared.push("scoreboard")
     }
     // audit 로그

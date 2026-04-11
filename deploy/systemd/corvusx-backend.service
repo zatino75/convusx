@@ -1,0 +1,38 @@
+[Unit]
+Description=CORVUS X Backend (Node)
+Documentation=https://app.cloudcookie.co.kr
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=corvusx
+Group=corvusx
+WorkingDirectory=/opt/corvusx
+EnvironmentFile=/etc/corvusx/.env
+ExecStart=/usr/bin/node /opt/corvusx/server/dist/index.js
+Restart=always
+RestartSec=3
+StandardOutput=append:/var/log/corvusx/backend.log
+StandardError=append:/var/log/corvusx/backend.err
+
+# 보안 강화
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/corvusx /var/log/corvusx
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+# 리소스 제한
+LimitNOFILE=65536
+LimitNPROC=2048
+
+[Install]
+WantedBy=multi-user.target

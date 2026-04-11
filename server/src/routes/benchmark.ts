@@ -1,6 +1,7 @@
+// NOTE (2026-04-11): orchestra/scoreboard + orchestra/runtime 폐기.
+// executeOrchestra → runAgentLoop 교체. recordProviderExecution 호출 제거.
 import { logBenchmark, normalizeBenchmarkCase } from "../orchestra/benchmark.js"
-import { resetScoreboard, recordProviderExecution } from "../orchestra/scoreboard.js"
-import { executeOrchestra } from "../orchestra/runtime.js"
+import { runAgentLoop } from "../agent/agentLoop.js"
 import { evaluateBenchmarkResult } from "../benchmark/evaluator.js"
 import { buildBenchmarkComparison, buildDefaultBenchmarkCases, toBenchmarkRunResult } from "../benchmark/scoreboard.js"
 import fs from "fs"
@@ -60,9 +61,8 @@ export async function runBenchmarkRoute(req: ParsedRequest, res: ExpressLikeResp
     return res.json({ ok: false, error: "cases required" })
   }
 
-  if (body?.reset_scoreboard) {
-    resetScoreboard()
-  }
+  // reset_scoreboard 옵션 — scoreboard 폐기됨, no-op
+  void body?.reset_scoreboard
 
   const results = []
 
@@ -84,33 +84,43 @@ export async function runBenchmarkRoute(req: ParsedRequest, res: ExpressLikeResp
   })
 }
 
-// 단일 provider 실행
+// 단일 provider 실행 — agentLoop (disable_tools=true 로 단독 처리)
 async function runSingleProvider(provider: string, input: Record<string, unknown>): Promise<Record<string, unknown> | null> {
   try {
-    const result = await executeOrchestra({
-      ...input,
-      mode: `single_${provider}`,
-      benchmark_mode: false,
-      force_primary_provider: provider,
-      // 단일 모델 강제: verifier/optional 없이 primary만
-      _single_provider_override: provider
+    const result = await runAgentLoop({
+      thread_id: `benchmark_single_${provider}_${Date.now()}`,
+      project_id: String(input.project_id ?? "benchmark"),
+      message: String(input.message ?? ""),
+      normalizedInput: input,
+      extra_system: `[BENCHMARK SINGLE MODE] Respond as if you were ${provider}. Do NOT call parallel_ensemble or adversarial_critique.`,
+      disable_tools: true,
     })
-    return result as Record<string, unknown>
+    return {
+      final_answer: { provider, text: result.text, ok: result.ok },
+      response_meta: { orchestration: { latency_ms: result.latency_ms, provider, final_provider: provider, executed_providers: [provider] } },
+      internal_rationale: { task: String(input.task ?? ""), executed_providers: [provider] }
+    }
   } catch (e) {
     logger.warn("single provider benchmark run failed", { error: e })
     return null
   }
 }
 
-// orchestra 실행
+// ensemble 실행 — agentLoop (high_value=true 로 병렬 앙상블 + 비평 활성화)
 async function runOrchestra(input: Record<string, unknown>): Promise<Record<string, unknown> | null> {
   try {
-    const result = await executeOrchestra({
-      ...input,
-      mode: "runtime_orchestra",
-      benchmark_mode: true
+    const result = await runAgentLoop({
+      thread_id: `benchmark_ensemble_${Date.now()}`,
+      project_id: String(input.project_id ?? "benchmark"),
+      message: String(input.message ?? ""),
+      normalizedInput: input,
+      high_value: true,
     })
-    return result as Record<string, unknown>
+    return {
+      final_answer: { provider: result.provider, text: result.text, ok: result.ok },
+      response_meta: { orchestration: { latency_ms: result.latency_ms, provider: result.provider, final_provider: result.provider, executed_providers: result.tool_calls.map((t) => t.tool_name) } },
+      internal_rationale: { task: String(input.task ?? ""), executed_providers: [result.provider] }
+    }
   } catch (e) {
     logger.warn("orchestra benchmark run failed", { error: e })
     return null
@@ -242,45 +252,8 @@ export async function runBenchmarkRunRoute(req: ParsedRequest | { body: Record<s
   // 3. 비교 결과 생성
   const comparison = buildBenchmarkComparison(singleRuns, orchestraRuns) as Record<string, unknown>
 
-  // ─── Pairwise 승자 → Scoreboard 자동 반영 ────────────────────────────────────
-  // 벤치마크 비교 결과를 routing 학습에 직접 피드백
-  const pairwise = (comparison.pairwise ?? []) as Array<Record<string, unknown>>
-  for (const pair of pairwise) {
-    const task = String(pair?.task ?? "dialogue").trim().toLowerCase()
-    const winner = String(pair?.benchmark_winner ?? "")
-    const providerChain = pair?.orchestra_provider_chain as string[] | undefined
-    const winnerSnapshot = pair?.winner_snapshot as Record<string, unknown> | undefined
-    const orchestraProvider = String(providerChain?.[0] ?? "").toLowerCase() ||
-      String(winnerSnapshot?.provider ?? "").toLowerCase()
-    const bestSingleProvider = String(pair?.best_single_provider ?? "").toLowerCase()
-
-    if (winner === "orchestra" && orchestraProvider) {
-      recordProviderExecution(orchestraProvider, {
-        success: true, selected_as_final: true, effective: true,
-        weight: 1.8, task, latency_ms: 0, estimated_cost_usd: 0, error_code: null
-      })
-    } else if (winner === "best_single" && bestSingleProvider) {
-      recordProviderExecution(bestSingleProvider, {
-        success: true, selected_as_final: true, effective: true,
-        weight: 1.5, task, latency_ms: 0, estimated_cost_usd: 0, error_code: null
-      })
-      // orchestra provider는 패배 기록 (약하게)
-      if (orchestraProvider && orchestraProvider !== bestSingleProvider) {
-        recordProviderExecution(orchestraProvider, {
-          success: false, selected_as_final: false, effective: true,
-          weight: 0.6, task, latency_ms: 0, estimated_cost_usd: 0, error_code: "benchmark_loss"
-        })
-      }
-    } else if (winner === "tie") {
-      // 동점: 양쪽 모두 약하게 긍정 기록
-      if (orchestraProvider) {
-        recordProviderExecution(orchestraProvider, {
-          success: true, selected_as_final: false, effective: true,
-          weight: 0.4, task, latency_ms: 0, estimated_cost_usd: 0, error_code: null
-        })
-      }
-    }
-  }
+  // NOTE (2026-04-11): pairwise scoreboard 기록 제거 — scoreboard 폐기됨
+  // 비교 결과는 tool_call_log 에 기록된 도구 호출 패턴으로 품질 관리
 
   const summary = (comparison.summary ?? {}) as Record<string, unknown>
 

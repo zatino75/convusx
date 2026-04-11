@@ -8,18 +8,26 @@ export function apiUrl(path: string): string {
 }
 
 /**
- * apiFetch — apiUrl() 변환 + VITE_API_TOKEN 자동 주입
- * ADMIN_API_TOKEN 없는 로컬 환경에서는 헤더 추가 없이 그대로 동작
+ * apiFetch — apiUrl() 변환 + VITE_API_TOKEN 자동 주입 + 세션 쿠키 포함
+ *
+ * ADMIN_API_TOKEN 없는 로컬 환경에서는 헤더 추가 없이 동작.
+ * 공개 배포(app.cloudcookie.co.kr)에서는 corvus_session 쿠키가 자동 전송된다.
+ * credentials: "include" 를 기본값으로 강제해 브라우저가 쿠키를 같이 보낸다.
  */
 export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const url = apiUrl(path)
   const token = String((import.meta as any).env?.VITE_API_TOKEN ?? "").trim()
+  const finalInit: RequestInit = {
+    // 쿠키 로그인 지원 — 호출자가 명시적으로 지정하지 않으면 include
+    credentials: init.credentials ?? "include",
+    ...init,
+  }
   if (token) {
-    const headers = new Headers(init.headers)
+    const headers = new Headers(finalInit.headers)
     if (!headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${token}`)
     }
-    return fetch(url, { ...init, headers })
+    finalInit.headers = headers
   }
-  return fetch(url, init)
+  return fetch(url, finalInit)
 }

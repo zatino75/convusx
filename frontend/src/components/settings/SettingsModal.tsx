@@ -32,7 +32,7 @@ const PROVIDER_LINKS: Record<keyof ApiKeys, string> = {
   runway:     "https://app.runwayml.com/settings",
 };
 
-type Tab = "api" | "interface" | "instruction" | "connector" | "data";
+type Tab = "api" | "interface" | "instruction" | "connector" | "data" | "domain";
 
 type Instruction = {
   id: string;
@@ -132,6 +132,26 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
 
   // Connector expand state
   const [connectorExpanded, setConnectorExpanded] = useState(false);
+
+  // Domain profile
+  const [domainProfile, setDomainProfile] = useState<string>(() => {
+    try { return localStorage.getItem("corvus-x.domain-profile") ?? "general"; } catch { return "general"; }
+  });
+
+  // Regulation watcher interval
+  const [regulationInterval, setRegulationInterval] = useState<string>(() => {
+    try { return localStorage.getItem("corvus-x.regulation-interval") ?? "daily"; } catch { return "daily"; }
+  });
+
+  function saveDomainProfile(profile: string) {
+    setDomainProfile(profile);
+    try { localStorage.setItem("corvus-x.domain-profile", profile); } catch {}
+  }
+
+  function saveRegulationInterval(interval: string) {
+    setRegulationInterval(interval);
+    try { localStorage.setItem("corvus-x.regulation-interval", interval); } catch {}
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -364,6 +384,7 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
           <button type="button" style={tabStyle("instruction")} onClick={() => setTab("instruction")}>{t("settings.instruction")}</button>
           <button type="button" style={tabStyle("connector")} onClick={() => setTab("connector")}>{t("settings.connector")}</button>
           <button type="button" style={tabStyle("data")} onClick={() => setTab("data")}>{t("settings.dataManagement")}</button>
+          <button type="button" style={tabStyle("domain")} onClick={() => setTab("domain")}>도메인</button>
         </div>
 
         {/* 본문 */}
@@ -803,6 +824,92 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
               )}
             </div>
           )}
+
+          {/* 도메인 탭 */}
+          {tab === "domain" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+              {/* 도메인 프로파일 */}
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)", marginBottom: 4 }}>도메인 프로파일</div>
+                <p style={{ margin: "0 0 14px", fontSize: 12, color: "var(--text-sub)", lineHeight: 1.6 }}>
+                  선택한 도메인의 특화 도구가 에이전트 루프에서 우선 활성화됩니다.
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {[
+                    { key: "food", label: "식품", desc: "식품 시장·법규·레시피·유통 분석", icon: "🍱" },
+                    { key: "ecig", label: "액상전자담배", desc: "전자담배 시장·규제·브랜드·유통", icon: "💨" },
+                    { key: "cosmetic", label: "화장품", desc: "화장품 시장·성분·제조·규정", icon: "✨" },
+                    { key: "general", label: "범용", desc: "시장·비즈니스·금융 분석 (기본)", icon: "🌐" },
+                  ].map(({ key, label, desc, icon }) => (
+                    <div
+                      key={key}
+                      onClick={() => saveDomainProfile(key)}
+                      style={{
+                        padding: "14px 16px",
+                        borderRadius: 10,
+                        border: `2px solid ${domainProfile === key ? "var(--accent)" : "var(--border)"}`,
+                        background: domainProfile === key ? "var(--surface-active)" : "var(--bg-soft)",
+                        cursor: "pointer",
+                        transition: "border-color 0.15s, background 0.15s",
+                      }}
+                    >
+                      <div style={{ fontSize: 20, marginBottom: 6 }}>{icon}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: domainProfile === key ? "var(--accent)" : "var(--text-main)", marginBottom: 3 }}>{label}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-soft)", lineHeight: 1.5 }}>{desc}</div>
+                      {domainProfile === key && (
+                        <div style={{ marginTop: 8, fontSize: 10, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.5px" }}>● 활성</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 자동 법규 갱신 주기 */}
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)", marginBottom: 4 }}>자동 법규 갱신 주기</div>
+                <p style={{ margin: "0 0 14px", fontSize: 12, color: "var(--text-sub)", lineHeight: 1.6 }}>
+                  식품·전자담배·화장품·일반 법규를 자동으로 조회하는 주기를 설정합니다.
+                  서버 환경변수 <code style={{ fontSize: 11, background: "var(--bg-soft)", padding: "1px 4px", borderRadius: 4 }}>CORVUS_ENABLE_REGULATION_WATCHER=1</code>이 설정된 경우에만 작동합니다.
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {[
+                    { key: "daily", label: "매일 1회", desc: "자정 기준 일 1회 자동 갱신 (권장)" },
+                    { key: "weekly", label: "매주 1회", desc: "월요일 자정 기준 주 1회 갱신" },
+                    { key: "manual", label: "수동", desc: "자동 갱신 비활성 — 직접 갱신 요청 시에만 실행" },
+                  ].map(({ key, label, desc }) => (
+                    <label
+                      key={key}
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 12,
+                        padding: "12px 14px",
+                        borderRadius: 8,
+                        border: `1px solid ${regulationInterval === key ? "var(--accent)" : "var(--border)"}`,
+                        background: regulationInterval === key ? "var(--surface-active)" : "transparent",
+                        cursor: "pointer",
+                        transition: "border-color 0.15s, background 0.15s",
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="regulation-interval"
+                        value={key}
+                        checked={regulationInterval === key}
+                        onChange={() => saveRegulationInterval(key)}
+                        style={{ marginTop: 2, accentColor: "var(--accent)" }}
+                      />
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)", marginBottom: 2 }}>{label}</div>
+                        <div style={{ fontSize: 11, color: "var(--text-soft)" }}>{desc}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
     </div>

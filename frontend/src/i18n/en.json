@@ -4,6 +4,19 @@
     "tagline": "Multi-AI Workspace",
     "disclaimer": "CORVUS X can make mistakes. Please verify important information."
   },
+  "auth": {
+    "loading": "Checking session…",
+    "subtitle": "Single-user workspace",
+    "passwordLabel": "Password",
+    "submit": "Sign in",
+    "submitting": "Verifying…",
+    "footer": "Unauthorized access is blocked.",
+    "errorInvalidPassword": "Incorrect password.",
+    "errorPasswordRequired": "Please enter your password.",
+    "errorTooManyAttempts": "Too many attempts. Try again later.",
+    "errorDisabled": "Login is disabled on the server.",
+    "errorGeneric": "Login failed. Please try again."
+  },
   "nav": {
     "home": "Home",
     "chat": "Chat",
@@ -55,6 +68,9 @@
     "webSearchDesc": "Direct web search with Perplexity Pro",
     "deepResearchBadge": "⚡ Deep Research (GPT-5.4 Pro + Claude Opus 4.6)",
     "webSearchBadge": "🔍 Web Search (Perplexity Scout)",
+    "parallelEnsemble": "3-AI Parallel Mode",
+    "parallelEnsembleDesc": "GPT-5.4 Pro + Claude Opus 4.6 + Gemini 3.1 Pro Ultra simultaneous drafts + adversarial critique",
+    "parallelEnsembleBadge": "⚡ 3-AI Parallel Ensemble (higher cost & latency)",
     "dropToAttach": "Drop files to attach",
     "fileAnalysis": "File analysis",
     "compressionPrompt": "Summarize the following conversation in under 500 characters, focusing on key points. Always include important decisions, code, and numbers.",
@@ -77,20 +93,7 @@
     "thinkingProcess": "Thinking process"
   },
   "message": {
-    "copyMessage": "Copy message",
-    "editMessage": "Edit message",
-    "like": "Like",
-    "dislike": "Dislike",
-    "export": "Export conversation",
-    "exportMarkdown": "Export as Markdown",
-    "exportText": "Export as text",
-    "exportFailed": "Export failed.",
-    "downloadPptx": "Download PPTX",
-    "aiImage": "AI generated image",
-    "imageN": "Image {n}",
-    "videoComplete": "🎬 Video generation complete",
-    "openVideo": "↗ Open video",
-    "feedbackFailed": "Feedback submission failed"
+    "chartParseError": "Chart data parse error. Format: type: bar|line|pie / label: value"
   },
   "home": {
     "searchPlaceholder": "Search conversations, thread titles...",
@@ -524,9 +527,6 @@
   "search": {
     "noResults": "No results found",
     "countSuffix": " conversations"
-  },
-  "message": {
-    "chartParseError": "Chart data parse error. Format: type: bar|line|pie / label: value"
   },
   "button": {
     "copy": "Copy",

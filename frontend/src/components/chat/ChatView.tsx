@@ -31,8 +31,8 @@ type Props = {
   onDeleteMessage?: (messageId: string) => void;
   onRelatedQuestion?: (q: string) => void;
   onOpenArtifact?: (title: string, code: string, language: string) => void;
-  onComposerAction?: (action: "deep-think" | "web-search" | "upload") => void;
-  composerMode?: "deep-think" | "web-search" | null;
+  onComposerAction?: (action: "deep-think" | "web-search" | "upload" | "parallel-ensemble") => void;
+  composerMode?: "deep-think" | "web-search" | "parallel-ensemble" | null;
   onClearComposerMode?: () => void;
   messageVersionMap?: Record<string, MessageVersionState>;
   onSelectMessageVersion?: (messageId: string, direction: "prev" | "next") => void;

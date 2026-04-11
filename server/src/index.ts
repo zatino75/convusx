@@ -1,3 +1,9 @@
+// NOTE (2026-04-11): toolBootstrap MUST be the very first import. It triggers
+// side-effect registration of all agent tools into toolRegistry. Moved out of
+// toolRegistry.ts itself to break an ESM circular import that caused TDZ on
+// the `registry` binding. Do not reorder this line.
+import "./agent/toolBootstrap.js"
+
 import dotenv from "dotenv"
 import { fileURLToPath } from "node:url"
 import { dirname, resolve } from "node:path"
@@ -14,7 +20,8 @@ import type { ParsedRequest } from "./http/router.js"
 import type { ExpressLikeResponse } from "./http/response.js"
 import { setCorsHeaders, setSecurityHeaders, handleOptions, readJsonBody, normalizePath, initCorsOrigins } from "./http/middleware.js"
 import { checkRateLimit, restoreBucketsFromDb, persistBucketsToDb } from "./http/rateLimiter.js"
-import { requireAuth } from "./http/auth.js"
+import { requireAuth, isAuthWhitelisted } from "./http/auth.js"
+import { authLoginRoute, authLogoutRoute, authMeRoute } from "./routes/auth.js"
 import { endJson, createExpressLikeResponse } from "./http/response.js"
 import { withCorrelationId } from "./http/correlationId.js"
 import { wrapWithCompression } from "./http/compression.js"
@@ -23,6 +30,8 @@ import { handleUpgrade, startWsPing, closeAllClients, getConnectedClients, broad
 import { createRequestTimer, captureError, getApmSnapshot } from "./observability/apm.js"
 import { initPlugins, shutdownPlugins, getPluginList, registerPlugin, unregisterPlugin, activatePlugin, deactivatePlugin } from "./plugins/pluginManager.js"
 import { loggingPluginManifest, loggingPluginHandlers } from "./plugins/builtins/loggingPlugin.js"
+import { startRegulationWatcher, stopRegulationWatcher, getWatcherStatus, refreshRegulations } from "./regulation/regulationWatcher.js"
+import { getAllSnapshots, getCacheSummary } from "./regulation/regulationCache.js"
 
 const geminiKeyLoaded =
   typeof process.env.GEMINI_API_KEY === "string" &&
@@ -87,6 +96,17 @@ function extractPathParam(urlValue: string | undefined, prefix: string): string 
 // ── 라우터 구성 ──
 
 const router = new Router()
+
+// ── Auth (화이트리스트 — 인증 없이 통과) ──
+router.post("/api/auth/login", async (req: IncomingMessage, res: ServerResponse) => {
+  await authLoginRoute(req, res)
+}, true)
+router.post("/api/auth/logout", async (req: IncomingMessage, res: ServerResponse) => {
+  await authLogoutRoute(req, res)
+}, true)
+router.get("/api/auth/me", async (req: IncomingMessage, res: ServerResponse) => {
+  await authMeRoute(req, res)
+}, true)
 
 // ── Chat ──
 router.post("/api/chat", chatRoute.handler)
@@ -298,6 +318,25 @@ router.post("/api/settings/keys", saveSettingsKeys)
 router.post("/api/settings/reset", resetSettings)
 router.post("/api/settings/validate-key", validateKey)
 
+// ── Regulation Watcher (Phase 4-B) ──
+router.get("/api/regulation/status", async (_req: ParsedRequest, res: ExpressLikeResponse) => {
+  endJson(res as any, 200, { ok: true, data: { watcher: getWatcherStatus(), cache: getCacheSummary() } })
+})
+router.get("/api/regulation/snapshots", async (_req: ParsedRequest, res: ExpressLikeResponse) => {
+  endJson(res as any, 200, { ok: true, data: getAllSnapshots() })
+})
+router.post("/api/regulation/refresh", async (req: ParsedRequest, res: ExpressLikeResponse) => {
+  try {
+    const body = (req as any).body ?? {}
+    const category = body?.category
+    const source_id = body?.source_id
+    const r = await refreshRegulations({ category, source_id })
+    endJson(res as any, 200, { ok: true, data: r })
+  } catch (e: any) {
+    endJson(res as any, 500, { ok: false, error: String(e?.message ?? e) })
+  }
+})
+
 // ── Retrieval Context ──
 router.get("/api/retrieval-context", async (req: IncomingMessage, res: ServerResponse) => {
   const projectId = parseUrl(req.url).searchParams.get("projectId") ?? ""
@@ -379,6 +418,24 @@ router.post("/api/plugins/unregister", async (req: ParsedRequest, res: ExpressLi
 const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
   // Correlation ID 컨텍스트 래핑 — 이하 모든 logger 호출에 자동 삽입
   await withCorrelationId(req, res, async () => {
+    // ── www / apex → app 서브도메인으로 301 redirect ──────────────────────
+    // cloudcookie.co.kr / www.cloudcookie.co.kr 접근 시 app.cloudcookie.co.kr 로 이동
+    // 실제 CORVUS X 서비스는 app.cloudcookie.co.kr 한 곳에서만 동작
+    // (nginx 레이어에서 1차 처리, 여기는 2차 방어선)
+    const reqHost = String(req.headers?.host ?? "").toLowerCase().split(":")[0].trim()
+    const WWW_REDIRECT_HOSTS = ["www.cloudcookie.co.kr", "cloudcookie.co.kr"]
+    if (WWW_REDIRECT_HOSTS.includes(reqHost)) {
+      const target = `https://app.cloudcookie.co.kr${req.url ?? "/"}`
+      res.writeHead(301, {
+        "Location": target,
+        "Cache-Control": "no-store, no-cache",
+        "X-Robots-Tag": "noindex, nofollow"
+      })
+      res.end()
+      return
+    }
+    // ────────────────────────────────────────────────────────────────────
+
     setCorsHeaders(res, req)
     setSecurityHeaders(res)
 
@@ -405,8 +462,9 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     // Rate limiting (/api/health, / 제외 — 위에서 이미 처리됨)
     if (path.startsWith("/api/") && checkRateLimit(req, res, path)) return
 
-    // 모든 /api/ 경로에 인증 체크 (/api/health 는 위에서 이미 처리됨)
-    if (path.startsWith("/api/")) {
+    // 모든 /api/ 경로에 인증 체크
+    // 단, auth 화이트리스트(/api/health, /api/auth/login, /api/auth/logout, /api/auth/me)는 통과
+    if (path.startsWith("/api/") && !isAuthWhitelisted(path)) {
       const auth = requireAuth(req)
       if (!auth.ok) {
         endJson(res, 401, { ok: false, error: auth.error ?? "unauthorized" })
@@ -466,6 +524,13 @@ server.listen(SERVER_PORT, async () => {
   // 플러그인 시스템 초기화
   await initPlugins()
 
+  // Phase 4-B — 자동 법규 갱신 워처 (환경변수로만 활성화)
+  try {
+    startRegulationWatcher()
+  } catch (e) {
+    logger.warn("[regulationWatcher] start failed", { error: String(e) })
+  }
+
   logger.info(`CORVUS X running on http://localhost:${SERVER_PORT}`, {
     env: getAppEnv(),
     compression: envConfig.compressionEnabled,
@@ -479,6 +544,7 @@ function shutdown(signal: string) {
   logger.info(`[SHUTDOWN] ${signal} received — closing server & DB`)
   server.close(async () => {
     stopScheduler()
+    stopRegulationWatcher()
     closeAllClients()
     await shutdownPlugins()
     try {
@@ -496,11 +562,10 @@ function shutdown(signal: string) {
 process.on("SIGINT", () => shutdown("SIGINT"))
 process.on("SIGTERM", () => shutdown("SIGTERM"))
 
-// ── 비정상 종료 방지 ─────────────────────────────────────────────────────
-process.on("unhandledRejection", (reason: unknown) => {
-  logger.error("[UNHANDLED REJECTION]", { reason: String(reason) })
+// ── 비정상 종료 방지 ─────────────────────────
+process.on("unhandledRejection", (reason) => {
+  logger.warn("[unhandledRejection]", { reason: String(reason) })
 })
-process.on("uncaughtException", (error: Error) => {
-  logger.error("[UNCAUGHT EXCEPTION]", { message: error.message, stack: error.stack })
-  setTimeout(() => process.exit(1), 100)
+process.on("uncaughtException", (err) => {
+  logger.warn("[uncaughtException]", { error: String(err?.message ?? err) })
 })

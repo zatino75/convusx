@@ -92,7 +92,7 @@ export function useSendChat({
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; type: string; base64: string; size: number }[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
   const [debugMeta, setDebugMeta] = useState<DebugMeta>(createDefaultDebugMeta());
-  const [composerOptions, setComposerOptions] = useState<{ force_pro?: boolean; deep_research?: boolean; task?: string } | null>(null);
+  const [composerOptions, setComposerOptions] = useState<{ force_pro?: boolean; deep_research?: boolean; task?: string; force_high_value?: boolean } | null>(null);
 
   const activeStreamRef = useRef<ActiveStreamState | null>(null);
 
@@ -231,6 +231,10 @@ export function useSendChat({
     let finalTextFromEvent = "";
     let chunkAccumulator = "";
     const statusHistory: string[] = [];
+    // ── Phase 3 Agent Loop — 도구 호출 타임라인 + 앙상블/비평 데이터 라이브 수집 ──
+    const liveToolTimeline: NonNullable<DebugMeta["toolTimeline"]> = [];
+    let liveEnsembleData: DebugMeta["ensembleData"] = null;
+    let liveCritiqueData: DebugMeta["critiqueData"] = null;
     const controller = new AbortController();
 
     activeStreamRef.current = {
@@ -429,6 +433,62 @@ export function useSendChat({
               }));
             }
 
+            // ── Phase 3 — 에이전트 루프 tool_call 이벤트 ────────────────
+            if (event.type === "tool_call") {
+              const toolName = String(event.tool_name ?? "").trim();
+              if (toolName) {
+                liveToolTimeline.push({
+                  tool_name: toolName,
+                  ok: event.ok !== false,
+                  latency_ms: typeof event.latency_ms === "number" ? event.latency_ms : undefined,
+                  summary: event.summary,
+                  error: event.error ?? null,
+                  started_at: Date.now(),
+                });
+
+                // parallel_ensemble / adversarial_critique 은 full output_text 를 가져온다
+                const raw = (event as any).output_text;
+                if (typeof raw === "string" && raw.length > 0) {
+                  try {
+                    const parsed = JSON.parse(raw);
+                    if (toolName === "parallel_ensemble" && parsed?.ok && Array.isArray(parsed.drafts)) {
+                      liveEnsembleData = {
+                        drafts: parsed.drafts,
+                        synthesized: finalTextFromEvent || "",
+                        instruction_preview: parsed.instruction_preview,
+                        total_latency_ms: parsed.total_latency_ms,
+                        critique: liveEnsembleData?.critique,
+                      };
+                    } else if (toolName === "adversarial_critique" && parsed?.ok) {
+                      liveCritiqueData = {
+                        critic_provider: parsed.critic_provider,
+                        critic_model: parsed.critic_model,
+                        draft_provider: parsed.draft_provider,
+                        critique: parsed.critique,
+                      };
+                      if (liveEnsembleData) {
+                        liveEnsembleData = { ...liveEnsembleData, critique: liveCritiqueData ?? undefined };
+                      }
+                    }
+                  } catch { /* JSON 파싱 실패 무시 */ }
+                }
+
+                // 라이브 업데이트 — 현재 placeholder message 에 toolTimeline/ensembleData 주입
+                workspace.updateThreadById(target.threadId, (thread: Thread) => ({
+                  ...thread,
+                  messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (msg: Message) => ({
+                    ...msg,
+                    requestMeta: {
+                      ...(msg.requestMeta ?? {}),
+                      toolTimeline: [...liveToolTimeline],
+                      ensembleData: liveEnsembleData,
+                      critiqueData: liveCritiqueData,
+                    },
+                  })),
+                }));
+              }
+            }
+
             if (event.type === "provider_chunk") {
               if (!finalTextFromEvent) {
                 const cp = String(event.provider ?? "").toLowerCase();
@@ -612,6 +672,23 @@ export function useSendChat({
 
             const rawMeta = extractDebugMeta(payload) as Record<string, any>;
 
+            // Phase 3 — orchestration 에 실려온 agent loop 확장 필드 우선 사용, 없으면 라이브 수집값 폴백
+            const orchestrationObj = (payload as Record<string, any>)?.orchestration ?? {};
+            const toolTimelineFromPayload = Array.isArray(orchestrationObj?.tool_timeline)
+              ? orchestrationObj.tool_timeline
+              : null;
+            const ensembleDataFromPayload = orchestrationObj?.ensemble_data ?? null;
+            const critiqueDataFromPayload = orchestrationObj?.critique_data ?? null;
+
+            // 통합본(synthesized)이 final text 로 확정됐으면 ensemble data 에 병합
+            const finalSynthText =
+              finalTextFromEvent || String(payload?.answer?.text ?? "").trim() || chunkAccumulator;
+            const mergedEnsemble =
+              (ensembleDataFromPayload as DebugMeta["ensembleData"]) ?? liveEnsembleData;
+            if (mergedEnsemble && finalSynthText && !mergedEnsemble.synthesized) {
+              mergedEnsemble.synthesized = finalSynthText;
+            }
+
             const meta = {
               ...rawMeta,
               providerDrafts: liveMeta.providerDrafts ?? [],
@@ -623,7 +700,12 @@ export function useSendChat({
               recoveryToModel: rawMeta?.recovery_to_model ?? null,
               providerStatusMap: rawMeta?.provider_status_map ?? {},
               providerStreamSummary: rawMeta?.provider_stream_summary ?? {},
-              timelineEvents: rawMeta?.timeline_events ?? []
+              timelineEvents: rawMeta?.timeline_events ?? [],
+              // Phase 3 확장
+              toolTimeline: toolTimelineFromPayload ?? (liveToolTimeline.length > 0 ? [...liveToolTimeline] : undefined),
+              ensembleData: mergedEnsemble ?? null,
+              critiqueData:
+                (critiqueDataFromPayload as DebugMeta["critiqueData"]) ?? liveCritiqueData ?? null,
             } as DebugMeta;
 
             const doneTask = String(payload?.internal?.task ?? (meta as Record<string, any>)?.task ?? "").toLowerCase();
@@ -741,7 +823,7 @@ export function useSendChat({
 
         workspace.touchProject(target.projectId);
         setLastError(message);
-        // ✅ 네트워크/런타임 오류 시 파일 복원 — 재시도를 위해 원본 files 복구
+        // network/runtime error: restore attached files for retry
         setAttachedFiles(files);
       }
     } finally {

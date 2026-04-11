@@ -1,10 +1,13 @@
+// chat.ts — 단일 에이전트 루프 진입점 (Phase 2.5: agent loop bridge swap)
 import { TITLE_GEN_TIMEOUT_MS, OPENAI_BASE } from "../config/defaults.js"
 import { logger } from "../observability/logger.js"
-import { executeOrchestra } from "../orchestra/runtime.js"
+// executeOrchestra removed — agent loop only (Phase 4)
+import { runAgentLoopAsOrchestraResult, isAgentLoopEnabled } from "../agent/agentLoopBridge.js"
 import { routeWithLLM } from "../orchestra/llmRouter.js"
 import { logBenchmark } from "../orchestra/benchmark.js"
 import { appendProjectMemory, getLatestProjectContext, findPastWinner } from "../memory/projectMemory.js"
 import { upsertThreadMemory, findSimilarQuery, getThreadMemory } from "../memory/threadMemory.js"
+import { saveThreadAttachments, getThreadAttachments, looksLikeContinuation } from "../memory/attachmentCache.js"
 import { broadcast } from "../http/websocket.js"
 import { executeHook } from "../plugins/pluginManager.js"
 
@@ -444,6 +447,76 @@ function tryMemoryProviderHint(input: any): { hint_provider: string; confidence:
 }
 
 
+/**
+ * 연속 턴 첨부파일 복원·저장.
+ *
+ * 동작:
+ *  A) 이번 턴에 첨부파일이 있으면 → thread 캐시에 저장 (다음 턴이 연속되면 재사용)
+ *  B) 이번 턴에 첨부파일이 없고 메시지가 연속 턴 패턴이면 → 캐시에서 복원
+ *
+ * 주의: normalizedInput 을 in-place 로 mutate 한다. 후속 흐름(파일 분기,
+ * injectAttachmentIntoInput, haiku 라우팅 등)이 attached_file / pending_analysis_files 를
+ * 그대로 읽기 때문에 일반 업로드와 구별 없이 동작한다.
+ */
+function reconcileThreadAttachments(normalizedInput: any) {
+  try {
+    const threadId = safeString(normalizedInput?.thread_id)
+    if (!threadId) return
+    const projectId = safeString(normalizedInput?.project_id) || "chat_project"
+
+    if (normalizedInput?.attached_file?.base64) {
+      // A) 현재 턴 첨부 → 캐시에 저장
+      const pending = Array.isArray(normalizedInput?.pending_analysis_files)
+        ? normalizedInput.pending_analysis_files
+        : []
+      saveThreadAttachments(threadId, projectId, normalizedInput.attached_file, pending)
+      return
+    }
+
+    // B) 첨부 없음 → 연속 턴 여부 판별 후 캐시에서 복원
+    const cached = getThreadAttachments(threadId)
+    if (!cached || (!cached.primary && cached.pending.length === 0)) return
+
+    // 메시지 추출 — messages 배열도 고려
+    const lastMessage = (() => {
+      const direct = safeString(normalizedInput?.message)
+      if (direct) return direct
+      const msgs = safeArray(normalizedInput?.messages)
+      const lastUser = [...msgs].reverse().find((m: any) => safeString(m?.role) === "user")
+      if (!lastUser) return ""
+      if (typeof lastUser.content === "string") return safeString(lastUser.content)
+      if (Array.isArray(lastUser.content)) {
+        return lastUser.content
+          .map((part: any) => (typeof part === "string" ? part : safeString(part?.text)))
+          .filter(Boolean)
+          .join("\n")
+          .trim()
+      }
+      return ""
+    })()
+
+    if (!looksLikeContinuation(lastMessage)) return
+
+    // 복원
+    if (cached.primary) {
+      normalizedInput.attached_file = cached.primary
+    }
+    if (cached.pending.length > 0) {
+      normalizedInput.pending_analysis_files = cached.pending
+    }
+    ;(normalizedInput as any).__attachment_restored_from_cache = true
+
+    logger.info("[chat] attachments restored from cache", {
+      thread_id: threadId,
+      primary: cached.primary?.name ?? null,
+      pending_count: cached.pending.length,
+      trigger: lastMessage.slice(0, 80),
+    })
+  } catch (e) {
+    logger.warn("reconcileThreadAttachments failed", { error: e })
+  }
+}
+
 function makeDonePayload(provider: string, text: string, ok: boolean, strategy: string, task: string, providers: string[], extra?: any) {
   return {
     ok,
@@ -465,6 +538,8 @@ export async function runChatRoute(req: RouteRequest, res: RouteResponse) {
   const rawInput = normalizeMultipleAttachments(req?.body ?? {})
   const normalizedInput = { ...rawInput, mode: rawInput?.mode ?? "runtime_orchestra", thread_id: rawInput?.thread_id ?? "chat_thread", project_id: rawInput?.project_id ?? "chat_project" }
   const startedAt = Date.now()
+  // ── 연속 턴 첨부파일 캐시 (Phase 1 복원) ────────────────────────────────
+  reconcileThreadAttachments(normalizedInput)
   const effectiveInput = normalizedInput?.attached_file ? injectAttachmentIntoInput(normalizedInput) : normalizedInput
   const inboundQuery = extractInboundQuery(effectiveInput)
 
@@ -536,7 +611,8 @@ export async function runChatRoute(req: RouteRequest, res: RouteResponse) {
         input_bytes: inputSize
       })
     }
-    const result = await executeOrchestra(effectiveInput)
+    // Phase 4 complete: agent loop is always used (orchestra fallback removed)
+    const result = await runAgentLoopAsOrchestraResult(effectiveInput)
     const _saveTxt = String(result?.final_answer?.text ?? ""); if (_saveTxt && _saveTxt.length > 20 && !_saveTxt.includes("final_answer를 찾지")) { try { persistRuntimeMemory(normalizedInput, result) } catch (e) { logger.warn("persistRuntimeMemory failed", { error: e }) } }
     try { await logBenchmark(buildBenchmarkPayload(result, normalizedInput)) } catch (e) { logger.warn("logBenchmark failed", { error: e }) }
     // 스레드 제목 자동 생성
@@ -597,7 +673,7 @@ async function processPendingFiles(
 
   const combined = parts.join("")
   if (combined) {
-    for (const chunk of combined.split(/(\s+)/).filter(p => p.length > 0)) {
+    for (const chunk of combined.split(/(\s+)/).filter((p: string) => p.length > 0)) {
       if (signal.aborted) break
       writeSse(res, { type: "chunk", content: chunk })
       await sleep(6)
@@ -618,23 +694,29 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
   const normalizedInput = { ...rawInput, mode: rawInput?.mode ?? "runtime_orchestra", thread_id: rawInput?.thread_id ?? "chat_thread", project_id: rawInput?.project_id ?? "chat_project", abort_signal: signal }
   const startedAt = Date.now()
 
+  // ── 연속 턴 첨부파일 캐시 (Phase 1 복원) ────────────────────────────────
+  reconcileThreadAttachments(normalizedInput)
+
   res.writeHead?.(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" })
 
   try {
     writeSse(res, { type: "start", thread_id: normalizedInput.thread_id, project_id: normalizedInput.project_id })
     writeSse(res, { type: "status", content: "요청 분석 중..." })
+    if ((normalizedInput as any)?.__attachment_restored_from_cache) {
+      writeSse(res, { type: "status", content: "이전 턴 첨부파일을 복원했습니다..." })
+    }
 
     const effectiveInput = normalizedInput?.attached_file ? injectAttachmentIntoInput(normalizedInput) : normalizedInput
     const inboundQuery = extractInboundQuery(effectiveInput)
 
     // ── Haiku LLM 라우팅 — 키워드 분류 완전 제거, LLM이 의도 파악 ──
     const _streamAnthropicKey = String(process.env.ANTHROPIC_API_KEY ?? "").trim()
-    const haikuRoute = await routeWithLLM(inboundQuery, _streamAnthropicKey)
+    const haikuRoute: any = (await routeWithLLM(inboundQuery, _streamAnthropicKey)) ?? {}
 
     // ── 슬라이드 ──
     if (detectSlideCommand(inboundQuery)) {
       const slideResult = await handleSlideCommand(normalizedInput, inboundQuery)
-      for (const chunk of slideResult.message.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
+      for (const chunk of slideResult.message.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
       writeSse(res, { type: "done", payload: makeDonePayload("claude", slideResult.message, slideResult.ok, "slide_generate", "code", ["claude"], { is_slide: slideResult.ok, slide_data: slideResult.slide_data ?? null }) })
       res.end?.(); return
     }
@@ -642,7 +724,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     // ── Gemini 이미지 ──
     if (detectGeminiImageCommand(inboundQuery)) {
       const r = await handleGeminiImageCommand(inboundQuery)
-      for (const chunk of r.message.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
+      for (const chunk of r.message.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
       writeSse(res, { type: "done", payload: makeDonePayload("gemini", r.message, r.ok, "image_generate", "dialogue", ["gemini"], { is_image: r.ok, image_url: r.url ?? null, image_revised_prompt: null }) })
       res.end?.(); return
     }
@@ -651,7 +733,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     if (detectMidjourneyCommand(inboundQuery)) {
       writeSse(res, { type: "chunk", content: "🎨 Midjourney로 이미지를 생성하고 있습니다...\n\n" })
       const r = await handleMidjourneyCommand(inboundQuery)
-      for (const chunk of r.message.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
+      for (const chunk of r.message.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
       writeSse(res, { type: "done", payload: makeDonePayload("midjourney", r.message, r.ok, "image_generate", "dialogue", ["midjourney"], { is_image: r.ok, image_url: r.url ?? null, image_urls: r.image_urls ?? null }) })
       res.end?.(); return
     }
@@ -660,7 +742,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     if (detectRunwayCommand(inboundQuery)) {
       writeSse(res, { type: "chunk", content: "🎬 Runway Gen4 Turbo로 비디오를 생성하고 있습니다... (최대 3분 소요)\n\n" })
       const r = await handleRunwayCommand(inboundQuery)
-      for (const chunk of r.message.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
+      for (const chunk of r.message.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
       writeSse(res, { type: "done", payload: makeDonePayload("runway", r.message, r.ok, "video_generate", "dialogue", ["runway"], { is_video: r.ok, video_url: r.video_url ?? null }) })
       res.end?.(); return
     }
@@ -669,7 +751,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     if (detectVeoCommand(inboundQuery)) {
       writeSse(res, { type: "chunk", content: "🎬 Gemini Veo 3.1로 비디오를 생성하고 있습니다... (최대 2분 소요)\n\n" })
       const r = await handleVeoCommand(inboundQuery)
-      for (const chunk of r.message.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
+      for (const chunk of r.message.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
       writeSse(res, { type: "done", payload: makeDonePayload("gemini", r.message, r.ok, "video_generate", "dialogue", ["gemini"], { is_video: r.ok, video_url: r.video_url ?? null }) })
       res.end?.(); return
     }
@@ -678,7 +760,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     if (detectNanoBananaCommand(inboundQuery)) {
       writeSse(res, { type: "chunk", content: "🎨 Nano Banana 2 (Gemini Flash)로 이미지를 생성하고 있습니다...\n\n" })
       const r = await handleNanoBananaCommand(inboundQuery)
-      for (const chunk of r.message.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
+      for (const chunk of r.message.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
       const firstImage = r.images?.[0]
       const imageUrl = firstImage ? `data:${firstImage.mimeType};base64,${firstImage.base64}` : null
       writeSse(res, { type: "done", payload: makeDonePayload("gemini", r.message, r.ok, "image_generate", "dialogue", ["gemini"], { is_image: r.ok, image_url: imageUrl, image_revised_prompt: null, nano_banana: true }) })
@@ -688,7 +770,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     // ── OpenAI 이미지 ──
     if (detectImageCommand(inboundQuery)) {
       const r = await handleImageCommand(inboundQuery)
-      for (const chunk of r.message.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
+      for (const chunk of r.message.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
       writeSse(res, { type: "done", payload: makeDonePayload("openai", r.message, r.ok, "image_generate", "dialogue", ["openai"], { is_image: r.ok, image_url: r.url ?? null, image_revised_prompt: (r as any).revised_prompt ?? null }) })
       res.end?.(); return
     }
@@ -702,7 +784,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       const threadMsgs = inboundMessages.length > 0 ? inboundMessages : memoryMsgs
       const result = await runHandoffSummary(threadMsgs, inboundQuery)
       const finalText = result.ok ? result.summary : `❌ 세션 요약 실패: ${result.error}`
-      for (const chunk of finalText.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
+      for (const chunk of finalText.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
       writeSse(res, { type: "done", payload: makeDonePayload("openai", finalText, result.ok, "handoff_summary", "dialogue", ["openai"]) })
       res.end?.(); return
     }
@@ -712,17 +794,17 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       writeSse(res, { type: "chunk", content: "🔍 웹에서 검색 중...\n\n" })
       const searchResult = await runWebSearch(inboundQuery)
       if (!searchResult.ok) { writeSse(res, { type: "chunk", content: `검색 실패: ${searchResult.error}` }) }
-      else { for (const chunk of searchResult.answer.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) } }
+      else { for (const chunk of searchResult.answer.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) } }
       writeSse(res, { type: "done", payload: makeDonePayload("perplexity", searchResult.answer, searchResult.ok, "web_search", "research", ["perplexity"], { citations: searchResult.citations }) })
       res.end?.(); return
     }
 
     // ── Deep Research ──
     if (detectDeepResearchCommand(inboundQuery)) {
-      const result = await runDeepResearch(inboundQuery, (_, text) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
+      const result = await runDeepResearch(inboundQuery, (_: any, text: string) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
       const finalText = result.ok ? result.report : `❌ 리서치 실패: ${result.error}`
       writeSse(res, { type: "chunk", content: "\n\n---\n\n" })
-      for (const chunk of finalText.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
+      for (const chunk of finalText.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
       writeSse(res, { type: "done", payload: {
         ...makeDonePayload("claude", finalText, result.ok, "deep_research", "research", ["perplexity", "openai", "claude"], {
           execution_strategy: "deep_research_pipeline",
@@ -740,10 +822,10 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     // ── 법률 검토 (Haiku 라우팅) — 파일 없는 텍스트 요청만 ──
     if (haikuRoute.task === "legal_review" && !normalizedInput?.attached_file) {
       writeSse(res, { type: "chunk", content: "⚖️ 법률 검토를 시작합니다...\n\n" })
-      const result = await runLegalReview(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? "").trim(), (_, text) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
+      const result = await runLegalReview(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? "").trim(), (_: any, text: string) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
       const finalText = result.ok ? result.report : `❌ 법률 검토 실패: ${result.error}`
       writeSse(res, { type: "chunk", content: "\n\n---\n\n" })
-      for (const chunk of finalText.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
+      for (const chunk of finalText.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
       writeSse(res, { type: "done", payload: { ...makeDonePayload("openai", finalText, result.ok, "legal_review", "research", ["perplexity", "claude", "openai"]), thread_title: await generateThreadTitle(inboundQuery, finalText) ?? null } })
       res.end?.(); return
     }
@@ -751,10 +833,10 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     // ── 데이터 분석 (Haiku 라우팅) ──
     if (haikuRoute.task === "data_analysis" && !normalizedInput?.attached_file) {
       writeSse(res, { type: "chunk", content: "📊 데이터 분석을 시작합니다...\n\n" })
-      const result = await runDataAnalysis(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? normalizedInput?.csv_text ?? "").trim(), (_, text) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
+      const result = await runDataAnalysis(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? normalizedInput?.csv_text ?? "").trim(), (_: any, text: string) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
       const finalText = result.ok ? result.report : `❌ 데이터 분석 실패: ${result.error}`
       writeSse(res, { type: "chunk", content: "\n\n---\n\n" })
-      for (const chunk of finalText.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
+      for (const chunk of finalText.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
       writeSse(res, { type: "done", payload: { ...makeDonePayload("claude", finalText, result.ok, "data_analysis", "research", ["openai", "claude"]), thread_title: await generateThreadTitle(inboundQuery, finalText) ?? null } })
       res.end?.(); return
     }
@@ -762,10 +844,10 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     // ── 기업 재무 (Haiku 라우팅) ──
     if (haikuRoute.task === "finance_analysis" && !normalizedInput?.attached_file) {
       writeSse(res, { type: "chunk", content: "💹 기업 재무 분석을 시작합니다...\n\n" })
-      const result = await runFinanceAnalysis(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? "").trim(), (_, text) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
+      const result = await runFinanceAnalysis(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? "").trim(), (_: any, text: string) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
       const finalText = result.ok ? result.report : `❌ 재무 분석 실패: ${result.error}`
       writeSse(res, { type: "chunk", content: "\n\n---\n\n" })
-      for (const chunk of finalText.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
+      for (const chunk of finalText.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
       writeSse(res, { type: "done", payload: { ...makeDonePayload("claude", finalText, result.ok, "finance_analysis", "research", ["perplexity", "openai", "claude"]), thread_title: await generateThreadTitle(inboundQuery, finalText) ?? null } })
       res.end?.(); return
     }
@@ -773,10 +855,10 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     // ── 상품 개발 (Haiku 라우팅) ──
     if (haikuRoute.task === "product_development" && !normalizedInput?.attached_file) {
       writeSse(res, { type: "chunk", content: "📦 상품 개발 분석을 시작합니다...\n\n" })
-      const result = await runProductDevelopment(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? "").trim(), (_, text) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
+      const result = await runProductDevelopment(inboundQuery, String(normalizedInput?.attached_text ?? normalizedInput?.pdf_text ?? "").trim(), (_: any, text: string) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
       const finalText = result.ok ? result.report : `❌ 상품 기획 실패: ${result.error}`
       writeSse(res, { type: "chunk", content: "\n\n---\n\n" })
-      for (const chunk of finalText.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
+      for (const chunk of finalText.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
       writeSse(res, { type: "done", payload: { ...makeDonePayload("claude", finalText, result.ok, "product_development", "research", ["perplexity", "openai", "claude"]), thread_title: await generateThreadTitle(inboundQuery, finalText) ?? null } })
       res.end?.(); return
     }
@@ -784,7 +866,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     // ── 소스 승격 ──
     if (detectSourcePromoteCommand(inboundQuery)) {
       const promoteResult = handleSourcePromoteCommand(normalizedInput)
-      for (const chunk of promoteResult.message.split(/(\s+)/).filter(p => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
+      for (const chunk of promoteResult.message.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
       writeSse(res, { type: "done", payload: makeDonePayload("system", promoteResult.message, promoteResult.ok, "source_promote", "source_promote", []) })
       res.end?.(); return
     }
@@ -904,7 +986,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
 
             writeSse(res, { type: "status", content: "법률 검토 파이프라인 실행 중..." })
             writeSse(res, { type: "provider_chunk", provider: "claude", content: "\n법률 문서 감지 — 법률 검토 파이프라인을 실행합니다...\n\n" })
-            const legalResult = await runLegalReview(userText, combinedPdfText, (_, text) => {
+            const legalResult = await runLegalReview(userText, combinedPdfText, (_: any, text: string) => {
               writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` })
             })
             allResults.push(legalResult.ok ? legalResult.report : combinedPdfText)
@@ -922,7 +1004,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
         if (extractedTexts.length > 0) allResults.push(extractedTexts.join("\n\n"))
 
         const finalText = allResults.join("\n\n---\n\n") || "ZIP 파일에서 분석 가능한 내용을 찾지 못했습니다."
-        for (const chunk of finalText.split(/(\s+)/).filter(p => p.length > 0)) {
+        for (const chunk of finalText.split(/(\s+)/).filter((p: string) => p.length > 0)) {
           if (signal.aborted) break
           writeSse(res, { type: "chunk", content: chunk }); await sleep(6)
         }
@@ -979,7 +1061,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
             const result = await runLegalReview(
               userText,
               combinedPdfText,
-              (_, text) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) },
+              (_: any, text: string) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) },
               hasMultiplePdfs ? undefined : _attached
             )
             const finalText = result.ok ? result.report : combinedPdfText
@@ -990,7 +1072,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
           }
           if (isFinance) {
             writeSse(res, { type: "provider_chunk", provider: "claude", content: hasMultiplePdfs ? `재무 문서 ${totalPdfCount}개 — 통합 재무 분석 파이프라인으로 연결합니다...\n\n` : "재무 분석 파이프라인으로 연결합니다...\n\n" })
-            const result = await runFinanceAnalysis(userText, combinedPdfText, (_, text) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) })
+            const result = await runFinanceAnalysis(userText, combinedPdfText, (_: any, text: string) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) })
             const finalText = result.ok ? result.report : combinedPdfText
             writeSse(res, { type: "final", provider: "claude", content: finalText })
             const extraPending = await processPendingFiles(pendingNonPdfs, userText, res, signal)
@@ -999,7 +1081,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
           }
           if (isData) {
             writeSse(res, { type: "provider_chunk", provider: "claude", content: hasMultiplePdfs ? `데이터 문서 ${totalPdfCount}개 — 통합 데이터 분석 파이프라인으로 연결합니다...\n\n` : "데이터 분석 파이프라인으로 연결합니다...\n\n" })
-            const result = await runDataAnalysis(userText, combinedPdfText, (_, text) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) })
+            const result = await runDataAnalysis(userText, combinedPdfText, (_: any, text: string) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) })
             const finalText = result.ok ? result.report : combinedPdfText
             writeSse(res, { type: "final", provider: "claude", content: finalText })
             const extraPending = await processPendingFiles(pendingNonPdfs, userText, res, signal)
@@ -1021,7 +1103,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       // 이미지 → Vision
       writeSse(res, { type: "provider_chunk", provider: "openai", content: "🖼️ 이미지 분석 중...\n\n" })
       const visionText = await analyzeImageWithVision(_attached, userText)
-      for (const chunk of visionText.split(/(\s+)/).filter(p => p.length > 0)) {
+      for (const chunk of visionText.split(/(\s+)/).filter((p: string) => p.length > 0)) {
         if (signal.aborted) break
         writeSse(res, { type: "provider_chunk", provider: "openai", content: chunk }); await sleep(14)
       }
@@ -1077,7 +1159,8 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
 
     // ── 오케스트라 ──
     writeSse(res, { type: "status", content: "AI 오케스트라 실행 중..." })
-    const result = await executeOrchestra(effectiveInput, async (event: any) => {
+    // Phase 2.5: CORVUS_USE_AGENT_LOOP=1 이면 에이전트 루프, 아니면 기존 오케스트라
+    const streamEventHandler = async (event: any) => {
       if (signal.aborted) return
       // provider_start 이벤트에서 진행 상태 업데이트
       if (event.type === "provider_start" || event.type === "route_decided") {
@@ -1087,8 +1170,14 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
           writeSse(res, { type: "status", content: `${provider ? provider + " " : ""}${task ? "(" + task + ") " : ""}응답 생성 중...` })
         }
       }
+      // tool_call 이벤트 → 상태줄에 도구 호출 표시 (Phase 3 ToolCallTimeline 으로 대체 예정)
+      if (event.type === "tool_call") {
+        writeSse(res, { type: "status", content: `🔧 ${event.tool_name} 실행 중...` })
+      }
       writeSse(res, event)
-    })
+    }
+    // Phase 4 complete: agent loop is always used (orchestra fallback removed)
+    const result = await runAgentLoopAsOrchestraResult({ ...effectiveInput, __abort_signal: signal }, streamEventHandler)
 
     if (signal.aborted) {
       writeSse(res, { type: "done", payload: { ok: false, reason: "aborted", answer: { provider: null, text: "", ok: false }, meta: { orchestration: {} }, orchestration: {}, bandit: {}, derived: {}, internal: {}, result: null } })
@@ -1175,5 +1264,5 @@ export const chatRoute = {
 
 export const chatStreamRoute = {
   path: "/api/chat/stream",
-  handler: runChatStreamRoute
+  handler: runChatStreamRoute,
 }
