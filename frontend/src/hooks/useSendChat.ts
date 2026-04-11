@@ -498,6 +498,19 @@ export function useSendChat({
                           },
                         })),
                       }));
+                    } else if (toolName === "generate_slides" && parsed?.ok && parsed?.slide_data) {
+                      // 슬라이드 생성 완료 → live preview (다운로드 버튼 즉시 표시)
+                      workspace.updateThreadById(target.threadId, (thread: Thread) => ({
+                        ...thread,
+                        messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (msg: Message) => ({
+                          ...msg,
+                          requestMeta: {
+                            ...(msg.requestMeta ?? {}),
+                            is_slide: true,
+                            slide_data: parsed.slide_data,
+                          },
+                        })),
+                      }));
                     }
                   } catch { /* JSON 파싱 실패 무시 */ }
                 }

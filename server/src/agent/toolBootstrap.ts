@@ -53,6 +53,7 @@ import "./tools/domain/general/financeAnalyze.js"
 // Phase 5 — 웹 페이지 전체 콘텐츠 조회 (URL → 텍스트)
 import "./tools/webFetch.js"
 
-// Phase 6 — 이미지/비디오 생성 (DALL-E 3 / Midjourney v7 / Imagen 4 / Flash / Runway / Veo 3.1)
+// Phase 6 — 이미지/비디오/슬라이드 생성
 import "./tools/generateImage.js"
 import "./tools/generateVideo.js"
+import "./tools/generateSlides.js"

@@ -23,14 +23,8 @@ import {
   detectMidjourneyCommand, handleMidjourneyCommand, detectRunwayCommand, handleRunwayCommand,
   detectVeoCommand, handleVeoCommand, detectNanoBananaCommand, handleNanoBananaCommand
 } from "./chatMediaGen.js"
-import {
-  detectSlideCommand, handleSlideCommand, detectWebSearchCommand, runWebSearch,
-  detectDeepResearchCommand, runDeepResearch,
-  detectSourcePromoteCommand, handleSourcePromoteCommand,
-  detectHandoffCommand, runHandoffSummary
-} from "./chatSpecialPipelines.js"
-// runLegalReview / runDataAnalysis / runFinanceAnalysis / runProductDevelopment
-// 전부 stub(return null) — 삭제. 해당 task는 agent loop + domain tool로 처리.
+// chatSpecialPipelines 전면 삭제 — 모든 detect/run 함수가 stub(return false/null)이었음.
+// webSearch / deepResearch / handoff / sourcePromote / slide 모두 에이전트 루프 + 도구로 처리.
 import {
   buildMessagesWithAttachment, injectAttachmentIntoInput, extractUrlsFromMessage,
   enrichMessageWithUrls, normalizeMultipleAttachments
@@ -247,7 +241,16 @@ function buildChatPayload(result: any) {
         }
       } catch { /* JSON 파싱 실패 무시 */ }
     }
-    if (mediaFields.image_url && mediaFields.video_url) break
+    if (tc.tool_name === "generate_slides" && !mediaFields.slide_data) {
+      try {
+        const p = JSON.parse(tc.output_text)
+        if (p?.ok && p?.slide_data) {
+          mediaFields.is_slide = true
+          mediaFields.slide_data = p.slide_data
+        }
+      } catch { /* JSON 파싱 실패 무시 */ }
+    }
+    if (mediaFields.image_url && mediaFields.video_url && mediaFields.slide_data) break
   }
 
   return {
@@ -575,10 +578,6 @@ export async function runChatRoute(req: RouteRequest, res: RouteResponse) {
   const effectiveInput = normalizedInput?.attached_file ? injectAttachmentIntoInput(normalizedInput) : normalizedInput
   const inboundQuery = extractInboundQuery(effectiveInput)
 
-  if (detectSlideCommand(inboundQuery)) {
-    const slideResult = await handleSlideCommand(normalizedInput, inboundQuery)
-    return res.json?.(makeDonePayload("claude", slideResult.message, slideResult.ok, "slide_generate", "code", ["claude"], { is_slide: slideResult.ok, slide_data: slideResult.slide_data ?? null }))
-  }
   if (detectGeminiImageCommand(inboundQuery)) {
     const r = await handleGeminiImageCommand(inboundQuery)
     return res.json?.(makeDonePayload("gemini", r.message, r.ok, "image_generate", "dialogue", ["gemini"], { is_image: r.ok, image_url: r.url ?? null, image_revised_prompt: null }))
@@ -593,11 +592,6 @@ export async function runChatRoute(req: RouteRequest, res: RouteResponse) {
     const r = await handleImageCommand(inboundQuery)
     return res.json?.(makeDonePayload("openai", r.message, r.ok, "image_generate", "dialogue", ["openai"], { is_image: r.ok, image_url: r.url ?? null, image_revised_prompt: r.revised_prompt ?? null }))
   }
-  if (detectSourcePromoteCommand(inboundQuery)) {
-    const r = handleSourcePromoteCommand(normalizedInput)
-    return res.json?.(makeDonePayload("system", r.message, r.ok, "source_promote", "source_promote", []))
-  }
-
   const _attached = normalizedInput?.attached_file
   const _attachedType = String(_attached?.type ?? "")
   // 동영상 파일 (non-streaming)
@@ -745,14 +739,6 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     const _streamAnthropicKey = String(process.env.ANTHROPIC_API_KEY ?? "").trim()
     const haikuRoute: any = (await routeWithLLM(inboundQuery, _streamAnthropicKey)) ?? {}
 
-    // ── 슬라이드 ──
-    if (detectSlideCommand(inboundQuery)) {
-      const slideResult = await handleSlideCommand(normalizedInput, inboundQuery)
-      for (const chunk of slideResult.message.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
-      writeSse(res, { type: "done", payload: makeDonePayload("claude", slideResult.message, slideResult.ok, "slide_generate", "code", ["claude"], { is_slide: slideResult.ok, slide_data: slideResult.slide_data ?? null }) })
-      res.end?.(); return
-    }
-
     // ── Gemini 이미지 ──
     if (detectGeminiImageCommand(inboundQuery)) {
       const r = await handleGeminiImageCommand(inboundQuery)
@@ -807,59 +793,8 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       res.end?.(); return
     }
 
-    // ── 핸드오프 ──
-    if (detectHandoffCommand(inboundQuery)) {
-      writeSse(res, { type: "chunk", content: "📋 세션 내용을 정리하고 있습니다...\n\n" })
-      const threadId = safeString(normalizedInput?.thread_id)
-      const inboundMessages = safeArray(normalizedInput?.messages)
-      const memoryMsgs = threadId ? (getThreadMemory(threadId)?.messages ?? []) : []
-      const threadMsgs = inboundMessages.length > 0 ? inboundMessages : memoryMsgs
-      const result = await runHandoffSummary(threadMsgs, inboundQuery)
-      const finalText = result.ok ? result.summary : `❌ 세션 요약 실패: ${result.error}`
-      for (const chunk of finalText.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
-      writeSse(res, { type: "done", payload: makeDonePayload("openai", finalText, result.ok, "handoff_summary", "dialogue", ["openai"]) })
-      res.end?.(); return
-    }
-
-    // ── 웹 검색 ──
-    if (detectWebSearchCommand(inboundQuery) && !detectDeepResearchCommand(inboundQuery)) {
-      writeSse(res, { type: "chunk", content: "🔍 웹에서 검색 중...\n\n" })
-      const searchResult = await runWebSearch(inboundQuery)
-      if (!searchResult.ok) { writeSse(res, { type: "chunk", content: `검색 실패: ${searchResult.error}` }) }
-      else { for (const chunk of searchResult.answer.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) } }
-      writeSse(res, { type: "done", payload: makeDonePayload("perplexity", searchResult.answer, searchResult.ok, "web_search", "research", ["perplexity"], { citations: searchResult.citations }) })
-      res.end?.(); return
-    }
-
-    // ── Deep Research ──
-    if (detectDeepResearchCommand(inboundQuery)) {
-      const result = await runDeepResearch(inboundQuery, (_: any, text: string) => { writeSse(res, { type: "chunk", content: `\n${text}\n` }) })
-      const finalText = result.ok ? result.report : `❌ 리서치 실패: ${result.error}`
-      writeSse(res, { type: "chunk", content: "\n\n---\n\n" })
-      for (const chunk of finalText.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(6) }
-      writeSse(res, { type: "done", payload: {
-        ...makeDonePayload("claude", finalText, result.ok, "deep_research", "research", ["perplexity", "openai", "claude"], {
-          execution_strategy: "deep_research_pipeline",
-          selected_providers: ["perplexity"],
-          verifier_providers: ["openai"],
-          parallel_providers: ["perplexity", "openai", "claude"],
-          winner: "claude",
-          winner_reason: { provider: "claude", rationale: "Perplexity 검색 → OpenAI 분석 → Claude 리포트 작성 파이프라인" }
-        }),
-        thread_title: await generateThreadTitle(inboundQuery, finalText) ?? null
-      } })
-      res.end?.(); return
-    }
-
-    // ── 소스 승격 ──
-    if (detectSourcePromoteCommand(inboundQuery)) {
-      const promoteResult = handleSourcePromoteCommand(normalizedInput)
-      for (const chunk of promoteResult.message.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
-      writeSse(res, { type: "done", payload: makeDonePayload("system", promoteResult.message, promoteResult.ok, "source_promote", "source_promote", []) })
-      res.end?.(); return
-    }
-
     // ── 첨부 파일 처리 (파일 있으면 REUSE 스킵) ──
+    // webSearch / deepResearch / handoff / sourcePromote → 에이전트 루프 + 도구(perplexitySearch, promoteToSource 등)가 처리
     const _attached = normalizedInput?.attached_file
     const _attachedType = String(_attached?.type ?? "")
     const _attachedName = String(_attached?.name ?? "").toLowerCase()
@@ -952,41 +887,15 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
 
         // PDF 병렬 분석 — 기존 직렬(N × 40초) → 병렬(~20초 고정)
         const allResults: string[] = []
-        const isLegalZip = haikuRoute.task === "legal_review"
-
         if (extractedPdfs.length > 0) {
           writeSse(res, { type: "provider_chunk", provider: "claude", content: `📄 PDF ${extractedPdfs.length}개 병렬 분석 중...\n\n` })
-
-          if (isLegalZip) {
-            // 법률: 텍스트만 병렬 추출 → 합산 후 법률 검토 1번만 실행
-            writeSse(res, { type: "status", content: "법률 문서 감지 — 텍스트 병렬 추출 중..." })
-            const extractResults = await Promise.allSettled(
-              extractedPdfs.map(pdf => analyzePdfExtractOnly({ base64: pdf.base64, name: pdf.name, type: "application/pdf" }))
-            )
-            const combinedPdfText = extractedPdfs
-              .map((pdf, i) => {
-                const r = extractResults[i]
-                const text = r.status === "fulfilled" ? r.value : ""
-                return text ? `=== ${pdf.name} ===\n${text}` : ""
-              })
-              .filter(Boolean)
-              .join("\n\n")
-
-            writeSse(res, { type: "status", content: "법률 검토 파이프라인 실행 중..." })
-            writeSse(res, { type: "provider_chunk", provider: "claude", content: "\n법률 문서 감지 — 법률 검토 파이프라인을 실행합니다...\n\n" })
-            const legalResult = await runLegalReview(userText, combinedPdfText, (_: any, text: string) => {
-              writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` })
-            })
-            allResults.push(legalResult.ok ? legalResult.report : combinedPdfText)
-          } else {
-            // 일반: PDF + 질문 병렬 분석 (추출+분석 1번에 처리)
-            const analysisResults = await Promise.allSettled(
-              extractedPdfs.map(pdf => analyzePdfDirect({ base64: pdf.base64, name: pdf.name, type: "application/pdf" }, userText))
-            )
-            for (let i = 0; i < extractedPdfs.length; i++) {
-              const r = analysisResults[i]
-              allResults.push(r.status === "fulfilled" ? r.value : `${extractedPdfs[i].name} 분석 실패`)
-            }
+          // 병렬 분석 — 에이전트 루프가 법률/재무/데이터 특화 분석 처리
+          const analysisResults = await Promise.allSettled(
+            extractedPdfs.map(pdf => analyzePdfDirect({ base64: pdf.base64, name: pdf.name, type: "application/pdf" }, userText))
+          )
+          for (let i = 0; i < extractedPdfs.length; i++) {
+            const r = analysisResults[i]
+            allResults.push(r.status === "fulfilled" ? r.value : `${extractedPdfs[i].name} 분석 실패`)
           }
         }
         if (extractedTexts.length > 0) allResults.push(extractedTexts.join("\n\n"))
@@ -1010,75 +919,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       const startMs = Date.now()
 
       if (_attachedType === "application/pdf") {
-        // Haiku 라우팅 결과 사용 — inboundQuery에 파일명 포함됨 (injectAttachmentIntoInput)
-        const isLegal   = haikuRoute.task === "legal_review"
-        const isFinance = haikuRoute.task === "finance_analysis"
-        const isData    = haikuRoute.task === "data_analysis"
-        const needsPipeline = isLegal || isFinance || isData
-
-        // 다중 첨부 처리: pending_analysis_files에서 PDF와 비-PDF 분리
-        // _attached(첫 번째 PDF)만 파이프라인에 가고 나머지가 버려지던 버그 수정
-        const allPendingFiles: any[] = Array.isArray(normalizedInput?.pending_analysis_files) ? normalizedInput.pending_analysis_files : []
-        const pendingPdfs = allPendingFiles.filter((f: any) => String(f?.type ?? "") === "application/pdf")
-        const pendingNonPdfs = allPendingFiles.filter((f: any) => String(f?.type ?? "") !== "application/pdf")
-        const hasMultiplePdfs = pendingPdfs.length > 0
-        const totalPdfCount = 1 + pendingPdfs.length
-
-        if (needsPipeline) {
-          // 법률/재무/데이터: _attached + pending PDFs 전부 병렬 텍스트 추출 → 파이프라인에 1회 전달
-          writeSse(res, { type: "status", content: hasMultiplePdfs ? `PDF ${totalPdfCount}개 텍스트 병렬 추출 중...` : "PDF 텍스트 추출 중..." })
-          writeSse(res, { type: "provider_chunk", provider: "claude", content: hasMultiplePdfs ? `📄 PDF ${totalPdfCount}개 병렬 텍스트 추출 중...\n\n` : "📄 PDF 텍스트 추출 중...\n\n" })
-
-          const extractTargets = [_attached, ...pendingPdfs]
-          const extractResults = await Promise.allSettled(
-            extractTargets.map((pdf: any) => analyzePdfExtractOnly(pdf))
-          )
-          const combinedPdfText = extractTargets
-            .map((pdf: any, i: number) => {
-              const r = extractResults[i]
-              const text = r.status === "fulfilled" ? String(r.value ?? "") : ""
-              const name = String(pdf?.name ?? `pdf_${i}`)
-              return text ? `=== ${name} ===\n${text}` : ""
-            })
-            .filter(Boolean)
-            .join("\n\n")
-
-          if (isLegal) {
-            writeSse(res, { type: "provider_chunk", provider: "claude", content: hasMultiplePdfs ? `법률 문서 ${totalPdfCount}개 감지 — 통합 법률 검토 파이프라인 실행 중...\n\n` : "법률 문서 감지 — 법률 검토 파이프라인 실행 중...\n\n" })
-            // 단일 PDF일 때만 Claude document API 직접 전달, 다중 PDF는 텍스트 합침 경로
-            const result = await runLegalReview(
-              userText,
-              combinedPdfText,
-              (_: any, text: string) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) },
-              hasMultiplePdfs ? undefined : _attached
-            )
-            const finalText = result.ok ? result.report : combinedPdfText
-            writeSse(res, { type: "final", provider: "openai", content: finalText })
-            const extraPending = await processPendingFiles(pendingNonPdfs, userText, res, signal)
-            writeSse(res, { type: "done", payload: makeDonePayload("openai", finalText + extraPending, true, "legal_review_pdf", "research", ["claude", "openai"]) })
-            res.end?.(); return
-          }
-          if (isFinance) {
-            writeSse(res, { type: "provider_chunk", provider: "claude", content: hasMultiplePdfs ? `재무 문서 ${totalPdfCount}개 — 통합 재무 분석 파이프라인으로 연결합니다...\n\n` : "재무 분석 파이프라인으로 연결합니다...\n\n" })
-            const result = await runFinanceAnalysis(userText, combinedPdfText, (_: any, text: string) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) })
-            const finalText = result.ok ? result.report : combinedPdfText
-            writeSse(res, { type: "final", provider: "claude", content: finalText })
-            const extraPending = await processPendingFiles(pendingNonPdfs, userText, res, signal)
-            writeSse(res, { type: "done", payload: makeDonePayload("claude", finalText + extraPending, true, "finance_pdf", "research", ["openai", "claude"]) })
-            res.end?.(); return
-          }
-          if (isData) {
-            writeSse(res, { type: "provider_chunk", provider: "claude", content: hasMultiplePdfs ? `데이터 문서 ${totalPdfCount}개 — 통합 데이터 분석 파이프라인으로 연결합니다...\n\n` : "데이터 분석 파이프라인으로 연결합니다...\n\n" })
-            const result = await runDataAnalysis(userText, combinedPdfText, (_: any, text: string) => { writeSse(res, { type: "provider_chunk", provider: "claude", content: `\n${text}\n` }) })
-            const finalText = result.ok ? result.report : combinedPdfText
-            writeSse(res, { type: "final", provider: "claude", content: finalText })
-            const extraPending = await processPendingFiles(pendingNonPdfs, userText, res, signal)
-            writeSse(res, { type: "done", payload: makeDonePayload("claude", finalText + extraPending, true, "data_analysis_pdf", "research", ["openai", "claude"]) })
-            res.end?.(); return
-          }
-        }
-
-        // 일반 PDF: 추출 + 분석 1번에 처리 (Claude document API, 기존 2-step 대비 2~3배 빠름)
+        // PDF 분석 — 추출+분석 1번에 처리. 법률/재무/데이터 특화 분석은 에이전트 루프 + 도메인 도구가 처리.
         writeSse(res, { type: "status", content: "PDF 분석 중 (Claude)..." })
         writeSse(res, { type: "provider_chunk", provider: "claude", content: "📄 PDF 분석 중...\n\n" })
         const pdfFinalResult = await analyzePdfDirect(_attached, userText)
