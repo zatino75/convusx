@@ -143,6 +143,17 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
     try { return localStorage.getItem("corvus-x.regulation-interval") ?? "daily"; } catch { return "daily"; }
   });
 
+  // Regulation watcher status (from server)
+  const [regulationStatus, setRegulationStatus] = useState<{
+    running: boolean;
+    cached_sources: number;
+    total_sources: number;
+    ok_count: number;
+    last_fetch_at: number | null;
+    last_change_at: number | null;
+  } | null>(null);
+  const [regulationRefreshing, setRegulationRefreshing] = useState(false);
+
   function saveDomainProfile(profile: string) {
     setDomainProfile(profile);
     try { localStorage.setItem("corvus-x.domain-profile", profile); } catch {}
@@ -152,6 +163,30 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
     setRegulationInterval(interval);
     try { localStorage.setItem("corvus-x.regulation-interval", interval); } catch {}
   }
+
+  async function fetchRegulationStatus() {
+    try {
+      const r = await apiFetch("/api/regulation/status");
+      if (r.ok) {
+        const d = await r.json();
+        setRegulationStatus(d);
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function handleRegulationRefresh() {
+    setRegulationRefreshing(true);
+    try {
+      await apiFetch("/api/regulation/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      await fetchRegulationStatus();
+    } catch { /* ignore */ }
+    finally { setRegulationRefreshing(false); }
+  }
+
+  // domain 탭 진입 시 법규 상태 조회
+  useEffect(() => {
+    if (open && tab === "domain") { void fetchRegulationStatus(); }
+  }, [open, tab]);
 
   useEffect(() => {
     if (!open) return;
@@ -905,6 +940,78 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
                       </div>
                     </label>
                   ))}
+                </div>
+              </div>
+
+              {/* 법규 캐시 현황 */}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)" }}>법규 캐시 현황</div>
+                  <button
+                    type="button"
+                    disabled={regulationRefreshing}
+                    onClick={handleRegulationRefresh}
+                    style={{
+                      padding: "5px 12px",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      background: "var(--bg-soft)",
+                      color: "var(--text-main)",
+                      cursor: regulationRefreshing ? "not-allowed" : "pointer",
+                      opacity: regulationRefreshing ? 0.6 : 1,
+                    }}
+                  >
+                    {regulationRefreshing ? "갱신 중…" : "⟳ 지금 갱신"}
+                  </button>
+                </div>
+                <div style={{
+                  padding: "14px 16px",
+                  borderRadius: 10,
+                  border: "1px solid var(--border)",
+                  background: "var(--bg-soft)",
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "10px 20px",
+                  fontSize: 12,
+                }}>
+                  {regulationStatus ? (
+                    <>
+                      <div>
+                        <div style={{ color: "var(--text-soft)", marginBottom: 2 }}>워처 상태</div>
+                        <div style={{ fontWeight: 700, color: regulationStatus.running ? "#1a9e4b" : "#888" }}>
+                          {regulationStatus.running ? "● 실행 중" : "○ 비활성"}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ color: "var(--text-soft)", marginBottom: 2 }}>캐시된 소스</div>
+                        <div style={{ fontWeight: 700, color: "var(--text-main)" }}>
+                          {regulationStatus.ok_count} / {regulationStatus.total_sources}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ color: "var(--text-soft)", marginBottom: 2 }}>마지막 조회</div>
+                        <div style={{ fontWeight: 600, color: "var(--text-main)" }}>
+                          {regulationStatus.last_fetch_at
+                            ? new Date(regulationStatus.last_fetch_at).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+                            : "없음"}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ color: "var(--text-soft)", marginBottom: 2 }}>마지막 변경 감지</div>
+                        <div style={{ fontWeight: 600, color: "var(--text-main)" }}>
+                          {regulationStatus.last_change_at
+                            ? new Date(regulationStatus.last_change_at).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+                            : "없음"}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ gridColumn: "1 / -1", color: "var(--text-soft)", fontSize: 12 }}>
+                      상태 조회 중…
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

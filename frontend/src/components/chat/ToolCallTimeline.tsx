@@ -22,14 +22,16 @@ type Props = {
 
 function iconFor(tool: string): string {
   if (tool.startsWith("perplexity")) return "🔍"
+  if (tool === "web_fetch" || tool.startsWith("web_fetch")) return "🌐"
   if (tool.startsWith("read_attachment")) return "📎"
+  if (tool === "promote_to_source" || tool.startsWith("promote_to_source")) return "📌"
   if (tool.startsWith("recall_")) return "🧠"
   if (tool.startsWith("parallel_ensemble")) return "⚡"
   if (tool.startsWith("adversarial_critique")) return "⚔️"
   if (tool.includes("draft")) return "✏️"
   if (tool.includes("regulation") || tool.includes("legal")) return "⚖️"
   if (tool.includes("food") || tool.includes("ecig") || tool.includes("cosmetic")) return "🏷️"
-  if (tool.includes("finance") || tool.includes("market")) return "📈"
+  if (tool.includes("finance") || tool.includes("market") || tool.includes("business")) return "📈"
   if (tool.includes("image") || tool.includes("video")) return "🎨"
   return "🔧"
 }

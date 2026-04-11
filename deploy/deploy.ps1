@@ -15,19 +15,16 @@ if (Test-Path ".git\index.lock") {
 # 2) git add
 Write-Host "[2] git add..." -ForegroundColor Cyan
 git add `
-  "server/src/agent/agentLoopBridge.ts" `
-  "server/src/agent/toolBootstrap.ts" `
-  "server/src/agent/triggerDetection.ts" `
-  "server/src/agent/tools/webFetch.ts" `
-  "frontend/src/hooks/useSendChat.ts" `
-  "deploy/deploy.ps1" `
-  "deploy/local-sync.ps1"
+  "server/src/agent/agentLoop.ts" `
+  "frontend/src/components/settings/SettingsModal.tsx" `
+  "frontend/src/components/chat/ToolCallTimeline.tsx" `
+  "deploy/deploy.ps1"
 if ($LASTEXITCODE -ne 0) { Write-Host "git add failed" -ForegroundColor Red; exit 1 }
 Write-Host "    Staged OK" -ForegroundColor Green
 
 # 3) git commit
 Write-Host "[3] git commit..." -ForegroundColor Cyan
-git commit -m "feat: Phase 5 - triggerDetection + webFetch + domain_profile injection"
+git commit -m "feat: Phase 5b - regulation cache hint in agentLoop + SettingsModal watcher status + ToolCallTimeline icons"
 if ($LASTEXITCODE -ne 0) { Write-Host "    Nothing new to commit" -ForegroundColor Yellow; git status }
 
 # 4) git push
@@ -37,11 +34,9 @@ if ($LASTEXITCODE -ne 0) { Write-Host "    Push failed" -ForegroundColor Yellow 
 
 # 5) scp to server
 Write-Host "[5] scp to server..." -ForegroundColor Cyan
-scp "server/src/agent/agentLoopBridge.ts"  "${SERVER}:/opt/corvusx/server/src/agent/"
-scp "server/src/agent/toolBootstrap.ts"    "${SERVER}:/opt/corvusx/server/src/agent/"
-scp "server/src/agent/triggerDetection.ts" "${SERVER}:/opt/corvusx/server/src/agent/"
-scp "server/src/agent/tools/webFetch.ts"   "${SERVER}:/opt/corvusx/server/src/agent/tools/"
-scp "frontend/src/hooks/useSendChat.ts"    "${SERVER}:/opt/corvusx/frontend/src/hooks/"
+scp "server/src/agent/agentLoop.ts"                                      "${SERVER}:/opt/corvusx/server/src/agent/"
+scp "frontend/src/components/settings/SettingsModal.tsx"                 "${SERVER}:/opt/corvusx/frontend/src/components/settings/"
+scp "frontend/src/components/chat/ToolCallTimeline.tsx"                  "${SERVER}:/opt/corvusx/frontend/src/components/chat/"
 Write-Host "    scp done" -ForegroundColor Green
 
 # 6) server build

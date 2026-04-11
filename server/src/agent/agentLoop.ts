@@ -23,6 +23,8 @@ import {
 } from "./toolRegistry.js"
 import { buildFusionSystemBlock } from "../fusion/threadFusion.js"
 import { buildProjectFusionBlock } from "../fusion/projectFusion.js"
+import { getSnapshotsByCategory } from "../regulation/regulationCache.js"
+import type { RegulationCategory } from "../regulation/regulationSources.js"
 
 // ── 상수 ──────────────────────────────────────────────────────────────────
 const DEFAULT_MODEL = "claude-opus-4-6"
@@ -118,9 +120,41 @@ function buildSystemPrompt(input: AgentLoopInput): string {
     } catch { /* ignore */ }
   }
 
+  // Phase 5 — domain_profile 기반 법규 캐시 현황 힌트 주입
+  // extra_system 에서 도메인 프로파일 파악 → 해당 카테고리 스냅샷 캐시 요약을 주입
+  // 에이전트가 캐시 현황을 인지하면 stale 시 *_regulation_check 도구를 능동적으로 호출
+  let regulationBlock = ""
+  try {
+    const domainHintMatch = extra.match(/도메인 프로파일:\s*(식품|액상전자담배|화장품|범용)/)
+    let domCat: RegulationCategory | null = null
+    if (domainHintMatch) {
+      const label = domainHintMatch[1]
+      if (label === "식품") domCat = "food"
+      else if (label === "액상전자담배") domCat = "ecig"
+      else if (label === "화장품") domCat = "cosmetic"
+    }
+    if (domCat) {
+      const snaps = getSnapshotsByCategory(domCat)
+      if (snaps.length > 0) {
+        const now = Date.now()
+        const lines = snaps.slice(0, 5).map((s) => {
+          const ageHours = Math.round((now - (s.fetched_at ?? 0)) / 3_600_000)
+          const stale = ageHours > 24 ? " ⚠️ stale" : ""
+          return `  - [${s.source_id}] 마지막조회 ${ageHours}시간 전${stale}${s.ok ? "" : " (오류)"}`
+        })
+        regulationBlock = [
+          "[법규 캐시 현황 — 자동 주입]",
+          `${domCat} 도메인 캐시 ${snaps.length}건 확인됨. stale(>24h) 항목은 *_regulation_check 도구 호출을 권장:`,
+          ...lines,
+        ].join("\n")
+      }
+    }
+  } catch { /* ignore — regulation cache 실패가 루프를 막으면 안 됨 */ }
+
   const fusionBlock = fusionParts.join("\n\n")
   const parts = [base]
   if (extra) parts.push(`=== Extra Instructions ===\n${extra}`)
+  if (regulationBlock) parts.push(regulationBlock)
   if (fusionBlock) parts.push(fusionBlock)
   return parts.join("\n\n")
 }
