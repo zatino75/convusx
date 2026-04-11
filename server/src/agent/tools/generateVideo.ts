@@ -1,14 +1,25 @@
 // generateVideo.ts — 비디오 생성 에이전트 도구
 // Runway Gen4 Turbo / Gemini Veo 3.1 통합
-//
-// 에이전트 루프에서 tool call로 직접 호출 가능. chat.ts 키워드 감지 분기와 병존.
-// 향후 chat.ts 키워드 분기 제거 시 이 도구만 사용.
-// 생성에 최대 2-3분 소요될 수 있음 (타임아웃 180초).
 
-import { registerTool } from "../toolRegistry.js"
+import { registerTool, type ToolResult } from "../toolRegistry.js"
 import { generateVideoRunway } from "../../adapters/runway.js"
 import { generateVideoVeo } from "../../adapters/veo.js"
 import { logger } from "../../observability/logger.js"
+
+type RunwayRatio = "16:9" | "9:16" | "1:1"
+type VeoRatio    = "16:9" | "9:16" | "1:1"
+const RUNWAY_RATIOS: RunwayRatio[] = ["16:9", "9:16", "1:1"]
+const VEO_RATIOS:    VeoRatio[]    = ["16:9", "9:16", "1:1"]
+
+function toRunwayRatio(s: string): RunwayRatio {
+  return (RUNWAY_RATIOS.includes(s as RunwayRatio) ? s : "16:9") as RunwayRatio
+}
+function toVeoRatio(s: string): VeoRatio {
+  return (VEO_RATIOS.includes(s as VeoRatio) ? s : "16:9") as VeoRatio
+}
+// Runway: 5 | 10, Veo: 5 | 8
+function toRunwayDuration(n: number): 5 | 10 { return n <= 5 ? 5 : 10 }
+function toVeoDuration(n: number): 5 | 8    { return n <= 5 ? 5 : 8 }
 
 registerTool({
   name: "generate_video",
@@ -32,47 +43,51 @@ registerTool({
       },
       duration: {
         type: "number",
-        description: "영상 길이(초). 기본값 5. 최대 10초 권장."
+        description: "영상 길이(초). runway: 5 또는 10, veo: 5 또는 8. 기본값 5."
       },
       aspect_ratio: {
         type: "string",
-        description: "종횡비. 예: '16:9' (기본, 가로), '9:16' (세로, 쇼츠), '1:1' (정방형)."
+        description: "종횡비. '16:9' (기본, 가로), '9:16' (세로, 쇼츠), '1:1' (정방형)."
       }
     },
     required: ["prompt", "model"]
   },
   cost_tier: "paid",
-  async invoke(input) {
+  async handler(input: any, _ctx: any): Promise<ToolResult> {
     const prompt = String(input.prompt ?? "")
     const model = String(input.model ?? "runway")
-    const duration = Math.min(Number(input.duration ?? 5), 10)
-    const aspectRatio = String(input.aspect_ratio ?? "16:9")
+    const rawDuration = Number(input.duration ?? 5)
+    const rawRatio = String(input.aspect_ratio ?? "16:9")
     const t0 = Date.now()
 
     try {
       if (model === "veo") {
+        const duration = toVeoDuration(rawDuration)
+        const aspectRatio = toVeoRatio(rawRatio)
         const result = await generateVideoVeo({ prompt, duration, aspectRatio })
         const latency_ms = Date.now() - t0
         if (!result.ok) {
           logger.warn("generate_video[veo] failed", { error: result.error })
-          return JSON.stringify({ ok: false, model, error: result.error ?? "Veo 비디오 생성 실패", latency_ms })
+          return { ok: false, output: JSON.stringify({ ok: false, model, error: result.error ?? "Veo 비디오 생성 실패", latency_ms }) }
         }
-        return JSON.stringify({ ok: true, model, video_url: result.video_url ?? null, message: "🎬 Gemini Veo 3.1로 비디오가 생성됐습니다.", latency_ms })
+        return { ok: true, output: JSON.stringify({ ok: true, model, video_url: result.video_url ?? null, message: "🎬 Gemini Veo 3.1로 비디오가 생성됐습니다.", latency_ms }) }
       }
 
       // runway (default)
-      const result = await generateVideoRunway({ prompt, duration, ratio: aspectRatio, model: "gen4_turbo" })
+      const duration = toRunwayDuration(rawDuration)
+      const ratio = toRunwayRatio(rawRatio)
+      const result = await generateVideoRunway({ prompt, duration, ratio, model: "gen4_turbo" })
       const latency_ms = Date.now() - t0
       if (!result.ok) {
         logger.warn("generate_video[runway] failed", { error: result.error })
-        return JSON.stringify({ ok: false, model, error: result.error ?? "Runway 비디오 생성 실패", latency_ms })
+        return { ok: false, output: JSON.stringify({ ok: false, model, error: result.error ?? "Runway 비디오 생성 실패", latency_ms }) }
       }
-      return JSON.stringify({ ok: true, model, video_url: result.video_url ?? null, message: "🎬 Runway Gen4 Turbo로 비디오가 생성됐습니다.", latency_ms })
+      return { ok: true, output: JSON.stringify({ ok: true, model, video_url: result.video_url ?? null, message: "🎬 Runway Gen4 Turbo로 비디오가 생성됐습니다.", latency_ms }) }
 
     } catch (e) {
       const latency_ms = Date.now() - t0
       logger.error("generate_video tool exception", { error: e, model })
-      return JSON.stringify({ ok: false, model, error: e instanceof Error ? e.message : "알 수 없는 오류", latency_ms })
+      return { ok: false, output: JSON.stringify({ ok: false, model, error: e instanceof Error ? e.message : "알 수 없는 오류", latency_ms }) }
     }
   }
 })

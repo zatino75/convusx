@@ -20,6 +20,7 @@ git add `
   "server/src/agent/toolBootstrap.ts" `
   "server/src/agent/tools/generateImage.ts" `
   "server/src/agent/tools/generateVideo.ts" `
+  "server/src/orchestra/benchmark.ts" `
   "server/src/index.ts" `
   "server/src/routes/sales.ts" `
   "frontend/src/App.tsx" `
@@ -37,7 +38,7 @@ Write-Host "    Staged OK" -ForegroundColor Green
 
 # 3) git commit
 Write-Host "[3] git commit..." -ForegroundColor Cyan
-git commit -m "feat: agent loop image/video tool 결과 프론트 렌더링 연결 + stub 파이프라인 제거"
+git commit -m "fix: generateImage/generateVideo TS 타입 오류 수정 + benchmark scoreboard 의존 제거"
 if ($LASTEXITCODE -ne 0) { Write-Host "    Nothing new to commit" -ForegroundColor Yellow; git status }
 
 # 4) git push
@@ -53,6 +54,7 @@ scp "server/src/agent/agentLoop.ts"                                          "${
 scp "server/src/agent/toolBootstrap.ts"                                      "${SERVER}:/opt/corvusx/server/src/agent/"
 scp "server/src/agent/tools/generateImage.ts"                                "${SERVER}:/opt/corvusx/server/src/agent/tools/"
 scp "server/src/agent/tools/generateVideo.ts"                                "${SERVER}:/opt/corvusx/server/src/agent/tools/"
+scp "server/src/orchestra/benchmark.ts"                                      "${SERVER}:/opt/corvusx/server/src/orchestra/"
 scp "server/src/index.ts"                                                    "${SERVER}:/opt/corvusx/server/src/"
 scp "server/src/routes/sales.ts"                                             "${SERVER}:/opt/corvusx/server/src/routes/"
 # 프론트엔드

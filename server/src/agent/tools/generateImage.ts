@@ -1,15 +1,18 @@
 // generateImage.ts — 이미지 생성 에이전트 도구
 // DALL-E 3 / Midjourney v7 / Google Imagen 4 / Gemini Flash (Nano Banana 2) 통합
-//
-// 에이전트 루프에서 tool call로 직접 호출 가능. chat.ts 키워드 감지 분기와 병존.
-// 향후 chat.ts 키워드 분기 제거 시 이 도구만 사용.
 
-import { registerTool } from "../toolRegistry.js"
+import { registerTool, type ToolResult } from "../toolRegistry.js"
 import { generateImage as generateImageDallE } from "../../adapters/openai.js"
 import { generateImageImagen } from "../../adapters/gemini.js"
 import { generateImageMidjourney } from "../../adapters/midjourney.js"
 import { generateImage as generateImageFlash } from "../../adapters/nanoBanana.js"
 import { logger } from "../../observability/logger.js"
+
+type ImgRatio = "1:1" | "16:9" | "9:16" | "4:3" | "3:4"
+const IMG_RATIOS: ImgRatio[] = ["1:1", "16:9", "9:16", "4:3", "3:4"]
+function toImgRatio(s: string, fallback: ImgRatio = "1:1"): ImgRatio {
+  return (IMG_RATIOS.includes(s as ImgRatio) ? s : fallback) as ImgRatio
+}
 
 registerTool({
   name: "generate_image",
@@ -35,7 +38,7 @@ registerTool({
       },
       aspect_ratio: {
         type: "string",
-        description: "종횡비. 예: '1:1' (기본), '16:9', '9:16', '4:3', '3:4'. 모델마다 지원 비율 상이."
+        description: "종횡비. 예: '1:1' (기본), '16:9', '9:16', '4:3', '3:4'."
       },
       quality: {
         type: "string",
@@ -46,45 +49,44 @@ registerTool({
     required: ["prompt", "model"]
   },
   cost_tier: "paid",
-  async invoke(input) {
+  async handler(input: any, _ctx: any): Promise<ToolResult> {
     const prompt = String(input.prompt ?? "")
     const model = String(input.model ?? "dall-e")
-    const aspectRatio = String(input.aspect_ratio ?? "1:1")
+    const aspect = toImgRatio(String(input.aspect_ratio ?? "1:1"))
     const quality = (input.quality as "standard" | "hd" | undefined) ?? "standard"
     const t0 = Date.now()
 
     try {
       if (model === "midjourney") {
-        const result = await generateImageMidjourney({ prompt, aspect: aspectRatio, version: "6.1" })
+        const result = await generateImageMidjourney({ prompt, aspect, version: "6.1" })
         const latency_ms = Date.now() - t0
         if (!result.ok) {
           logger.warn("generate_image[midjourney] failed", { error: result.error })
-          return JSON.stringify({ ok: false, model, error: result.error ?? "Midjourney 생성 실패", latency_ms })
+          return { ok: false, output: JSON.stringify({ ok: false, model, error: result.error ?? "Midjourney 생성 실패", latency_ms }) }
         }
-        return JSON.stringify({ ok: true, model, image_url: result.image_url ?? null, image_urls: result.image_urls ?? null, message: "🎨 Midjourney v7로 이미지가 생성됐습니다.", latency_ms })
+        return { ok: true, output: JSON.stringify({ ok: true, model, image_url: result.image_url ?? null, image_urls: result.image_urls ?? null, message: "🎨 Midjourney v7로 이미지가 생성됐습니다.", latency_ms }) }
       }
 
       if (model === "imagen") {
-        const ratio = (["1:1","16:9","9:16","4:3","3:4"].includes(aspectRatio) ? aspectRatio : "1:1") as "1:1" | "16:9" | "9:16" | "4:3" | "3:4"
-        const result = await generateImageImagen({ prompt, aspectRatio: ratio })
+        const result = await generateImageImagen({ prompt, aspectRatio: aspect })
         const latency_ms = Date.now() - t0
         if (!result.ok || !result.url) {
           logger.warn("generate_image[imagen] failed", { error: result.error })
-          return JSON.stringify({ ok: false, model, error: result.error ?? "Imagen 생성 실패", latency_ms })
+          return { ok: false, output: JSON.stringify({ ok: false, model, error: result.error ?? "Imagen 생성 실패", latency_ms }) }
         }
-        return JSON.stringify({ ok: true, model, image_url: result.url, message: "🎨 Google Imagen 4로 이미지가 생성됐습니다.", latency_ms })
+        return { ok: true, output: JSON.stringify({ ok: true, model, image_url: result.url, message: "🎨 Google Imagen 4로 이미지가 생성됐습니다.", latency_ms }) }
       }
 
       if (model === "flash") {
-        const result = await generateImageFlash({ prompt, aspectRatio })
+        const result = await generateImageFlash({ prompt, aspectRatio: aspect })
         const latency_ms = Date.now() - t0
-        if (!result.ok || !(result as any).images?.length) {
+        if (!(result as any).ok || !(result as any).images?.length) {
           logger.warn("generate_image[flash] failed", { error: (result as any).error })
-          return JSON.stringify({ ok: false, model, error: (result as any).error ?? "Flash 생성 실패", latency_ms })
+          return { ok: false, output: JSON.stringify({ ok: false, model, error: (result as any).error ?? "Flash 생성 실패", latency_ms }) }
         }
         const first = (result as any).images[0]
         const image_url = `data:${first.mimeType};base64,${first.base64}`
-        return JSON.stringify({ ok: true, model, image_url, message: "🎨 Gemini Flash (Nano Banana 2)로 이미지가 생성됐습니다.", latency_ms })
+        return { ok: true, output: JSON.stringify({ ok: true, model, image_url, message: "🎨 Gemini Flash (Nano Banana 2)로 이미지가 생성됐습니다.", latency_ms }) }
       }
 
       // dall-e (default)
@@ -92,14 +94,14 @@ registerTool({
       const latency_ms = Date.now() - t0
       if (!result.ok || !result.url) {
         logger.warn("generate_image[dall-e] failed", { error: result.error })
-        return JSON.stringify({ ok: false, model, error: result.error ?? "DALL-E 생성 실패", latency_ms })
+        return { ok: false, output: JSON.stringify({ ok: false, model, error: result.error ?? "DALL-E 생성 실패", latency_ms }) }
       }
-      return JSON.stringify({ ok: true, model, image_url: result.url, revised_prompt: result.revised_prompt ?? null, message: "🎨 DALL-E 3로 이미지가 생성됐습니다.", latency_ms })
+      return { ok: true, output: JSON.stringify({ ok: true, model, image_url: result.url, revised_prompt: result.revised_prompt ?? null, message: "🎨 DALL-E 3로 이미지가 생성됐습니다.", latency_ms }) }
 
     } catch (e) {
       const latency_ms = Date.now() - t0
       logger.error("generate_image tool exception", { error: e, model })
-      return JSON.stringify({ ok: false, model, error: e instanceof Error ? e.message : "알 수 없는 오류", latency_ms })
+      return { ok: false, output: JSON.stringify({ ok: false, model, error: e instanceof Error ? e.message : "알 수 없는 오류", latency_ms }) }
     }
   }
 })
