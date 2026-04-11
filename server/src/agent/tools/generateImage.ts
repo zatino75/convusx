@@ -62,9 +62,9 @@ registerTool({
         const latency_ms = Date.now() - t0
         if (!result.ok) {
           logger.warn("generate_image[midjourney] failed", { error: result.error })
-          return { ok: false, output: JSON.stringify({ ok: false, model, error: result.error ?? "Midjourney 생성 실패", latency_ms }) }
+          return { ok: false, output_text: JSON.stringify({ ok: false, model, error: result.error ?? "Midjourney 생성 실패", latency_ms }) }
         }
-        return { ok: true, output: JSON.stringify({ ok: true, model, image_url: result.image_url ?? null, image_urls: result.image_urls ?? null, message: "🎨 Midjourney v7로 이미지가 생성됐습니다.", latency_ms }) }
+        return { ok: true, output_text: JSON.stringify({ ok: true, model, image_url: result.image_url ?? null, image_urls: result.image_urls ?? null, message: "🎨 Midjourney v7로 이미지가 생성됐습니다.", latency_ms }) }
       }
 
       if (model === "imagen") {
@@ -72,9 +72,9 @@ registerTool({
         const latency_ms = Date.now() - t0
         if (!result.ok || !result.url) {
           logger.warn("generate_image[imagen] failed", { error: result.error })
-          return { ok: false, output: JSON.stringify({ ok: false, model, error: result.error ?? "Imagen 생성 실패", latency_ms }) }
+          return { ok: false, output_text: JSON.stringify({ ok: false, model, error: result.error ?? "Imagen 생성 실패", latency_ms }) }
         }
-        return { ok: true, output: JSON.stringify({ ok: true, model, image_url: result.url, message: "🎨 Google Imagen 4로 이미지가 생성됐습니다.", latency_ms }) }
+        return { ok: true, output_text: JSON.stringify({ ok: true, model, image_url: result.url, message: "🎨 Google Imagen 4로 이미지가 생성됐습니다.", latency_ms }) }
       }
 
       if (model === "flash") {
@@ -82,11 +82,11 @@ registerTool({
         const latency_ms = Date.now() - t0
         if (!(result as any).ok || !(result as any).images?.length) {
           logger.warn("generate_image[flash] failed", { error: (result as any).error })
-          return { ok: false, output: JSON.stringify({ ok: false, model, error: (result as any).error ?? "Flash 생성 실패", latency_ms }) }
+          return { ok: false, output_text: JSON.stringify({ ok: false, model, error: (result as any).error ?? "Flash 생성 실패", latency_ms }) }
         }
         const first = (result as any).images[0]
         const image_url = `data:${first.mimeType};base64,${first.base64}`
-        return { ok: true, output: JSON.stringify({ ok: true, model, image_url, message: "🎨 Gemini Flash (Nano Banana 2)로 이미지가 생성됐습니다.", latency_ms }) }
+        return { ok: true, output_text: JSON.stringify({ ok: true, model, image_url, message: "🎨 Gemini Flash (Nano Banana 2)로 이미지가 생성됐습니다.", latency_ms }) }
       }
 
       // dall-e (default)
@@ -94,14 +94,14 @@ registerTool({
       const latency_ms = Date.now() - t0
       if (!result.ok || !result.url) {
         logger.warn("generate_image[dall-e] failed", { error: result.error })
-        return { ok: false, output: JSON.stringify({ ok: false, model, error: result.error ?? "DALL-E 생성 실패", latency_ms }) }
+        return { ok: false, output_text: JSON.stringify({ ok: false, model, error: result.error ?? "DALL-E 생성 실패", latency_ms }) }
       }
-      return { ok: true, output: JSON.stringify({ ok: true, model, image_url: result.url, revised_prompt: result.revised_prompt ?? null, message: "🎨 DALL-E 3로 이미지가 생성됐습니다.", latency_ms }) }
+      return { ok: true, output_text: JSON.stringify({ ok: true, model, image_url: result.url, revised_prompt: result.revised_prompt ?? null, message: "🎨 DALL-E 3로 이미지가 생성됐습니다.", latency_ms }) }
 
     } catch (e) {
       const latency_ms = Date.now() - t0
       logger.error("generate_image tool exception", { error: e, model })
-      return { ok: false, output: JSON.stringify({ ok: false, model, error: e instanceof Error ? e.message : "알 수 없는 오류", latency_ms }) }
+      return { ok: false, output_text: JSON.stringify({ ok: false, model, error: e instanceof Error ? e.message : "알 수 없는 오류", latency_ms }) }
     }
   }
 })

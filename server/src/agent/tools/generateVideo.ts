@@ -68,9 +68,9 @@ registerTool({
         const latency_ms = Date.now() - t0
         if (!result.ok) {
           logger.warn("generate_video[veo] failed", { error: result.error })
-          return { ok: false, output: JSON.stringify({ ok: false, model, error: result.error ?? "Veo 비디오 생성 실패", latency_ms }) }
+          return { ok: false, output_text: JSON.stringify({ ok: false, model, error: result.error ?? "Veo 비디오 생성 실패", latency_ms }) }
         }
-        return { ok: true, output: JSON.stringify({ ok: true, model, video_url: result.video_url ?? null, message: "🎬 Gemini Veo 3.1로 비디오가 생성됐습니다.", latency_ms }) }
+        return { ok: true, output_text: JSON.stringify({ ok: true, model, video_url: result.video_url ?? null, message: "🎬 Gemini Veo 3.1로 비디오가 생성됐습니다.", latency_ms }) }
       }
 
       // runway (default)
@@ -80,14 +80,14 @@ registerTool({
       const latency_ms = Date.now() - t0
       if (!result.ok) {
         logger.warn("generate_video[runway] failed", { error: result.error })
-        return { ok: false, output: JSON.stringify({ ok: false, model, error: result.error ?? "Runway 비디오 생성 실패", latency_ms }) }
+        return { ok: false, output_text: JSON.stringify({ ok: false, model, error: result.error ?? "Runway 비디오 생성 실패", latency_ms }) }
       }
-      return { ok: true, output: JSON.stringify({ ok: true, model, video_url: result.video_url ?? null, message: "🎬 Runway Gen4 Turbo로 비디오가 생성됐습니다.", latency_ms }) }
+      return { ok: true, output_text: JSON.stringify({ ok: true, model, video_url: result.video_url ?? null, message: "🎬 Runway Gen4 Turbo로 비디오가 생성됐습니다.", latency_ms }) }
 
     } catch (e) {
       const latency_ms = Date.now() - t0
       logger.error("generate_video tool exception", { error: e, model })
-      return { ok: false, output: JSON.stringify({ ok: false, model, error: e instanceof Error ? e.message : "알 수 없는 오류", latency_ms }) }
+      return { ok: false, output_text: JSON.stringify({ ok: false, model, error: e instanceof Error ? e.message : "알 수 없는 오류", latency_ms }) }
     }
   }
 })

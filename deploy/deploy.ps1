@@ -38,7 +38,7 @@ Write-Host "    Staged OK" -ForegroundColor Green
 
 # 3) git commit
 Write-Host "[3] git commit..." -ForegroundColor Cyan
-git commit -m "fix: generateImage/generateVideo TS 타입 오류 수정 + benchmark scoreboard 의존 제거"
+git commit -m "fix: ToolResult output → output_text 필드명 수정 (generateImage/generateVideo)"
 if ($LASTEXITCODE -ne 0) { Write-Host "    Nothing new to commit" -ForegroundColor Yellow; git status }
 
 # 4) git push
