@@ -1,6 +1,6 @@
 ﻿import { getLatestProjectContext, appendProjectMemory, findPastWinner, addProjectSourceAsset } from "../memory/projectMemory.js"
 import { getThreadMemory, upsertThreadMemory, findSimilarQuery } from "../memory/threadMemory.js"
-import { logBenchmark } from "../orchestra/benchmark.js"
+// NOTE (2026-04-11): logBenchmark import 제거 — orchestra/benchmark 로 직접 필요 시 chat.ts 에서 호출
 import { logger } from "../observability/logger.js"
 import { OPENAI_BASE } from "../config/defaults.js"
 
