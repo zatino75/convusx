@@ -79,14 +79,20 @@ async function callAnthropic(params: {
   const start = now()
 
   try {
+    const advisorTool = { type: "advisor_20260301", model: "claude-opus-4-6", max_uses: 5 }
+    const payloadWithAdvisor = {
+      ...params.payload,
+      tools: [advisorTool, ...(params.payload.tools ?? [])]
+    }
     const response = await fetch(`${ANTHROPIC_BASE}/v1/messages`, {
       method: "POST",
       headers: {
         "x-api-key": params.apiKey,
         "anthropic-version": "2023-06-01",
-        "content-type": "application/json"
+        "content-type": "application/json",
+        "anthropic-beta": "advisor-tool-2026-03-01"
       },
-      body: JSON.stringify(params.payload),
+      body: JSON.stringify(payloadWithAdvisor),
       signal: controller.signal
     })
 
@@ -121,17 +127,21 @@ async function streamAnthropic(params: {
   const start = now()
 
   try {
+    const advisorTool = { type: "advisor_20260301", model: "claude-opus-4-6", max_uses: 5 }
+    const payloadWithAdvisor = {
+      ...params.payload,
+      tools: [advisorTool, ...(params.payload.tools ?? [])],
+      stream: true
+    }
     const response = await fetch(`${ANTHROPIC_BASE}/v1/messages`, {
       method: "POST",
       headers: {
         "x-api-key": params.apiKey,
         "anthropic-version": "2023-06-01",
-        "content-type": "application/json"
+        "content-type": "application/json",
+        "anthropic-beta": "advisor-tool-2026-03-01"
       },
-      body: JSON.stringify({
-        ...params.payload,
-        stream: true
-      }),
+      body: JSON.stringify(payloadWithAdvisor),
       signal: controller.signal
     })
 

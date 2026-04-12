@@ -50,6 +50,7 @@ Write-Host "[3] git add..." -ForegroundColor Cyan
 git add `
   "server/src/routes/chat.ts" `
   "server/src/agent/agentLoop.ts" `
+  "server/src/adapters/claude.ts" `
   "server/src/agent/toolBootstrap.ts" `
   "server/src/agent/tools/generateImage.ts" `
   "server/src/agent/tools/generateVideo.ts" `
@@ -73,7 +74,7 @@ Write-Host "    Staged OK" -ForegroundColor Green
 
 # 4) git commit
 Write-Host "[4] git commit..." -ForegroundColor Cyan
-git commit -m "feat: generateSlides 도구 추가 + chat.ts 스텁 전면 제거 + orchestra dead code git rm (16개)"
+git commit -m "feat: advisor-tool-2026-03-01 적용 — Sonnet executor + Opus advisor (max_uses:5)"
 if ($LASTEXITCODE -ne 0) { Write-Host "    Nothing new to commit" -ForegroundColor Yellow; git status }
 
 # 5) git push
@@ -86,6 +87,7 @@ Write-Host "[6] scp to server..." -ForegroundColor Cyan
 # 백엔드
 scp "server/src/routes/chat.ts"                                              "${SERVER}:/opt/corvusx/server/src/routes/"
 scp "server/src/agent/agentLoop.ts"                                          "${SERVER}:/opt/corvusx/server/src/agent/"
+scp "server/src/adapters/claude.ts"                                          "${SERVER}:/opt/corvusx/server/src/adapters/"
 scp "server/src/agent/toolBootstrap.ts"                                      "${SERVER}:/opt/corvusx/server/src/agent/"
 scp "server/src/agent/tools/generateImage.ts"                                "${SERVER}:/opt/corvusx/server/src/agent/tools/"
 scp "server/src/agent/tools/generateVideo.ts"                                "${SERVER}:/opt/corvusx/server/src/agent/tools/"
