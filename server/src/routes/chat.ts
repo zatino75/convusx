@@ -3,7 +3,6 @@ import { TITLE_GEN_TIMEOUT_MS, OPENAI_BASE } from "../config/defaults.js"
 import { logger } from "../observability/logger.js"
 // executeOrchestra removed — agent loop only (Phase 4)
 import { runAgentLoopAsOrchestraResult, isAgentLoopEnabled } from "../agent/agentLoopBridge.js"
-import { routeWithLLM } from "../orchestra/llmRouter.js"
 import { logBenchmark } from "../orchestra/benchmark.js"
 import { appendProjectMemory, getLatestProjectContext, findPastWinner } from "../memory/projectMemory.js"
 import { upsertThreadMemory, findSimilarQuery, getThreadMemory } from "../memory/threadMemory.js"
@@ -736,8 +735,8 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
     const inboundQuery = extractInboundQuery(effectiveInput)
 
     // ── Haiku LLM 라우팅 — 키워드 분류 완전 제거, LLM이 의도 파악 ──
-    const _streamAnthropicKey = String(process.env.ANTHROPIC_API_KEY ?? "").trim()
-    const haikuRoute: any = (await routeWithLLM(inboundQuery, _streamAnthropicKey)) ?? {}
+    // haikuRoute: llmRouter 폐기 → 에이전트 루프가 task 자체 판단
+    const haikuRoute: any = {}
 
     // ── Gemini 이미지 ──
     if (detectGeminiImageCommand(inboundQuery)) {
