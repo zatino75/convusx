@@ -11,9 +11,9 @@ import { geminiAdapter } from "../../adapters/gemini.js"
 import { logger } from "../../observability/logger.js"
 
 const MODEL_BY_PROVIDER = {
-  openai: "gpt-5.4-pro",
+  openai: "gpt-5.4",
   claude: "claude-opus-4-6",
-  gemini: "gemini-3.1-pro-ultra",
+  gemini: "gemini-2.5-pro-preview-05-06",
 } as const
 
 const DEFAULT_MAX_TOKENS = 3000
@@ -43,9 +43,9 @@ function buildCritiqueMessages(params: {
   critic: "openai" | "claude" | "gemini"
 }) {
   const criticName =
-    params.critic === "openai" ? "GPT-5.4-pro"
+    params.critic === "openai" ? "GPT-5.4"
       : params.critic === "claude" ? "Claude Opus 4.6"
-      : "Gemini 3.1 Pro Ultra"
+      : "Gemini 2.5 Pro"
 
   const sys = [
     `You are ${criticName} acting as an ADVERSARIAL CRITIC inside CORVUS X.`,

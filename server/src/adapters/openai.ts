@@ -240,7 +240,7 @@ async function callOpenAIStreaming(params: { apiKey: string; model: string; req:
 export const openaiAdapter: ModelAdapter = {
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const apiKey = env("OPENAI_API_KEY")
-    const model = req.model?.trim() || (req.force_pro ? "gpt-5.4-pro" : "gpt-5.2")
+    const model = req.model?.trim() || "gpt-5.4"  // 최상위 버전 고정 (CLAUDE.md)
     const attempts: ModelAttempt[] = []
 
     if (!apiKey) {
@@ -254,7 +254,7 @@ export const openaiAdapter: ModelAdapter = {
     }
 
     const systemPrompt = req.system_prompt ??
-      "You are CORVUS X, a powerful multi-AI workspace that uses GPT-5.2 / GPT-5.4-pro, Claude Sonnet 4.6 / Opus 4.6, Gemini 2.5 Pro / 2.0 Flash, and Perplexity Pro. These models are dynamically selected based on task complexity. These are the actual models running in this system. Answer questions about these models based on your knowledge. Respond in the same language the user writes in. Be concise, accurate, and genuinely helpful."
+      "You are CORVUS X, a powerful multi-AI workspace powered by GPT-5.4, Claude Opus 4.6, Gemini 2.5 Pro, and Perplexity sonar-pro. These are the actual models running in this system. Answer questions about these models based on your knowledge. Respond in the same language the user writes in. Be concise, accurate, and genuinely helpful."
 
     const body: any = {
       model,

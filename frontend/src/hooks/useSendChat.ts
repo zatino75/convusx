@@ -731,10 +731,29 @@ export function useSendChat({
               mergedEnsemble.synthesized = finalSynthText;
             }
 
+            // ensemble drafts → providerDrafts 매핑 (OrchestrationPanel 비교 탭 호환)
+            // parallel_ensemble 결과가 liveEnsembleData 에만 쌓이므로 done 시점에 변환
+            const ensembleDraftsMapped: ProviderDraft[] = (mergedEnsemble?.drafts ?? [])
+              .filter((d) => d.ok && d.draft)
+              .map((d) => ({ provider: d.provider, content: d.draft }))
+            const finalProviderDrafts: ProviderDraft[] =
+              (liveMeta.providerDrafts?.length ?? 0) > 0
+                ? (liveMeta.providerDrafts ?? [])
+                : ensembleDraftsMapped
+            const finalDisplayWinner =
+              rawMeta?.display_winner ??
+              (ensembleDraftsMapped.length > 0
+                ? {
+                    provider:
+                      ensembleDraftsMapped.find((d) => d.provider === "claude")?.provider ??
+                      ensembleDraftsMapped[0].provider,
+                  }
+                : null)
+
             const meta = {
               ...rawMeta,
-              providerDrafts: liveMeta.providerDrafts ?? [],
-              displayWinner: rawMeta?.display_winner ?? null,
+              providerDrafts: finalProviderDrafts,
+              displayWinner: finalDisplayWinner,
               displayLosers: rawMeta?.display_losers ?? [],
               hiddenFailedProviders: rawMeta?.hidden_failed_providers ?? [],
               primaryRecovered: rawMeta?.primary_recovered ?? false,

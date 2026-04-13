@@ -4,7 +4,7 @@
 // 타임라인 형태로 표시한다. 호출 순서, 도구 이름, 상태(성공/실패), latency,
 // 요약을 한 줄씩 보여준다. 최종 답변이 나오기 전 실시간 피드백 역할.
 
-import React from "react"
+import React, { useState } from "react"
 
 export type ToolCallTimelineEntry = {
   tool_name: string
@@ -45,6 +45,7 @@ function fmtLatency(ms?: number): string {
 }
 
 export default function ToolCallTimeline({ entries, compact = false }: Props) {
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null)
   if (!entries || entries.length === 0) return null
 
   return (
@@ -84,16 +85,22 @@ export default function ToolCallTimeline({ entries, compact = false }: Props) {
       >
         {entries.map((e, i) => {
           const ok = e.ok !== false && !e.error
+          const isExpanded = expandedIdx === i
+          const fullText = ok ? e.summary ?? "" : e.error ?? "실패"
           return (
             <li
               key={`${e.tool_name}-${i}`}
+              onClick={() => setExpandedIdx(isExpanded ? null : i)}
               style={{
                 display: "flex",
                 alignItems: "flex-start",
                 gap: 8,
                 padding: compact ? "2px 0" : "3px 0",
                 borderTop: i === 0 ? "none" : "1px dashed rgba(150, 170, 200, 0.18)",
+                cursor: "pointer",
+                userSelect: "none" as const,
               }}
+              title={isExpanded ? "접기" : "클릭해서 전체 내용 보기"}
             >
               <span
                 aria-hidden
@@ -126,15 +133,18 @@ export default function ToolCallTimeline({ entries, compact = false }: Props) {
               <span
                 style={{
                   color: ok ? "#4a5a70" : "#a04040",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
+                  overflow: isExpanded ? "visible" : "hidden",
+                  textOverflow: isExpanded ? "clip" : "ellipsis",
+                  whiteSpace: isExpanded ? "normal" : "nowrap",
+                  wordBreak: isExpanded ? "break-word" : undefined,
                   flex: 1,
                   minWidth: 0,
                 }}
-                title={e.summary ?? e.error ?? ""}
               >
-                {ok ? e.summary ?? "" : e.error ?? "실패"}
+                {fullText}
+              </span>
+              <span style={{ color: "#aab8c8", flexShrink: 0, fontSize: 10 }}>
+                {isExpanded ? "▲" : "▼"}
               </span>
             </li>
           )

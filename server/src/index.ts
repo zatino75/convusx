@@ -77,6 +77,7 @@ import {
 import { backupExport, backupDownload, backupRestore } from "./routes/backup.js"
 import { docsRoute } from "./routes/openapi.js"
 import { startScheduler, stopScheduler, getSchedulerStatus, triggerTask } from "./scheduler/backgroundScheduler.js"
+import { externalToolRoute } from "./routes/externalTool.js"
 
 // ── 환경 설정 초기화 ──
 const envConfig = getEnvConfig()
@@ -393,6 +394,12 @@ router.post("/api/ws/broadcast", async (req: ParsedRequest, res: ExpressLikeResp
   broadcast(event, data)
   res.json({ ok: true, clients: getConnectedClients() })
 })
+
+// ── External Tool API (CC HOMEPAGE → CORVUS X) ──
+// Bearer 토큰 자체 인증 (CORVUS_X_API_KEY). 세션 인증 화이트리스트 적용됨.
+router.post("/api/external/tool/*", async (req: IncomingMessage, res: ServerResponse) => {
+  await externalToolRoute(req, res)
+}, true)
 
 // ── Plugin System (B5) ──
 router.get("/api/plugins", async (_req: ParsedRequest, res: ExpressLikeResponse) => {

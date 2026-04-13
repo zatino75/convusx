@@ -15,7 +15,9 @@
     "errorPasswordRequired": "Please enter your password.",
     "errorTooManyAttempts": "Too many attempts. Try again later.",
     "errorDisabled": "Login is disabled on the server.",
-    "errorGeneric": "Login failed. Please try again."
+    "errorGeneric": "Login failed. Please try again.",
+    "error": "Could not connect to the authentication server. Please try again.",
+    "retry": "Retry"
   },
   "nav": {
     "home": "Home",

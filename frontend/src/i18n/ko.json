@@ -15,7 +15,9 @@
     "errorPasswordRequired": "비밀번호를 입력하세요.",
     "errorTooManyAttempts": "시도 횟수 초과. 잠시 후 다시 시도하세요.",
     "errorDisabled": "서버에서 로그인이 비활성화되어 있습니다.",
-    "errorGeneric": "로그인에 실패했습니다. 다시 시도해 주세요."
+    "errorGeneric": "로그인에 실패했습니다. 다시 시도해 주세요.",
+    "error": "인증 서버에 연결할 수 없습니다. 다시 시도해 주세요.",
+    "retry": "다시 시도"
   },
   "nav": {
     "home": "홈",

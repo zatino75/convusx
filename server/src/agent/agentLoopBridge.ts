@@ -300,8 +300,9 @@ export async function runAgentLoopAsOrchestraResult(
   return buildOrchestraCompatibleResult(effectiveInput, loopResult)
 }
 
-/** feature flag 체크 (환경변수 기반) */
+/** 에이전트 루프 상시 활성 (CLAUDE.md 2026-04-10 기준 — Planner/Router 폐기, 모든 요청 에이전트 루프 경유) */
 export function isAgentLoopEnabled(): boolean {
-  const raw = safeString(process.env.CORVUS_USE_AGENT_LOOP).toLowerCase()
-  return raw === "1" || raw === "true" || raw === "yes" || raw === "on"
+  // CORVUS_USE_AGENT_LOOP=0|false 로 긴급 비활성화
+
+  return process.env.CORVUS_USE_AGENT_LOOP !== "0" && process.env.CORVUS_USE_AGENT_LOOP !== "false"
 }

@@ -17,9 +17,9 @@ import { geminiAdapter } from "../../adapters/gemini.js"
 import { logger } from "../../observability/logger.js"
 
 const MODELS = {
-  openai: "gpt-5.4-pro",
+  openai: "gpt-5.4",
   claude: "claude-opus-4-6",
-  gemini: "gemini-3.1-pro-ultra",
+  gemini: "gemini-2.5-pro-preview-05-06",  // Gemini 최상위 실제 모델명
 } as const
 
 const DEFAULT_MAX_TOKENS = 6000
@@ -36,7 +36,7 @@ function buildMessages(params: {
   provider: "openai" | "claude" | "gemini"
 }) {
   const sys = [
-    `You are ${params.provider === "openai" ? "GPT-5.4-pro" : params.provider === "claude" ? "Claude Opus 4.6" : "Gemini 3.1 Pro Ultra"} acting as one of three independent drafters in CORVUS X.`,
+    `You are ${params.provider === "openai" ? "GPT-5.4" : params.provider === "claude" ? "Claude Opus 4.6" : "Gemini 2.5 Pro"} acting as one of three independent drafters in CORVUS X.`,
     "Another two models will produce their own drafts in parallel. You do not see theirs.",
     "A synthesizing agent (Claude Opus 4.6 orchestrator) will then compare all three and pick or merge the best.",
     "Write substantive, directly-useful content. Do NOT reference 'the other models' or 'my draft' — just answer the task.",

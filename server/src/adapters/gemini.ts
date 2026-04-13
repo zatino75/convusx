@@ -336,7 +336,7 @@ async function streamGemini(params: {
 export const geminiAdapter: ModelAdapter = {
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const apiKey = env("GEMINI_API_KEY")
-    const model = req.model?.trim() || (req.force_pro ? "gemini-2.5-pro" : "gemini-2.5-pro")
+    const model = req.model?.trim() || "gemini-2.5-pro-preview-05-06"  // 최상위 버전 고정 (CLAUDE.md)
     const attempts: ModelAttempt[] = []
     const { system, conversation } = splitSystemAndMessages(req.messages)
 

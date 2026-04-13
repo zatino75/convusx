@@ -35,7 +35,8 @@ function categorizeStep(step: string): { label: string; color: string } {
 }
 
 function StatusHistoryBlock({ steps, isPending }: { steps: string[]; isPending?: boolean }) {
-  const [open, setOpen] = useState(true);
+  // isPending=false(완료) 시점에 마운트되면 접힌 상태로 시작, 스트리밍 중엔 펼쳐진 상태
+  const [open, setOpen] = useState(isPending !== false);
   if (!steps || steps.length === 0) return null;
 
   const lastStep = steps[steps.length - 1];
@@ -766,8 +767,7 @@ export default function MessageBubble({
                 ))}
               </div>
             ) : null}
-            {/* 진행과정: 완료 후엔 위(요약), 스트리밍 중엔 아래(따라다님) */}
-            {!isPending && statusHistoryBlock}
+            {/* 진행과정: 완료 후엔 숨김 (ToolCallTimeline이 대신 표시), 스트리밍 중에만 표시 */}
 
             <div
               className={"message__text" + (isUser ? " message__text--user" : "")}

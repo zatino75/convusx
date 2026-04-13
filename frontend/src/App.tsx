@@ -33,6 +33,13 @@ import type {
   WorkspaceKind
 } from "./types/workspace";
 
+// ── 폰트 사이즈 정규화 — NaN 은 기본값 16, 숫자는 [10, 32] 범위로 clamp ──
+function normalizeFontSize(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 16;
+  return Math.min(32, Math.max(10, Math.round(n)));
+}
+
 // ── C6: Suspense fallback ──
 function ViewLoadingFallback() {
   return (
@@ -53,10 +60,12 @@ export default function App() {
   const [draft, setDraft] = useState("");
   const [sidebarView, setSidebarView] = useState<"default" | "search" | "images" | "benchmark" | "dashboard" | "sales">("default");
   const [showSettings, setShowSettings] = useState(false);
-  const [msgFontSize, setMsgFontSize] = useState(() => {
-    const saved = localStorage.getItem("corvus-x.msg-font-size");
-    return saved ? Number(saved) : 16;
-  });
+  const [msgFontSize, setMsgFontSize] = useState(() =>
+    normalizeFontSize(localStorage.getItem("corvus-x.msg-font-size"))
+  );
+
+  // setMsgFontSize 는 반드시 normalizeFontSize 를 통해서만 호출
+  const setFontSize = (v: number) => setMsgFontSize(normalizeFontSize(v));
 
   useEffect(() => {
     document.documentElement.style.setProperty("--msg-font-size", `${msgFontSize}px`);
@@ -470,7 +479,7 @@ export default function App() {
         open={showSettings}
         onClose={() => setShowSettings(false)}
         fontSize={msgFontSize}
-        onFontSizeChange={setMsgFontSize}
+        onFontSizeChange={setFontSize}
         globalInstruction={globalInstruction}
         onGlobalInstructionChange={(v: string) => workspace.setGlobalInstruction(v)}
       />

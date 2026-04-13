@@ -37,7 +37,7 @@ type Props = {
 
 const PROVIDER_LABEL: Record<string, string> = {
   openai: "GPT-5.4-pro",
-  claude: "Claude Opus 4.6",
+  claude: "Claude Sonnet 4.6",
   gemini: "Gemini 3.1 Pro Ultra",
 }
 
