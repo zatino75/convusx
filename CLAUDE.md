@@ -47,14 +47,29 @@ server/src/routes/
 chat.ts (에이전트 루프 단일 진입점)
 dashboard.ts / usage.ts / feedback.ts / settings.ts
 server/src/adapters/
-openai.ts / claude.ts / gemini.ts / perplexity.ts (모델 버전 최신화)
+openai.ts / claude.ts / gemini.ts / perplexity.ts / midjourney.ts / runway.ts / veo.ts
+nanoBanana.ts / shared.ts / types.ts / wrappers.ts (모델 버전 최신화)
 server/src/memory/
-threadMemory.ts (+ attachments_cache) / projectMemory.ts / sourceStore.ts
-폐기(삭제):
+threadMemory.ts / attachmentCache.ts / projectMemory.ts / sqliteMemory.ts / sourceStore.ts
+server/src/departments/
+DepartmentAgent.ts / DepartmentRegistry.ts
+depts/ compete.ts / content.ts / data.ts / finance.ts / legal.ts / market.ts / marketing.ts / rnd.ts / sns.ts
+server/src/connectors/
+tavily.ts / pubmed.ts / posthog.ts / supabase.ts
+server/src/scheduler/
+backgroundScheduler.ts
+server/src/reports/
+retailSnapshot.ts
+폐기(삭제) 완료:
 server/src/orchestra/runtime.ts / runtimeHelpers.ts / adaptiveRouter.ts
 server/src/orchestra/adapterDispatcher.ts / scoreboard.ts / judge.ts
-server/src/orchestra/planner.ts / claims.ts / conflicts.ts
+server/src/orchestra/claims.ts / conflicts.ts
 server/src/routes/chatSpecialPipelines.ts
+⚠️ 폐기 미완료 (잔존 파일 — 다음 정리 대상):
+server/src/orchestra/planner.ts — 아직 존재 (삭제 필요)
+server/src/orchestra/benchmark.ts — 아직 존재 (삭제 필요)
+server/src/claims/types.ts — 아직 존재 (삭제 필요)
+server/data/scoreboard.json — 구 scoreboard 데이터 파일 잔존
 프론트:
 frontend/src/
 App.tsx / appMessageUtils.ts
@@ -122,6 +137,7 @@ excel / ppt | Ensemble draft (대안 관점)
 legal_review | Adversarial critic
 
 도입 조건: 2M context window를 활용해 프로젝트 전체 스레드 + 첨부파일을 한 번에 주입하는 유일한 draft 라인으로 활용.
+⚠️ 실제 API 모델 문자열 불일치 주의: gemini.ts 기본값은 "gemini-2.5-pro-preview-05-06". EnsembleRunner MODEL_LABEL은 "gemini-3.1-pro-ultra" (표시용 레이블). API 호출 시 실제 최신 모델 문자열로 맞춰야 함.
 
 Perplexity sonar-pro
 역할 재배치:
@@ -135,11 +151,11 @@ regulation_update | 자동 법규 갱신 소스
 
 외부 생성 AI (에이전트 도구로 편입)
 모델 | Task | 버전 | 상태
-Midjourney v7 | 이미지 생성 | 최상위 | 도구화 완료 목표
-Gemini Imagen 4 | 이미지 생성 | 최상위 | 도구화 완료 목표
-Runway Gen-4 Turbo | 영상 생성 | 최상위 | 도구화 완료 목표
-Gemini Veo 3.1 | 영상 생성 | 최상위 | 도구화 완료 목표
-Slides Creator | 슬라이드 생성 | 최상위 | 도구화 완료 목표
+Midjourney v7 | 이미지 생성 | 최상위 | ✅ adapter 구현 완료 (midjourney.ts)
+Gemini Imagen 4 | 이미지 생성 | 최상위 | ✅ generateImage.ts 통합 완료 (DALL-E 3 / Midjourney / Imagen 4 / Nano Banana 통합)
+Runway Gen-4 Turbo | 영상 생성 | 최상위 | ✅ adapter 구현 완료 (runway.ts)
+Gemini Veo 3.1 | 영상 생성 | 최상위 | ✅ adapter 구현 완료 (veo.ts)
+Slides Creator | 슬라이드 생성 | 최상위 | ✅ generateSlides.ts 구현 완료 (Claude Opus → 슬라이드 JSON → /api/slides/generate PPTX)
 
 모두 에이전트 루프에서 tool call로 호출. 별도 분기 코드 삭제.
 Task별 전면 재구성표
@@ -174,8 +190,12 @@ TASK_PRIOR_WIN_RATE / scoreboard / judge 전면 폐기
 사용자 피드백(👍/👎) → 에이전트 루프 system prompt 힌트로 반영
 "어느 도구가 자주 유용했는가"만 데이터로 누적
 
-에이전트 루프 안정화 기준
-현재 → 1단계 연속 턴 버그 수정(attachments_cache) → 2단계 에이전트 루프 + 최소 도구 → 3단계 병렬 앙상블 + 적대적 비평 + UI → 4단계 도메인 도구 + 자동 법규 갱신 + 스레드 융합
+에이전트 루프 안정화 기준 — 2026-04-16 기준 전 단계 완료
+✅ 1단계 연속 턴 버그 수정 (attachments_cache 구현 완료)
+✅ 2단계 에이전트 루프 + 최소 도구 (agentLoop.ts + toolRegistry.ts 가동)
+✅ 3단계 병렬 앙상블 + 적대적 비평 + UI (parallelEnsemble.ts / adversarialCritique.ts / EnsembleCompareView.tsx / ToolCallTimeline.tsx 완료)
+✅ 4단계 도메인 도구 + 자동 법규 갱신 + 스레드 융합 (regulationWatcher.ts / threadFusion.ts / domain/* 완료)
+현재 집중 과제: Director Multi-Agent 앙상블 품질 고도화 + 잔존 orchestra/* 파일 정리
 핵심 목표 — 전면 재개발 기준 (2026.04.10)
 
 단일 모델보다 명확히 우수한 결과
@@ -427,3 +447,98 @@ curl -s https://app.cloudcookie.co.kr/api/auth/me — 쿠키 없이 호출 시 a
 1. toolRegistry.ts 에서 tools/*.js 를 직접 import 하는 패턴 — ESM 순환 import TDZ 유발. 반드시 toolBootstrap.ts 로 분리하고 src/index.ts 최상단에서만 import.
 2. auth 미들웨어에서 isLocalRequest / 127.0.0.1 / localhost 자동 통과 분기 — nginx 리버스 프록시 환경에서는 모든 요청이 127.0.0.1 에서 오므로 인증 자체가 무력화된다. src/http/auth.ts 의 isLocalRequest() 는 항상 false 를 반환해야 한다.
 3. /etc/nginx/.htpasswd + auth_basic — CORVUS X 내부 로그인 UI 와 충돌하고 브라우저 네이티브 팝업을 띄워 UX 망친다.
+[CORVUS X Pixel Office — Director Multi-Agent (2026-04-15)]
+대화형 단일 에이전트 루프 외에 9-Department Director Multi-Agent 모드를 별도 진입점으로 운영. 픽셀 오피스 UI 에서 PMO → 부서 병렬 실행 → Critic 검증 → CEO 브리핑까지 실시간 가시화한다. 직렬 파이프라인이 아니라 부서 자체가 병렬 + 고가치 부서는 3-AI 앙상블 사전 가동 + Critic 교차 검증.
+
+진입점 / 라우트
+- 프론트: /corvusx-office.html (정적 HTML, 픽셀 SVG 룸 + EventSource 스트림)
+- 백엔드: GET/POST /api/director/stream (SSE), GET /api/director/sessions (목록)
+- 단일 메시지: server/src/director/* (DirectorAgent / TaskDecomposer / PmoCoordinator / CriticReview / EnsembleRunner / CeoBriefing / ProjectSession)
+
+핵심 부서 (DeptId 9개)
+marketing / finance / legal / market / compete / rnd / data / content / sns
+- 고가치(HIGH_VALUE_DEPTS) 4개: marketing / finance / legal / rnd → runEnsemble 자동 발동
+- 키워드 감지(detectHighValue): 전략·사업계획·답변서·계약·리스크·상품개발·규제·법규·launch·strategy 등 → 어느 부서든 앙상블 강제
+
+3-AI 병렬 앙상블 (server/src/director/EnsembleRunner.ts)
+- Promise.all 로 callClaude / callOpenAI / callGemini 동시 호출
+- MODEL_LABEL: claude-opus-4-6 / gpt-5.4-pro / gemini-3.1-pro-ultra
+- 각 모델 응답 즉시 ensemble_voice 이벤트 emit (좌석 글로우 + 메시지)
+- 통합: Claude 가 ENSEMBLE_SYNTH_PROMPT 로 verdict(consensus|split|low_confidence) + summary + consensus + contradictions + uniqueInsights + recommendation JSON 생성
+- Fallback: 3-AI 모두 실패 → low_confidence, 통합 실패 → 첫 valid draft 채택
+
+Critic targetDeptId (server/src/director/CriticReview.ts)
+- CriticReviewResult 에 targetDeptId?: DeptId 추가
+- LLM 응답이 targetDeptId 를 포함하지 않으면 needs_followup 시 가장 낮은 confidence 부서 자동 산출
+- 프론트: criticWalkTo(targetDeptId) 로 CRITIC 캐릭터가 해당 부서 책상 위로 워크 애니메이션
+
+SSE 이벤트 타입 (server/src/director/DirectorAgent.ts → directorStream.ts)
+mission_start / pmo_plan / dept_start / dept_progress / dept_done / dept_error
++ ensemble_start / ensemble_voice / ensemble_done (신규 — runEnsemble 후킹)
++ critic_review / ceo_briefing / all_done / error / stream_end
+- directorStream.ts 의 sseWrite(res, event.type ?? 'director_event', event) 가 자동 라우팅
+
+픽셀 오피스 UI (corvusx-office.html)
+- SVG 룸 3구역: CRITIC office (#ff3ea5) / MEETING room (cyan glow) / ARCHIVE 금색 책장
+- 9개 부서 책상 + 캐릭터 + 상단 상태 배지(idle/working/done/error)
+- 미팅룸 cyan 글로우 = ensemble_voice 수신 시
+- 채팅 패널: 좌측 상단 진행률 / 가운데 SVG 룸 / 우측 채팅 + 부서별 보고서 카드
+- runDemo() 로 EventSource 없이 데모 타임라인 재생 가능 (개발용)
+
+자동 SQLite persistence
+- saveDeptReport(sessionId, roundNumber, deptId, report, model, connectors)
+- saveSession(sessionId, session)
+- 둘 다 background fire-and-forget (catch → logger.warn 만 남김)
+
+배포 (gabia)
+- /var/www/corvusx/corvusx-office.html
+- /opt/corvusx/server/src/director/*.ts (6개 + EnsembleRunner.ts 신규)
+- /opt/corvusx/server/src/routes/director.ts + directorStream.ts
+- 빌드: cd /opt/corvusx/server && rm -rf dist && ./node_modules/.bin/tsc && systemctl restart corvusx-backend
+- 검증 URL: https://app.cloudcookie.co.kr/corvusx-office.html
+
+[2026-04-15 변경 사항]
+- EnsembleRunner.ts 신규 (218 lines) — 3-AI 병렬 앙상블 + ensemble_* 이벤트 스트리밍
+- DirectorAgent.ts: runEnsemble + detectHighValue import + WsEvent 3종 추가 + 부서 실행 직전 앙상블 후킹
+- CriticReview.ts: targetDeptId 추가 + 가장 약한 부서 자동 산출
+- corvusx-office.html: ensemble_start/voice/done 이벤트 핸들러 + criticWalkTo 애니메이션 (863 lines)
+- 도메인 도구 한글 인코딩 깨짐 수정 (식약처/법제처/식품첨가물/출처 등 5개 파일)
+- regulationCache/Sources/Watcher 골격 검증 (147/177/273 lines — 정상)
+- threadFusion/projectFusion/sourcePromoter 골격 검증 (223/69/58 lines — 정상)
+
+[Director Multi-Agent — 절대 금지]
+1. SSE 이벤트 타입을 임의 추가하면서 directorStream.ts 라우팅 코드 수정 — sseWrite 가 event.type 을 그대로 SSE event 필드로 쓰므로 백엔드/프론트 양쪽에 동시 추가 필요
+2. EnsembleRunner 의 Promise.all 을 Promise.allSettled 로 바꾸기 — 한 모델 실패 시 즉시 ensemble_voice 에 [오류] 표시되어야 사용자가 인지함
+3. CriticReview 가 needs_followup 인데 targetDeptId 를 비워두는 것 — 프론트 CRITIC walk 애니메이션이 멈춤
+4. corvusx-office.html 의 ensemble_voice 처리에서 좌석 글로우 + 메시지 fade-in 두 가지 모두 갱신 안 하면 UI 가 정지된 듯 보임
+
+[2026-04-16 현재 실제 구현 상태]
+✅ 완료 항목
+- agentLoop.ts (Claude Opus 4.6 primary, native tool use, extended thinking)
+- toolRegistry.ts + toolBootstrap.ts (ESM 순환 import 방지 구조)
+- parallelEnsemble.ts + adversarialCritique.ts
+- EnsembleCompareView.tsx + ToolCallTimeline.tsx
+- domain/* 전체 (food 5종 / ecig 4종 / cosmetic 4종 / general 3종)
+- regulationWatcher.ts + regulationCache.ts + regulationSources.ts
+- threadFusion.ts + projectFusion.ts + sourcePromoter.ts
+- attachmentCache.ts + sqliteMemory.ts (연속 턴 첨부파일 복원)
+- Director Multi-Agent 전체 (DirectorAgent / EnsembleRunner / CriticReview / PmoCoordinator / CeoBriefing / TaskDecomposer / ProjectSession)
+- corvusx-office.html (픽셀 오피스 UI, 863 lines)
+- adapters: midjourney.ts / runway.ts / veo.ts / nanoBanana.ts
+- generateImage.ts / generateVideo.ts / generateSlides.ts (tool call 통합)
+- departments/ 9개 부서 (compete / content / data / finance / legal / market / marketing / rnd / sns)
+- connectors/ (tavily / pubmed / posthog / supabase)
+- backgroundScheduler.ts / retailSnapshot.ts
+
+⚠️ 미완료 / 정리 필요
+- orchestra/planner.ts + orchestra/benchmark.ts — 잔존, 삭제 대상
+- claims/types.ts — 잔존, 삭제 대상
+- server/data/scoreboard.json — 구 데이터 잔존
+- Gemini adapter 기본 모델 문자열: "gemini-2.5-pro-preview-05-06" (CLAUDE.md 표기 "gemini-3.1-pro-ultra" 와 불일치 — 실제 API 호출 시 최신 모델 문자열 확인 필요)
+- Director Multi-Agent 앙상블 품질 고도화 진행 중
+
+🎯 다음 개발 우선순위
+1. orchestra/planner.ts + benchmark.ts + claims/types.ts 삭제 정리
+2. Gemini adapter 모델 문자열 실제 최신값으로 통일
+3. Director Multi-Agent 앙상블 결과 품질 검증 (실사용 데이터 축적)
+4. agentLoop ↔ Director 모드 간 전환 UI 완성 (단일 채팅 vs 픽셀 오피스 진입점 명확화)

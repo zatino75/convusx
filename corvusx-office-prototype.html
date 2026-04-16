@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CORVUS X — Autonomous AI Organization</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  body{font-family:'Inter',-apple-system,sans-serif;background:#0a0e17;color:#e0e6ed;overflow:hidden;height:100vh;width:100vw}
+
+  /* LOGIN */
+  #loginScreen{position:fixed;inset:0;background:linear-gradient(135deg,#0a0e17,#1a1f35,#0a0e17);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:1000;transition:opacity .8s,transform .8s}
+  #loginScreen.hide{opacity:0;transform:scale(1.05);pointer-events:none}
+  #loginScreen h1{font-size:3rem;font-weight:700;background:linear-gradient(135deg,#60a5fa,#a78bfa,#f472b6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:.5rem}
+  #loginScreen .sub{color:#64748b;font-size:.95rem;margin-bottom:2.5rem}
+  #loginBtn{padding:14px 48px;border:none;border-radius:12px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;font-size:1.1rem;font-weight:600;cursor:pointer;box-shadow:0 4px 24px rgba(59,130,246,.3);transition:all .3s}
+  #loginBtn:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(59,130,246,.5)}
+
+  /* ENTRANCE */
+  #entrance{position:fixed;inset:0;background:#0a0e17;z-index:900;display:none;flex-direction:column;align-items:center;justify-content:center}
+  #entrance.show{display:flex}
+  #entrance p{font-size:1.4rem;font-weight:300;color:#64748b;opacity:0}
+  #entrance p.a1{animation:eFade 2s .3s forwards}
+  #entrance p.a2{animation:eFade 2s 1.2s forwards}
+  @keyframes eFade{0%{opacity:0;transform:translateY(10px)}30%{opacity:1;transform:translateY(0)}80%{opacity:1}100%{opacity:0}}
+
+  /* TOP BAR */
+  #topBar{position:fixed;top:0;left:0;right:0;height:52px;background:rgba(15,20,35,.95);backdrop-filter:blur(20px);border-bottom:1px solid rgba(255,255,255,.06);display:none;align-items:center;padding:0 20px;z-index:100}
+  .logo{font-size:1rem;font-weight:700;background:linear-gradient(135deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .clock{margin-left:auto;color:#64748b;font-size:.8rem}
+  .user-info{margin-left:14px;display:flex;align-items:center;gap:8px}
+  .user-av{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:#fff}
+  .user-txt .n{font-size:.8rem;font-weight:500} .user-txt .r{font-size:.65rem;color:#64748b}
+
+  /* OFFICE */
+  #office{position:fixed;top:52px;left:0;right:0;bottom:80px;overflow:auto;display:none}
+  #floor{position:relative;width:1300px;height:820px;margin:30px auto;background:linear-gradient(135deg,#111827,#0f172a);border-radius:20px;border:1px solid rgba(255,255,255,.05)}
+
+  /* ROOMS */
+  .room{position:absolute;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:rgba(30,41,59,.4);backdrop-filter:blur(10px);transition:all .4s;cursor:pointer;overflow:hidden}
+  .room::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;border-radius:14px 14px 0 0;background:var(--c);opacity:.8}
+  .room:hover{border-color:var(--c);box-shadow:0 0 24px color-mix(in srgb,var(--c) 20%,transparent);transform:translateY(-2px)}
+  .room.working{border-color:var(--c);box-shadow:0 0 30px color-mix(in srgb,var(--c) 25%,transparent)}
+  .rh{padding:12px 14px 6px;display:flex;align-items:center;gap:8px}
+  .ri{width:32px;height:32px;border-radius:8px;background:color-mix(in srgb,var(--c) 15%,transparent);display:flex;align-items:center;justify-content:center;font-size:1rem}
+  .rn{font-size:.75rem;font-weight:600;color:#e2e8f0} .rn2{font-size:.6rem;color:#475569}
+  .rs{padding:2px 14px 10px;font-size:.68rem;color:#64748b;display:flex;align-items:center;gap:5px}
+  .dot{width:6px;height:6px;border-radius:50%;background:#475569;flex-shrink:0}
+  .dot.w{background:#f59e0b;animation:pulse 2s infinite}
+  .dot.ok{background:#22c55e;animation:pulse 2s infinite}
+  .dot.err{background:#ef4444}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .av{position:absolute;bottom:10px;right:10px;width:36px;height:36px;border-radius:50%;background:var(--c);display:flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:700;color:#fff;box-shadow:0 2px 10px color-mix(in srgb,var(--c) 40%,transparent)}
+  .notif{position:absolute;top:6px;right:6px;min-width:20px;height:20px;border-radius:10px;background:#ef4444;display:none;align-items:center;justify-content:center;font-size:.55rem;font-weight:700;color:#fff;padding:0 5px;animation:bounce .4s ease}
+  .notif.show{display:flex}
+  @keyframes bounce{0%{transform:scale(0)}60%{transform:scale(1.2)}100%{transform:scale(1)}}
+
+  /* PROGRESS BAR inside room */
+  .rprog{position:absolute;bottom:0;left:0;height:2px;background:var(--c);border-radius:0 0 14px 14px;width:0;transition:width .3s linear}
+
+  /* REPORT PANEL (right side) */
+  #reportPanel{position:fixed;right:-520px;top:52px;bottom:0;width:520px;background:rgba(15,23,42,.98);backdrop-filter:blur(30px);border-left:1px solid rgba(255,255,255,.06);z-index:200;transition:right .4s cubic-bezier(.25,.46,.45,.94);display:flex;flex-direction:column}
+  #reportPanel.open{right:0}
+  .rp-head{padding:18px 22px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:12px}
+  .rp-av{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.9rem;font-weight:700;color:#fff}
+  .rp-info h3{font-size:.9rem;font-weight:600} .rp-info p{font-size:.7rem;color:#64748b}
+  .rp-close{margin-left:auto;width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.05);border:none;color:#94a3b8;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .rp-close:hover{background:rgba(255,255,255,.1);color:#fff}
+  .rp-body{flex:1;overflow-y:auto;padding:20px 22px}
+  .rp-section{margin-bottom:20px}
+  .rp-section h4{font-size:.78rem;font-weight:600;color:#94a3b8;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+  .rp-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:14px;margin-bottom:10px;font-size:.82rem;line-height:1.7;color:#cbd5e1}
+  .rp-card .label{font-size:.68rem;color:#64748b;margin-bottom:4px}
+  .rp-card .val{font-size:1rem;font-weight:600;color:#e2e8f0}
+  .rp-actions{padding:14px 22px;border-top:1px solid rgba(255,255,255,.06);display:flex;gap:8px}
+  .rp-btn{flex:1;padding:10px;border-radius:10px;border:none;font-size:.8rem;font-weight:500;cursor:pointer;transition:all .2s}
+  .rp-btn.primary{background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff}
+  .rp-btn.secondary{background:rgba(255,255,255,.06);color:#94a3b8;border:1px solid rgba(255,255,255,.08)}
+  .rp-btn:hover{transform:translateY(-1px)}
+
+  /* CHAT INPUT (for follow-up with dept) */
+  .rp-chat{padding:0 22px 14px;display:flex;gap:8px}
+  .rp-input{flex:1;padding:10px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:10px;color:#fff;font-size:.82rem;outline:none}
+  .rp-input::placeholder{color:#475569}
+  .rp-input:focus{border-color:rgba(99,102,241,.5)}
+  .rp-send{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#3b82f6,#6366f1);border:none;color:#fff;font-size:1rem;cursor:pointer}
+
+  /* COMMAND BAR */
+  #cmdBar{position:fixed;bottom:0;left:0;right:0;height:80px;background:rgba(10,14,23,.95);backdrop-filter:blur(20px);border-top:1px solid rgba(255,255,255,.06);display:none;align-items:center;justify-content:center;padding:0 20px;z-index:100}
+  #cmdWrap{width:700px;max-width:90vw;position:relative}
+  #cmdInput{width:100%;padding:14px 20px;padding-right:50px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:14px;color:#fff;font-size:.95rem;outline:none;transition:border-color .3s,box-shadow .3s}
+  #cmdInput:focus{border-color:rgba(99,102,241,.4);box-shadow:0 4px 30px rgba(99,102,241,.1)}
+  #cmdInput::placeholder{color:#475569}
+  #cmdSend{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#3b82f6,#6366f1);border:none;color:#fff;font-size:.9rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
+
+  /* DIRECTOR LOG */
+  #directorLog{position:fixed;left:20px;bottom:92px;width:340px;max-height:260px;overflow-y:auto;z-index:90;display:none}
+  .dl-item{padding:8px 12px;background:rgba(15,23,42,.9);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.05);border-radius:10px;margin-bottom:6px;font-size:.72rem;color:#94a3b8;display:flex;align-items:flex-start;gap:8px;animation:slideIn .3s ease}
+  .dl-item .dl-icon{flex-shrink:0;width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.6rem}
+  .dl-item .dl-text{flex:1;line-height:1.5}
+  .dl-item .dl-time{color:#475569;font-size:.6rem;flex-shrink:0}
+  @keyframes slideIn{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}
+
+  ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginScreen">
+  <h1>CORVUS X</h1>
+  <p class="sub">Autonomous AI Organization</p>
+  <button id="loginBtn" onclick="login()">출근하기</button>
+</div>
+
+<!-- ENTRANCE -->
+<div id="entrance">
+  <p class="a1">Good morning, 대표님</p>
+  <p class="a2">오늘도 팀이 준비되어 있습니다</p>
+</div>
+
+<!-- TOP BAR -->
+<div id="topBar">
+  <span class="logo">CORVUS X</span>
+  <span class="clock" id="clock"></span>
+  <div class="user-info">
+    <div class="user-txt"><div class="n">Mr.T</div><div class="r">CEO / 대표</div></div>
+    <div class="user-av">T</div>
+  </div>
+</div>
+
+<!-- OFFICE -->
+<div id="office">
+  <div id="floor"></div>
+</div>
+
+<!-- REPORT PANEL -->
+<div id="reportPanel">
+  <div class="rp-head">
+    <div class="rp-av" id="rpAv"></div>
+    <div class="rp-info"><h3 id="rpName"></h3><p id="rpDesc"></p></div>
+    <button class="rp-close" onclick="closeReport()">✕</button>
+  </div>
+  <div class="rp-body" id="rpBody"></div>
+  <div class="rp-chat">
+    <input class="rp-input" id="rpInput" placeholder="추가 지시..." onkeypress="if(event.key==='Enter')sendFollowUp()">
+    <button class="rp-send" onclick="sendFollowUp()">→</button>
+  </div>
+  <div class="rp-actions">
+    <button class="rp-btn primary" onclick="requestDeeper()">심층 분석 요청</button>
+    <button class="rp-btn secondary" onclick="closeReport()">확인</button>
+  </div>
+</div>
+
+<!-- DIRECTOR LOG -->
+<div id="directorLog"></div>
+
+<!-- COMMAND BAR -->
+<div id="cmdBar">
+  <div id="cmdWrap">
+    <input id="cmdInput" placeholder="지시를 내려주세요 — &quot;액상전자담배 사업 검토해줘&quot;" onkeypress="if(event.key==='Enter')handleCmd()">
+    <button id="cmdSend" onclick="handleCmd()">→</button>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════
+// DEPARTMENT DEFINITIONS
+// ═══════════════════════════════════════
+const DEPTS = {
+  market:    {name:'시장조사팀',    en:'Market Research',       icon:'📊', color:'#3b82f6', init:'조', ai:'Perplexity + Claude'},
+  compete:   {name:'경쟁분석팀',    en:'Competitive Intel',     icon:'🔍', color:'#06b6d4', init:'경', ai:'Perplexity + GPT'},
+  legal:     {name:'법무팀',        en:'Legal & Compliance',    icon:'⚖️', color:'#f59e0b', init:'법', ai:'Claude + 법규DB'},
+  finance:   {name:'재무팀',        en:'Finance',               icon:'💰', color:'#10b981', init:'재', ai:'GPT + Claude'},
+  marketing: {name:'마케팅팀',      en:'Marketing & Brand',     icon:'📣', color:'#ec4899', init:'마', ai:'Claude + Midjourney'},
+  rnd:       {name:'R&D/상품개발팀',en:'Product Dev',           icon:'🧪', color:'#a855f7', init:'개', ai:'Claude + Gemini'},
+  data:      {name:'데이터분석팀',  en:'Data Analytics',        icon:'📈', color:'#14b8a6', init:'데', ai:'GPT + Python'},
+  content:   {name:'콘텐츠팀',      en:'Content & Design',      icon:'🎨', color:'#f97316', init:'콘', ai:'Midjourney + Claude'},
+  sns:       {name:'SNS운영팀',     en:'Social Media',          icon:'📱', color:'#e11d48', init:'S',  ai:'Claude + API'},
+};
+
+// Room positions on floor
+const POSITIONS = {
+  market:    {x:30,  y:30,  w:210, h:145},
+  compete:   {x:260, y:30,  w:210, h:145},
+  legal:     {x:490, y:30,  w:210, h:145},
+  finance:   {x:30,  y:195, w:210, h:145},
+  marketing: {x:260, y:195, w:210, h:145},
+  rnd:       {x:490, y:195, w:210, h:145},
+  data:      {x:30,  y:360, w:210, h:145},
+  content:   {x:260, y:360, w:210, h:145},
+  sns:       {x:490, y:360, w:210, h:145},
+  ceo:       {x:820, y:30,  w:260, h:200},
+  meeting:   {x:820, y:260, w:260, h:145},
+  director:  {x:820, y:425, w:260, h:100},
+};
+
+// Simulated reports per dept per topic
+const REPORT_DATA = {
+  '액상전자담배': {
+    market: {
+      title: '액상전자담배 시장 현황',
+      sections: [
+        {h:'시장 규모', items:['국내: 약 2.3조원 (2025)', '연평균 성장률: 12.4%', '글로벌: $28.5B (2026E)']},
+        {h:'주요 트렌드', items:['니코틴 프리 제품 확대', '과일향 규제 강화 움직임', '편의점 채널 매출 비중 증가 (38%)']},
+        {h:'소비자 프로필', items:['핵심 타겟: 25-39세 남성', '전환 동기: 건강 우려 (67%)', '재구매율: 73%']},
+      ]
+    },
+    compete: {
+      title: '주요 경쟁사 분석',
+      sections: [
+        {h:'시장점유율 TOP 5', items:['1위: 쥴 코리아 (23%)', '2위: 릴 베이퍼 (18%)', '3위: 하카 (12%)', '4위: 아이코스 리퀴드 (9%)', '5위: 기타 (38%)']},
+        {h:'경쟁 우위 분석', items:['쥴: 유통망 + 브랜드 인지도', '릴: KT&G 자본력 + 편의점 독점', '하카: 가성비 + SNS 마케팅']},
+        {h:'진입 기회', items:['프리미엄 세그먼트 공백', '성인인증 기반 D2C 미개척', '맞춤형 니코틴 농도 시장 부재']},
+      ]
+    },
+    legal: {
+      title: '법규 검토 보고',
+      sections: [
+        {h:'핵심 규제', items:['담배사업법 제12조 — 제조업 허가 필요', '기재부 고시 2026-03-28 개정 반영', '전자담배 안전관리 강화 고시 확인']},
+        {h:'리스크', items:['⚠️ 과일향 규제 법안 국회 계류중', '⚠️ 니코틴 함량 상한 조정 논의중', '✅ FDA PMTA — 수출 시에만 해당']},
+        {h:'필요 인허가', items:['제조업 허가 (6개월 소요)', '성분검사 적합 판정', '경고문구 표시 기준 준수']},
+      ]
+    },
+    finance: {
+      title: '재무 타당성 분석',
+      sections: [
+        {h:'투자 규모', items:['초기 투자: 5.2억원', 'OEM 설비: 2.8억', '인허가/법무: 0.8억', '마케팅 런칭: 1.6억']},
+        {h:'수익 전망', items:['BEP: 14개월', '1년차 매출: 12억', '3년차 매출: 58억', 'ROI (3년): 340%']},
+        {h:'리스크 요인', items:['규제 강화 시 매출 30% 감소 시나리오', '원재료 수입가 변동 (±15%)', '경쟁사 가격 전쟁 가능성']},
+      ]
+    },
+    marketing: {
+      title: '마케팅 전략 초안',
+      sections: [
+        {h:'포지셔닝', items:['프리미엄 + 안전성 + 세련된 디자인', '"당신의 선택을 존중합니다" 메시지', '가격대: 상위 20% (프리미엄)']},
+        {h:'채널 전략', items:['Instagram: 라이프스타일 브랜딩', 'YouTube: 제품 리뷰어 협업', 'D2C 웹사이트: 성인인증 + 구독']},
+        {h:'런칭 플랜', items:['1단계: 티저 (인플루언서 시딩)', '2단계: 런칭 이벤트 (팝업스토어)', '3단계: 리텐션 (구독 모델)']},
+      ]
+    },
+    rnd: {
+      title: 'R&D 방향 제안',
+      sections: [
+        {h:'제품 컨셉', items:['온도 정밀제어 (3단계)', '리필 카트리지 시스템', '배터리 효율 최적화 (1200mAh)']},
+        {h:'개발 일정', items:['기초 설계: 2개월', '시제품: 3개월', '인증/테스트: 2개월', '양산 준비: 1개월']},
+        {h:'특허 현황', items:['관련 특허 3건 확인 — 회피 설계 가능', '자체 출원 가능 영역: 온도제어 알고리즘', '디자인 특허 선출원 권장']},
+      ]
+    },
+    data: {
+      title: '소비자 데이터 분석',
+      sections: [
+        {h:'데이터 소스', items:['온라인 리뷰 12,340건 수집', 'SNS 언급량 분석 (30일)', '네이버 검색 트렌드 12개월']},
+        {h:'긍정 키워드 TOP', items:['1. 맛/향 (34%)', '2. 디자인 (22%)', '3. 편의성 (18%)', '4. 연기량 (12%)']},
+        {h:'부정 키워드 TOP', items:['1. 가격 (29%)', '2. 배터리 (24%)', '3. A/S (19%)', '4. 누액 (15%)']},
+      ]
+    },
+    content: {
+      title: '콘텐츠 기획',
+      sections: [
+        {h:'브랜드 톤', items:['모던 미니멀 + 프리미엄 무드', '컬러: 매트 블랙 + 골드 포인트', '타이포: 산세리프 + 여백 활용']},
+        {h:'콘텐츠 유형', items:['제품 컨셉 이미지 (Midjourney v7)', '언박싱 영상 시나리오', '인포그래픽 — 성분 안전성']},
+        {h:'제작 일정', items:['시안 1주 → 수정 1주 → 최종 3일']},
+      ]
+    },
+    sns: {
+      title: 'SNS 운영 전략',
+      sections: [
+        {h:'채널별 전략', items:['Instagram: 일 2회 포스팅', 'TikTok: 주 3회 숏폼', 'YouTube: 월 2회 롱폼']},
+        {h:'KPI', items:['런칭 3개월 팔로워: 50K', '인게이지먼트율: 4.5% 이상', '바이럴 계수: 1.2 이상']},
+        {h:'해시태그 전략', items:['브랜드 해시태그 20개 최적화', '트렌드 해시태그 자동 추적', 'UGC 캠페인 설계']},
+      ]
+    },
+  }
+};
+
+// Default generic report
+function genericReport(deptId, topic) {
+  const d = DEPTS[deptId];
+  return {
+    title: `${d.name} — "${topic}" 분석`,
+    sections: [{h:'분석 결과',items:[`"${topic}" 관련 ${d.name} 조사를 완료했습니다.`,'상세 데이터 수집 및 분석이 진행되었습니다.','추가 지시가 있으시면 말씀해주세요.']}]
+  };
+}
+
+// ═══════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════
+let deptStates = {};      // {deptId: 'idle'|'working'|'done'}
+let deptReports = {};     // {deptId: reportObj}
+let deptProgress = {};    // {deptId: 0-100}
+let currentTopic = '';
+let currentReport = null;
+
+// ═══════════════════════════════════════
+// INIT FLOOR
+// ═══════════════════════════════════════
+function initFloor() {
+  const floor = document.getElementById('floor');
+  floor.innerHTML = '';
+
+  // Department rooms
+  for (const [id, d] of Object.entries(DEPTS)) {
+    const p = POSITIONS[id];
+    floor.innerHTML += `
+      <div class="room" id="room-${id}" style="--c:${d.color};left:${p.x}px;top:${p.y}px;width:${p.w}px;height:${p.h}px" onclick="clickRoom('${id}')">
+        <div class="rh"><div class="ri">${d.icon}</div><div><div class="rn">${d.name}</div><div class="rn2">${d.en}</div></div></div>
+        <div class="rs"><span class="dot" id="dot-${id}"></span><span id="st-${id}">대기중</span></div>
+        <div class="av" style="background:${d.color}">${d.init}</div>
+        <div class="notif" id="noti-${id}">보고</div>
+        <div class="rprog" id="prog-${id}" style="--c:${d.color}"></div>
+      </div>`;
+    deptStates[id] = 'idle';
+    deptProgress[id] = 0;
+  }
+
+  // CEO room
+  const c = POSITIONS.ceo;
+  floor.innerHTML += `
+    <div class="room" style="--c:#8b5cf6;left:${c.x}px;top:${c.y}px;width:${c.w}px;height:${c.h}px">
+      <div class="rh"><div class="ri">👔</div><div><div class="rn" style="font-size:.85rem">대표실</div><div class="rn2">CEO Office</div></div></div>
+      <div class="rs"><span class="dot ok"></span><span>업무중</span></div>
+      <div class="av" style="background:#8b5cf6">T</div>
+    </div>`;
+
+  // Meeting room
+  const m = POSITIONS.meeting;
+  floor.innerHTML += `
+    <div class="room" style="--c:#6366f1;left:${m.x}px;top:${m.y}px;width:${m.w}px;height:${m.h}px;border-style:dashed">
+      <div class="rh"><div class="ri">🏛️</div><div><div class="rn">회의실</div><div class="rn2">Conference</div></div></div>
+      <div class="rs"><span class="dot"></span><span>비어있음</span></div>
+    </div>`;
+
+  // Director AI box
+  const dr = POSITIONS.director;
+  floor.innerHTML += `
+    <div class="room" style="--c:#60a5fa;left:${dr.x}px;top:${dr.y}px;width:${dr.w}px;height:${dr.h}px;border-style:dotted">
+      <div class="rh"><div class="ri">🤖</div><div><div class="rn">Director AI</div><div class="rn2">자동 업무 분배 엔진</div></div></div>
+      <div class="rs"><span class="dot" id="dot-director"></span><span id="st-director">대기중</span></div>
+    </div>`;
+}
+
+// ═══════════════════════════════════════
+// LOGIN FLOW
+// ═══════════════════════════════════════
+function login() {
+  document.getElementById('loginScreen').classList.add('hide');
+  setTimeout(() => {
+    document.getElementById('loginScreen').style.display='none';
+    const ent = document.getElementById('entrance');
+    ent.classList.add('show');
+    setTimeout(()=>{
+      ent.classList.remove('show'); ent.style.display='none';
+      document.getElementById('topBar').style.display='flex';
+      document.getElementById('office').style.display='block';
+      document.getElementById('cmdBar').style.display='flex';
+      document.getElementById('directorLog').style.display='block';
+      initFloor(); updateClock();
+    },3000);
+  },800);
+}
+
+function updateClock(){
+  const n=new Date(), ds=['일','월','화','수','목','금','토'];
+  document.getElementById('clock').textContent=`${n.getFullYear()}.${String(n.getMonth()+1).padStart(2,'0')}.${String(n.getDate()).padStart(2,'0')} (${ds[n.getDay()]}) ${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;
+}
+setInterval(updateClock,1000);
+
+// ═══════════════════════════════════════
+// DIRECTOR LOG
+// ═══════════════════════════════════════
+function dirLog(icon, text) {
+  const log = document.getElementById('directorLog');
+  const now = new Date();
+  const time = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  const div = document.createElement('div');
+  div.className = 'dl-item';
+  div.innerHTML = `<div class="dl-icon">${icon}</div><div class="dl-text">${text}</div><div class="dl-time">${time}</div>`;
+  log.prepend(div);
+  // Keep max 15
+  while (log.children.length > 15) log.removeChild(log.lastChild);
+}
+
+// ═══════════════════════════════════════
+// HANDLE COMMAND — Director AI parses & distributes
+// ═══════════════════════════════════════
+function handleCmd() {
+  const input = document.getElementById('cmdInput');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  input.value = '';
+  currentTopic = cmd;
+
+  // Director AI activates
+  document.getElementById('dot-director').className = 'dot w';
+  document.getElementById('st-director').textContent = '지시 분석중...';
+  dirLog('🤖', `<b>Director AI</b> — 지시 접수: "${cmd}"`);
+
+  // Determine which departments are needed (simulate smart routing)
+  setTimeout(() => {
+    dirLog('🧠', `<b>Director AI</b> — 업무 분해 완료. 9개 부서에 태스크 할당`);
+    document.getElementById('st-director').textContent = '부서별 태스크 배분중...';
+
+    // Find matching topic key
+    let topicKey = null;
+    for (const key of Object.keys(REPORT_DATA)) {
+      if (cmd.includes(key)) { topicKey = key; break; }
+    }
+
+    // Activate all departments with staggered start
+    const deptIds = Object.keys(DEPTS);
+    deptIds.forEach((id, i) => {
+      setTimeout(() => {
+        activateDept(id, topicKey);
+      }, 400 + i * 250);
+    });
+
+    // Director goes to monitoring mode
+    setTimeout(() => {
+      document.getElementById('dot-director').className = 'dot ok';
+      document.getElementById('st-director').textContent = '진행 모니터링중';
+    }, 400 + deptIds.length * 250);
+  }, 1200);
+}
+
+function activateDept(id, topicKey) {
+  deptStates[id] = 'working';
+  deptProgress[id] = 0;
+
+  const d = DEPTS[id];
+  const dot = document.getElementById('dot-' + id);
+  const st = document.getElementById('st-' + id);
+  const room = document.getElementById('room-' + id);
+  const prog = document.getElementById('prog-' + id);
+
+  dot.className = 'dot w';
+  room.classList.add('working');
+
+  const tasks = {
+    market:'시장 데이터 수집중...', compete:'경쟁사 스캔중...', legal:'법규 조회중...',
+    finance:'재무 모델링중...', marketing:'전략 수립중...', rnd:'기술 검토중...',
+    data:'데이터 수집/분석중...', content:'레퍼런스 수집중...', sns:'채널 분석중...'
+  };
+  st.textContent = tasks[id] || '작업중...';
+  dirLog(d.icon, `<b>${d.name}</b> — 작업 시작 (${d.ai})`);
+
+  // Progress animation
+  const duration = 3000 + Math.random() * 5000;
+  const startTime = Date.now();
+  const progressInterval = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    const pct = Math.min(100, (elapsed / duration) * 100);
+    deptProgress[id] = pct;
+    prog.style.width = pct + '%';
+
+    if (pct >= 100) {
+      clearInterval(progressInterval);
+      completeDept(id, topicKey);
+    }
+  }, 100);
+}
+
+function completeDept(id, topicKey) {
+  deptStates[id] = 'done';
+  const d = DEPTS[id];
+  const dot = document.getElementById('dot-' + id);
+  const st = document.getElementById('st-' + id);
+  const room = document.getElementById('room-' + id);
+  const noti = document.getElementById('noti-' + id);
+
+  dot.className = 'dot ok';
+  st.textContent = '보고 준비됨';
+  room.classList.remove('working');
+  noti.classList.add('show');
+
+  // Store report
+  if (topicKey && REPORT_DATA[topicKey] && REPORT_DATA[topicKey][id]) {
+    deptReports[id] = REPORT_DATA[topicKey][id];
+  } else {
+    deptReports[id] = genericReport(id, currentTopic);
+  }
+
+  dirLog(d.icon, `<b>${d.name}</b> — ✅ 보고 준비 완료`);
+
+  // Check if all done
+  const allDone = Object.keys(DEPTS).every(k => deptStates[k] === 'done');
+  if (allDone) {
+    dirLog('🎉', `<b>Director AI</b> — 전 부서 보고 완료. 대표님 검토 대기중`);
+    document.getElementById('dot-director').className = 'dot ok';
+    document.getElementById('st-director').textContent = '전 부서 보고 완료';
+  }
+}
+
+// ═══════════════════════════════════════
+// CLICK ROOM → OPEN REPORT
+// ═══════════════════════════════════════
+function clickRoom(id) {
+  if (deptStates[id] === 'idle') return; // nothing to show
+  if (!deptReports[id] && deptStates[id] === 'working') return; // still working
+
+  const d = DEPTS[id];
+  const report = deptReports[id];
+  if (!report) return;
+
+  currentReport = id;
+
+  // Hide notification
+  document.getElementById('noti-' + id).classList.remove('show');
+
+  // Fill panel
+  document.getElementById('rpAv').style.background = d.color;
+  document.getElementById('rpAv').textContent = d.init;
+  document.getElementById('rpName').textContent = d.name + '장 보고';
+  document.getElementById('rpDesc').textContent = d.en + ' · ' + d.ai;
+
+  const body = document.getElementById('rpBody');
+  body.innerHTML = `<h4 style="font-size:.95rem;font-weight:600;color:#e2e8f0;margin-bottom:16px">${report.title}</h4>`;
+
+  for (const sec of report.sections) {
+    let html = `<div class="rp-section"><h4>${sec.h}</h4>`;
+    for (const item of sec.items) {
+      html += `<div class="rp-card">${item}</div>`;
+    }
+    html += `</div>`;
+    body.innerHTML += html;
+  }
+
+  document.getElementById('reportPanel').classList.add('open');
+}
+
+function closeReport() {
+  document.getElementById('reportPanel').classList.remove('open');
+  currentReport = null;
+}
+
+function requestDeeper() {
+  if (!currentReport) return;
+  const id = currentReport;
+  const d = DEPTS[id];
+
+  closeReport();
+
+  // Re-activate this dept for deeper analysis
+  deptStates[id] = 'working';
+  deptReports[id] = null;
+  document.getElementById('noti-' + id).classList.remove('show');
+  document.getElementById('prog-' + id).style.width = '0';
+
+  dirLog('🔬', `<b>${d.name}</b> — 심층 분석 재요청`);
+  activateDept(id, null);
+}
+
+function sendFollowUp() {
+  const input = document.getElementById('rpInput');
+  const text = input.value.trim();
+  if (!text || !currentReport) return;
+  input.value = '';
+
+  const id = currentReport;
+  const d = DEPTS[id];
+  dirLog('💬', `<b>대표 → ${d.name}</b>: "${text}"`);
+
+  // Add to report body as follow-up
+  const body = document.getElementById('rpBody');
+  body.innerHTML += `
+    <div class="rp-section">
+      <h4>추가 지시</h4>
+      <div class="rp-card" style="border-color:rgba(99,102,241,.3);background:rgba(99,102,241,.05)">${text}</div>
+    </div>
+    <div class="rp-section">
+      <h4>응답</h4>
+      <div class="rp-card">네, 확인했습니다. "${text}" 관련 추가 조사를 진행하겠습니다. 결과가 나오면 다시 보고 드리겠습니다.</div>
+    </div>`;
+  body.scrollTop = body.scrollHeight;
+}
+</script>
+
+</body>
+</html>

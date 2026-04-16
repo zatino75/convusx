@@ -1,6 +1,12 @@
 // SalesView.tsx — CORVUS X 매출 대시보드
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useState, type CSSProperties } from "react"
 import { apiFetch } from "../../api/url"
+import {
+  getLatestExecutiveReport,
+  syncExecutiveReports,
+  type ExecutiveReport
+} from "../../store/executiveStore"
+import { OpsKpiCard, OpsMeterRow, OpsMiniStat, OpsPanel, OpsTabButton } from "../ops/OpsGamePrimitives"
 
 type Platform = "smartstore" | "coupang" | "own" | "other"
 type TabKey = "summary" | "input" | "history"
@@ -24,6 +30,38 @@ interface SalesData {
   lastMonth: { revenue: number; orders: number; count: number }
 }
 
+type PosPaymentMethod = "card" | "cash" | "qr" | "gift"
+
+interface PosInsightData {
+  stores: Array<{ id: string; name: string; city: string }>
+  summaryByStore: Record<string, { total: number; orders: number; transactions: number }>
+  paymentSummary: Record<PosPaymentMethod, { total: number; orders: number; transactions: number }>
+  promotionSummary: Record<string, { total: number; transactions: number; discount: number }>
+  daily7d: Array<{ date: string; total: number; transactions: number }>
+  transactions: Array<{ id: string; createdAt: string; storeName: string; paymentMethod: PosPaymentMethod; total: number; itemCount: number }>
+}
+
+interface RetailSnapshotSummary {
+  snapshotDate: string
+  createdAt: string
+  totalRevenue: number
+  monthTransactions: number
+  executiveReportsMonth: number
+}
+
+type SalesUiSnapshot = {
+  tab?: TabKey
+  formDate?: string
+  formPlatform?: Platform
+  formMemo?: string
+}
+
+type Props = {
+  onOpenWorkforce?: () => void
+  onOpenStoreOps?: () => void
+  onOpenPos?: () => void
+}
+
 const PLATFORM_LABELS: Record<Platform, string> = {
   smartstore: "스마트스토어",
   coupang: "쿠팡",
@@ -36,6 +74,36 @@ const PLATFORM_COLORS: Record<Platform, string> = {
   coupang: "#c00d45",
   own: "#4f46e5",
   other: "#6b7280",
+}
+
+const POS_PAYMENT_LABELS: Record<PosPaymentMethod, string> = {
+  card: "카드",
+  cash: "현금",
+  qr: "QR",
+  gift: "상품권",
+}
+
+const SALES_UI_SNAPSHOT_KEY = "convusx.sales.ui.v1"
+
+function readSalesUiSnapshot(): SalesUiSnapshot {
+  if (typeof window === "undefined") return {}
+  const raw = window.localStorage.getItem(SALES_UI_SNAPSHOT_KEY)
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw) as SalesUiSnapshot
+    return parsed && typeof parsed === "object" ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeSalesUiSnapshot(snapshot: SalesUiSnapshot) {
+  if (typeof window === "undefined") return
+  window.localStorage.setItem(SALES_UI_SNAPSHOT_KEY, JSON.stringify(snapshot))
+}
+
+function platformClass(platform: Platform): string {
+  return `is-${platform}`
 }
 
 function formatKRW(n: number): string {
@@ -53,39 +121,152 @@ function getPctChange(current: number, prev: number): number {
   return ((current - prev) / prev) * 100
 }
 
-export function SalesView() {
+export function SalesView({ onOpenWorkforce, onOpenStoreOps, onOpenPos }: Props) {
+  const initialUiSnapshot = readSalesUiSnapshot()
   const [data, setData] = useState<SalesData | null>(null)
+  const [posInsight, setPosInsight] = useState<PosInsightData | null>(null)
+  const [latestExecutiveReport, setLatestExecutiveReport] = useState<ExecutiveReport | null>(() => getLatestExecutiveReport())
+  const [retailSnapshot, setRetailSnapshot] = useState<RetailSnapshotSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
-  const [tab, setTab] = useState<TabKey>("summary")
+  const [tab, setTab] = useState<TabKey>(initialUiSnapshot.tab ?? "summary")
 
   // ── 입력 폼 상태 ──
   const [form, setForm] = useState({
-    date: new Date().toISOString().slice(0, 10),
-    platform: "smartstore" as Platform,
+    date: initialUiSnapshot.formDate ?? new Date().toISOString().slice(0, 10),
+    platform: initialUiSnapshot.formPlatform ?? ("smartstore" as Platform),
     revenue: "",
     orders: "",
-    memo: "",
+    memo: initialUiSnapshot.formMemo ?? "",
   })
   const [submitting, setSubmitting] = useState(false)
   const [submitMsg, setSubmitMsg] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const salesMission = latestExecutiveReport?.summary || "채널 매출과 POS 트랜잭션을 묶어 상무 보고용으로 자동 정리합니다."
 
   // ── 데이터 페치 ──
-  const fetchData = useCallback((showLoading = true) => {
+  const fetchData = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true)
     setLoadError(false)
-    apiFetch("/api/sales")
-      .then(r => r.json())
-      .then((d: SalesData & { ok: boolean }) => {
-        if (d.ok) setData(d)
-        else setLoadError(true)
-      })
-      .catch(() => setLoadError(true))
-      .finally(() => setLoading(false))
+
+    try {
+      const salesRes = await apiFetch("/api/sales")
+      const salesData = await salesRes.json() as SalesData & { ok: boolean }
+      if (!salesData.ok) {
+        setLoadError(true)
+      } else {
+        setData(salesData)
+      }
+    } catch {
+      setLoadError(true)
+    }
+
+    try {
+      const posRes = await apiFetch("/api/pos")
+      const posData = await posRes.json() as {
+        ok: boolean
+        stores?: PosInsightData["stores"]
+        summaryByStore?: PosInsightData["summaryByStore"]
+        paymentSummary?: PosInsightData["paymentSummary"]
+        promotionSummary?: PosInsightData["promotionSummary"]
+        daily7d?: PosInsightData["daily7d"]
+        transactions?: PosInsightData["transactions"]
+      }
+      if (posData.ok) {
+        setPosInsight({
+          stores: Array.isArray(posData.stores) ? posData.stores : [],
+          summaryByStore: posData.summaryByStore ?? {},
+          paymentSummary: posData.paymentSummary ?? {
+            card: { total: 0, orders: 0, transactions: 0 },
+            cash: { total: 0, orders: 0, transactions: 0 },
+            qr: { total: 0, orders: 0, transactions: 0 },
+            gift: { total: 0, orders: 0, transactions: 0 }
+          },
+          promotionSummary: posData.promotionSummary ?? {},
+          daily7d: Array.isArray(posData.daily7d) ? posData.daily7d : [],
+          transactions: Array.isArray(posData.transactions) ? posData.transactions : []
+        })
+      }
+    } catch {
+      setPosInsight(null)
+    }
+
+    try {
+      const snapshotRes = await apiFetch("/api/retail/reports/latest")
+      const snapshotData = await snapshotRes.json() as {
+        ok: boolean
+        snapshot?: {
+          snapshotDate?: string
+          createdAt?: string
+          payload?: {
+            channels?: { totalRevenue?: number }
+            periodKpi?: { monthToDate?: { transactions?: number } }
+            executive?: { reportsMonth?: number }
+          }
+        }
+      }
+      if (snapshotData.ok && snapshotData.snapshot) {
+        setRetailSnapshot({
+          snapshotDate: String(snapshotData.snapshot.snapshotDate ?? "-"),
+          createdAt: String(snapshotData.snapshot.createdAt ?? ""),
+          totalRevenue: Number(snapshotData.snapshot.payload?.channels?.totalRevenue ?? 0),
+          monthTransactions: Number(snapshotData.snapshot.payload?.periodKpi?.monthToDate?.transactions ?? 0),
+          executiveReportsMonth: Number(snapshotData.snapshot.payload?.executive?.reportsMonth ?? 0),
+        })
+      }
+    } catch {
+      setRetailSnapshot(null)
+    }
+
+    setLoading(false)
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  useEffect(() => {
+    writeSalesUiSnapshot({
+      tab,
+      formDate: form.date,
+      formPlatform: form.platform,
+      formMemo: form.memo
+    })
+  }, [tab, form.date, form.platform, form.memo])
+
+  useEffect(() => {
+    void syncExecutiveReports(8).then((reports) => {
+      setLatestExecutiveReport(reports[0] ?? null)
+    })
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === "convusx.executive-reports.v1") {
+        setLatestExecutiveReport(getLatestExecutiveReport())
+      }
+    }
+
+    window.addEventListener("storage", handleStorage)
+    return () => {
+      window.removeEventListener("storage", handleStorage)
+    }
+  }, [])
+
+  useEffect(() => {
+    function handleShortcut(event: KeyboardEvent) {
+      if (!(event.altKey || event.metaKey || event.ctrlKey)) return
+      if (event.key === "1") {
+        event.preventDefault()
+        setTab("summary")
+      } else if (event.key === "2") {
+        event.preventDefault()
+        setTab("input")
+      } else if (event.key === "3") {
+        event.preventDefault()
+        setTab("history")
+      }
+    }
+
+    window.addEventListener("keydown", handleShortcut)
+    return () => window.removeEventListener("keydown", handleShortcut)
+  }, [])
 
   // ── 입력 저장 ──
   async function handleSubmit() {
@@ -144,16 +325,89 @@ export function SalesView() {
     const pct = getPctChange(thisMonth.revenue, lastMonth.revenue)
     const avgOrder = thisMonth.orders > 0 ? Math.round(thisMonth.revenue / thisMonth.orders) : 0
     const totalRevenue = Object.values(platforms).reduce((s, p) => s + p.revenue, 0)
+    const posStoreRows = (posInsight?.stores ?? []).map((store) => {
+      const summary = posInsight?.summaryByStore?.[store.id] ?? { total: 0, orders: 0, transactions: 0 }
+      return {
+        ...store,
+        total: summary.total,
+        orders: summary.orders,
+        transactions: summary.transactions
+      }
+    }).sort((a, b) => b.total - a.total)
+    const posTotalRevenue = posStoreRows.reduce((sum, row) => sum + row.total, 0)
+    const posTotalTransactions = posStoreRows.reduce((sum, row) => sum + row.transactions, 0)
+    const paymentRows = (Object.entries(posInsight?.paymentSummary ?? {}) as Array<[PosPaymentMethod, { total: number; orders: number; transactions: number }]>)
+      .sort((a, b) => b[1].total - a[1].total)
+    const promoRows = Object.entries(posInsight?.promotionSummary ?? {})
+      .map(([code, value]) => ({ code, ...value }))
+      .sort((a, b) => b.total - a.total)
 
     // 최근 30일 일별 배열 (오름차순)
     const dailyArr = Object.entries(daily).sort(([a], [b]) => a.localeCompare(b))
     const maxRev = Math.max(...dailyArr.map(([, v]) => v.revenue), 1)
+    const salesStage = totalRevenue <= 0
+      ? 1
+      : posTotalRevenue <= 0
+        ? 2
+        : latestExecutiveReport
+          ? 4
+          : 3
+    const salesFlow = [
+      { step: 1, label: "채널 집계" },
+      { step: 2, label: "POS 집계" },
+      { step: 3, label: "리스크 정렬" },
+      { step: 4, label: "상무 보고" }
+    ]
 
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="sales-summary-stack">
+        <OpsPanel>
+          <div className="sales-panel-kicker">상무 승인 지시</div>
+          {latestExecutiveReport ? (
+            <>
+              <div className="sales-exec-title">{latestExecutiveReport.topic}</div>
+              <div className="sales-exec-body">{latestExecutiveReport.summary || latestExecutiveReport.directive}</div>
+              <div className="sales-exec-time">{new Date(latestExecutiveReport.createdAt).toLocaleString()}</div>
+            </>
+          ) : (
+            <div className="sales-panel-help">Workforce에서 상무 보고를 생성하면 이 대시보드 KPI와 자동으로 연결됩니다.</div>
+          )}
+        </OpsPanel>
+
+        {retailSnapshot ? (
+          <OpsPanel>
+            <div className="sales-snapshot-head">
+              <div>Retail Snapshot</div>
+              <div>{retailSnapshot.snapshotDate}</div>
+            </div>
+            <div className="ops-mini-grid">
+              <OpsMiniStat label="월 누적 매출" value={`${formatKRW(retailSnapshot.totalRevenue)}원`} />
+              <OpsMiniStat label="월 누적 트랜잭션" value={`${retailSnapshot.monthTransactions.toLocaleString()}건`} />
+              <OpsMiniStat label="월 상무보고" value={`${retailSnapshot.executiveReportsMonth}건`} />
+            </div>
+          </OpsPanel>
+        ) : null}
+
+        <section className="sales-flow-strip" aria-label="매출 운영 단계">
+          {salesFlow.map((item) => (
+            <article
+              key={item.step}
+              className={[
+                "sales-flow-strip__item",
+                salesStage === item.step ? "is-active" : "",
+                salesStage > item.step ? "is-done" : ""
+              ]
+                .join(" ")
+                .trim()}
+            >
+              <span>{item.step}</span>
+              <strong>{item.label}</strong>
+            </article>
+          ))}
+        </section>
 
         {/* KPI 카드 4개 */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(148px, 1fr))", gap: 10 }}>
+        <div className="ops-kpi-grid">
           {[
             {
               label: "이번달 매출",
@@ -182,160 +436,209 @@ export function SalesView() {
               accent: "var(--text-sub)",
             },
           ].map(card => (
-            <div
+            <OpsKpiCard
               key={card.label}
-              style={{ padding: "12px 14px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface-1)" }}
-            >
-              <div style={{ fontSize: 11, color: "var(--text-soft)", marginBottom: 6 }}>{card.label}</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: "var(--text-main)", lineHeight: 1.1 }}>{card.value}</div>
-              <div style={{ fontSize: 11, color: card.accent, marginTop: 4 }}>{card.sub}</div>
-            </div>
+              label={card.label}
+              value={card.value}
+              sub={card.sub}
+              accent={card.accent}
+            />
           ))}
         </div>
 
         {/* 최근 30일 매출 차트 */}
-        <div style={{ borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface-1)", padding: "14px 16px" }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-sub)", marginBottom: 12 }}>최근 30일 매출</div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 80 }}>
+        <OpsPanel>
+          <div className="sales-panel-title">최근 30일 매출</div>
+          <div className="sales-chart-bars">
             {dailyArr.map(([date, v]) => {
               const heightPct = maxRev > 0 ? Math.max((v.revenue / maxRev) * 100, v.revenue > 0 ? 6 : 0) : 0
               return (
                 <div
                   key={date}
                   title={`${date.slice(5)}\n${formatFull(v.revenue)}\n주문 ${v.orders}건`}
+                  className={`sales-chart-bar${v.revenue > 0 ? " is-active" : ""}`}
                   style={{
-                    flex: 1,
-                    height: `${heightPct}%`,
-                    background: v.revenue > 0 ? "#4f46e5" : "var(--border)",
-                    borderRadius: "2px 2px 0 0",
-                    minHeight: v.revenue > 0 ? 3 : 2,
-                    cursor: v.revenue > 0 ? "pointer" : "default",
-                    transition: "opacity 0.1s",
-                  }}
+                    "--bar-height": `${heightPct}%`
+                  } as CSSProperties}
                   onMouseEnter={e => { if (v.revenue > 0) (e.currentTarget.style.opacity = "0.75") }}
                   onMouseLeave={e => { (e.currentTarget.style.opacity = "1") }}
                 />
               )
             })}
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-            <span style={{ fontSize: 9, color: "var(--text-soft)" }}>{dailyArr[0]?.[0]?.slice(5) ?? ""}</span>
-            <span style={{ fontSize: 9, color: "var(--text-soft)" }}>{dailyArr[dailyArr.length - 1]?.[0]?.slice(5) ?? ""}</span>
+          <div className="sales-chart-axis">
+            <span>{dailyArr[0]?.[0]?.slice(5) ?? ""}</span>
+            <span>{dailyArr[dailyArr.length - 1]?.[0]?.slice(5) ?? ""}</span>
           </div>
-        </div>
+        </OpsPanel>
 
         {/* 플랫폼별 매출 */}
         {totalRevenue > 0 ? (
-          <div style={{ borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface-1)", padding: "14px 16px" }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-sub)", marginBottom: 14 }}>플랫폼별 매출</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <OpsPanel>
+            <div className="sales-panel-title">플랫폼별 매출</div>
+            <div className="sales-meter-stack">
               {(["smartstore", "coupang", "own", "other"] as Platform[]).map(pl => {
                 const p = platforms[pl] ?? { revenue: 0, orders: 0 }
                 if (p.revenue === 0) return null
                 const ratio = (p.revenue / totalRevenue) * 100
                 return (
-                  <div key={pl}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: PLATFORM_COLORS[pl], flexShrink: 0 }} />
-                        <span style={{ fontSize: 12, color: "var(--text-main)", fontWeight: 600 }}>{PLATFORM_LABELS[pl]}</span>
-                        <span style={{ fontSize: 11, color: "var(--text-soft)" }}>주문 {p.orders}건</span>
-                      </div>
-                      <span style={{ fontSize: 12, color: "var(--text-sub)" }}>
+                  <OpsMeterRow
+                    key={pl}
+                    label={
+                      <span className="sales-meter-label">
+                        <span
+                          className={`sales-meter-dot ${platformClass(pl)}`}
+                        />
+                        <span className="sales-meter-main">{PLATFORM_LABELS[pl]}</span>
+                        <span className="sales-meter-sub">주문 {p.orders}건</span>
+                      </span>
+                    }
+                    valueText={
+                      <span className="sales-meter-value">
                         {formatKRW(p.revenue)}원 · {ratio.toFixed(1)}%
                       </span>
-                    </div>
-                    <div style={{ height: 6, borderRadius: 3, background: "var(--border)", overflow: "hidden" }}>
-                      <div style={{ width: `${ratio}%`, height: "100%", background: PLATFORM_COLORS[pl], borderRadius: 3, transition: "width 0.4s ease" }} />
-                    </div>
-                  </div>
+                    }
+                    ratio={ratio}
+                    color={PLATFORM_COLORS[pl]}
+                  />
                 )
               })}
             </div>
-          </div>
+          </OpsPanel>
         ) : (
-          <div style={{ textAlign: "center", padding: "40px 20px", color: "var(--text-soft)", fontSize: 13 }}>
+          <div className="sales-empty">
             아직 입력된 매출 데이터가 없습니다.
             <br />
             <button
               type="button"
               onClick={() => setTab("input")}
-              style={{ marginTop: 12, padding: "7px 18px", borderRadius: 7, border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text-main)", cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+              className="sales-empty-cta"
             >
               매출 입력하기 →
             </button>
           </div>
         )}
+
+        <OpsPanel>
+          <div className="sales-pos-head">
+            <div>오프라인 POS 라이브</div>
+            <div>
+              {posInsight ? `총 결제 ${posTotalTransactions.toLocaleString()}건` : "POS 연결 대기"}
+            </div>
+          </div>
+
+          {posInsight ? (
+            <>
+              <div className="ops-mini-grid sales-mini-grid-gap">
+                <OpsMiniStat label="오프라인 매출 합계" value={`${formatKRW(posTotalRevenue)}원`} />
+                <OpsMiniStat label="운영 매장 수" value={`${posStoreRows.length}개`} />
+                <OpsMiniStat label="최근 결제 건수" value={`${posTotalTransactions.toLocaleString()}건`} />
+              </div>
+
+              <div className="sales-pos-grid">
+                <div className="sales-pos-card">
+                  <div className="sales-pos-card-title">매장별 POS 매출</div>
+                  <div className="sales-pos-card-body">
+                    {posStoreRows.length > 0 ? posStoreRows.map((row) => {
+                      const ratio = posTotalRevenue > 0 ? (row.total / posTotalRevenue) * 100 : 0
+                      return (
+                        <OpsMeterRow
+                          key={row.id}
+                          label={<span className="sales-meter-sub">{row.name}</span>}
+                          valueText={<span className="sales-meter-pos-value">{formatKRW(row.total)}원</span>}
+                          ratio={ratio}
+                          color="#56798b"
+                        />
+                      )
+                    }) : (
+                      <div className="sales-panel-help">매장 데이터 없음</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="sales-pos-card">
+                  <div className="sales-pos-card-title">결제 수단 비중</div>
+                  <div className="sales-pos-card-body">
+                    {paymentRows.length > 0 ? paymentRows.map(([method, value]) => {
+                      const ratio = posTotalRevenue > 0 ? (value.total / posTotalRevenue) * 100 : 0
+                      return (
+                        <OpsMeterRow
+                          key={method}
+                          label={<span className="sales-meter-sub">{POS_PAYMENT_LABELS[method]}</span>}
+                          valueText={<span className="sales-meter-pos-value">{ratio.toFixed(1)}%</span>}
+                          ratio={ratio}
+                          color="#7f9a8f"
+                        />
+                      )
+                    }) : (
+                      <div className="sales-panel-help">결제 수단 데이터 없음</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {promoRows.length > 0 ? (
+                <div className="sales-pos-card sales-pos-card--promo">
+                  <div className="sales-pos-card-title">프로모션 성과</div>
+                  <div className="sales-pos-card-body">
+                    {promoRows.slice(0, 4).map((row) => (
+                      <div key={row.code} className="sales-pos-row">
+                        <span>{row.code}</span>
+                        <div>
+                          <strong>{formatKRW(row.total)}원</strong>
+                          <span>할인 {formatKRW(row.discount)}원</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="sales-pos-recent">
+                최근 결제: {(posInsight.transactions ?? []).slice(0, 3).map((tx) => `${new Date(tx.createdAt).toLocaleTimeString()} ${tx.storeName} ${formatKRW(tx.total)}원`).join(" · ") || "없음"}
+              </div>
+            </>
+          ) : (
+            <div className="sales-panel-help">POS API 연결 후 오프라인 지표가 표시됩니다.</div>
+          )}
+        </OpsPanel>
       </div>
     )
   }
 
   // ── 입력 탭 ──────────────────────────────────────────────────────────────
   function renderInput() {
-    const inputStyle: React.CSSProperties = {
-      width: "100%",
-      padding: "9px 11px",
-      borderRadius: 7,
-      border: "1px solid var(--border)",
-      background: "var(--bg-main)",
-      color: "var(--text-main)",
-      fontSize: 13,
-      boxSizing: "border-box",
-      outline: "none",
-      fontFamily: "inherit",
-    }
-    const labelStyle: React.CSSProperties = {
-      fontSize: 12,
-      fontWeight: 600,
-      color: "var(--text-sub)",
-      display: "block",
-      marginBottom: 6,
-    }
-
     return (
-      <div style={{ maxWidth: 480, display: "flex", flexDirection: "column", gap: 16 }}>
-        <div style={{ fontSize: 13, color: "var(--text-soft)" }}>
+      <div className="sales-input-form">
+        <div className="sales-input-help">
           날짜·플랫폼·매출액·주문수를 입력하고 저장하세요.
         </div>
 
         {/* 날짜 */}
-        <div>
-          <label style={labelStyle}>날짜</label>
+        <div className="sales-input-group">
+          <label className="sales-input-label">날짜</label>
           <input
             type="date"
             value={form.date}
             onChange={e => setForm(p => ({ ...p, date: e.target.value }))}
-            style={inputStyle}
+            className="sales-input-control"
           />
         </div>
 
         {/* 플랫폼 선택 */}
-        <div>
-          <label style={labelStyle}>플랫폼</label>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div className="sales-input-group">
+          <label className="sales-input-label">플랫폼</label>
+          <div className="sales-platform-grid">
             {(["smartstore", "coupang", "own", "other"] as Platform[]).map(pl => (
               <button
                 key={pl}
                 type="button"
                 onClick={() => setForm(p => ({ ...p, platform: pl }))}
-                style={{
-                  padding: "9px 12px",
-                  borderRadius: 8,
-                  border: `2px solid ${form.platform === pl ? PLATFORM_COLORS[pl] : "var(--border)"}`,
-                  background: form.platform === pl ? PLATFORM_COLORS[pl] + "15" : "transparent",
-                  color: form.platform === pl ? PLATFORM_COLORS[pl] : "var(--text-soft)",
-                  fontSize: 13,
-                  fontWeight: form.platform === pl ? 700 : 400,
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                }}
+                className={`sales-platform-btn${form.platform === pl ? " is-active" : ""}`}
+                data-platform={pl}
               >
                 {form.platform === pl && (
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: PLATFORM_COLORS[pl], display: "inline-block" }} />
+                  <span className="sales-platform-btn__dot" />
                 )}
                 {PLATFORM_LABELS[pl]}
               </button>
@@ -344,50 +647,50 @@ export function SalesView() {
         </div>
 
         {/* 매출액 */}
-        <div>
-          <label style={labelStyle}>매출액 (원)</label>
+        <div className="sales-input-group">
+          <label className="sales-input-label">매출액 (원)</label>
           <input
             type="text"
             inputMode="numeric"
             value={form.revenue}
             onChange={e => setForm(p => ({ ...p, revenue: e.target.value.replace(/[^0-9]/g, "") }))}
             placeholder="예: 1500000"
-            style={inputStyle}
+            className="sales-input-control"
           />
           {form.revenue && (
-            <div style={{ fontSize: 11, color: "var(--text-soft)", marginTop: 4 }}>
+            <div className="sales-input-meta">
               = {formatFull(Number(form.revenue))}
             </div>
           )}
         </div>
 
         {/* 주문수 */}
-        <div>
-          <label style={labelStyle}>주문수 (건)</label>
+        <div className="sales-input-group">
+          <label className="sales-input-label">주문수 (건)</label>
           <input
             type="number"
             min="0"
             value={form.orders}
             onChange={e => setForm(p => ({ ...p, orders: e.target.value }))}
             placeholder="예: 45"
-            style={inputStyle}
+            className="sales-input-control"
           />
           {form.revenue && form.orders && Number(form.orders) > 0 && (
-            <div style={{ fontSize: 11, color: "var(--text-soft)", marginTop: 4 }}>
+            <div className="sales-input-meta">
               평균 주문액: {formatFull(Math.round(Number(form.revenue) / Number(form.orders)))}
             </div>
           )}
         </div>
 
         {/* 메모 */}
-        <div>
-          <label style={labelStyle}>메모 (선택)</label>
+        <div className="sales-input-group">
+          <label className="sales-input-label">메모 (선택)</label>
           <input
             type="text"
             value={form.memo}
             onChange={e => setForm(p => ({ ...p, memo: e.target.value }))}
             placeholder="특이사항, 프로모션 등"
-            style={inputStyle}
+            className="sales-input-control"
           />
         </div>
 
@@ -396,23 +699,13 @@ export function SalesView() {
           type="button"
           onClick={() => void handleSubmit()}
           disabled={submitting}
-          style={{
-            padding: "11px 20px",
-            borderRadius: 8,
-            border: "none",
-            background: submitting ? "var(--border)" : "#4f46e5",
-            color: "#fff",
-            fontSize: 14,
-            fontWeight: 700,
-            cursor: submitting ? "not-allowed" : "pointer",
-            transition: "background 0.15s",
-          }}
+          className="sales-submit-btn"
         >
           {submitting ? "저장 중..." : "매출 저장"}
         </button>
 
         {submitMsg && (
-          <div style={{ fontSize: 13, color: submitMsg.startsWith("✓") ? "#10a37f" : "#ef4444", fontWeight: 600 }}>
+          <div className={`sales-submit-msg${submitMsg.startsWith("✓") ? " is-success" : " is-error"}`}>
             {submitMsg}
           </div>
         )}
@@ -424,23 +717,23 @@ export function SalesView() {
   function renderHistory() {
     if (!data?.entries.length) {
       return (
-        <div style={{ textAlign: "center", padding: 40, color: "var(--text-soft)", fontSize: 13 }}>
+        <div className="sales-empty">
           입력된 데이터가 없습니다.
         </div>
       )
     }
 
     return (
-      <div>
-        <div style={{ fontSize: 12, color: "var(--text-soft)", marginBottom: 12 }}>
+      <div className="sales-history-wrap">
+        <div className="sales-history-count">
           총 {data.entries.length}건
         </div>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 540 }}>
+        <div className="sales-history-table-wrap">
+          <table className="sales-history-table">
             <thead>
-              <tr style={{ borderBottom: "2px solid var(--border)" }}>
+              <tr>
                 {["날짜", "플랫폼", "매출액", "주문수", "평균 주문액", "메모", ""].map(h => (
-                  <th key={h} style={{ padding: "8px 10px", textAlign: "left", fontSize: 11, color: "var(--text-soft)", fontWeight: 600, whiteSpace: "nowrap" }}>
+                  <th key={h}>
                     {h}
                   </th>
                 ))}
@@ -450,40 +743,33 @@ export function SalesView() {
               {data.entries.map((e, i) => (
                 <tr
                   key={e.id}
-                  style={{ borderBottom: "1px solid var(--border-soft)", background: i % 2 === 0 ? "transparent" : "var(--surface-1)" }}
+                  className={i % 2 === 0 ? "" : "is-alt"}
                 >
-                  <td style={{ padding: "8px 10px", color: "var(--text-sub)", whiteSpace: "nowrap" }}>{e.date}</td>
-                  <td style={{ padding: "8px 10px" }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: PLATFORM_COLORS[e.platform], display: "inline-block", flexShrink: 0 }} />
-                      <span style={{ color: "var(--text-main)", fontWeight: 600 }}>{PLATFORM_LABELS[e.platform]}</span>
+                  <td className="is-date">{e.date}</td>
+                  <td>
+                    <span className="sales-platform-badge">
+                      <span
+                        className={`sales-platform-dot ${platformClass(e.platform)}`}
+                      />
+                      <span>{PLATFORM_LABELS[e.platform]}</span>
                     </span>
                   </td>
-                  <td style={{ padding: "8px 10px", fontWeight: 700, color: "var(--text-main)", whiteSpace: "nowrap" }}>
+                  <td className="is-revenue">
                     {e.revenue.toLocaleString()}원
                   </td>
-                  <td style={{ padding: "8px 10px", color: "var(--text-sub)" }}>{e.orders}건</td>
-                  <td style={{ padding: "8px 10px", color: "var(--text-soft)", whiteSpace: "nowrap" }}>
+                  <td className="is-muted">{e.orders}건</td>
+                  <td className="is-soft">
                     {e.orders > 0 ? Math.round(e.revenue / e.orders).toLocaleString() + "원" : "—"}
                   </td>
-                  <td style={{ padding: "8px 10px", color: "var(--text-soft)", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <td className="is-memo">
                     {e.memo ?? ""}
                   </td>
-                  <td style={{ padding: "8px 10px" }}>
+                  <td>
                     <button
                       type="button"
                       onClick={() => void handleDelete(e.id)}
                       disabled={deletingId === e.id}
-                      style={{
-                        fontSize: 11,
-                        color: "#ef4444",
-                        border: "1px solid #ef444430",
-                        borderRadius: 5,
-                        padding: "2px 8px",
-                        background: "transparent",
-                        cursor: deletingId === e.id ? "not-allowed" : "pointer",
-                        opacity: deletingId === e.id ? 0.5 : 1,
-                      }}
+                      className="sales-delete-btn"
                     >
                       {deletingId === e.id ? "..." : "삭제"}
                     </button>
@@ -499,60 +785,65 @@ export function SalesView() {
 
   // ── 렌더 ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: "16px 20px", overflowY: "auto", height: "100%", boxSizing: "border-box" as const }}>
-      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+    <div className="ops-game-screen ops-game-screen--sales">
+      <div className="sales-layout">
+        <div className="sales-layout__inner">
+
+        <div className="ops-game-screen__eyebrow">REVENUE COMMAND</div>
 
         {/* 헤더 */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text-main)" }}>매출 대시보드</div>
+        <div className="ops-game-screen__title-row sales-title-row">
+          <div className="ops-game-screen__title">매출 대시보드</div>
           <button
             type="button"
             onClick={() => fetchData()}
-            style={{ fontSize: 11, color: "var(--text-soft)", border: "1px solid var(--border)", borderRadius: 5, padding: "2px 8px", background: "transparent", cursor: "pointer" }}
+            className="sales-refresh-btn"
           >
             새로고침
           </button>
         </div>
 
+        <section className="sales-mission-strip">
+          <strong>REVENUE MISSION</strong>
+          <p>{salesMission}</p>
+        </section>
+
+        <section className="ops-route-strip" aria-label="운영 라우팅">
+          <span>NEXT OPS</span>
+          <div>
+            <button type="button" onClick={onOpenWorkforce}>Workforce 이동</button>
+            <button type="button" onClick={onOpenStoreOps}>StoreOps 이동</button>
+            <button type="button" onClick={onOpenPos}>POS 이동</button>
+          </div>
+        </section>
+
         {/* 탭 */}
-        <div style={{ display: "flex", gap: 2, marginBottom: 20, borderBottom: "1px solid var(--border)" }}>
+        <div className="ops-tabbar sales-tabbar">
           {([["summary", "요약"], ["input", "매출 입력"], ["history", "전체 내역"]] as [TabKey, string][]).map(([key, label]) => (
-            <button
+            <OpsTabButton
               key={key}
-              type="button"
+              active={tab === key}
+              label={label}
               onClick={() => { setTab(key); if (key !== "input") setSubmitMsg(null) }}
-              style={{
-                padding: "8px 16px",
-                border: "none",
-                background: "transparent",
-                fontSize: 13,
-                fontWeight: tab === key ? 700 : 400,
-                color: tab === key ? "var(--text-main)" : "var(--text-soft)",
-                cursor: "pointer",
-                borderBottom: tab === key ? "2px solid #4f46e5" : "2px solid transparent",
-                marginBottom: -1,
-                transition: "all 0.15s",
-              }}
-            >
-              {label}
-            </button>
+            />
           ))}
         </div>
+        <div className="sales-shortcut-hint">단축키: `Alt/⌘/Ctrl + 1` 요약 · `+2` 입력 · `+3` 내역</div>
 
         {/* 탭 내용 */}
         {loading ? (
-          <div style={{ textAlign: "center", padding: 40, color: "var(--text-soft)", fontSize: 13 }}>
+          <div className="sales-loading">
             불러오는 중...
           </div>
         ) : loadError ? (
-          <div style={{ textAlign: "center", padding: 40 }}>
-            <div style={{ color: "var(--text-soft)", fontSize: 13, marginBottom: 12 }}>
+          <div className="sales-error">
+            <div className="sales-error__text">
               데이터를 불러올 수 없습니다.
             </div>
             <button
               type="button"
               onClick={() => fetchData()}
-              style={{ padding: "6px 16px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface-1)", color: "var(--text-main)", cursor: "pointer", fontSize: 12 }}
+              className="sales-error__retry"
             >
               다시 시도
             </button>
@@ -564,6 +855,7 @@ export function SalesView() {
             {tab === "history" && renderHistory()}
           </>
         )}
+        </div>
       </div>
     </div>
   )

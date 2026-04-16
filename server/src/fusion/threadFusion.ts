@@ -1,117 +1,223 @@
-// threadFusion.ts — CORVUS X Thread Fusion Engine (Phase 4-C)
-//
-// \ud504\ub85c\uc81d\ud2b8 \ub0b4 \ubaa8\ub4e0 \uc2a4\ub808\ub4dc\uc758 \ub300\ud654�\uacb0\uacfc\ubb3c�\uacb0\ub860�\ud45c�\ucf54\ub4dc�\ub9ac\uc11c\uce58\ub97c \uc790\ub3d9\uc73c\ub85c \uad50\ucc28 \uac80\uc0c9/\uc8fc\uc785\ud55c\ub2e4.
-// \uc720\uc800\uac00 "OOO \uc2a4\ub808\ub4dc \ucc38\uace0"\ub77c\uace0 \ub9d0\ud574\ub3c4 \uc2dc\uc2a4\ud15c\uc774 \uc790\ub3d9 \ucc98\ub9ac \u2014 \uc218\ub3d9 \uc9c0\uc815 UI \uc804\uba74 \uc0ad\uc81c.
-// \uc2a4\ub808\ub4dc \uac04 \uc815\ubcf4 \uacf5\uc720\ub294 \uae30\ubcf8\uac12, \ub044 \uc218 \uc5c6\uc74c.
+/**
+ * threadFusion.ts — CORVUS X Thread Fusion Engine (v2 — 한국어 N-gram 강화)
+ *
+ * 프로젝트 내 모든 스레드의 대화/결과물/결론/표/코드/리서치를 자동 상호 교환·융합.
+ * - 한국어 N-gram(bi-gram + tri-gram) 토크나이저 적용 → 공백 분리 실패 문제 해결
+ * - SQLite FTS5 보고서 + JSON 스레드 메모리 통합 검색
+ * - 수동 참조 UI 전면 삭제 — 에이전트가 스스로 컨텍스트 주입
+ */
 
-import { getProjectThreadMemories } from "../memory/threadMemory.js"
-import { logger } from "../observability/logger.js"
+import { getProjectThreadMemories } from '../memory/threadMemory.js';
+import { searchReports } from '../memory/sqliteMemory.js';
+import { logger } from '../observability/logger.js';
 
 export type FusedThreadContext = {
-  project_id: string
-  query: string
-  matched_threads: MatchedThread[]
-  fused_summary: string
-  total_threads_scanned: number
-}
+  project_id: string;
+  query: string;
+  matched_threads: MatchedThread[];
+  matched_reports: MatchedReport[];
+  fused_summary: string;
+  total_threads_scanned: number;
+};
 
 type MatchedThread = {
-  thread_id: string
-  title: string | null
-  relevance_score: number
-  excerpt: string
-  matched_on: "message" | "structured" | "title"
-}
+  thread_id: string;
+  title: string | null;
+  relevance_score: number;
+  excerpt: string;
+  matched_on: 'message' | 'structured' | 'title';
+};
 
-function normalizeText(v: any): string {
-  return String(v ?? "").toLowerCase().trim()
-}
+type MatchedReport = {
+  deptId: string;
+  directive: string;
+  excerpt: string;
+  confidence: number;
+};
 
-function simpleScore(haystack: string, needles: string[]): number {
-  const h = normalizeText(haystack)
-  let score = 0
-  for (const n of needles) {
-    if (n.length < 2) continue
-    if (h.includes(n)) score += 1
-  }
-  return score
-}
-
-function tokenize(text: string): string[] {
-  return text
+// ─── 한국어 N-gram 토크나이저 ─────────────────────────────────────────────────
+function koreanNgram(text: string, n = 2): string[] {
+  if (!text) return [];
+  const normalized = text
     .toLowerCase()
-    .split(/\s+|[,;.!?()\"'\[\]{}]/)
-    .map((t) => t.trim())
-    .filter((t) => t.length >= 2)
+    .replace(/[^\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318Fa-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const tokens = new Set<string>();
+
+  // 공백 분리 단어
+  for (const word of normalized.split(' ')) {
+    if (word.length >= 2) tokens.add(word);
+  }
+
+  // N-gram (bi + tri)
+  const chars = [...normalized.replace(/\s/g, '')];
+  for (let i = 0; i < chars.length - 1; i++) {
+    const bi = chars[i] + chars[i + 1];
+    if (bi.trim().length >= 2) tokens.add(bi);
+    if (i + 2 < chars.length) {
+      const tri = chars[i] + chars[i + 1] + chars[i + 2];
+      if (tri.trim().length >= 2) tokens.add(tri);
+    }
+  }
+
+  return [...tokens];
 }
 
+function ngramScore(haystack: string, tokens: string[]): number {
+  const h = haystack.toLowerCase();
+  let score = 0;
+  for (const t of tokens) {
+    if (t.length >= 2 && h.includes(t)) score += t.length > 2 ? 2 : 1;
+  }
+  return score;
+}
+
+// ─── 메인 융합 함수 ───────────────────────────────────────────────────────────
 export function fuseThreadContext(opts: {
-  project_id: string
-  query: string
-  max_threads?: number
-  max_excerpt_len?: number
+  project_id: string;
+  query: string;
+  max_threads?: number;
+  max_reports?: number;
+  max_excerpt_len?: number;
 }): FusedThreadContext {
-  const { project_id, query } = opts
-  const maxThreads = Math.max(1, opts.max_threads ?? 5)
-  const maxExcerpt = Math.max(100, opts.max_excerpt_len ?? 600)
-  const needles = tokenize(query)
-  const allThreads = getProjectThreadMemories(project_id)
-  const scored: (MatchedThread & { _score: number })[] = []
+  const { project_id, query } = opts;
+  const maxThreads = Math.max(1, opts.max_threads ?? 5);
+  const maxReports = Math.max(1, opts.max_reports ?? 3);
+  const maxExcerpt = Math.max(100, opts.max_excerpt_len ?? 500);
+  const tokens = koreanNgram(query);
+
+  // ─ 1. 스레드 메모리 검색 ──────────────────────────────────────────────────
+  const allThreads = getProjectThreadMemories(project_id);
+  const scoredThreads: (MatchedThread & { _score: number })[] = [];
 
   for (const mem of allThreads) {
-    let score = 0
-    let excerpt = ""
-    let matchedOn: MatchedThread["matched_on"] = "message"
+    let score = 0;
+    let excerpt = '';
+    let matchedOn: MatchedThread['matched_on'] = 'message';
 
+    // 제목 검색 (가중치 x3)
     if (mem.title) {
-      const ts = simpleScore(mem.title, needles)
-      if (ts > 0) { score += ts * 2; matchedOn = "title"; excerpt = String(mem.title).slice(0, maxExcerpt) }
+      const ts = ngramScore(mem.title, tokens);
+      if (ts > 0) {
+        score = ts * 3;
+        matchedOn = 'title';
+        excerpt = String(mem.title).slice(0, maxExcerpt);
+      }
     }
 
-    const st = (mem as any).structured
+    // 구조화 메모리 검색 (가중치 x2)
+    const st = (mem as any).structured;
     if (st) {
-      const stText = [st.summary, ...(st.decisions ?? []), ...(st.facts ?? [])].join(" ")
-      const ss = simpleScore(stText, needles)
-      if (ss > score) { score = ss; matchedOn = "structured"; excerpt = stText.slice(0, maxExcerpt) }
+      const stText = [st.summary, ...(st.decisions ?? []), ...(st.facts ?? [])].filter(Boolean).join(' ');
+      const ss = ngramScore(stText, tokens) * 2;
+      if (ss > score) {
+        score = ss;
+        matchedOn = 'structured';
+        excerpt = stText.slice(0, maxExcerpt);
+      }
     }
 
-    for (const msg of ((mem as any).messages ?? []).slice(-30)) {
-      const content = typeof msg.content === "string"
+    // 메시지 검색 (최근 40개)
+    for (const msg of ((mem as any).messages ?? []).slice(-40)) {
+      const content = typeof msg.content === 'string'
         ? msg.content
-        : (Array.isArray(msg.content) ? msg.content.map((c: any) => c?.text ?? "").join(" ") : "")
-      const ms = simpleScore(content, needles)
-      if (ms > score) { score = ms; matchedOn = "message"; excerpt = content.slice(0, maxExcerpt) }
+        : (Array.isArray(msg.content) ? msg.content.map((c: any) => c?.text ?? '').join(' ') : '');
+      const ms = ngramScore(content, tokens);
+      if (ms > score) {
+        score = ms;
+        matchedOn = 'message';
+        excerpt = content.slice(0, maxExcerpt);
+      }
     }
 
     if (score > 0) {
-      scored.push({ thread_id: mem.thread_id, title: (mem as any).title ?? null, relevance_score: score, excerpt, matched_on: matchedOn, _score: score })
+      scoredThreads.push({
+        thread_id: mem.thread_id,
+        title: (mem as any).title ?? null,
+        relevance_score: score,
+        excerpt,
+        matched_on: matchedOn,
+        _score: score,
+      });
     }
   }
 
-  scored.sort((a, b) => b._score - a._score)
-  const top = scored.slice(0, maxThreads).map(({ _score, ...rest }) => rest)
+  scoredThreads.sort((a, b) => b._score - a._score);
+  const topThreads = scoredThreads.slice(0, maxThreads).map(({ _score, ...rest }) => rest);
 
-  let fused = ""
-  if (top.length === 0) {
-    fused = `\ud504\ub85c\uc81d\ud2b8 \ub0b4 \uad00\ub828 \uc2a4\ub808\ub4dc\uac00 \ubc1c\uacac\ub418\uc9c0 \uc54a\uc558\ub2e4. (query: "${query.slice(0, 80)}")`
-  } else {
-    const lines = top.map((t, i) => {
-      const titleStr = t.title ? `"${t.title}"` : `thread:${t.thread_id.slice(0, 8)}`
-      return `[${i + 1}] ${titleStr} (score=${t.relevance_score}, on=${t.matched_on})\n  ${t.excerpt.replace(/\n/g, " ").slice(0, 300)}`
-    })
-    fused = `\uad00\ub828 \uc2a4\ub808\ub4dc ${top.length}\uac74 (query: "${query.slice(0, 80)}"):` + "\n" + lines.join("\n")
+  // ─ 2. SQLite FTS5 보고서 검색 ──────────────────────────────────────────────
+  let matchedReports: MatchedReport[] = [];
+  try {
+    const reportResults = searchReports(query, maxReports);
+    matchedReports = reportResults.map(r => {
+      const sections = (r.report as any).sections ?? [];
+      const excerpt = sections
+        .flatMap((s: any) => [s.heading, ...(s.items ?? [])].slice(0, 3))
+        .join(' ')
+        .slice(0, maxExcerpt);
+      return {
+        deptId: r.deptId,
+        directive: r.directive,
+        excerpt,
+        confidence: r.confidence,
+      };
+    });
+  } catch {
+    // SQLite 없으면 스킵
   }
 
-  logger.debug("[threadFusion] fused", { project_id, query: query.slice(0, 60), matched: top.length, total: allThreads.length })
-  return { project_id, query, matched_threads: top, fused_summary: fused, total_threads_scanned: allThreads.length }
+  // ─ 3. 융합 요약 생성 ──────────────────────────────────────────────────────
+  const parts: string[] = [];
+
+  if (topThreads.length > 0) {
+    const threadLines = topThreads.map((t, i) => {
+      const titleStr = t.title ? `"${t.title}"` : `스레드:${t.thread_id.slice(0, 8)}`;
+      return `[스레드${i + 1}] ${titleStr} (관련도:${t.relevance_score})\n  ${t.excerpt.replace(/\n/g, ' ').slice(0, 300)}`;
+    });
+    parts.push(`관련 대화 스레드 ${topThreads.length}건:\n${threadLines.join('\n')}`);
+  }
+
+  if (matchedReports.length > 0) {
+    const reportLines = matchedReports.map((r, i) =>
+      `[보고서${i + 1}] ${r.deptId.toUpperCase()}팀 — 지시: "${r.directive.slice(0, 40)}"\n  ${r.excerpt.replace(/\n/g, ' ').slice(0, 300)}`
+    );
+    parts.push(`관련 부서 보고서 ${matchedReports.length}건:\n${reportLines.join('\n')}`);
+  }
+
+  const fused_summary = parts.length > 0
+    ? parts.join('\n\n')
+    : `프로젝트 내 관련 컨텍스트가 발견되지 않았다. (query: "${query.slice(0, 80)}")`;
+
+  logger.debug('[threadFusion v2]', {
+    project_id, query: query.slice(0, 60),
+    threads: topThreads.length, reports: matchedReports.length,
+    total: allThreads.length,
+  });
+
+  return {
+    project_id,
+    query,
+    matched_threads: topThreads,
+    matched_reports: matchedReports,
+    fused_summary,
+    total_threads_scanned: allThreads.length,
+  };
 }
 
-export function buildFusionSystemBlock(opts: { project_id: string; query: string; max_threads?: number }): string {
-  const result = fuseThreadContext(opts)
-  if (result.matched_threads.length === 0) return ""
+// ─── system 블록 빌더 (에이전트 프롬프트 주입용) ──────────────────────────────
+export function buildFusionSystemBlock(opts: {
+  project_id: string;
+  query: string;
+  max_threads?: number;
+}): string {
+  const result = fuseThreadContext(opts);
+  if (result.matched_threads.length === 0 && result.matched_reports.length === 0) return '';
   return [
-    `[\ud504\ub85c\uc81d\ud2b8 \uc2a4\ub808\ub4dc \uc790\ub3d9 \uc735\ud569 \ucee8\ud14d\uc2a4\ud2b8]`,
-    `\ud604\uc7ac \ud504\ub85c\uc81d\ud2b8\uc758 \uad00\ub828 \uc2a4\ub808\ub4dc\uc5d0\uc11c \uc790\ub3d9 \ucd94\ucd9c\ud55c \ub0b4\uc6a9\uc774\ub2e4. \ud604\uc7ac \uc9c8\ubb38\uc5d0 \uc9c1\uc811 \uad00\ub828\ub41c \ub0b4\uc6a9\ub9cc \uc120\ubcc4\ud574 \ub2f5\ubcc0\uc5d0 \ud65c\uc6a9\ud558\ub77c.`,
+    `[프로젝트 지식 자동 융합 컨텍스트]`,
+    `현재 프로젝트의 과거 스레드와 부서 보고서에서 자동 추출한 내용이다. 현재 질문에 직접 관련된 내용만 선별해 답변에 활용하라.`,
     result.fused_summary,
-  ].join("\n")
+  ].join('\n');
 }
+

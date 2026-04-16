@@ -39,17 +39,38 @@ function shouldLog(level: LogLevel): boolean {
   return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[currentLevel]
 }
 
+function isRecord(value: unknown): value is Record<string, any> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function normalizeLogArgs(
+  arg1: string | Record<string, any>,
+  arg2?: unknown,
+): { msg: string; data?: Record<string, any> } {
+  if (typeof arg1 === "string") {
+    return { msg: arg1, data: isRecord(arg2) ? arg2 : undefined }
+  }
+  if (typeof arg2 === "string") {
+    return { msg: arg2, data: arg1 }
+  }
+  return { msg: "log", data: arg1 }
+}
+
 export const logger = {
-  debug(msg: string, data?: Record<string, any>) {
+  debug(arg1: string | Record<string, any>, arg2?: unknown) {
+    const { msg, data } = normalizeLogArgs(arg1, arg2)
     if (shouldLog("debug")) console.log(formatEntry("debug", msg, data))
   },
-  info(msg: string, data?: Record<string, any>) {
+  info(arg1: string | Record<string, any>, arg2?: unknown) {
+    const { msg, data } = normalizeLogArgs(arg1, arg2)
     if (shouldLog("info")) console.log(formatEntry("info", msg, data))
   },
-  warn(msg: string, data?: Record<string, any>) {
+  warn(arg1: string | Record<string, any>, arg2?: unknown) {
+    const { msg, data } = normalizeLogArgs(arg1, arg2)
     if (shouldLog("warn")) console.warn(formatEntry("warn", msg, data))
   },
-  error(msg: string, data?: Record<string, any>) {
+  error(arg1: string | Record<string, any>, arg2?: unknown) {
+    const { msg, data } = normalizeLogArgs(arg1, arg2)
     if (shouldLog("error")) console.error(formatEntry("error", msg, data))
   }
 }

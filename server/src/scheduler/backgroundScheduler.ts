@@ -11,6 +11,7 @@ import fs from "fs"
 import { resolve, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { logger } from "../observability/logger.js"
+import { generateAndStoreRetailSnapshot, listRetailSnapshots } from "../reports/retailSnapshot.js"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -19,6 +20,7 @@ const DATA_DIR = resolve(__dirname, "../../data")
 // ── 상수 ──
 const LOG_ROTATION_INTERVAL_MS = 6 * 60 * 60 * 1000  // 6시간
 const HEALTH_CHECK_INTERVAL_MS = 30 * 60 * 1000       // 30분
+const RETAIL_SNAPSHOT_INTERVAL_MS = 60 * 60 * 1000    // 1시간
 const LOG_MAX_LINES = 2000
 const LOG_KEEP_LINES = 1500
 
@@ -165,13 +167,21 @@ async function checkProviderHealth() {
 // ── 스케줄러 상태 조회 ──
 
 export function getSchedulerStatus() {
+  const latestRetailSnapshot = listRetailSnapshots("retail_kpi", 1)[0] ?? null
   return {
     running,
     intervals: {
       log_rotation_ms: LOG_ROTATION_INTERVAL_MS,
-      health_check_ms: HEALTH_CHECK_INTERVAL_MS
+      health_check_ms: HEALTH_CHECK_INTERVAL_MS,
+      retail_snapshot_ms: RETAIL_SNAPSHOT_INTERVAL_MS
     },
     provider_health: { ...healthState },
+    retail_snapshot: latestRetailSnapshot
+      ? {
+        snapshot_date: latestRetailSnapshot.snapshotDate,
+        created_at: latestRetailSnapshot.createdAt
+      }
+      : null,
     log_files: LOG_FILES.map(f => {
       const filePath = resolve(DATA_DIR, f.name)
       try {
@@ -195,6 +205,9 @@ export async function triggerTask(task: string): Promise<{ ok: boolean; task: st
     case "health_check":
       await checkProviderHealth()
       return { ok: true, task, result: "health check executed" }
+    case "retail_snapshot":
+      generateAndStoreRetailSnapshot("retail_kpi")
+      return { ok: true, task, result: "retail snapshot executed" }
     default:
       return { ok: false, task, error: `unknown task: ${task}` }
   }
@@ -210,11 +223,25 @@ export function startScheduler() {
   setTimeout(() => {
     rotateLogFiles()
     checkProviderHealth().catch(() => {})
+    try {
+      generateAndStoreRetailSnapshot("retail_kpi")
+    } catch {
+      // ignore snapshot bootstrap error
+    }
   }, 10_000)
 
   // 주기적 실행
   timers.push(setInterval(rotateLogFiles, LOG_ROTATION_INTERVAL_MS))
   timers.push(setInterval(() => { checkProviderHealth().catch(() => {}) }, HEALTH_CHECK_INTERVAL_MS))
+  timers.push(setInterval(() => {
+    try {
+      generateAndStoreRetailSnapshot("retail_kpi")
+    } catch (e) {
+      logger.warn("[scheduler] retail snapshot failed", {
+        error: e instanceof Error ? e.message : String(e)
+      })
+    }
+  }, RETAIL_SNAPSHOT_INTERVAL_MS))
 
   // .unref() — 프로세스 종료 방해 안 함
   for (const t of timers) t.unref()
@@ -231,7 +258,8 @@ export function startScheduler() {
 
   logger.info("[scheduler] background scheduler started", {
     log_rotation: `${LOG_ROTATION_INTERVAL_MS / 3600000}h`,
-    health_check: `${HEALTH_CHECK_INTERVAL_MS / 60000}min`
+    health_check: `${HEALTH_CHECK_INTERVAL_MS / 60000}min`,
+    retail_snapshot: `${RETAIL_SNAPSHOT_INTERVAL_MS / 60000}min`
   })
 }
 

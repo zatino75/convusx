@@ -1,8 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { ProjectGroup, Thread } from "../../types/workspace";
 import { t } from "../../i18n";
-import { DashboardIcon, ImageIcon, PlusIcon, SearchIcon, SettingsIcon, SalesIcon } from "./SidebarIcons";
-import { type ArtifactItem, ProjectRow, RecentThreadRow, WorkspaceRow } from "./SidebarRows";
+import {
+  BenchmarkIcon,
+  DashboardIcon,
+  PlusIcon,
+  PosIcon,
+  SalesIcon,
+  SearchIcon,
+  SettingsIcon,
+  StoreOpsIcon,
+  WorkforceIcon
+} from "./SidebarIcons";
+
+type SidebarView = "default" | "search" | "images" | "benchmark" | "dashboard" | "sales" | "workforce" | "storeops" | "pos";
 
 type Props = {
   generalThreads: Thread[];
@@ -10,8 +21,8 @@ type Props = {
   projects: ProjectGroup[];
   activeProjectId: string;
   activeThreadId: string | null;
-  sidebarView: "default" | "search" | "images" | "benchmark" | "dashboard" | "sales";
-  artifacts?: ArtifactItem[];
+  sidebarView: SidebarView;
+  artifacts?: Array<{ id: string; title: string; code: string; language: string }>;
   onOpenArtifact?: (title: string, code: string, language: string) => void;
   onOpenGeneralHome: () => void;
   onOpenSearch: () => void;
@@ -19,10 +30,14 @@ type Props = {
   onOpenBenchmark: () => void;
   onOpenDashboard: () => void;
   onOpenSales: () => void;
+  onOpenWorkforce: () => void;
+  onOpenStoreOps: () => void;
+  onOpenPos: () => void;
   onSelectProject: (projectId: string) => void;
   onSelectThread: (threadId: string) => void;
   onNewChat: () => void;
   onCreateProject: () => void;
+  onCreateNamedProject?: (title: string) => void;
   onCreateThreadInProject: (projectId: string) => void;
   onRenameProject: (projectId: string) => void;
   onDeleteProject: (projectId: string) => void;
@@ -35,22 +50,51 @@ type Props = {
   onClose?: () => void;
 };
 
+type NavItem = {
+  key: string;
+  label: string;
+  caption: string;
+  icon: ReactNode;
+  active: boolean;
+  onClick: () => void;
+};
+
+function buildTemplateProjectTitle(base: string) {
+  const now = new Date();
+  const stamp = `${now.getMonth() + 1}.${String(now.getDate()).padStart(2, "0")}`;
+  return `${base} · ${stamp}`;
+}
+
+function resolveProjectStatus(project: ProjectGroup): "running" | "stalled" | "idle" {
+  if (project.threadCount >= 3) return "running";
+  if (project.threadCount >= 1) return "stalled";
+  return "idle";
+}
+
 export default function Sidebar({
   generalThreads,
+  projectThreads,
   projects,
   activeProjectId,
   activeThreadId,
   sidebarView,
   onOpenGeneralHome,
   onOpenSearch,
-  onOpenImages,
   onOpenBenchmark,
   onOpenDashboard,
   onOpenSales,
+  onOpenWorkforce,
+  onOpenStoreOps,
+  onOpenPos,
   onSelectProject,
   onSelectThread,
-  onNewChat,
   onCreateProject,
+  onCreateNamedProject,
+  onCreateThreadInProject,
+  onOpenSettings,
+  onClose,
+  onOpenImages,
+  onNewChat,
   onRenameProject,
   onDeleteProject,
   onRenameThread,
@@ -58,300 +102,235 @@ export default function Sidebar({
   onMoveThread,
   onToggleProjectMemory,
   onToggleThreadPinned,
-  onOpenSettings,
-  onClose
+  artifacts,
+  onOpenArtifact
 }: Props) {
-  const [openProjectIds, setOpenProjectIds] = useState<string[]>([]);
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    if (activeProjectId && activeProjectId !== "__general__") {
-      setOpenProjectIds((current) => (current.includes(activeProjectId) ? current : [...current, activeProjectId]));
-    }
-  }, [activeProjectId]);
-
-  // Detect mobile viewport changes
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(max-width: 768px)");
-    const handleChange = (e: MediaQueryListEvent | MediaQueryList) => {
-      setIsMobile(e.matches);
-    };
-    setIsMobile(mediaQuery.matches);
-    mediaQuery.addEventListener("change", handleChange);
-    return () => mediaQuery.removeEventListener("change", handleChange);
-  }, []);
-
-  useEffect(() => {
-    function handlePointerDown(event: MouseEvent) {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("[data-menu-root]")) return;
-      setOpenMenuId(null);
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setOpenMenuId(null);
-      }
-    }
-
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, []);
+  void onOpenImages;
+  void onNewChat;
+  void onRenameProject;
+  void onDeleteProject;
+  void onRenameThread;
+  void onDeleteThread;
+  void onMoveThread;
+  void onToggleProjectMemory;
+  void onToggleThreadPinned;
+  void artifacts;
+  void onOpenArtifact;
 
   const sortedProjects = useMemo(
-    () => [...projects].filter((p) => p.id !== "__general__").sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
+    () =>
+      [...projects]
+        .filter((item) => item.id !== "__general__")
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
     [projects]
   );
 
-  function toggleProject(projectId: string) {
-    setOpenProjectIds((current) =>
-      current.includes(projectId) ? current.filter((id) => id !== projectId) : [...current, projectId]
-    );
+  const recentThreads = useMemo(() => {
+    return [...generalThreads, ...projectThreads]
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 5);
+  }, [generalThreads, projectThreads]);
+
+  const projectStats = useMemo(() => {
+    const running = sortedProjects.filter((item) => resolveProjectStatus(item) === "running").length;
+    const stalled = sortedProjects.filter((item) => resolveProjectStatus(item) === "stalled").length;
+    return { running, stalled, total: sortedProjects.length };
+  }, [sortedProjects]);
+
+  function withClose(action: () => void) {
+    action();
+    if (window.matchMedia("(max-width: 980px)").matches) {
+      onClose?.();
+    }
   }
 
-  function toggleMenu(menuId: string) {
-    setOpenMenuId((current) => (current === menuId ? null : menuId));
+  function createTemplateProject(title: string) {
+    if (onCreateNamedProject) {
+      withClose(() => onCreateNamedProject(buildTemplateProjectTitle(title)));
+      return;
+    }
+    withClose(onCreateProject);
   }
 
-  // Auto-close sidebar on mobile when navigating
-  function handleSelectThread(threadId: string) {
-    onSelectThread(threadId);
-    if (isMobile && onClose) onClose();
-  }
+  const commandNav: NavItem[] = [
+    {
+      key: "hq",
+      label: "HQ Map",
+      caption: "월드 씬",
+      icon: <DashboardIcon />,
+      active: sidebarView === "default",
+      onClick: () => withClose(onOpenGeneralHome)
+    },
+    {
+      key: "mission",
+      label: "Mission Loop",
+      caption: "지시 · 실행 · 보고",
+      icon: <WorkforceIcon />,
+      active: sidebarView === "workforce",
+      onClick: () => withClose(onOpenWorkforce)
+    }
+  ];
 
-  function handleSelectProject(projectId: string) {
-    onSelectProject(projectId);
-    if (isMobile && onClose) onClose();
-  }
-
-  function handleOpenGeneralHome() {
-    onOpenGeneralHome();
-    if (isMobile && onClose) onClose();
-  }
-
-  function handleOpenSearch() {
-    onOpenSearch();
-    if (isMobile && onClose) onClose();
-  }
-
-  function handleOpenImages() {
-    onOpenImages();
-    if (isMobile && onClose) onClose();
-  }
-
-  function handleOpenBenchmark() {
-    onOpenBenchmark();
-    if (isMobile && onClose) onClose();
-  }
-
-  function handleOpenDashboard() {
-    onOpenDashboard();
-    if (isMobile && onClose) onClose();
-  }
-
-  function handleOpenSales() {
-    onOpenSales();
-    if (isMobile && onClose) onClose();
-  }
-
-  function handleNewChat() {
-    onNewChat();
-    if (isMobile && onClose) onClose();
-  }
-
-  // kept for possible future use (currently not wired in JSX)
-  void handleOpenBenchmark;
+  const retailNav: NavItem[] = [
+    {
+      key: "storeops",
+      label: "StoreOps",
+      caption: "매장 리스크 대응",
+      icon: <StoreOpsIcon />,
+      active: sidebarView === "storeops",
+      onClick: () => withClose(onOpenStoreOps)
+    },
+    {
+      key: "pos",
+      label: "POS Grid",
+      caption: "결제/바코드 관제",
+      icon: <PosIcon />,
+      active: sidebarView === "pos",
+      onClick: () => withClose(onOpenPos)
+    },
+    {
+      key: "sales",
+      label: "Revenue",
+      caption: "매출 대시보드",
+      icon: <SalesIcon />,
+      active: sidebarView === "sales",
+      onClick: () => withClose(onOpenSales)
+    },
+    {
+      key: "kpi",
+      label: "Ops KPI",
+      caption: "핵심 지표",
+      icon: <DashboardIcon />,
+      active: sidebarView === "dashboard",
+      onClick: () => withClose(onOpenDashboard)
+    }
+  ];
 
   return (
-    <div className="sidebar">
-      <div
-        className="sidebar__inner"
-        style={{
-          height: "100%",
-          minHeight: 0,
-          display: "grid",
-          gridTemplateRows: "minmax(0, 1fr) auto"
-        }}
-      >
-        <div
-          style={{
-            minHeight: 0,
-            overflowY: "auto",
-            overflowX: "hidden",
-            paddingRight: 2
-          }}
-        >
-          <div className="sidebar__top" style={{ position: "relative", paddingRight: 36 }}>
-            <button type="button" className="sidebar-logo" onClick={handleOpenGeneralHome}>
-              <span style={{ fontWeight: 800, fontSize: 15, color: "var(--text-main)", letterSpacing: -0.3 }}>
-                CORVUS X
-              </span>
+    <div className="sidebar sidebar--game-console sidebar-v3">
+      <div className="sidebar-console__scroll">
+        <button type="button" className="sidebar-v3__brand" onClick={() => withClose(onOpenGeneralHome)}>
+          <strong>CONVUS X COMMAND</strong>
+          <span>Autonomous Office Control Grid</span>
+        </button>
+
+        <section className="sidebar-v3__section" aria-label="명령 네비게이션">
+          <header>
+            <span>COMMAND</span>
+            <b>HQ CORE</b>
+          </header>
+          <div className="sidebar-v3__nav-grid">
+            {commandNav.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={`sidebar-v3__nav-btn${item.active ? " is-active" : ""}`}
+                onClick={item.onClick}
+              >
+                <span>{item.icon}</span>
+                <strong>{item.label}</strong>
+                <em>{item.caption}</em>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="sidebar-v3__section" aria-label="리테일 네비게이션">
+          <header>
+            <span>RETAIL CIRCUIT</span>
+            <b>SALES + POS</b>
+          </header>
+          <div className="sidebar-v3__nav-grid">
+            {retailNav.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={`sidebar-v3__nav-btn${item.active ? " is-active" : ""}`}
+                onClick={item.onClick}
+              >
+                <span>{item.icon}</span>
+                <strong>{item.label}</strong>
+                <em>{item.caption}</em>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="sidebar-v3__section" aria-label="프로젝트">
+          <header>
+            <span>PROJECT GRID</span>
+            <b>{projectStats.running} RUNNING</b>
+          </header>
+
+          <div className="sidebar-v3__stats">
+            <article><span>Running</span><b>{projectStats.running}</b></article>
+            <article><span>Stalled</span><b>{projectStats.stalled}</b></article>
+            <article><span>Total</span><b>{projectStats.total}</b></article>
+          </div>
+
+          <div className="sidebar-v3__project-actions">
+            <button type="button" onClick={() => withClose(onCreateProject)}>
+              <PlusIcon />
+              <span>{t("nav.newProject")}</span>
             </button>
+            <button type="button" onClick={() => createTemplateProject("매출 성장")}>성장 템플릿</button>
+            <button type="button" onClick={() => createTemplateProject("매장 운영")}>매장 템플릿</button>
+            <button type="button" onClick={() => createTemplateProject("리스크 대응")}>리스크 템플릿</button>
           </div>
 
-          <div className="sidebar__menu">
-            <WorkspaceRow icon={<PlusIcon />} label={t("nav.newThread")} onClick={handleNewChat} />
-            <WorkspaceRow active={sidebarView === "search"} icon={<SearchIcon />} label={t("nav.search")} onClick={handleOpenSearch} />
-            <WorkspaceRow active={sidebarView === "images"} icon={<ImageIcon />} label={t("nav.images")} onClick={handleOpenImages} />
-            <WorkspaceRow active={sidebarView === "dashboard"} icon={<DashboardIcon />} label={t("nav.dashboard")} onClick={handleOpenDashboard} />
-            <WorkspaceRow active={sidebarView === "sales"} icon={<SalesIcon />} label={t("nav.sales")} onClick={handleOpenSales} />
+          <div className="sidebar-v3__project-list">
+            {sortedProjects.length > 0 ? sortedProjects.map((project) => {
+              const status = resolveProjectStatus(project);
+              const isActive = project.id === activeProjectId;
+              return (
+                <article key={project.id} className={`sidebar-v3__project-card${isActive ? " is-active" : ""}`}>
+                  <button type="button" onClick={() => withClose(() => onSelectProject(project.id))}>
+                    <strong>{project.title}</strong>
+                    <span>{project.threadCount} threads</span>
+                  </button>
+                  <div>
+                    <em className={`is-${status}`}>{status.toUpperCase()}</em>
+                    <button type="button" onClick={() => withClose(() => onCreateThreadInProject(project.id))}>
+                      + thread
+                    </button>
+                  </div>
+                </article>
+              );
+            }) : <div className="sidebar-v3__empty">프로젝트를 생성하면 자동 루프가 실행됩니다.</div>}
           </div>
+        </section>
 
-          <div className="sidebar__section-block">
-            <div className="sidebar__section-header">
-              <div className="sidebar__section-label sidebar__section-label--large">{t("sidebar.projects")}</div>
-            </div>
-
-            <div className="sidebar__project-list">
-              <WorkspaceRow icon={<PlusIcon />} label={t("nav.newProject")} onClick={onCreateProject} emphasized />
-
-              {sortedProjects.map((project) => (
-                <ProjectRow
-                  key={project.id}
-                  project={project}
-                  open={openProjectIds.includes(project.id)}
-                  active={activeProjectId === project.id}
-                  activeThreadId={activeThreadId}
-                  menuOpen={openMenuId === `project:${project.id}`}
-                  onToggleMenu={() => toggleMenu(`project:${project.id}`)}
-                  onCloseMenu={() => setOpenMenuId(null)}
-                  onToggle={() => toggleProject(project.id)}
-                  onSelectProject={() => handleSelectProject(project.id)}
-                  onSelectThread={handleSelectThread}
-                  onRenameProject={onRenameProject}
-                  onDeleteProject={onDeleteProject}
-                  onRenameThread={onRenameThread}
-                  onDeleteThread={onDeleteThread}
-                  onMoveThread={onMoveThread}
-                  onToggleProjectMemory={onToggleProjectMemory}
-                  projects={sortedProjects}
-                  openThreadMenuId={openMenuId?.startsWith("project-thread:") ? openMenuId.replace("project-thread:", "") : null}
-                  onToggleThreadMenu={(threadId) => toggleMenu(`project-thread:${threadId}`)}
-                  onCloseThreadMenu={() => setOpenMenuId(null)}
-                />
-              ))}
-            </div>
+        <section className="sidebar-v3__section" aria-label="라이브 피드">
+          <header>
+            <span>SIGNAL FEED</span>
+            <b>RECENT THREADS</b>
+          </header>
+          <div className="sidebar-v3__recent-list">
+            {recentThreads.length > 0 ? recentThreads.map((thread) => (
+              <button
+                key={thread.id}
+                type="button"
+                className={`sidebar-v3__recent-item${thread.id === activeThreadId ? " is-active" : ""}`}
+                onClick={() => withClose(() => onSelectThread(thread.id))}
+              >
+                <strong>{thread.title}</strong>
+                <span>{new Date(thread.updatedAt).toLocaleString()}</span>
+              </button>
+            )) : <div className="sidebar-v3__empty">보고 이력이 없습니다.</div>}
           </div>
+        </section>
 
-          <div className="sidebar__section-block">
-            <div className="sidebar__section-label sidebar__section-label--large">{t("sidebar.recentChats")}</div>
-
-            <div className="sidebar__recent-list">
-              {(() => {
-                const now = new Date();
-                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                const yesterday = new Date(today);
-                yesterday.setDate(yesterday.getDate() - 1);
-                const sevenDaysAgo = new Date(today);
-                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-                const groups: Record<string, typeof generalThreads> = {
-                  [t("sidebar.today")]: [],
-                  [t("sidebar.yesterday")]: [],
-                  [t("sidebar.last7days")]: [],
-                  [t("sidebar.older")]: []
-                };
-
-                for (const thread of generalThreads) {
-                  const threadDate = new Date(thread.updatedAt);
-                  const threadDay = new Date(threadDate.getFullYear(), threadDate.getMonth(), threadDate.getDate());
-
-                  if (threadDay.getTime() === today.getTime()) {
-                    groups[t("sidebar.today")].push(thread);
-                  } else if (threadDay.getTime() === yesterday.getTime()) {
-                    groups[t("sidebar.yesterday")].push(thread);
-                  } else if (threadDay.getTime() >= sevenDaysAgo.getTime()) {
-                    groups[t("sidebar.last7days")].push(thread);
-                  } else {
-                    groups[t("sidebar.older")].push(thread);
-                  }
-                }
-
-                return Object.entries(groups).map(([groupLabel, threads]) =>
-                  threads.length > 0 ? (
-                    <div key={groupLabel}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-sub)", letterSpacing: "0.05em", marginTop: groupLabel === t("sidebar.today") ? 0 : 12, marginBottom: 8 }}>
-                        {groupLabel}
-                      </div>
-                      {threads.map((thread) => (
-                        <RecentThreadRow
-                          key={thread.id}
-                          thread={thread}
-                          active={thread.id === activeThreadId && activeProjectId === "__general__"}
-                          projects={sortedProjects}
-                          menuOpen={openMenuId === `general-thread:${thread.id}`}
-                          onToggleMenu={() => toggleMenu(`general-thread:${thread.id}`)}
-                          onCloseMenu={() => setOpenMenuId(null)}
-                          onClick={() => handleSelectThread(thread.id)}
-                          onRenameThread={onRenameThread}
-                          onDeleteThread={onDeleteThread}
-                          onMoveThread={onMoveThread}
-                          onToggleThreadPinned={onToggleThreadPinned}
-                        />
-                      ))}
-                    </div>
-                  ) : null
-                );
-              })()}
-            </div>
+        <section className="sidebar-v3__section" aria-label="도구">
+          <header>
+            <span>TOOLS</span>
+            <b>UTILITY</b>
+          </header>
+          <div className="sidebar-v3__system-actions">
+            <button type="button" onClick={() => withClose(onOpenSearch)}><SearchIcon /><span>{t("nav.search")}</span></button>
+            <button type="button" onClick={() => withClose(onOpenBenchmark)}><BenchmarkIcon /><span>{t("nav.benchmark")}</span></button>
+            <button type="button" onClick={() => onOpenSettings?.()}><SettingsIcon /><span>{t("nav.settings")}</span></button>
           </div>
-        </div>
-
-        <div
-          className="sidebar__footer"
-          style={{
-            flex: "0 0 auto",
-            borderTop: "1px solid var(--border)",
-            padding: "10px 2px 0",
-            background: "transparent"
-          }}
-        >
-          <div style={{ marginTop: "auto", borderTop: "1px solid var(--border-soft)" }} />
-          <button
-            type="button"
-            onClick={() => onOpenSettings?.()}
-            style={{
-              width: "100%",
-              minHeight: 40,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "flex-start",
-              gap: 10,
-              padding: "0 2px",
-              border: "none",
-              background: "transparent",
-              color: "inherit",
-              cursor: "pointer"
-            }}
-          >
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 18,
-                height: 18
-              }}
-            >
-              <SettingsIcon />
-            </span>
-            <span
-              style={{
-                fontSize: 14,
-                fontWeight: 500,
-                lineHeight: 1.2
-              }}
-            >
-              {t("nav.settings")}
-            </span>
-          </button>
-        </div>
+        </section>
       </div>
     </div>
   );

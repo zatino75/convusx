@@ -4,6 +4,12 @@ import { t } from "../../i18n";
 import { showConfirm } from "../ui/Toast";
 import { validateField } from "../../utils/validation";
 import type { FieldRule } from "../../utils/validation";
+import {
+  setDomainProfile as agentSetDomainProfile,
+  setRegulationUpdateInterval as agentSetRegulationInterval,
+  initAgentSettings,
+} from "../../store/agentStore";
+import type { DomainProfile } from "../../types/agent";
 
 type ApiKeys = {
   openai: string;
@@ -154,14 +160,27 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
   } | null>(null);
   const [regulationRefreshing, setRegulationRefreshing] = useState(false);
 
+  // 최초 오픈 시 agentStore 초기화 (localStorage → agentStore 동기)
+  useEffect(() => { if (open) initAgentSettings(); }, [open]);
+
   function saveDomainProfile(profile: string) {
     setDomainProfile(profile);
     try { localStorage.setItem("corvus-x.domain-profile", profile); } catch {}
+    // agentStore 동기화
+    agentSetDomainProfile(profile as DomainProfile);
   }
+
+  const INTERVAL_TO_MINUTES: Record<string, number> = {
+    daily: 1440,
+    weekly: 10080,
+    manual: 0,
+  };
 
   function saveRegulationInterval(interval: string) {
     setRegulationInterval(interval);
     try { localStorage.setItem("corvus-x.regulation-interval", interval); } catch {}
+    // agentStore 동기화
+    agentSetRegulationInterval(INTERVAL_TO_MINUTES[interval] ?? 1440);
   }
 
   async function fetchRegulationStatus() {
@@ -1009,14 +1028,32 @@ export default function SettingsModal({ open, onClose, fontSize, onFontSizeChang
                     </>
                   ) : (
                     <div style={{ gridColumn: "1 / -1", color: "var(--text-soft)", fontSize: 12 }}>
-                      상태 조회 중…
+                      법규 상태를 불러오는 중…
                     </div>
                   )}
                 </div>
               </div>
             </div>
           )}
+        </div>
 
+        {/* Footer */}
+        <div style={{ borderTop: "1px solid var(--border)", padding: "12px 24px", display: "flex", justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              padding: "8px 20px",
+              borderRadius: 8,
+              border: "1px solid var(--border)",
+              background: "var(--bg-soft)",
+              color: "var(--text-main)",
+              fontSize: 14,
+              cursor: "pointer",
+            }}
+          >
+            닫기
+          </button>
         </div>
       </div>
     </div>

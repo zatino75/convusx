@@ -595,7 +595,6 @@ export default function MessageBubble({
   onDeleteMessage?: (messageId: string) => void;
   onRelatedQuestion?: (q: string) => void;
   onOpenArtifact?: (title: string, code: string, language: string) => void;
-  onComposerAction?: (action: "deep-think" | "web-search" | "upload" | "parallel-ensemble") => void;
   onDownloadSlide?: (slideData: any) => void;
 }) {
   const isUser = message.role === "user";

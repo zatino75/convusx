@@ -1,14 +1,15 @@
 // chat.ts — 단일 에이전트 루프 진입점 (Phase 2.5: agent loop bridge swap)
 import { TITLE_GEN_TIMEOUT_MS, OPENAI_BASE } from "../config/defaults.js"
 import { logger } from "../observability/logger.js"
-// executeOrchestra removed — agent loop only (Phase 4)
-import { runAgentLoopAsOrchestraResult, isAgentLoopEnabled } from "../agent/agentLoopBridge.js"
+import { runAgentLoopRuntimeResult } from "../agent/agentLoopBridge.js"
 import { logBenchmark } from "../orchestra/benchmark.js"
 import { appendProjectMemory, getLatestProjectContext, findPastWinner } from "../memory/projectMemory.js"
 import { upsertThreadMemory, findSimilarQuery, getThreadMemory } from "../memory/threadMemory.js"
 import { saveThreadAttachments, getThreadAttachments, looksLikeContinuation } from "../memory/attachmentCache.js"
 import { broadcast } from "../http/websocket.js"
 import { executeHook } from "../plugins/pluginManager.js"
+import { normalizeChatMode, normalizeChatRuntimeInput } from "./chatRuntime.js"
+import { runDirector, runDirectorSync } from "../director/DirectorAgent.js"
 
 // ── 분리된 모듈 import ──
 import {
@@ -153,7 +154,7 @@ function buildBenchmarkPayload(result: any, input: any) {
 
   return {
     timestamp: new Date().toISOString(),
-    mode: input?.mode ?? "runtime_orchestra",
+    mode: normalizeChatMode(input?.mode),
     thread_id: input?.thread_id ?? "chat_thread",
     project_id: input?.project_id ?? "chat_project",
     task: route?.task ?? result?.internal_rationale?.task ?? null,
@@ -188,7 +189,7 @@ function buildErrorBenchmarkPayload(input: any, error: any, startedAt: number) {
   const messages = safeArray(input?.messages)
   return {
     timestamp: new Date().toISOString(),
-    mode: input?.mode ?? "runtime_orchestra",
+    mode: normalizeChatMode(input?.mode),
     thread_id: input?.thread_id ?? "chat_thread",
     project_id: input?.project_id ?? "chat_project",
     task: null, execution_strategy: null,
@@ -303,6 +304,87 @@ function buildReusedPayload(text: string, provider: string, source: "similar_que
 
 function writeSse(res: RouteResponse, payload: any) {
   res.write?.(`data: ${JSON.stringify(payload)}\n\n`)
+}
+
+const DIRECTOR_ROUTE_KEYWORDS = [
+  "대표이사", "상무", "부서", "프로젝트", "전략", "검토", "보고", "시장조사",
+  "리스크", "운영", "매출", "kpi", "런칭", "로드맵", "실행안", "재무", "법무"
+]
+const DIRECTOR_ROUTE_ACTIONS = [
+  "해줘", "수립", "분석", "정리", "검토", "보고", "계획", "우선순위", "평가", "작성"
+]
+
+function shouldRouteToDirector(input: any, query: string): boolean {
+  if (input?.force_director === true) return true
+  if (input?.attached_file) return false
+  const q = safeString(query)
+  if (!q) return false
+  if (/^\/업무\b/i.test(q) || /^지시[:：]/i.test(q)) return true
+  if (q.length < 14) return false
+  const lower = q.toLowerCase()
+  const hasKeyword = DIRECTOR_ROUTE_KEYWORDS.some((word) => lower.includes(word.toLowerCase()))
+  const hasAction = DIRECTOR_ROUTE_ACTIONS.some((word) => lower.includes(word.toLowerCase()))
+  return hasKeyword && hasAction
+}
+
+function directorStatusFromEvent(event: any): string {
+  switch (String(event?.type ?? "")) {
+    case "mission_start": return "CEO 지시 접수 · PMO가 업무를 분해합니다..."
+    case "pmo_plan": return "PMO 체크리스트 확정 · 부서 배정을 시작합니다..."
+    case "dept_start": return `${String(event?.deptId ?? "부서").toUpperCase()} 부서 실행 시작`
+    case "dept_progress": return `${String(event?.deptId ?? "부서").toUpperCase()} ${Number(event?.percent ?? 0)}% 진행`
+    case "dept_done": return `${String(event?.deptId ?? "부서").toUpperCase()} 결과 제출 완료`
+    case "critic_review": return `Critic 검증 완료 · ${String(event?.review?.verdict ?? "pass")}`
+    case "ceo_briefing": return "상무가 대표이사 보고서를 작성 중입니다..."
+    case "all_done": return "최종 경영 보고서가 완료되었습니다."
+    default: return ""
+  }
+}
+
+function renderDirectorFinalText(
+  directive: string,
+  roundSummary: any,
+  briefing: any,
+  critic: any,
+): string {
+  const mission = safeObject(roundSummary?.mission)
+  const topic = safeString(mission?.topic) || "Executive Mission"
+  const deptResults = Object.values(safeObject(roundSummary?.deptResults))
+  const doneCount = deptResults.filter((row: any) => String(row?.status) === "done").length
+  const errorCount = deptResults.filter((row: any) => String(row?.status) === "error").length
+
+  const opportunities = safeArray(briefing?.opportunities).slice(0, 4).map((item) => `- ${safeString(item)}`).join("\n") || "- 없음"
+  const risks = safeArray(briefing?.risks).slice(0, 4).map((item) => `- ${safeString(item)}`).join("\n") || "- 없음"
+  const recommendations = safeArray(briefing?.recommendations).slice(0, 4).map((item) => `- ${safeString(item)}`).join("\n") || "- 없음"
+  const criticIssues = safeArray(critic?.keyIssues).slice(0, 4).map((item) => `- ${safeString(item)}`).join("\n") || "- 특별 이슈 없음"
+
+  return [
+    `## 상무 종합보고 · ${topic}`,
+    "",
+    "### 대표이사 지시",
+    safeString(directive),
+    "",
+    "### 실행 현황",
+    `- 완료 부서: ${doneCount}`,
+    `- 오류 부서: ${errorCount}`,
+    "",
+    "### 핵심 요약",
+    safeString(briefing?.summary) || "요약이 생성되지 않았습니다.",
+    "",
+    "### 핵심 기회",
+    opportunities,
+    "",
+    "### 핵심 리스크",
+    risks,
+    "",
+    "### 즉시 실행 권고",
+    recommendations,
+    "",
+    "### Critic 검증",
+    `- verdict: ${safeString(critic?.verdict) || "pass"}`,
+    `- confidence: ${String(critic?.confidence ?? "") || "n/a"}`,
+    criticIssues,
+  ].join("\n")
 }
 
 function buildStructuredMemory(result: any) {
@@ -570,7 +652,7 @@ export async function runChatRoute(req: RouteRequest, res: RouteResponse) {
   if (validationError) return res.json?.({ ok: false, error: validationError })
 
   const rawInput = normalizeMultipleAttachments(req?.body ?? {})
-  const normalizedInput = { ...rawInput, mode: rawInput?.mode ?? "runtime_orchestra", thread_id: rawInput?.thread_id ?? "chat_thread", project_id: rawInput?.project_id ?? "chat_project" }
+  const normalizedInput = normalizeChatRuntimeInput(rawInput)
   const startedAt = Date.now()
   // ── 연속 턴 첨부파일 캐시 (Phase 1 복원) ────────────────────────────────
   reconcileThreadAttachments(normalizedInput)
@@ -613,6 +695,37 @@ export async function runChatRoute(req: RouteRequest, res: RouteResponse) {
     }
   }
 
+  // ── 요청 라우팅: CEO 워크플로 성격이면 Director 파이프라인으로 분기 ──
+  if (shouldRouteToDirector(effectiveInput, inboundQuery)) {
+    try {
+      const routed = await runDirectorSync(inboundQuery, {
+        projectName: "CONVUS X Autonomous Mission",
+        userId: "chat-user",
+      })
+      const finalText = renderDirectorFinalText(
+        inboundQuery,
+        routed.round,
+        routed.briefing,
+        routed.critic,
+      )
+      let threadTitle: string | null = null
+      try { threadTitle = await generateThreadTitle(inboundQuery, finalText) } catch {}
+      return res.json?.({
+        ...makeDonePayload("director", finalText, true, "executive_workflow", "director", ["director", "claude"]),
+        thread_title: threadTitle,
+        director: {
+          session_id: routed.sessionId,
+          round_number: routed.roundNumber,
+          critic: routed.critic ?? null,
+          briefing: routed.briefing ?? null,
+          round: routed.round ?? null,
+        }
+      })
+    } catch (e: any) {
+      return res.json?.({ ok: false, error: String(e?.message ?? "director_route_error") })
+    }
+  }
+
   try {
     // 과거 우승 provider 힌트 (캐시 답변 아님, routing 최적화만)
     const providerHint = tryMemoryProviderHint(normalizedInput)
@@ -637,7 +750,7 @@ export async function runChatRoute(req: RouteRequest, res: RouteResponse) {
       })
     }
     // Phase 4 complete: agent loop is always used (orchestra fallback removed)
-    const result = await runAgentLoopAsOrchestraResult(effectiveInput)
+    const result = await runAgentLoopRuntimeResult(effectiveInput)
     const _saveTxt = String(result?.final_answer?.text ?? ""); if (_saveTxt && _saveTxt.length > 20 && !_saveTxt.includes("final_answer를 찾지")) { try { persistRuntimeMemory(normalizedInput, result) } catch (e) { logger.warn("persistRuntimeMemory failed", { error: e }) } }
     try { await logBenchmark(buildBenchmarkPayload(result, normalizedInput)) } catch (e) { logger.warn("logBenchmark failed", { error: e }) }
     // 스레드 제목 자동 생성
@@ -716,7 +829,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
   const { signal } = abortController
   ;(req as any)?.on?.("close", () => { abortController.abort() })
 
-  const normalizedInput = { ...rawInput, mode: rawInput?.mode ?? "runtime_orchestra", thread_id: rawInput?.thread_id ?? "chat_thread", project_id: rawInput?.project_id ?? "chat_project", abort_signal: signal }
+  const normalizedInput = normalizeChatRuntimeInput(rawInput, { abort_signal: signal })
   const startedAt = Date.now()
 
   // ── 연속 턴 첨부파일 캐시 (Phase 1 복원) ────────────────────────────────
@@ -789,6 +902,66 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       const r = await handleImageCommand(inboundQuery)
       for (const chunk of r.message.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
       writeSse(res, { type: "done", payload: makeDonePayload("openai", r.message, r.ok, "image_generate", "dialogue", ["openai"], { is_image: r.ok, image_url: r.url ?? null, image_revised_prompt: (r as any).revised_prompt ?? null }) })
+      res.end?.(); return
+    }
+
+    // ── 요청 라우팅: CEO 워크플로 성격이면 Director 스트림으로 분기 ──
+    if (shouldRouteToDirector(effectiveInput, inboundQuery)) {
+      writeSse(res, { type: "status", content: "CEO 워크플로로 라우팅했습니다..." })
+
+      let capturedSummary: any = null
+      let capturedBriefing: any = null
+      let capturedCritic: any = null
+      let capturedSessionId = ""
+      let capturedRoundNumber = 0
+
+      await runDirector(inboundQuery, {
+        projectName: "CONVUS X Autonomous Mission",
+        userId: "chat-user",
+        onEvent: (event: any) => {
+          const status = directorStatusFromEvent(event)
+          if (status) writeSse(res, { type: "status", content: status })
+          writeSse(res, { type: "director_event", event })
+
+          if (event?.type === "all_done") {
+            capturedSummary = event?.summary ?? capturedSummary
+            capturedBriefing = event?.briefing ?? capturedBriefing
+            capturedCritic = event?.critic ?? capturedCritic
+            capturedSessionId = safeString(event?.sessionId) || capturedSessionId
+            capturedRoundNumber = Number(event?.roundNumber ?? capturedRoundNumber)
+          }
+          if (event?.type === "ceo_briefing") {
+            capturedBriefing = event?.briefing ?? capturedBriefing
+          }
+          if (event?.type === "critic_review") {
+            capturedCritic = event?.review ?? capturedCritic
+          }
+        }
+      })
+
+      const finalText = renderDirectorFinalText(
+        inboundQuery,
+        capturedSummary,
+        capturedBriefing,
+        capturedCritic,
+      )
+      let threadTitle: string | null = null
+      try { threadTitle = await generateThreadTitle(inboundQuery, finalText) } catch {}
+
+      writeSse(res, {
+        type: "done",
+        payload: {
+          ...makeDonePayload("director", finalText, true, "executive_workflow", "director", ["director", "claude"]),
+          thread_title: threadTitle,
+          director: {
+            session_id: capturedSessionId || null,
+            round_number: capturedRoundNumber || null,
+            critic: capturedCritic ?? null,
+            briefing: capturedBriefing ?? null,
+            round: capturedSummary ?? null,
+          }
+        }
+      })
       res.end?.(); return
     }
 
@@ -985,9 +1158,8 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       (effectiveInput as any).task = haikuRoute.task
     }
 
-    // ── 오케스트라 ──
-    writeSse(res, { type: "status", content: "AI 오케스트라 실행 중..." })
-    // Phase 2.5: CORVUS_USE_AGENT_LOOP=1 이면 에이전트 루프, 아니면 기존 오케스트라
+    // ── Agent Loop Runtime ──
+    writeSse(res, { type: "status", content: "에이전트 루프 실행 중..." })
     const streamEventHandler = async (event: any) => {
       if (signal.aborted) return
       // provider_start 이벤트에서 진행 상태 업데이트
@@ -1005,7 +1177,7 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       writeSse(res, event)
     }
     // Phase 4 complete: agent loop is always used (orchestra fallback removed)
-    const result = await runAgentLoopAsOrchestraResult({ ...effectiveInput, __abort_signal: signal }, streamEventHandler)
+    const result = await runAgentLoopRuntimeResult({ ...effectiveInput, __abort_signal: signal }, streamEventHandler)
 
     if (signal.aborted) {
       writeSse(res, { type: "done", payload: { ok: false, reason: "aborted", answer: { provider: null, text: "", ok: false }, meta: { orchestration: {} }, orchestration: {}, bandit: {}, derived: {}, internal: {}, result: null } })

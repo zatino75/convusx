@@ -44,6 +44,9 @@ import { chatRoute, chatStreamRoute } from "./routes/chat.js"
 import { usageRoute, scoreboardRoute, usageResetRoute } from "./routes/usage.js"
 import { dashboardRoute } from "./routes/dashboard.js"
 import { getSalesRoute, addSalesRoute, deleteSalesRoute } from "./routes/sales.js"
+import { getPosRoute, checkoutPosRoute, refundPosRoute } from "./routes/pos.js"
+import { deleteExecutiveReportRoute, getExecutiveReportsKpiRoute, getExecutiveReportsRoute, saveExecutiveReportRoute } from "./routes/executiveReports.js"
+import { getRetailReportsLatestRoute, getRetailReportsRoute, refreshRetailReportsRoute } from "./routes/retailReports.js"
 import { getSettingsKeys, saveSettingsKeys, resetSettings, validateKey } from "./routes/settings.js"
 import { exportThreadRoute } from "./routes/export.js"
 import { analyzePdfWithGemini, analyzeOfficeFileWithClaude, analyzeOfficeFileWithGemini } from "./routes/chatFileAnalysis.js"
@@ -78,6 +81,8 @@ import { backupExport, backupDownload, backupRestore } from "./routes/backup.js"
 import { docsRoute } from "./routes/openapi.js"
 import { startScheduler, stopScheduler, getSchedulerStatus, triggerTask } from "./scheduler/backgroundScheduler.js"
 import { externalToolRoute } from "./routes/externalTool.js"
+import { directorStartRoute, directorSessionRoute, directorConnectorsRoute, directorBriefingRoute } from "./routes/director.js"
+import { directorStreamGetRoute, directorStreamPostRoute, directorStreamOptionsRoute } from "./routes/directorStream.js"
 
 // ── 환경 설정 초기화 ──
 const envConfig = getEnvConfig()
@@ -119,6 +124,33 @@ router.post("/api/chat/stream", async (req: IncomingMessage, res: ServerResponse
     on: (event: string, cb: () => void) => { if (event === "close") req.on("close", cb) }
   }
   await chatStreamRoute.handler(reqLike, res)
+}, true)
+
+// ── Director (자율형 AI 조직) ──
+router.post("/api/director/start", async (req: IncomingMessage, res: ServerResponse) => {
+  await directorStartRoute(req, res)
+})
+router.get("/api/director/session", async (req: IncomingMessage, res: ServerResponse) => {
+  await directorSessionRoute(req, res)
+})
+router.get("/api/director/session/*", async (req: IncomingMessage, res: ServerResponse) => {
+  await directorSessionRoute(req, res)
+})
+router.get("/api/director/briefing/*", async (req: IncomingMessage, res: ServerResponse) => {
+  await directorBriefingRoute(req, res)
+})
+router.get("/api/director/connectors", async (req: IncomingMessage, res: ServerResponse) => {
+  await directorConnectorsRoute(req, res)
+})
+// SSE 실시간 스트리밍 (EventSource 호환)
+router.get("/api/director/stream", async (req: IncomingMessage, res: ServerResponse) => {
+  await directorStreamGetRoute(req, res)
+}, true)  // 인증 화이트리스트 — SSE는 쿠키 없이도 EventSource 연결 가능
+router.post("/api/director/stream", async (req: IncomingMessage, res: ServerResponse) => {
+  await directorStreamPostRoute(req, res)
+}, true)
+router.options("/api/director/stream", (req: IncomingMessage, res: ServerResponse) => {
+  directorStreamOptionsRoute(req, res)
 }, true)
 
 // ── Benchmark ──
@@ -169,6 +201,38 @@ router.get("/api/dashboard", async (_req: ParsedRequest, res: ExpressLikeRespons
 router.get("/api/sales", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await getSalesRoute({}, res) })
 router.post("/api/sales", addSalesRoute)
 router.post("/api/sales/delete", deleteSalesRoute)
+
+// ── POS ──
+router.get("/api/pos", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await getPosRoute({}, res) })
+router.post("/api/pos/checkout", checkoutPosRoute)
+router.post("/api/pos/refund", refundPosRoute)
+
+// ── Executive Reports ──
+router.get("/api/executive-reports", async (req: IncomingMessage, res: ServerResponse) => {
+  const url = parseUrl(req.url)
+  const limit = Number(url.searchParams.get("limit") ?? "24")
+  const resLike = createExpressLikeResponse(res)
+  await getExecutiveReportsRoute({ query: { limit } }, resLike)
+}, true)
+router.post("/api/executive-reports", saveExecutiveReportRoute)
+router.post("/api/executive-reports/delete", deleteExecutiveReportRoute)
+router.get("/api/executive-reports/kpi", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await getExecutiveReportsKpiRoute({}, res) })
+
+// ── Retail Reports (일/주/월 스냅샷) ──
+router.get("/api/retail/reports", async (req: IncomingMessage, res: ServerResponse) => {
+  const url = parseUrl(req.url)
+  const limit = Number(url.searchParams.get("limit") ?? "30")
+  const scope = String(url.searchParams.get("scope") ?? "retail_kpi")
+  const resLike = createExpressLikeResponse(res)
+  await getRetailReportsRoute({ query: { limit, scope } }, resLike)
+}, true)
+router.get("/api/retail/reports/latest", async (req: IncomingMessage, res: ServerResponse) => {
+  const url = parseUrl(req.url)
+  const scope = String(url.searchParams.get("scope") ?? "retail_kpi")
+  const resLike = createExpressLikeResponse(res)
+  await getRetailReportsLatestRoute({ query: { scope } }, resLike)
+}, true)
+router.post("/api/retail/reports/refresh", refreshRetailReportsRoute)
 
 // ── Memory API ──
 router.get("/api/project-memory", async (req: IncomingMessage, res: ServerResponse) => {
@@ -373,7 +437,7 @@ router.get("/api/scheduler/status", async (_req: ParsedRequest, res: ExpressLike
 })
 router.post("/api/scheduler/trigger", async (req: ParsedRequest, res: ExpressLikeResponse) => {
   const task = String((req.body as Record<string, unknown>)?.task ?? "")
-  if (!task) return res.json({ ok: false, error: "task is required (log_rotation | health_check)" })
+  if (!task) return res.json({ ok: false, error: "task is required (log_rotation | health_check | retail_snapshot)" })
   const result = await triggerTask(task)
   res.json(result)
 })

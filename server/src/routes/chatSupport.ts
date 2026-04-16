@@ -3,6 +3,7 @@ import { getThreadMemory, upsertThreadMemory, findSimilarQuery } from "../memory
 // NOTE (2026-04-11): logBenchmark import 제거 — orchestra/benchmark 로 직접 필요 시 chat.ts 에서 호출
 import { logger } from "../observability/logger.js"
 import { OPENAI_BASE } from "../config/defaults.js"
+import { normalizeChatMode } from "./chatRuntime.js"
 
 const SOURCE_PROMOTE_PATTERNS = ["소스로 등록", "출처로 저장", "프로젝트에 추가", "자료로 저장"]
 
@@ -105,7 +106,7 @@ export function buildBenchmarkPayload(result: any, input: any) {
 
   return {
     timestamp: new Date().toISOString(),
-    mode: input?.mode ?? "runtime_orchestra",
+    mode: normalizeChatMode(input?.mode),
     thread_id: input?.thread_id ?? "chat_thread",
     project_id: input?.project_id ?? "chat_project",
     task: route?.task ?? result?.internal_rationale?.task ?? null,
@@ -140,7 +141,7 @@ export function buildErrorBenchmarkPayload(input: any, error: any, startedAt: nu
   const messages = safeArray(input?.messages)
   return {
     timestamp: new Date().toISOString(),
-    mode: input?.mode ?? "runtime_orchestra",
+    mode: normalizeChatMode(input?.mode),
     thread_id: input?.thread_id ?? "chat_thread",
     project_id: input?.project_id ?? "chat_project",
     task: null, execution_strategy: null,

@@ -1,8 +1,8 @@
 // _domainHelper.ts — Phase 4 domain tools shared search helper
 //
-// 각 도메인 도구는 Perplexity sonar-pro 를 호이해 실시간 데이터를 수집한 뒤
-// 도메인 컨텍스트(용어�법규�시장 구조)를 system instruction 으로 주입한다.
-// 개별 도메인 도구는 이 헬퍼를 import 해서 아주 얼은 레이어로만 작동한다.
+// 각 도메인 도구는 Perplexity sonar-pro 를 호출해 실시간 데이터를 수집한 뒤
+// 도메인 컨텍스트(용어·법규·시장 구조)를 system instruction 으로 주입한다.
+// 개별 도메인 도구는 이 헬퍼를 import 해서 아주 얇은 레이어로만 작동한다.
 
 import type { ToolResult } from "../../toolRegistry.js"
 import { PERPLEXITY_BASE, ADAPTER_TIMEOUT_MS } from "../../../config/defaults.js"

@@ -80,6 +80,36 @@ export function SalesIcon() {
   );
 }
 
+export function WorkforceIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="8" cy="8" r="2.5" />
+      <circle cx="16" cy="8" r="2.5" />
+      <path d="M4 19c0-2.2 1.8-4 4-4s4 1.8 4 4" />
+      <path d="M12 19c0-2.2 1.8-4 4-4s4 1.8 4 4" />
+    </svg>
+  );
+}
+
+export function StoreOpsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M4 8h16l-1.2 11a2 2 0 0 1-2 1.8H7.2a2 2 0 0 1-2-1.8z" />
+      <path d="M3 8V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2" />
+      <path d="M9 12h6M9 16h6" />
+    </svg>
+  );
+}
+
+export function PosIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="4" y="3" width="16" height="18" rx="2" />
+      <path d="M8 8h8M8 12h3M13 12h3M8 16h3M13 16h3" />
+    </svg>
+  );
+}
+
 export function BenchmarkIcon() {
   return (
     <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.9">

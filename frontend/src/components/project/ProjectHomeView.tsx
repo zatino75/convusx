@@ -1,6 +1,5 @@
 ﻿import { useEffect, useRef, useState, useCallback } from "react";
 import { t } from "../../i18n";
-import { showToast } from "../ui/Toast";
 import type { ProjectGroup } from "../../types/workspace";
 import { useWorkspaceState } from "../../store/workspaceStore";
 import {
@@ -15,9 +14,6 @@ import {
 } from "../../store/sourceStore";
 import ProjectThreadList from "./ProjectThreadList";
 import { apiFetch } from "../../api/url";
-import { MAX_ATTACHMENTS } from "../../utils/constants";
-
-type AttachedFile = { name: string; type: string; base64: string; size: number };
 
 type Props = {
   project: ProjectGroup | null;
@@ -27,10 +23,7 @@ type Props = {
   onMoveThread?: (threadId: string) => void;
   onRemoveFromProject?: (threadId: string) => void;
   onDeleteThread?: (threadId: string) => void;
-  onSubmitPrompt?: (value: string) => void;
   isSending?: boolean;
-  attachedFiles?: AttachedFile[];
-  onAttachFiles?: (files: AttachedFile[]) => void;
 };
 
 type Tab = "스레드" | "소스" | "지침";
@@ -538,175 +531,27 @@ function SourcesTab({ project }: { project: ProjectGroup }) {
   );
 }
 
-function ProjectQuickComposer({
-  isSending,
-  onSubmit,
-  attachedFiles,
-  onAttachFiles
-}: {
-  isSending: boolean;
-  onSubmit: (v: string) => void;
-  attachedFiles?: AttachedFile[];
-  onAttachFiles?: (files: AttachedFile[]) => void;
-}) {
-  const [value, setValue] = useState("");
-  const [dragActive, setDragActive] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  const hasContent = !!(value.trim() || (attachedFiles && attachedFiles.length > 0));
-
-  function handleSubmit() {
-    if (!hasContent || isSending) return;
-    onSubmit(value.trim());
-    setValue("");
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter" && !e.shiftKey && hasContent && !isSending) {
-      e.preventDefault();
-      handleSubmit();
-    }
-  }
-
-  async function processFiles(fileList: File[]) {
-    if (fileList.length === 0) return;
-    const maxSize = 20 * 1024 * 1024;
-    const current = attachedFiles ?? [];
-    const remaining = MAX_ATTACHMENTS - current.length;
-    if (remaining <= 0) { showToast(t("chat.maxAttachments").replace("{max}", String(MAX_ATTACHMENTS)), "warning"); return; }
-    const toProcess = fileList.slice(0, remaining).filter(f => f.size <= maxSize);
-    const results = await Promise.all(toProcess.map(file => new Promise<AttachedFile>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        const base64 = result.split(",")[1] ?? result;
-        resolve({ name: file.name, type: file.type, base64, size: file.size });
-      };
-      reader.readAsDataURL(file);
-    })));
-    onAttachFiles?.([...current, ...results]);
-  }
-
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
-    processFiles(files);
-    e.target.value = "";
-  }
-
-  function handleDragOver(e: React.DragEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(true);
-  }
-
-  function handleDragLeave(e: React.DragEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-  }
-
-  function handleDrop(e: React.DragEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    const files = Array.from(e.dataTransfer.files ?? []);
-    processFiles(files);
-  }
-
-  return (
-    <div
-      onDragOver={handleDragOver}
-      onDragEnter={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      style={{
-        border: `1px solid ${dragActive ? "var(--text-main)" : "var(--border)"}`,
-        borderRadius: 14,
-        background: dragActive ? "rgba(0,0,0,0.03)" : "var(--surface-1, #f9f9f9)",
-        overflow: "hidden",
-        transition: "border-color 0.15s, background 0.15s",
-        position: "relative"
-      }}
-    >
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*,.pdf,.txt,.md,.csv,.json,.ts,.tsx,.js,.jsx,.py"
-        style={{ display: "none" }}
-        multiple
-        onChange={handleFileChange}
-      />
-
-      {/* 드래그 오버레이 */}
-      {dragActive && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, pointerEvents: "none" }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)", display: "flex", alignItems: "center", gap: 6 }}>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 16V5M7 10l5-5 5 5" /><path d="M5 19h14" /></svg>
-            {t("project.dropToAttach")}
-          </div>
-        </div>
-      )}
-
-      {/* 첨부 파일 미리보기 */}
-      {attachedFiles && attachedFiles.length > 0 && (
-        <div style={{ padding: "8px 14px 0", display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {attachedFiles.map((f, idx) => (
-            <div key={idx} style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 8, background: "var(--surface-2, #f0f0f0)", border: "1px solid var(--border)", fontSize: 12, color: "var(--text-main)", maxWidth: 200 }}>
-              <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ flexShrink: 0, color: "var(--text-sub)" }}>
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
-              </svg>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{f.name}</span>
-              <button type="button" onClick={() => onAttachFiles?.(attachedFiles.filter((_, i) => i !== idx))}
-                style={{ display: "flex", alignItems: "center", border: "none", background: "none", cursor: "pointer", color: "var(--text-sub)", padding: 0, flexShrink: 0 }}>
-                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px" }}>
-        <button type="button" onClick={() => fileInputRef.current?.click()} title={t("chat.attachFile")}
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, border: "1px solid var(--border)", background: "transparent", cursor: "pointer", color: "var(--text-sub)", flexShrink: 0 }}>
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
-        </button>
-        <input
-          value={value}
-          onChange={e => setValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={attachedFiles && attachedFiles.length > 0 ? t("chat.placeholderWithFile") : t("chat.placeholderProject")}
-          style={{ flex: 1, border: "none", background: "transparent", fontSize: 14, color: "var(--text-main)", outline: "none" }}
-        />
-        <button type="button" onClick={handleSubmit} disabled={!hasContent || isSending}
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: "50%", border: "none", background: hasContent ? "var(--text-main)" : "var(--border)", color: hasContent ? "var(--bg-main, #fff)" : "var(--text-sub)", cursor: hasContent ? "pointer" : "default", flexShrink: 0 }}>
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 5l7 7-7 7" /></svg>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export default function ProjectHomeView({ project, activeThreadId = null, onOpenThread, onRenameThread, onMoveThread, onRemoveFromProject, onDeleteThread, onSubmitPrompt, isSending = false, attachedFiles, onAttachFiles }: Props) {
+export default function ProjectHomeView({ project, activeThreadId = null, onOpenThread, onRenameThread, onMoveThread, onRemoveFromProject, onDeleteThread, isSending = false }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("스레드");
   if (!project) return null;
   return (
-    <div className="home-view">
+    <div className="home-view office-stage-view">
       <div className="home-view__scroll">
         <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 20px 0" }}>
+          <section className="office-mission-strip office-mission-strip--project">
+            <header className="office-mission-strip__head">
+              <span className={`office-mission-strip__phase is-${isSending ? "working" : "meeting"}`}>
+                {isSending ? "부서 실행" : "미팅룸 보고"}
+              </span>
+              <strong>PROJECT MISSION</strong>
+            </header>
+            <p>{project.meta?.instruction?.trim() || `${project.title} 프로젝트의 실행 현황과 보고를 관리합니다.`}</p>
+          </section>
+
           <div style={{ marginBottom: 24 }}>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--text-main)", marginBottom: 6 }}>{project.title}</h1>
             <div style={{ fontSize: 13, color: "var(--text-sub)" }}>{t("project.threadCount").replace("{count}", String(project.threadCount))}</div>
           </div>
-          {onSubmitPrompt && (
-            <div style={{ marginBottom: 24 }}>
-              <ProjectQuickComposer
-                isSending={isSending}
-                onSubmit={onSubmitPrompt}
-                attachedFiles={attachedFiles}
-                onAttachFiles={onAttachFiles}
-              />
-            </div>
-          )}
           <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid var(--border)" }}>
             {(["스레드", "소스", "지침"] as Tab[]).map(tab => (
               <button key={tab} type="button" onClick={() => setActiveTab(tab)}

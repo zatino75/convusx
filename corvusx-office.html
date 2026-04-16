@@ -1,0 +1,864 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=1440" />
+<title>CORVUS X — Pixel Office</title>
+<style>
+  :root{
+    --bg:#0a0e1a; --bg-2:#0f1420; --panel:#131a2a;
+    --wall:#1a2540; --wall-lt:#2a3a5c;
+    --floor-a:#1e2838; --floor-b:#242f42;
+    --wood:#6b4a2b; --wood-lt:#8a623b;
+    --ink:#e0e8f0; --dim:#7a8aa0;
+    --cyan:#00d4ff; --gold:#ffc94a; --red:#ff5e5e;
+    --green:#4ade80; --magenta:#ff3ea5;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:'Courier New','D2Coding',monospace;overflow:hidden}
+  .app{display:grid;grid-template-columns:1fr 480px;grid-template-rows:52px 1fr;height:100vh}
+
+  /* top bar */
+  .topbar{grid-column:1 / -1;display:flex;align-items:center;gap:14px;padding:0 18px;background:#06090f;border-bottom:1px solid #1a2540;font-size:15px}
+  .logo{font-weight:bold;color:var(--cyan);letter-spacing:2px}
+  .proj{color:var(--dim)} .proj b{color:var(--ink)}
+  .tag{padding:2px 8px;border:1px solid #2a3a5c;border-radius:2px;color:var(--dim);font-size:11px}
+  .tag.live{border-color:var(--green);color:var(--green);animation:pulse 1.6s ease-in-out infinite}
+  .tag.idle{border-color:#2a3a5c;color:var(--dim)}
+  .tag.err{border-color:var(--red);color:var(--red)}
+  @keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
+  .spacer{flex:1}
+  .topbar button{background:var(--cyan);color:#000;border:none;padding:5px 12px;font-family:inherit;font-weight:bold;letter-spacing:1px;cursor:pointer;border-radius:2px;font-size:11px}
+  .topbar button.stop{background:var(--red);color:#fff}
+
+  /* office */
+  .office{
+    position:relative;
+    min-height:0;
+    background:
+      linear-gradient(45deg,var(--floor-a) 25%,transparent 25%),
+      linear-gradient(-45deg,var(--floor-a) 25%,transparent 25%),
+      linear-gradient(45deg,transparent 75%,var(--floor-a) 75%),
+      linear-gradient(-45deg,transparent 75%,var(--floor-a) 75%),
+      var(--floor-b);
+    background-size:28px 28px;
+    background-position:0 0,0 14px,14px -14px,-14px 0;
+    overflow:hidden;border-bottom:2px solid #1a2540;
+  }
+  .room{position:absolute;border:3px solid var(--wall);background:rgba(10,14,26,.55);border-radius:2px}
+  .room .label{position:absolute;top:4px;left:8px;font-size:11px;letter-spacing:1px;color:var(--dim)}
+  .room.critic{top:14px;left:16px;width:200px;height:160px;border-color:#ff3ea5}
+  .room.critic .label{color:#ff3ea5}
+  .room.meeting{top:14px;left:232px;right:232px;height:160px;border-color:var(--cyan)}
+  .room.meeting .label{color:var(--cyan)}
+  .room.archive{top:14px;right:16px;width:200px;height:160px;border-color:var(--gold)}
+  .room.archive .label{color:var(--gold)}
+
+  .desks{position:absolute;top:200px;left:40px;right:40px;display:grid;grid-template-columns:repeat(3,1fr);grid-gap:24px 40px;padding-top:8px}
+  .desk{position:relative;height:70px;background:linear-gradient(180deg,var(--wood-lt),var(--wood));border-radius:4px;box-shadow:inset 0 -6px 0 rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px;font-size:11px;color:#2b1a0d;font-weight:bold;letter-spacing:1px;transition:box-shadow .3s}
+  .desk .ring{position:absolute;top:-22px;left:50%;transform:translateX(-50%);width:42px;height:42px;border-radius:50%}
+  .desk[data-state="thinking"] .ring,.desk[data-state="working"] .ring{background:radial-gradient(circle,rgba(0,212,255,.35) 40%,rgba(0,212,255,0) 70%);animation:pulse 1.4s ease-in-out infinite}
+  .desk[data-state="done"] .ring{background:radial-gradient(circle,rgba(255,201,74,.55) 40%,rgba(255,201,74,0) 70%)}
+  .desk[data-state="error"] .ring{background:radial-gradient(circle,rgba(255,94,94,.55) 40%,rgba(255,94,94,0) 70%)}
+  .desk[data-state="idle"] .ring{background:none}
+  .desk .badge{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:11px;border:2px solid var(--panel)}
+  .desk[data-state="done"] .badge{background:var(--gold);color:#111;border-color:var(--gold)}
+  .desk[data-state="done"] .badge::before{content:"✓"}
+  .desk[data-state="error"] .badge{background:var(--red);color:#fff;border-color:var(--red)}
+  .desk[data-state="error"] .badge::before{content:"!"}
+  .desk .pct{position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);font-size:9px;color:var(--cyan)}
+
+  .ceo-desk{position:absolute;left:50%;transform:translateX(-50%);bottom:82px;width:320px;height:54px;background:linear-gradient(180deg,#8a623b,#5c3f22);border-radius:4px 4px 0 0;box-shadow:inset 0 -8px 0 rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:12px;color:#ffe8b8;letter-spacing:3px;font-weight:bold}
+
+  .tools{position:absolute;left:0;right:0;bottom:10px;display:flex;justify-content:space-around;padding:0 40px}
+  .tool{width:130px;height:60px;background:var(--panel);border:2px solid var(--wall-lt);border-radius:3px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;color:var(--dim);letter-spacing:1px;position:relative;transition:all .3s}
+  .tool .icon{font-size:22px;margin-bottom:2px;filter:grayscale(.3)}
+  .tool.active{border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 14px rgba(0,212,255,.35)}
+  .tool.active .icon{filter:none}
+
+  /* character */
+  .char{position:absolute;width:34px;height:34px;pointer-events:auto;transition:left .9s ease,top .9s ease,opacity .3s;z-index:5}
+  .char svg{image-rendering:pixelated;width:100%;height:100%;filter:drop-shadow(0 2px 0 rgba(0,0,0,.5))}
+  .char .nametag{position:absolute;top:34px;left:50%;transform:translateX(-50%);font-size:9px;color:var(--ink);background:rgba(10,14,26,.85);padding:1px 5px;border-radius:2px;white-space:nowrap;border:1px solid #2a3a5c}
+  .bubble{position:absolute;top:-22px;left:50%;transform:translateX(-50%);background:#fff;color:#111;font-size:10px;padding:2px 6px;border-radius:3px;white-space:nowrap;animation:bob 1.8s ease-in-out infinite;max-width:180px;overflow:hidden;text-overflow:ellipsis}
+  .bubble::after{content:'';position:absolute;bottom:-4px;left:50%;transform:translateX(-50%);border:4px solid transparent;border-top-color:#fff}
+  .bubble.think{background:#cfe6ff} .bubble.think::after{border-top-color:#cfe6ff}
+  .bubble.crit{background:#ffd0d0} .bubble.crit::after{border-top-color:#ffd0d0}
+  .bubble.done{background:#ffe3a0} .bubble.done::after{border-top-color:#ffe3a0}
+  @keyframes bob{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,-3px)}}
+
+  .legend{position:absolute;left:14px;bottom:14px;display:flex;flex-direction:column;gap:4px;font-size:10px;color:var(--dim);background:rgba(10,14,26,.7);padding:8px;border:1px solid #2a3a5c;border-radius:3px;z-index:20}
+  .legend b{color:var(--ink)}
+  .legend .sw{display:inline-block;width:10px;height:10px;margin-right:4px;border-radius:2px;vertical-align:middle}
+
+  /* right sidebar (vertical stack) */
+  .bottom{display:grid;grid-template-rows:1.6fr 1fr 1fr;gap:1px;background:#1a2030;border-left:2px solid #1a2540;overflow:hidden}
+  .panel{background:var(--bg-2);padding:14px 16px;overflow-y:auto;min-height:0}
+  .panel h3{margin:0 0 10px;font-size:13px;color:var(--cyan);letter-spacing:2px;border-bottom:1px solid #2a3a5c;padding-bottom:6px;display:flex;justify-content:space-between}
+  .panel h3 .sub{color:var(--dim);font-weight:normal;font-size:11px;letter-spacing:1px}
+
+  .msg{margin-bottom:9px;font-size:14px;line-height:1.55;word-wrap:break-word}
+  .msg.user{color:var(--ink)}
+  .msg.sys{color:var(--dim);font-size:12px}
+  .msg.err{color:var(--red);font-size:12px}
+  .msg.ok{color:var(--green);font-size:12px}
+  .msg .who{display:inline-block;padding:1px 7px;margin-right:6px;border-radius:2px;background:#1f2a42;color:var(--cyan);font-size:11px;letter-spacing:1px}
+  .msg.user .who{background:var(--cyan);color:#000}
+  .msg.err .who{background:var(--red);color:#fff}
+  .msg.ok .who{background:var(--green);color:#000}
+
+  .input{margin-top:10px;display:flex;gap:8px;position:sticky;bottom:0;background:var(--bg-2);padding-top:10px}
+  .input textarea{flex:1;background:#0b1020;border:1px solid #2a3a5c;color:var(--ink);padding:10px 12px;font-family:inherit;font-size:14px;line-height:1.5;border-radius:2px;resize:none;height:120px}
+  .input .col{display:flex;flex-direction:column;gap:6px}
+  .input button{background:var(--cyan);border:none;color:#000;padding:0 14px;font-weight:bold;letter-spacing:1px;font-family:inherit;cursor:pointer;border-radius:2px;font-size:12px;height:56px}
+  .input button.demo{background:#2a3a5c;color:var(--ink);height:56px}
+
+  .pmo-item{font-size:13px;margin-bottom:6px;padding:8px 10px;background:#0b1020;border-left:3px solid #2a3a5c;display:flex;justify-content:space-between;gap:8px;transition:all .3s}
+  .pmo-item[data-state="done"]{border-left-color:var(--gold);color:var(--dim)}
+  .pmo-item[data-state="working"]{border-left-color:var(--cyan);color:var(--cyan)}
+  .pmo-item[data-state="pending"]{border-left-color:#2a3a5c;color:var(--dim)}
+  .pmo-item[data-state="error"]{border-left-color:var(--red);color:var(--red)}
+  .pmo-item .eta{font-size:10px;color:var(--dim)}
+
+  .critic-box{padding:8px;background:#2a1220;border:1px solid var(--magenta);border-radius:2px;font-size:11px;line-height:1.5}
+  .critic-box.pass{background:#0d2218;border-color:var(--green)}
+  .critic-box .verdict{display:inline-block;padding:1px 8px;background:var(--magenta);color:#fff;font-size:10px;letter-spacing:1px;margin-bottom:4px}
+  .critic-box.pass .verdict{background:var(--green);color:#000}
+  .critic-box .issue{color:#ffc0d8;padding-left:10px;position:relative;margin-top:4px;font-size:10px}
+  .critic-box .issue::before{content:'▸';position:absolute;left:0;color:var(--magenta)}
+  .critic-box.pass .issue{color:#b4f0c5}
+  .critic-box.pass .issue::before{color:var(--green)}
+
+  .briefing{padding:8px;background:#0b1020;border:1px solid var(--gold);border-radius:2px;font-size:11px;line-height:1.5;margin-top:10px}
+  .briefing h4{margin:0 0 4px;color:var(--gold);font-size:11px;letter-spacing:1px}
+  .briefing .metric{display:flex;justify-content:space-between;margin-top:3px;font-size:10px;color:var(--dim)}
+  .briefing .metric b{color:var(--gold)}
+  .briefing ul{margin:4px 0;padding-left:16px;font-size:10px}
+  .briefing .sec{margin-top:6px}
+  .briefing .sec b{color:var(--gold);font-size:10px;letter-spacing:1px}
+
+  .empty{color:var(--dim);font-size:11px;font-style:italic;padding:14px 0;text-align:center}
+
+  /* ── 회의실 3-AI 앙상블 trio ────────────────────────────────────────── */
+  .ai-trio{position:absolute;top:48px;left:0;right:0;display:flex;justify-content:space-around;align-items:flex-end;padding:0 18px;pointer-events:none;height:90px}
+  .ai-trio .ai-seat{position:relative;width:48px;height:78px;display:flex;flex-direction:column;align-items:center;opacity:.35;transition:opacity .3s,transform .3s}
+  .ai-trio .ai-seat.active{opacity:1;transform:translateY(-4px)}
+  .ai-trio .ai-seat.active::before{content:'';position:absolute;inset:-4px;border-radius:50%;background:radial-gradient(closest-side,currentColor 0%,transparent 70%);opacity:.35;animation:aipulse 1.2s ease-in-out infinite;z-index:0}
+  .ai-trio .ai-seat svg{width:34px;height:34px;position:relative;z-index:1}
+  .ai-trio .ai-seat .ai-tag{margin-top:2px;font-size:9px;letter-spacing:1px;font-weight:bold;text-shadow:0 0 4px currentColor;position:relative;z-index:1}
+  .ai-trio .ai-seat[data-ai="claude"]{color:#a855f7}
+  .ai-trio .ai-seat[data-ai="gpt"]{color:#10a37f}
+  .ai-trio .ai-seat[data-ai="gemini"]{color:#4285f4}
+  .ai-trio .ai-seat .ai-bubble{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);background:#0b1020;border:1px solid currentColor;color:#e6e8ef;padding:3px 6px;border-radius:2px;font-size:9px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;display:none;z-index:2}
+  .ai-trio .ai-seat.active .ai-bubble{display:block}
+  .room.meeting.consensus{box-shadow:0 0 0 2px var(--cyan) inset,0 0 18px rgba(0,212,255,.45);transition:box-shadow .4s}
+  @keyframes aipulse{0%,100%{transform:scale(.92);opacity:.25}50%{transform:scale(1.18);opacity:.55}}
+
+  /* CRITIC 워킹 시 부서 책상 옆 표식 */
+  .desk.under-review{box-shadow:0 0 0 2px #ff3ea5 inset,0 0 14px rgba(255,62,165,.4);animation:reviewscan 1s ease-in-out infinite alternate}
+  @keyframes reviewscan{from{box-shadow:0 0 0 2px #ff3ea5 inset,0 0 6px rgba(255,62,165,.2)}to{box-shadow:0 0 0 2px #ff3ea5 inset,0 0 18px rgba(255,62,165,.6)}}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <span class="logo">◢◤ CORVUS X</span>
+    <span class="proj">프로젝트: <b id="projName">대기 중</b></span>
+    <span class="tag" id="domainTag">도메인: —</span>
+    <span class="tag idle" id="statusTag">● IDLE</span>
+    <span class="spacer"></span>
+    <span class="proj">도구 호출: <b id="toolCount">0</b></span>
+    <span class="proj">경과: <b id="elapsed">0초</b></span>
+    <button id="stopBtn" class="stop" style="display:none">■ 중단</button>
+  </div>
+
+  <div class="office" id="office">
+
+    <div class="room critic"><div class="label">◢ CRITIC 사무실</div></div>
+    <div class="room meeting" id="meetingRoom">
+      <div class="label">◢ 회의실 (PMO · 3-AI 앙상블)</div>
+      <div class="ai-trio" id="aiTrio">
+        <div class="ai-seat" data-ai="claude" id="ai-claude">
+          <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
+            <rect x="5" y="2" width="6" height="5" fill="#f6d5ad"/>
+            <rect x="6" y="4" width="1" height="1" fill="#000"/><rect x="9" y="4" width="1" height="1" fill="#000"/>
+            <rect x="4" y="7" width="8" height="6" fill="#a855f7"/>
+            <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
+          </svg>
+          <div class="ai-tag">CLAUDE</div>
+          <div class="ai-bubble"></div>
+        </div>
+        <div class="ai-seat" data-ai="gpt" id="ai-gpt">
+          <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
+            <rect x="5" y="2" width="6" height="5" fill="#f6d5ad"/>
+            <rect x="6" y="4" width="1" height="1" fill="#000"/><rect x="9" y="4" width="1" height="1" fill="#000"/>
+            <rect x="4" y="7" width="8" height="6" fill="#10a37f"/>
+            <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
+          </svg>
+          <div class="ai-tag">GPT</div>
+          <div class="ai-bubble"></div>
+        </div>
+        <div class="ai-seat" data-ai="gemini" id="ai-gemini">
+          <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
+            <rect x="5" y="2" width="6" height="5" fill="#f6d5ad"/>
+            <rect x="6" y="4" width="1" height="1" fill="#000"/><rect x="9" y="4" width="1" height="1" fill="#000"/>
+            <rect x="4" y="7" width="8" height="6" fill="#4285f4"/>
+            <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
+          </svg>
+          <div class="ai-tag">GEMINI</div>
+          <div class="ai-bubble"></div>
+        </div>
+      </div>
+    </div>
+    <div class="room archive"><div class="label">◢ 자료실 (스레드 · 프로젝트 메모리)</div></div>
+
+    <div class="desks" id="desks">
+      <!-- 동적 렌더 (JS) -->
+    </div>
+
+    <div class="ceo-desk">👑 CEO DIRECTOR</div>
+
+    <div class="tools">
+      <div class="tool" data-tool="perplexity"><span class="icon">🔎</span>PERPLEXITY</div>
+      <div class="tool" data-tool="regulation"><span class="icon">📚</span>법규 서고</div>
+      <div class="tool" data-tool="memory"><span class="icon">🗄️</span>파일 캐비넷</div>
+      <div class="tool" data-tool="image"><span class="icon">🎨</span>이미지 생성</div>
+      <div class="tool" data-tool="data"><span class="icon">📊</span>데이터 워크</div>
+    </div>
+
+    <!-- 정적 캐릭터: CEO, Critic, PMO -->
+    <div class="char" id="char-ceo" style="left:calc(50% - 17px); bottom:140px;">
+      <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
+        <rect x="5" y="1" width="6" height="1" fill="#ffc94a"/>
+        <rect x="4" y="2" width="8" height="1" fill="#ffc94a"/>
+        <rect x="5" y="3" width="6" height="4" fill="#f6d5ad"/>
+        <rect x="6" y="4" width="1" height="1" fill="#000"/><rect x="9" y="4" width="1" height="1" fill="#000"/>
+        <rect x="4" y="7" width="8" height="6" fill="#6b1f3a"/>
+        <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
+      </svg>
+      <div class="nametag">DIRECTOR</div>
+    </div>
+
+    <div class="char" id="char-critic" style="left:90px; top:80px;">
+      <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
+        <rect x="5" y="2" width="6" height="5" fill="#f6d5ad"/>
+        <rect x="6" y="4" width="1" height="1" fill="#000"/><rect x="9" y="4" width="1" height="1" fill="#000"/>
+        <rect x="4" y="7" width="8" height="6" fill="#ff3ea5"/>
+        <rect x="11" y="8" width="2" height="2" fill="#ff5e5e"/>
+        <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
+      </svg>
+      <div class="nametag">CRITIC</div>
+    </div>
+
+    <div class="char" id="char-pmo" style="left:360px; top:80px;">
+      <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
+        <rect x="5" y="2" width="6" height="5" fill="#f6d5ad"/>
+        <rect x="4" y="7" width="8" height="6" fill="#00d4ff"/>
+        <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
+      </svg>
+      <div class="nametag">PMO</div>
+    </div>
+
+    <div class="legend">
+      <div><b>상태 범례</b></div>
+      <div><span class="sw" style="background:#00d4ff"></span>작업 중</div>
+      <div><span class="sw" style="background:#ffc94a"></span>완료</div>
+      <div><span class="sw" style="background:#ff5e5e"></span>오류</div>
+      <div><span class="sw" style="background:#ff3ea5"></span>Critic 반박</div>
+    </div>
+  </div>
+
+  <div class="bottom">
+
+    <div class="panel" id="chatPanel">
+      <h3>◢ CHAT · 대화 <span class="sub" id="chatSub">대기 중</span></h3>
+      <div id="chatLog">
+        <div class="empty">지시사항을 입력하면 9개 부서가 병렬 실행됩니다.</div>
+      </div>
+      <div class="input">
+        <textarea id="directive" placeholder="예: 케토 김밥 신제품 런칭 전략 분석. 마진 35% 이상, 식약처 규제 확인 필수, MZ 타겟."></textarea>
+        <div class="col">
+          <button id="sendBtn">SEND</button>
+          <button id="demoBtn" class="demo">DEMO</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>◢ PMO · 실행 체크리스트 <span class="sub" id="pmoSub">-</span></h3>
+      <div id="pmoList">
+        <div class="empty">PMO 계획은 지시사항 접수 후 생성됩니다.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>◢ CRITIC · 브리핑 <span class="sub" id="reviewSub">-</span></h3>
+      <div id="criticBox"><div class="empty">부서 실행 완료 후 Critic이 검증합니다.</div></div>
+      <div id="briefingBox"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ─── 설정 ───────────────────────────────────────────────────────────
+  const API_BASE = location.origin.includes('localhost') ? 'http://localhost:8000' : '';
+  const DEPTS = [
+    {id:'market',    label:'📊 MARKET',    color:'#00d4ff'},
+    {id:'compete',   label:'🔍 COMPETE',   color:'#f97316'},
+    {id:'legal',     label:'⚖️ LEGAL',     color:'#a855f7'},
+    {id:'finance',   label:'💰 FINANCE',   color:'#ffc94a'},
+    {id:'marketing', label:'📢 MARKETING', color:'#ff3ea5'},
+    {id:'rnd',       label:'🧪 R&D',       color:'#4ade80'},
+    {id:'data',      label:'📈 DATA',      color:'#3b82f6'},
+    {id:'content',   label:'✍️ CONTENT',   color:'#ef4444'},
+    {id:'sns',       label:'📱 SNS',       color:'#ec4899'},
+  ];
+
+  // ─── 상태 ───────────────────────────────────────────────────────────
+  const state = {
+    eventSource: null,
+    startTime: 0,
+    elapsedTimer: null,
+    toolCallCount: 0,
+    sessionId: null,
+    deptStates: {},    // deptId → {state, percent, model}
+    running: false,
+  };
+
+  // ─── DOM refs ───────────────────────────────────────────────────────
+  const $ = (id) => document.getElementById(id);
+  const dom = {
+    projName: $('projName'),
+    domainTag: $('domainTag'),
+    statusTag: $('statusTag'),
+    toolCount: $('toolCount'),
+    elapsed: $('elapsed'),
+    desks: $('desks'),
+    office: $('office'),
+    chatLog: $('chatLog'),
+    chatSub: $('chatSub'),
+    pmoList: $('pmoList'),
+    pmoSub: $('pmoSub'),
+    criticBox: $('criticBox'),
+    briefingBox: $('briefingBox'),
+    reviewSub: $('reviewSub'),
+    directive: $('directive'),
+    sendBtn: $('sendBtn'),
+    demoBtn: $('demoBtn'),
+    stopBtn: $('stopBtn'),
+  };
+
+  // ─── 책상/캐릭터 초기 렌더 ───────────────────────────────────────────
+  function renderDesks() {
+    dom.desks.innerHTML = '';
+    DEPTS.forEach(d => {
+      const el = document.createElement('div');
+      el.className = 'desk';
+      el.dataset.dept = d.id;
+      el.dataset.state = 'idle';
+      el.innerHTML = `<div class="ring"></div>${d.label}<div class="badge"></div><div class="pct"></div>`;
+      dom.desks.appendChild(el);
+
+      // 캐릭터 생성 (책상 위)
+      const char = document.createElement('div');
+      char.className = 'char';
+      char.id = 'char-' + d.id;
+      char.dataset.homeDept = d.id;
+      char.innerHTML = `
+        <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
+          <rect x="5" y="2" width="6" height="5" fill="#f6d5ad"/>
+          <rect x="6" y="4" width="1" height="1" fill="#000"/><rect x="9" y="4" width="1" height="1" fill="#000"/>
+          <rect x="4" y="7" width="8" height="6" fill="${d.color}"/>
+          <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
+        </svg>
+        <div class="nametag">${d.label.split(' ')[1] || d.id.toUpperCase()}</div>
+      `;
+      dom.office.appendChild(char);
+    });
+    // 캐릭터 홈 좌표 세팅
+    setTimeout(positionAtHome, 50);
+  }
+
+  function positionAtHome() {
+    DEPTS.forEach(d => {
+      const desk = dom.desks.querySelector(`.desk[data-dept="${d.id}"]`);
+      const char = document.getElementById('char-' + d.id);
+      if (!desk || !char) return;
+      const rect = desk.getBoundingClientRect();
+      const officeRect = dom.office.getBoundingClientRect();
+      char.style.left = (rect.left - officeRect.left + rect.width/2 - 17) + 'px';
+      char.style.top = (rect.top - officeRect.top - 20) + 'px';
+    });
+  }
+  window.addEventListener('resize', positionAtHome);
+
+  // ─── 캐릭터 이동/상태 ────────────────────────────────────────────────
+  function setDeptState(deptId, stateName, extras={}) {
+    const desk = dom.desks.querySelector(`.desk[data-dept="${deptId}"]`);
+    if (!desk) return;
+    desk.dataset.state = stateName;
+    if (extras.percent !== undefined) {
+      desk.querySelector('.pct').textContent = extras.percent + '%';
+    }
+    state.deptStates[deptId] = {state: stateName, ...extras};
+  }
+
+  function setBubble(charId, text, kind='think') {
+    const char = document.getElementById(charId);
+    if (!char) return;
+    let bubble = char.querySelector('.bubble');
+    if (!bubble) {
+      bubble = document.createElement('div');
+      char.appendChild(bubble);
+    }
+    bubble.className = 'bubble ' + kind;
+    bubble.textContent = text;
+    bubble.title = text;
+  }
+  function clearBubble(charId) {
+    const char = document.getElementById(charId);
+    const b = char?.querySelector('.bubble');
+    if (b) b.remove();
+  }
+
+  function moveCharToTool(deptId, toolKey) {
+    const tool = document.querySelector(`.tool[data-tool="${toolKey}"]`);
+    const char = document.getElementById('char-' + deptId);
+    if (!tool || !char) return;
+    tool.classList.add('active');
+    const tRect = tool.getBoundingClientRect();
+    const oRect = dom.office.getBoundingClientRect();
+    char.style.left = (tRect.left - oRect.left + tRect.width/2 - 17) + 'px';
+    char.style.top = (tRect.top - oRect.top - 30) + 'px';
+    state.toolCallCount++;
+    dom.toolCount.textContent = state.toolCallCount;
+    // 몇 초 후 복귀
+    setTimeout(() => {
+      tool.classList.remove('active');
+      const desk = dom.desks.querySelector(`.desk[data-dept="${deptId}"]`);
+      if (desk) {
+        const dRect = desk.getBoundingClientRect();
+        char.style.left = (dRect.left - oRect.left + dRect.width/2 - 17) + 'px';
+        char.style.top = (dRect.top - oRect.top - 20) + 'px';
+      }
+    }, 3000);
+  }
+
+  // ─── 3-AI 앙상블 회의실 연출 ─────────────────────────────────────────
+  // payload.model을 AI seat key로 정규화
+  function modelToAi(model) {
+    const m = String(model || '').toLowerCase();
+    if (m.includes('claude') || m.includes('opus') || m.includes('sonnet') || m.includes('haiku')) return 'claude';
+    if (m.includes('gpt') || m.includes('openai') || m.includes('o1') || m.includes('o3') || m.includes('o4')) return 'gpt';
+    if (m.includes('gemini') || m.includes('imagen') || m.includes('google')) return 'gemini';
+    return null;
+  }
+  function ensembleStart(reason) {
+    const room = document.getElementById('meetingRoom');
+    if (room) room.classList.add('consensus');
+    ['claude','gpt','gemini'].forEach(ai => {
+      const seat = document.getElementById('ai-' + ai);
+      if (!seat) return;
+      seat.classList.add('active');
+      const b = seat.querySelector('.ai-bubble');
+      if (b) b.textContent = reason ? reason.slice(0,40) : '초안 작성 중…';
+    });
+    logMsg('ENSEMBLE', `3-AI 앙상블 시작 · ${reason || ''}`, 'ok');
+  }
+  function ensembleVoice(model, text) {
+    const ai = modelToAi(model);
+    if (!ai) return;
+    const seat = document.getElementById('ai-' + ai);
+    if (!seat) return;
+    seat.classList.add('active');
+    const b = seat.querySelector('.ai-bubble');
+    if (b && text) b.textContent = String(text).slice(0,50);
+  }
+  function ensembleDone(verdict) {
+    const room = document.getElementById('meetingRoom');
+    if (room) {
+      room.classList.add('consensus');
+      setTimeout(() => room.classList.remove('consensus'), 800);
+    }
+    ['claude','gpt','gemini'].forEach(ai => {
+      const seat = document.getElementById('ai-' + ai);
+      if (!seat) return;
+      const b = seat.querySelector('.ai-bubble');
+      if (b) b.textContent = verdict ? verdict.slice(0,40) : '통합 완료';
+      // 4초 후 비활성
+      setTimeout(() => { seat.classList.remove('active'); if (b) b.textContent = ''; }, 4000);
+    });
+  }
+
+  // ─── CRITIC 워킹 — 부서 책상으로 걸어가서 검토 ──────────────────────
+  function criticWalkTo(deptId, summary, isPass) {
+    const critic = document.getElementById('char-critic');
+    const desk = dom.desks.querySelector(`.desk[data-dept="${deptId}"]`);
+    if (!critic) return;
+    if (desk) {
+      desk.classList.add('under-review');
+      const dRect = desk.getBoundingClientRect();
+      const oRect = dom.office.getBoundingClientRect();
+      critic.style.transition = 'left .9s ease, top .9s ease';
+      critic.style.left = (dRect.left - oRect.left + dRect.width/2 - 17) + 'px';
+      critic.style.top = (dRect.top - oRect.top - 28) + 'px';
+    }
+    setBubble('char-critic', (summary || '검토 중').slice(0,36), isPass ? 'done' : 'crit');
+    setTimeout(() => {
+      if (desk) desk.classList.remove('under-review');
+      critic.style.left = '90px';
+      critic.style.top = '80px';
+      clearBubble('char-critic');
+    }, 4500);
+  }
+
+  // ─── 채팅 로그 ───────────────────────────────────────────────────────
+  function logMsg(who, text, kind='sys') {
+    // 초기 empty 제거
+    const empty = dom.chatLog.querySelector('.empty');
+    if (empty) empty.remove();
+    const div = document.createElement('div');
+    div.className = 'msg ' + kind;
+    div.innerHTML = `<span class="who">${who}</span>${escapeHtml(text)}`;
+    dom.chatLog.appendChild(div);
+    dom.chatLog.scrollTop = dom.chatLog.scrollHeight;
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // ─── PMO 체크리스트 ─────────────────────────────────────────────────
+  function renderPmoPlan(plan) {
+    dom.pmoList.innerHTML = '';
+    dom.pmoSub.textContent = `${plan.taskChecklist?.length ?? 0}개 작업`;
+    (plan.taskChecklist || []).forEach(t => {
+      const el = document.createElement('div');
+      el.className = 'pmo-item';
+      el.dataset.state = 'pending';
+      el.dataset.dept = t.deptId;
+      el.innerHTML = `<span>${deptLabel(t.deptId)} · ${escapeHtml(t.objective)}</span><span class="eta">${t.etaMinutes||0}분</span>`;
+      dom.pmoList.appendChild(el);
+    });
+  }
+  function updatePmoState(deptId, newState, extraEta) {
+    const el = dom.pmoList.querySelector(`.pmo-item[data-dept="${deptId}"]`);
+    if (!el) return;
+    el.dataset.state = newState;
+    if (extraEta) {
+      const eta = el.querySelector('.eta');
+      if (eta) eta.textContent = extraEta;
+    }
+  }
+  function deptLabel(id) {
+    const d = DEPTS.find(x => x.id === id);
+    return d ? d.label : id;
+  }
+
+  // ─── Critic / Briefing 렌더 ──────────────────────────────────────────
+  function renderCritic(review) {
+    const cls = review.verdict === 'pass' ? 'pass' : '';
+    const vtxt = review.verdict === 'pass' ? 'PASS' : 'NEEDS FOLLOWUP';
+    const issues = (review.keyIssues || []).concat(review.contradictions || []).slice(0,5);
+    const needs = (review.verificationNeeded || []).slice(0,3);
+    dom.criticBox.innerHTML = `
+      <div class="critic-box ${cls}">
+        <span class="verdict">${vtxt}</span>
+        <div>${escapeHtml(review.summary || '')}</div>
+        ${issues.map(i => `<div class="issue">${escapeHtml(i)}</div>`).join('')}
+        ${needs.length ? '<div class="issue" style="margin-top:6px;font-weight:bold">검증 필요:</div>' : ''}
+        ${needs.map(i => `<div class="issue">${escapeHtml(i)}</div>`).join('')}
+        <div style="margin-top:6px;color:#aaa">Critic 신뢰도: ${(review.confidence*100).toFixed(0)}%</div>
+      </div>
+    `;
+    dom.reviewSub.textContent = vtxt;
+    // Critic 캐릭터 이동 연출
+    const critic = document.getElementById('char-critic');
+    if (critic) {
+      setBubble('char-critic', review.summary?.slice(0,40) || '검토 완료', review.verdict === 'pass' ? 'done' : 'crit');
+      critic.style.left = '50%';
+      critic.style.top = '80px';
+      setTimeout(() => { critic.style.left = '90px'; clearBubble('char-critic'); }, 5000);
+    }
+  }
+
+  function renderBriefing(b) {
+    const opps = (b.opportunities||[]).slice(0,5);
+    const risks = (b.risks||[]).slice(0,5);
+    const recs = (b.recommendations||[]).slice(0,5);
+    dom.briefingBox.innerHTML = `
+      <div class="briefing">
+        <h4>◢ CEO BRIEFING</h4>
+        <div style="color:var(--ink);font-size:11px">${escapeHtml(b.summary || '')}</div>
+        <div class="sec"><b>기회</b><ul>${opps.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul></div>
+        <div class="sec"><b>리스크</b><ul>${risks.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul></div>
+        <div class="sec"><b>권고</b><ul>${recs.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul></div>
+        <div class="metric"><span>통합 신뢰도</span><b>${((b.overallConfidence||0)*100).toFixed(0)}%</b></div>
+      </div>
+    `;
+  }
+
+  // ─── SSE 이벤트 핸들러 ───────────────────────────────────────────────
+  function onEvent(ev) {
+    let payload;
+    try { payload = JSON.parse(ev.data); } catch { return; }
+    const type = payload.type || ev.type;
+
+    switch (type) {
+      case 'mission_start':
+        logMsg('DIRECTOR', `미션 분해 완료. 주제: ${payload.topic} · 도메인: ${payload.domain} · 부서 ${payload.deptCount}개`, 'ok');
+        dom.projName.textContent = payload.topic || '실행 중';
+        dom.domainTag.textContent = `도메인: ${payload.domain}`;
+        break;
+
+      case 'pmo_plan':
+        logMsg('PMO', `실행 계획 수립 · 체크리스트 ${payload.plan?.taskChecklist?.length||0}개 · 성공 기준 ${payload.plan?.successCriteria?.length||0}개`, 'ok');
+        renderPmoPlan(payload.plan);
+        setBubble('char-pmo', '계획 수립', 'think');
+        setTimeout(() => clearBubble('char-pmo'), 3000);
+        break;
+
+      case 'dept_start':
+        setDeptState(payload.deptId, 'thinking');
+        updatePmoState(payload.deptId, 'working', '진행 중');
+        logMsg(payload.deptId.toUpperCase(), `시작 · 목표: ${payload.objective?.slice(0,60)||''}`, 'sys');
+        setBubble('char-' + payload.deptId, '💭 ' + (payload.objective?.slice(0,24) || '분석 중'), 'think');
+        break;
+
+      case 'dept_progress':
+        setDeptState(payload.deptId, 'thinking', {percent: payload.percent||0});
+        if (payload.percent) updatePmoState(payload.deptId, 'working', payload.percent + '%');
+        // 도구 호출 감지
+        const msg = (payload.message || '').toLowerCase();
+        if (msg.includes('perplexity') || msg.includes('검색') || msg.includes('search')) moveCharToTool(payload.deptId, 'perplexity');
+        else if (msg.includes('법규') || msg.includes('regulation')) moveCharToTool(payload.deptId, 'regulation');
+        else if (msg.includes('메모리') || msg.includes('recall') || msg.includes('memory')) moveCharToTool(payload.deptId, 'memory');
+        else if (msg.includes('이미지') || msg.includes('image')) moveCharToTool(payload.deptId, 'image');
+        if (payload.message) setBubble('char-' + payload.deptId, payload.message.slice(0,30), 'think');
+        break;
+
+      case 'dept_done':
+        setDeptState(payload.deptId, 'done', {percent: 100});
+        updatePmoState(payload.deptId, 'done', Math.round(payload.durationMs/1000) + '초');
+        logMsg(payload.deptId.toUpperCase(), `✓ 완료 · ${Math.round(payload.durationMs/1000)}초 · 모델: ${payload.model}`, 'ok');
+        setBubble('char-' + payload.deptId, '✓ 완료', 'done');
+        setTimeout(() => clearBubble('char-' + payload.deptId), 4000);
+        break;
+
+      case 'dept_error':
+        setDeptState(payload.deptId, 'error');
+        updatePmoState(payload.deptId, 'error', 'ERR');
+        logMsg(payload.deptId.toUpperCase(), `✗ 오류: ${payload.error}`, 'err');
+        setBubble('char-' + payload.deptId, '⚠ ' + payload.error.slice(0,20), 'crit');
+        break;
+
+      case 'ensemble_start':
+        ensembleStart(payload.reason || payload.task || payload.objective);
+        if (payload.deptId) updatePmoState(payload.deptId, 'running', '앙상블');
+        break;
+
+      case 'ensemble_voice':
+        ensembleVoice(payload.model, payload.message || payload.text || payload.draft);
+        if (payload.message) logMsg('AI:' + (modelToAi(payload.model)||'?').toUpperCase(), payload.message.slice(0,80), 'sys');
+        break;
+
+      case 'ensemble_done':
+        ensembleDone(payload.verdict || payload.summary || '통합 완료');
+        if (payload.summary) logMsg('ENSEMBLE', payload.summary.slice(0,120), 'ok');
+        break;
+
+      case 'critic_review':
+        logMsg('CRITIC', `검증 완료 · ${payload.review?.verdict || ''}`, payload.review?.verdict === 'pass' ? 'ok' : 'err');
+        renderCritic(payload.review);
+        // 부서가 지정된 비평이면 해당 책상으로 워킹
+        if (payload.deptId || payload.review?.targetDeptId) {
+          criticWalkTo(payload.deptId || payload.review.targetDeptId, payload.review?.summary, payload.review?.verdict === 'pass');
+        }
+        break;
+
+      case 'ceo_briefing':
+        logMsg('CEO', '통합 브리핑 생성 완료', 'ok');
+        renderBriefing(payload.briefing);
+        break;
+
+      case 'all_done':
+        logMsg('SYSTEM', `전체 완료 · 라운드 ${payload.roundNumber}`, 'ok');
+        finishRun();
+        break;
+
+      case 'error':
+        logMsg('ERROR', payload.message, 'err');
+        finishRun(true);
+        break;
+
+      default:
+        // 알 수 없는 이벤트는 로그만
+        console.log('[SSE]', type, payload);
+    }
+  }
+
+  // ─── 실행/중단 ──────────────────────────────────────────────────────
+  function startRun() {
+    const directive = dom.directive.value.trim();
+    if (!directive) { alert('지시사항을 입력하세요.'); return; }
+    if (state.running) return;
+
+    resetRun();
+    state.running = true;
+    state.startTime = Date.now();
+    dom.statusTag.className = 'tag live';
+    dom.statusTag.textContent = '● LIVE';
+    dom.stopBtn.style.display = '';
+    dom.sendBtn.disabled = true;
+    logMsg('YOU', directive, 'user');
+
+    state.elapsedTimer = setInterval(() => {
+      const sec = Math.floor((Date.now() - state.startTime)/1000);
+      dom.elapsed.textContent = sec < 60 ? sec + '초' : Math.floor(sec/60) + '분 ' + (sec%60) + '초';
+    }, 1000);
+
+    const url = new URL(API_BASE + '/api/director/stream', location.href);
+    url.searchParams.set('directive', directive);
+    url.searchParams.set('projectName', directive.slice(0,40));
+
+    try {
+      const es = new EventSource(url.toString(), { withCredentials: true });
+      state.eventSource = es;
+      ['mission_start','pmo_plan','dept_start','dept_progress','dept_done','dept_error','ensemble_start','ensemble_voice','ensemble_done','critic_review','ceo_briefing','all_done','error','stream_end'].forEach(evName => {
+        es.addEventListener(evName, onEvent);
+      });
+      es.onerror = () => {
+        if (state.running) {
+          logMsg('SYSTEM', 'SSE 연결 오류 · 재시도 또는 DEMO 모드를 사용하세요.', 'err');
+          finishRun(true);
+        }
+      };
+    } catch (err) {
+      logMsg('SYSTEM', 'EventSource 생성 실패: ' + err.message, 'err');
+      finishRun(true);
+    }
+  }
+
+  function finishRun(isErr=false) {
+    state.running = false;
+    if (state.eventSource) { state.eventSource.close(); state.eventSource = null; }
+    if (state.elapsedTimer) { clearInterval(state.elapsedTimer); state.elapsedTimer = null; }
+    dom.statusTag.className = 'tag ' + (isErr ? 'err' : 'idle');
+    dom.statusTag.textContent = isErr ? '● ERROR' : '● DONE';
+    dom.stopBtn.style.display = 'none';
+    dom.sendBtn.disabled = false;
+  }
+
+  function resetRun() {
+    state.toolCallCount = 0;
+    state.deptStates = {};
+    dom.toolCount.textContent = '0';
+    dom.elapsed.textContent = '0초';
+    dom.chatLog.innerHTML = '';
+    dom.pmoList.innerHTML = '<div class="empty">PMO 계획 대기…</div>';
+    dom.criticBox.innerHTML = '<div class="empty">Critic 검증 대기…</div>';
+    dom.briefingBox.innerHTML = '';
+    dom.reviewSub.textContent = '-';
+    DEPTS.forEach(d => {
+      setDeptState(d.id, 'idle', {percent: 0});
+      const desk = dom.desks.querySelector(`.desk[data-dept="${d.id}"]`);
+      if (desk) desk.querySelector('.pct').textContent = '';
+      clearBubble('char-' + d.id);
+    });
+    positionAtHome();
+  }
+
+  // ─── DEMO 모드 (백엔드 없이 목업 데이터 재생) ───────────────────────
+  function runDemo() {
+    if (state.running) return;
+    resetRun();
+    dom.directive.value = '케토 김밥 신제품 런칭 전략 분석. 마진 35% 이상, 식약처 규제 확인 필수, MZ 타겟.';
+    state.running = true;
+    state.startTime = Date.now();
+    dom.statusTag.className = 'tag live';
+    dom.statusTag.textContent = '● DEMO';
+    dom.stopBtn.style.display = '';
+    dom.sendBtn.disabled = true;
+    logMsg('YOU', dom.directive.value, 'user');
+    state.elapsedTimer = setInterval(() => {
+      const sec = Math.floor((Date.now()-state.startTime)/1000);
+      dom.elapsed.textContent = sec + '초';
+    }, 1000);
+
+    const script = [
+      [300,  {type:'mission_start',topic:'케토 김밥',domain:'food',deptCount:9}],
+      [800,  {type:'pmo_plan',plan:{
+        successCriteria:['규제 준수 확인','마진 35%+','MZ 타겟 근거'],
+        taskChecklist: DEPTS.map((d,i) => ({deptId:d.id,priority:'high',objective:`${d.label} 분석`,deliverable:'리포트',etaMinutes:5+i}))
+      }}],
+      [1200, {type:'dept_start',deptId:'legal',objective:'식약처 규제 확인',model:'claude-opus-4-6'}],
+      [1400, {type:'dept_start',deptId:'data',objective:'트렌드 분석',model:'claude-opus-4-6'}],
+      [1600, {type:'dept_start',deptId:'market',objective:'TAM/SAM/SOM',model:'claude-opus-4-6'}],
+      [1800, {type:'dept_start',deptId:'compete',objective:'경쟁사 스캔',model:'claude-opus-4-6'}],
+      [2000, {type:'dept_start',deptId:'finance',objective:'ROI 예측',model:'gpt-5.4-pro'}],
+      [2200, {type:'dept_start',deptId:'marketing',objective:'STP + 4P',model:'claude-opus-4-6'}],
+      [2400, {type:'dept_start',deptId:'rnd',objective:'레시피 설계',model:'claude-opus-4-6'}],
+      [2600, {type:'dept_start',deptId:'content',objective:'상세페이지 카피',model:'claude-opus-4-6'}],
+      [2800, {type:'dept_start',deptId:'sns',objective:'런칭 캠페인',model:'claude-opus-4-6'}],
+      [3500, {type:'dept_progress',deptId:'market',message:'Perplexity 검색: 케토 간편식 시장',percent:30}],
+      [4000, {type:'dept_progress',deptId:'legal',message:'법규 조회: 식품위생법 §7',percent:45}],
+      [5500, {type:'dept_done',deptId:'legal',model:'claude-opus-4-6',connectors:['regulation'],durationMs:4300}],
+      [6000, {type:'dept_done',deptId:'data',model:'claude-opus-4-6',connectors:['memory'],durationMs:4800}],
+      [7500, {type:'dept_done',deptId:'market',model:'claude-opus-4-6',connectors:['perplexity'],durationMs:5900}],
+      [8000, {type:'dept_error',deptId:'sns',error:'API 타임아웃'}],
+      [8800, {type:'dept_done',deptId:'compete',model:'claude-opus-4-6',connectors:['perplexity'],durationMs:7000}],
+      [9400, {type:'dept_done',deptId:'finance',model:'gpt-5.4-pro',connectors:[],durationMs:7400}],
+      // ── 3-AI 앙상블 회의실 시퀀스 (Marketing STP 고가치 task) ──
+      [9500, {type:'ensemble_start',deptId:'marketing',reason:'Marketing STP — 고가치 3-AI 앙상블'}],
+      [9650, {type:'ensemble_voice',model:'claude-opus-4-6',message:'MZ 타겟 페르소나 3개 도출, 케토 간편식 가치제안 차별화'}],
+      [9800, {type:'ensemble_voice',model:'gpt-5.4-pro',message:'4P 분석: 가격 4,900원 / 편의점 3사 / SNS 챌린지 / 한정판 SKU'}],
+      [9950, {type:'ensemble_voice',model:'gemini-3.1-pro-ultra',message:'장문 시장조사 — 케토 간편식 126% YoY, 단 MZ 데이터 부족'}],
+      [10200,{type:'ensemble_done',verdict:'통합 완료',summary:'3-AI 통합 — STP 골격 합의, MZ 데이터 보강 권고'}],
+      [10400,{type:'dept_done',deptId:'marketing',model:'claude-opus-4-6',connectors:['ensemble'],durationMs:8000}],
+      [10800,{type:'dept_done',deptId:'rnd',model:'claude-opus-4-6',connectors:[],durationMs:8400}],
+      [11400,{type:'dept_done',deptId:'content',model:'claude-opus-4-6',connectors:[],durationMs:8800}],
+      // ── CRITIC 워킹: marketing 책상으로 ──
+      [12000,{type:'critic_review',deptId:'marketing',review:{
+        verdict:'needs_followup',
+        targetDeptId:'marketing',
+        summary:'Marketing STP 근거 부족 + SNS 타임아웃 재시도 필요',
+        keyIssues:['Marketing STP MZ 타겟 외부 데이터 부족','Data 트렌드 126% vs Finance 월 3만개 상충','SNS 재시도 대기'],
+        contradictions:['데이터/재무 가정 상충'],
+        verificationNeeded:['식약처 고시 §7-②(26.3.18 개정) 반영','외부 소비자 조사 데이터'],
+        confidence:0.74
+      }}],
+      [13000,{type:'ceo_briefing',briefing:{
+        summary:'케토 김밥 런칭은 규제/시장 측면 타당. 단, MZ 타겟 근거 보강과 SNS 재실행이 선행 조건.',
+        opportunities:['케토 간편식 트렌드 126% 상승','규제 그린','B2C 배송채널 확대 여지'],
+        risks:['MZ 타겟 근거 데이터 부족','SNS 캠페인 실행 리스크','경쟁사 저가 공세'],
+        recommendations:['외부 소비자 조사 발주','SNS API 대체 경로 확보','초기 물량 30% 축소 테스트 런칭'],
+        overallConfidence:0.78
+      }}],
+      [13800,{type:'all_done',sessionId:'demo',roundNumber:1}],
+    ];
+
+    script.forEach(([delay, payload]) => {
+      setTimeout(() => {
+        if (!state.running) return;
+        onEvent({type: payload.type, data: JSON.stringify(payload)});
+      }, delay);
+    });
+  }
+
+  // ─── 이벤트 바인딩 ───────────────────────────────────────────────────
+  dom.sendBtn.addEventListener('click', startRun);
+  dom.demoBtn.addEventListener('click', runDemo);
+  dom.stopBtn.addEventListener('click', () => { finishRun(); logMsg('SYSTEM','중단됨','err'); });
+  dom.directive.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 'Enter') startRun();
+  });
+
+  // ─── 초기 렌더 ───────────────────────────────────────────────────────
+  renderDesks();
+  setTimeout(positionAtHome, 200);
+  logMsg('SYSTEM', '준비 완료 · SEND(실시간 SSE) / DEMO(목업 재생) 선택', 'ok');
+})();
+</script>
+</body>
+</html>

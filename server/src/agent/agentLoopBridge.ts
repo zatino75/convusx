@@ -1,6 +1,6 @@
-// agentLoopBridge.ts — Agent Loop ↔ Orchestra Result Adapter (Phase 2.5)
+// agentLoopBridge.ts — Agent Loop Runtime Result Adapter
 //
-// 기존 chat.ts 는 executeOrchestra(effectiveInput) 의 반환을 buildChatPayload() /
+// 기존 chat.ts 는 executeOrchestra(effectiveInput) 호환 shape 을 buildChatPayload() /
 // persistRuntimeMemory() / logBenchmark() / Plugin hooks 등에서 소비한다.
 // 이들은 모두 아래 shape 에 의존한다:
 //
@@ -11,8 +11,7 @@
 //   }
 //
 // runAgentLoop() 는 이 shape 을 따르지 않으므로, 이 파일이 agent loop 결과를
-// orchestra 호환 shape 으로 감싸서 돌려준다. 기존 chat.ts 코드 경로 수정 없이
-// feature flag 로만 switching 할 수 있다.
+// runtime 응답 호환 shape 으로 감싸서 돌려준다.
 
 import { runAgentLoop, type AgentLoopInput, type AgentLoopResult } from "./agentLoop.js"
 import { logger } from "../observability/logger.js"
@@ -23,10 +22,10 @@ function safeString(value: any): string {
 }
 
 /**
- * executeOrchestra 의 streaming callback 과 동일한 시그니처.
- * Phase 2.5 에선 최소 이벤트(route_decided / provider_start / final_answer) 만 발행.
+ * 채팅 스트림 runtime 이벤트 콜백 시그니처.
+ * 최소 이벤트(route_decided / provider_start / final_answer) 를 발행한다.
  */
-export type OrchestraEventCallback = (event: any) => Promise<void> | void
+export type AgentRuntimeEventCallback = (event: any) => Promise<void> | void
 
 function safeParseJson(raw: string | undefined): any {
   if (!raw || typeof raw !== "string") return null
@@ -81,7 +80,7 @@ function buildToolTimeline(loop: AgentLoopResult) {
   }))
 }
 
-function buildOrchestraCompatibleResult(effectiveInput: any, loop: AgentLoopResult) {
+function buildRuntimeCompatibleResult(effectiveInput: any, loop: AgentLoopResult) {
   const provider = loop.ok ? "claude" : null
   const task = safeString(effectiveInput?.task) || "dialogue"
   const toolNames = loop.tool_calls.map((t) => t.tool_name)
@@ -171,12 +170,11 @@ function buildOrchestraCompatibleResult(effectiveInput: any, loop: AgentLoopResu
 }
 
 /**
- * chat.ts 에서 executeOrchestra 대신 호출하는 진입점.
- * 기존 executeOrchestra 와 동일한 시그니처(effectiveInput, onEvent?) 를 유지한다.
+ * chat.ts 가 호출하는 agent-loop runtime 진입점.
  */
-export async function runAgentLoopAsOrchestraResult(
+export async function runAgentLoopRuntimeResult(
   effectiveInput: any,
-  onEvent?: OrchestraEventCallback,
+  onEvent?: AgentRuntimeEventCallback,
 ): Promise<any> {
   const task = safeString(effectiveInput?.task) || "dialogue"
   const highValue = decideHighValue(effectiveInput)
@@ -269,7 +267,7 @@ export async function runAgentLoopAsOrchestraResult(
   try {
     loopResult = await runAgentLoop(loopInput)
   } catch (error: any) {
-    logger.warn("[agentLoopBridge] runAgentLoop threw", { error: String(error?.message ?? error) })
+    logger.warn("[agentLoopRuntime] runAgentLoop threw", { error: String(error?.message ?? error) })
     loopResult = {
       ok: false,
       text: "",
@@ -297,12 +295,16 @@ export async function runAgentLoopAsOrchestraResult(
     } catch { /* ignore */ }
   }
 
-  return buildOrchestraCompatibleResult(effectiveInput, loopResult)
+  return buildRuntimeCompatibleResult(effectiveInput, loopResult)
 }
 
-/** 에이전트 루프 상시 활성 (CLAUDE.md 2026-04-10 기준 — Planner/Router 폐기, 모든 요청 에이전트 루프 경유) */
-export function isAgentLoopEnabled(): boolean {
-  // CORVUS_USE_AGENT_LOOP=0|false 로 긴급 비활성화
-
-  return process.env.CORVUS_USE_AGENT_LOOP !== "0" && process.env.CORVUS_USE_AGENT_LOOP !== "false"
+/**
+ * @deprecated legacy alias for backward compatibility.
+ * Use `runAgentLoopRuntimeResult` instead.
+ */
+export async function runAgentLoopAsOrchestraResult(
+  effectiveInput: any,
+  onEvent?: AgentRuntimeEventCallback,
+): Promise<any> {
+  return runAgentLoopRuntimeResult(effectiveInput, onEvent)
 }

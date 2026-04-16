@@ -27,6 +27,9 @@
     "dashboard": "대시보드",
     "benchmark": "벤치마크",
     "sales": "매출 대시보드",
+    "workforce": "AI 워크포스",
+    "storeops": "스토어 운영",
+    "pos": "POS 터미널",
     "settings": "설정",
     "newThread": "새 채팅",
     "newProject": "새 프로젝트",
@@ -208,6 +211,9 @@
     "resetAllDesc": "위 모든 데이터를 한번에 삭제합니다."
   },
   "sidebar": {
+    "command": "커맨드",
+    "retailOps": "리테일 운영",
+    "intelligence": "인텔리전스",
     "projects": "프로젝트",
     "recentChats": "최근",
     "noThreads": "스레드 없음",

@@ -25,3 +25,15 @@ export const ImageGalleryView = lazy(() =>
 export const SalesView = lazy(() =>
   import("./SalesView").then(m => ({ default: m.SalesView }))
 );
+
+export const WorkforceView = lazy(() =>
+  import("./WorkforceView").then(m => ({ default: m.WorkforceView }))
+);
+
+export const StoreOpsView = lazy(() =>
+  import("./StoreOpsView").then(m => ({ default: m.StoreOpsView }))
+);
+
+export const PosView = lazy(() =>
+  import("./PosView").then(m => ({ default: m.PosView }))
+);

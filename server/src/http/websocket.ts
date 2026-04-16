@@ -18,7 +18,7 @@ import { logger } from "../observability/logger.js"
 
 // ── 타입 ──
 
-export type WsEventType = "provider:health" | "benchmark:done" | "scheduler:status" | "system:info"
+export type WsEventType = "provider:health" | "benchmark:done" | "scheduler:status" | "system:info" | "director:event"
 
 interface WsMessage {
   event: WsEventType

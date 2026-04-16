@@ -2,8 +2,15 @@
 import fs from "fs"
 import path from "path"
 import { logger } from "../observability/logger.js"
+import {
+  deleteSalesEntrySqlite,
+  listSalesEntriesSqlite,
+  upsertSalesEntrySqlite,
+  type RetailSalesEntryRecord
+} from "../memory/sqliteMemory.js"
 
 const SALES_PATH = "server/data/sales.jsonl"
+let salesMigratedToSqlite = false;
 
 export interface SalesEntry {
   id: string
@@ -40,6 +47,49 @@ function writeAll(entries: SalesEntry[]) {
   ensureDataDir()
   const content = entries.map(e => JSON.stringify(e)).join("\n")
   fs.writeFileSync(SALES_PATH, content + (entries.length > 0 ? "\n" : ""), "utf-8")
+}
+
+function fromRetailRecord(entry: RetailSalesEntryRecord): SalesEntry {
+  return {
+    id: entry.id,
+    date: entry.date,
+    platform: entry.platform,
+    revenue: Number(entry.revenue ?? 0),
+    orders: Number(entry.orders ?? 0),
+    memo: entry.memo,
+    createdAt: entry.createdAt
+  };
+}
+
+function ensureSalesMigrated() {
+  if (salesMigratedToSqlite) return;
+  const sqliteEntries = listSalesEntriesSqlite();
+  if (sqliteEntries.length === 0) {
+    const fileEntries = readAll();
+    for (const entry of fileEntries) {
+      upsertSalesEntrySqlite({
+        id: entry.id,
+        date: entry.date,
+        platform: entry.platform,
+        revenue: entry.revenue,
+        orders: entry.orders,
+        memo: entry.memo,
+        createdAt: entry.createdAt
+      });
+    }
+  } else {
+    writeAll(sqliteEntries.map(fromRetailRecord));
+  }
+  salesMigratedToSqlite = true;
+}
+
+function readAllFromStore(): SalesEntry[] {
+  ensureSalesMigrated();
+  const sqliteEntries = listSalesEntriesSqlite();
+  if (sqliteEntries.length > 0) {
+    return sqliteEntries.map(fromRetailRecord);
+  }
+  return readAll();
 }
 
 // ── 집계 헬퍼 ─────────────────────────────────────────────────────────────
@@ -88,7 +138,7 @@ function buildPlatformSummary(entries: SalesEntry[]) {
 
 /** GET /api/sales — 전체 데이터 + 집계 */
 export async function getSalesRoute(_req: any, res: any) {
-  const entries = readAll()
+  const entries = readAllFromStore()
   const monthly = buildMonthlySummary(entries)
   const daily = buildDailySummary(entries, 30)
   const platforms = buildPlatformSummary(entries)
@@ -142,9 +192,18 @@ export async function addSalesRoute(req: any, res: any) {
     createdAt: new Date().toISOString(),
   }
 
-  const entries = readAll()
-  entries.push(entry)
-  writeAll(entries)
+  ensureSalesMigrated();
+  upsertSalesEntrySqlite({
+    id: entry.id,
+    date: entry.date,
+    platform: entry.platform,
+    revenue: entry.revenue,
+    orders: entry.orders,
+    memo: entry.memo,
+    createdAt: entry.createdAt
+  });
+  const entries = readAllFromStore();
+  writeAll(entries);
 
   logger.info("[sales] entry added", { id: entry.id, date: entry.date, platform: entry.platform, revenue: entry.revenue })
   return res.json({ ok: true, entry })
@@ -155,13 +214,13 @@ export async function deleteSalesRoute(req: any, res: any) {
   const id = String((req.body as Record<string, unknown>)?.id ?? "")
   if (!id) return res.json({ ok: false, error: "id required" })
 
-  const entries = readAll()
-  const next = entries.filter(e => e.id !== id)
-  if (next.length === entries.length) {
+  ensureSalesMigrated();
+  const deleted = deleteSalesEntrySqlite(id);
+  if (!deleted) {
     return res.json({ ok: false, error: "not_found" })
   }
 
-  writeAll(next)
+  writeAll(readAllFromStore())
   logger.info("[sales] entry deleted", { id })
   return res.json({ ok: true })
 }

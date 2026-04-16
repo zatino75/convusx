@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react"
  * useScrollBehavior — 채팅 스크롤 자동 고정 + "맨 아래로" 버튼 표시 로직
  * scrollRef: 스크롤 컨테이너에 연결
  * markScrollToBottom: 다음 렌더에서 강제 스크롤 예약
- * setShowScrollToBottom: useSendChat 등 외부 훅이 버튼 상태를 직접 제어할 때 사용
  */
 export function useScrollBehavior({
   activeThreadId,
@@ -77,7 +76,6 @@ export function useScrollBehavior({
   return {
     scrollRef,
     showScrollToBottom,
-    setShowScrollToBottom,
     markScrollToBottom,
     handleScrollToBottom,
   }

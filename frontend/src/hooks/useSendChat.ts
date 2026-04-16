@@ -1,6 +1,11 @@
 import { useRef, useState } from "react";
 import { sendChatStream } from "../api/stream";
 import { extractDebugMeta } from "../api/chat";
+import {
+  startAgentTurn,
+  handleAgentSSEEvent,
+  finishAgentTurn,
+} from "../store/agentStore";
 import { apiUrl, OPENAI_DIRECT_URL } from "../api/url";
 import { saveMessages, saveThread } from "../api/workspace";
 import { t } from "../i18n";
@@ -66,9 +71,7 @@ type UseSendChatOptions = {
   editingDraft: string;
   resetEditingState: () => void;
   markScrollToBottom: (behavior?: ScrollBehavior) => void;
-  focusComposer: () => void;
   setPanelPage: (page: number) => void;
-  setShowScrollToBottom: (value: boolean) => void;
   /** 전송 후 입력창 텍스트 초기화 */
   onDraftClear: () => void;
   /** 서버 연결 상태 — offline 시 전송 차단 */
@@ -82,9 +85,7 @@ export function useSendChat({
   editingDraft,
   resetEditingState,
   markScrollToBottom,
-  focusComposer,
   setPanelPage,
-  setShowScrollToBottom,
   onDraftClear,
   connectionStatus,
 }: UseSendChatOptions) {
@@ -92,16 +93,12 @@ export function useSendChat({
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; type: string; base64: string; size: number }[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
   const [debugMeta, setDebugMeta] = useState<DebugMeta>(createDefaultDebugMeta());
-  const [composerOptions, setComposerOptions] = useState<{ force_pro?: boolean; deep_research?: boolean; task?: string; force_high_value?: boolean } | null>(null);
 
   const activeStreamRef = useRef<ActiveStreamState | null>(null);
 
   // attachedFiles ref for stable closure access inside async stream
   const attachedFilesRef = useRef(attachedFiles);
   attachedFilesRef.current = attachedFiles;
-
-  const composerOptionsRef = useRef(composerOptions);
-  composerOptionsRef.current = composerOptions;
 
   async function sendMessageToThread(text: string, target: SendTarget, options?: RetryOptions) {
     // 오프라인 상태이면 전송 차단
@@ -244,6 +241,10 @@ export function useSendChat({
       placeholderId: assistantPlaceholder.id
     };
 
+    // ── agentStore: 에이전트 turn 시작 ─────────────────────────────
+    const agentTurnId = `turn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    startAgentTurn(agentTurnId, target.threadId);
+
     markScrollToBottom("smooth");
 
     workspace.updateThreadById(target.threadId, (thread: Thread) => ({
@@ -264,7 +265,6 @@ export function useSendChat({
     // ✅ 전송 즉시 입력창 초기화 (텍스트 + 파일)
     onDraftClear();
     setAttachedFiles([]);
-    setComposerOptions(null);
     setLastError(null);
     setDebugMeta(createDefaultDebugMeta());
     resetEditingState();
@@ -391,19 +391,16 @@ export function useSendChat({
         pendingAnimationFrame = requestAnimationFrame(renderNow);
       };
 
-      const currentComposerOptions = composerOptionsRef.current;
-
       await sendChatStream(
         {
           message: trimmed || (files.length > 0 ? t("chat.attachAnalyze").replace("{files}", files.map((f: { name: string }) => f.name).join(", ")) : ""),
           thread_id: target.threadId,
           project_id: target.projectId,
-          mode: "runtime_orchestra",
+          mode: "runtime_agent_loop",
           messages: threadMessages,
           global_instruction: globalInstruction?.trim() || null,
           project_instruction: workspace.activeProject?.meta?.instruction?.trim() || null,
           domain_profile: localStorage.getItem("corvus-x.domain-profile") ?? "general",
-          ...(currentComposerOptions ?? {}),
           ...(files.length > 0 ? {
             attached_files: files.map((f: { name: string; type: string; base64: string; size: number }) => ({
               name: f.name,
@@ -418,6 +415,9 @@ export function useSendChat({
             if (activeStreamRef.current?.placeholderId !== assistantPlaceholder.id) return;
             liveEvents.push(event);
             liveMeta = buildLiveMetaFromEvents(liveEvents);
+
+            // ── agentStore: 모든 SSE 이벤트를 agentStore 로 브릿지 ───
+            handleAgentSSEEvent(event as Record<string, unknown>);
 
             // 진행 상태 표시 (pending 상태에서 단계별 메시지)
             if (event.type === "status") {
@@ -605,7 +605,6 @@ export function useSendChat({
               workspace.touchProject(target.projectId);
               setIsSending(false);
               setAttachedFiles([]);
-              focusComposer();
               activeStreamRef.current = null;
               return;
             }
@@ -634,7 +633,6 @@ export function useSendChat({
               workspace.touchProject(target.projectId);
               setIsSending(false);
               setAttachedFiles([]);
-              focusComposer();
               activeStreamRef.current = null;
               return;
             }
@@ -662,7 +660,6 @@ export function useSendChat({
               workspace.touchProject(target.projectId);
               setIsSending(false);
               setAttachedFiles([]);
-              focusComposer();
               activeStreamRef.current = null;
               return;
             }
@@ -693,7 +690,6 @@ export function useSendChat({
               setIsSending(false);
               // ✅ 서버 에러 시 파일 복원 — 재시도를 위해 원본 files 복구
               setAttachedFiles(files);
-              focusComposer();
               return;
             }
 
@@ -841,7 +837,6 @@ export function useSendChat({
             }
             setIsSending(false);
             setAttachedFiles([]);
-            focusComposer();
           }
         },
         {
@@ -891,8 +886,9 @@ export function useSendChat({
       if (activeStreamRef.current?.placeholderId === assistantPlaceholder.id) {
         activeStreamRef.current = null;
       }
+      // ── agentStore: turn 정리 ────────────────────────────────────
+      finishAgentTurn();
       setIsSending(false);
-      focusComposer();
     }
   }
 
@@ -958,7 +954,7 @@ export function useSendChat({
         ...message,
         content: message.content?.trim() ? message.content : t("chat.generationCancelled"),
         status: "done" as const,
-        requestMeta: message.requestMeta ?? currentDebugMeta
+        requestMeta: message.requestMeta ?? currentDebugMeta,
       }));
       const nextThread = { ...thread, updatedAt: nowIso(), messages: nextMessages };
       saveMessages(activeStream.threadId, nextMessages);
@@ -968,10 +964,9 @@ export function useSendChat({
 
     workspace.touchProject(activeStream.projectId);
     activeStreamRef.current = null;
+    // agentStore: 사용자가 중단한 경우에도 turn 정리
+    finishAgentTurn("aborted");
     setIsSending(false);
-    setLastError(null);
-    setShowScrollToBottom(false);
-    focusComposer();
   }
 
   return {
@@ -979,10 +974,8 @@ export function useSendChat({
     attachedFiles,
     setAttachedFiles,
     lastError,
+    setLastError,
     debugMeta,
-    composerOptions,
-    setComposerOptions,
-    sendMessageToThread,
     handleSend,
     handleHomeSubmit,
     handleSubmitEditMessage,

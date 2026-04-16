@@ -26,6 +26,10 @@
     "images": "Images",
     "dashboard": "Dashboard",
     "benchmark": "Benchmark",
+    "sales": "Sales Dashboard",
+    "workforce": "AI Workforce",
+    "storeops": "Store Operations",
+    "pos": "POS Terminal",
     "settings": "Settings",
     "newThread": "New Chat",
     "newProject": "New Project",
@@ -207,6 +211,9 @@
     "resetAllDesc": "Delete all data at once."
   },
   "sidebar": {
+    "command": "Command",
+    "retailOps": "Retail Ops",
+    "intelligence": "Intelligence",
     "projects": "Projects",
     "recentChats": "Recent",
     "noThreads": "No threads",

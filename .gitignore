@@ -26,6 +26,28 @@ data/*.db-wal
 data/*.db-shm
 
 .claude/worktrees/
+.claude/
 
 test_write.tmp
 *.tmp
+
+# Local analysis / context / sync temp dirs
+.analysis/
+.tmp.driveupload/
+.tmp.drivedownload/
+Claude-Context/
+
+# Deploy bundle (regenerated on demand)
+corvusx-deploy.tar.gz
+
+# Editor backups
+*.bak
+*.bak.*
+
+# Archive dumps (drive sync, manual zips — don't belong in repo)
+*.zip
+*.tar.gz
+*.tgz
+
+# Runtime logs
+*.log
