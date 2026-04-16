@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=1440" />
-<title>CORVUS X</title>
+<title>CORVUS X — Isometric Office</title>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 <style>
   :root {
     --bg:#f5f5f5;
@@ -16,11 +17,7 @@
     --accent-soft:#dbeafe;
     --gold:#d97706;
     --red:#ef4444;
-    --office-bg:#0d1117;
-    --office-wall:#1f2937;
-    --office-text:#9ca3af;
     --shadow-sm: 0 1px 2px rgba(0,0,0,.05);
-    --shadow-md: 0 2px 8px rgba(0,0,0,.06);
   }
   *{box-sizing:border-box}
   html,body{
@@ -32,321 +29,664 @@
     -webkit-font-smoothing:antialiased;
   }
   button,input,textarea{font-family:inherit;font-size:inherit;color:inherit}
-  kbd{font-family:inherit}
 
-  /* ─ layout ─────────────────────────────────────────────────────────── */
-  .app{display:grid;grid-template-columns:200px 1fr 280px;height:100vh;background:var(--bg)}
-  .sidebar{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;padding:16px 0 12px}
-  .chat{display:flex;flex-direction:column;min-height:0;overflow:hidden;background:var(--surface);border-right:1px solid var(--border)}
-  .office{background:var(--office-bg);display:flex;flex-direction:column;overflow:hidden;color:var(--office-text)}
-
-  /* ─ sidebar ────────────────────────────────────────────────────────── */
-  .logo{padding:0 16px 20px;font-size:15px;font-weight:700;letter-spacing:.5px;color:var(--text);display:flex;align-items:center;gap:6px}
-  .logo .mark{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent)}
-  .nav-btn{display:flex;align-items:center;gap:10px;padding:9px 16px;margin:0;color:var(--text);cursor:pointer;font-size:13px;text-decoration:none;border:none;background:none;width:100%;text-align:left;transition:background .12s}
-  .nav-btn:hover{background:#f9fafb}
-  .nav-btn.active{background:#f3f4f6;font-weight:600}
-  .nav-btn .ic{width:14px;height:14px;flex-shrink:0;opacity:.7}
-  .nav-divider{padding:16px 16px 6px;font-size:10px;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase;font-weight:600}
-  .nav-projects{flex-shrink:0;max-height:220px;overflow-y:auto}
-  .nav-project{padding:6px 16px 6px 30px;color:var(--text-soft);font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;transition:background .12s}
-  .nav-project:hover{background:#f9fafb;color:var(--text)}
-  .nav-project.active{background:#eff6ff;color:var(--accent);font-weight:500}
-  .nav-project .dot{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.4}
-  .nav-new{padding:6px 16px 6px 30px;color:var(--text-dim);font-size:12px;cursor:pointer;font-style:normal;transition:color .12s}
-  .nav-new:hover{color:var(--accent)}
-
-  /* ─ chat ───────────────────────────────────────────────────────────── */
-  .chat-header{padding:14px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
-  .chat-title{font-size:15px;font-weight:600;color:var(--text);cursor:pointer;padding:3px 8px;border-radius:4px;border:1px solid transparent;outline:none}
-  .chat-title:hover{border-color:var(--border)}
-  .chat-title[contenteditable="true"]{border-color:var(--accent);background:#fff}
-  .chat-status{font-size:12px;color:var(--text-dim);display:flex;align-items:center;gap:6px}
-  .chat-status .dot{width:7px;height:7px;border-radius:50%;background:#d1d5db}
-  .chat-status .dot.live{background:#10b981;animation:pulse 1.4s ease-in-out infinite}
-  .chat-status .dot.err{background:var(--red)}
+  /* layout: top 55% canvas, bottom 45% split into sidebar + chat */
+  .app{display:grid;grid-template-rows:55% 45%;height:100vh;background:#0d1117}
+  #phaser-container{position:relative;overflow:hidden;background:#0d1117}
+  #phaser-container canvas{display:block}
+  .office-title{position:absolute;top:10px;left:16px;color:#d1d5db;font-size:11px;letter-spacing:2px;font-weight:700;z-index:3;text-shadow:0 1px 2px rgba(0,0,0,.5);pointer-events:none}
+  .office-status{position:absolute;top:10px;right:16px;color:#d1d5db;font-size:11px;display:flex;align-items:center;gap:6px;z-index:3;pointer-events:none}
+  .office-status .dot{width:7px;height:7px;border-radius:50%;background:#374151}
+  .office-status .dot.live{background:#10b981;animation:pulse 1.4s ease-in-out infinite}
+  .office-status .dot.err{background:var(--red)}
   @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
 
-  .chat-log{flex:1;overflow-y:auto;padding:24px 24px 12px;display:flex;flex-direction:column;gap:14px;min-height:0}
+  .bottom{display:grid;grid-template-columns:180px 1fr;background:var(--bg);min-height:0}
+
+  /* sidebar */
+  .sidebar{background:#f9fafb;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;padding:14px 0 10px}
+  .logo{padding:0 16px 14px;font-size:14px;font-weight:700;letter-spacing:.5px;color:var(--text);display:flex;align-items:center;gap:6px}
+  .logo .mark{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+  .nav-btn{display:flex;align-items:center;gap:9px;padding:8px 16px;color:var(--text);cursor:pointer;font-size:12.5px;text-decoration:none;border:none;background:none;width:100%;text-align:left;transition:background .12s}
+  .nav-btn:hover{background:#f1f5f9}
+  .nav-btn.active{background:#e5e7eb;font-weight:600}
+  .nav-btn .ic{width:13px;height:13px;flex-shrink:0;opacity:.7}
+  .nav-divider{padding:12px 16px 4px;font-size:10px;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase;font-weight:600}
+  .nav-projects{max-height:200px;overflow-y:auto;flex-shrink:0}
+  .nav-project{padding:5px 16px 5px 28px;color:var(--text-soft);font-size:11.5px;cursor:pointer;display:flex;align-items:center;gap:6px;transition:background .12s}
+  .nav-project:hover{background:#f1f5f9;color:var(--text)}
+  .nav-project.active{background:#eff6ff;color:var(--accent);font-weight:500}
+  .nav-project .dot{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.4}
+  .nav-new{padding:5px 16px 5px 28px;color:var(--text-dim);font-size:11.5px;cursor:pointer;transition:color .12s}
+  .nav-new:hover{color:var(--accent)}
+
+  /* chat */
+  .chat{display:flex;flex-direction:column;min-height:0;overflow:hidden;background:var(--surface)}
+  .chat-header{padding:10px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+  .chat-title{font-size:13.5px;font-weight:600;color:var(--text);cursor:pointer;padding:3px 8px;border-radius:4px;border:1px solid transparent;outline:none}
+  .chat-title:hover{border-color:var(--border)}
+  .chat-title[contenteditable="true"]{border-color:var(--accent);background:#fff}
+
+  .chat-log{flex:1;overflow-y:auto;padding:14px 20px 10px;display:flex;flex-direction:column;gap:10px;min-height:0}
   .chat-log::-webkit-scrollbar{width:6px}
   .chat-log::-webkit-scrollbar-thumb{background:#e5e7eb;border-radius:3px}
-  .chat-empty{color:var(--text-dim);font-size:13px;text-align:center;padding:60px 20px}
-  .chat-empty h3{margin:0 0 6px;font-size:14px;color:var(--text-soft);font-weight:600}
+  .chat-empty{color:var(--text-dim);font-size:12px;text-align:center;padding:30px 20px}
+  .chat-empty h3{margin:0 0 4px;font-size:13px;color:var(--text-soft);font-weight:600}
 
-  .msg{display:flex;flex-direction:column;gap:4px;animation:msg-in .25s ease-out;max-width:78%}
+  .msg{display:flex;flex-direction:column;gap:3px;animation:msg-in .2s ease-out;max-width:78%}
   @keyframes msg-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
   .msg.user{align-self:flex-end;align-items:flex-end}
   .msg.ai,.msg.dept,.msg.ceo,.msg.critic,.msg.sys,.msg.err{align-self:flex-start;align-items:flex-start}
-  .msg .who{font-size:11px;color:var(--text-dim);margin-bottom:2px;padding:0 4px}
-  .msg .body{padding:10px 14px;border-radius:14px;font-size:13.5px;line-height:1.55;word-break:break-word;white-space:pre-wrap}
+  .msg .who{font-size:10px;color:var(--text-dim);margin-bottom:2px;padding:0 4px;display:flex;align-items:center;gap:5px}
+  .msg .body{padding:8px 12px;border-radius:12px;font-size:13px;line-height:1.5;word-break:break-word;white-space:pre-wrap}
   .msg.user .body{background:var(--accent-soft);color:#1e3a8a;border-bottom-right-radius:4px}
-  .msg.ai .body{background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-sm);border-bottom-left-radius:4px}
   .msg.dept .body{background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-sm);border-bottom-left-radius:4px}
-  .msg.dept .who{display:flex;align-items:center;gap:5px;font-weight:500}
-  .msg.dept .who .dot{width:8px;height:8px;border-radius:50%;background:var(--dept-color,#9ca3af)}
-  .msg.ceo .body{background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-sm);border-left:4px solid var(--gold);border-bottom-left-radius:4px;font-weight:500}
+  .msg.dept .who .dot{width:7px;height:7px;border-radius:50%;background:var(--dept-color,#9ca3af)}
+  .msg.ceo .body{background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-sm);border-left:3px solid var(--gold);border-bottom-left-radius:4px;font-weight:500}
   .msg.ceo .who{color:var(--gold);font-weight:600}
   .msg.critic .body{background:#fef2f2;border:1px solid #fecaca;border-bottom-left-radius:4px}
   .msg.critic .who{color:#dc2626;font-weight:500}
   .msg.sys{max-width:100%}
-  .msg.sys .body{background:transparent;padding:4px 8px;color:var(--text-dim);font-size:12px;font-style:italic}
+  .msg.sys .body{background:transparent;padding:2px 6px;color:var(--text-dim);font-size:11px;font-style:italic}
   .msg.err .body{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-bottom-left-radius:4px}
-  .msg .body ul{margin:6px 0 2px;padding-left:20px}
-  .msg .body li{font-size:12.5px;margin:2px 0}
-  .msg .body .sec-label{font-size:11px;color:var(--text-dim);font-weight:600;margin-top:8px;text-transform:uppercase;letter-spacing:.5px}
+  .msg .body ul{margin:4px 0;padding-left:18px}
+  .msg .body li{font-size:12px;margin:2px 0}
+  .msg .body .sec{font-size:10.5px;color:var(--text-dim);font-weight:600;margin-top:6px;text-transform:uppercase;letter-spacing:.4px}
 
-  .chat-input{padding:14px 20px 20px;border-top:1px solid var(--border);background:var(--surface)}
-  .chat-input-wrap{position:relative;background:#f9fafb;border:1px solid var(--border);border-radius:12px;padding:10px 52px 10px 14px;transition:border-color .15s,box-shadow .15s}
-  .chat-input-wrap:focus-within{border-color:var(--accent);background:var(--surface);box-shadow:0 0 0 3px rgba(59,130,246,.1)}
-  .chat-input-wrap textarea{width:100%;background:transparent;border:none;outline:none;resize:none;height:24px;max-height:200px;line-height:1.5;color:var(--text);font-size:14px;display:block}
+  .chat-input{padding:10px 16px 14px;border-top:1px solid var(--border);background:var(--surface)}
+  .chat-input-wrap{position:relative;background:#f9fafb;border:1px solid var(--border);border-radius:10px;padding:8px 46px 8px 12px}
+  .chat-input-wrap:focus-within{border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px rgba(59,130,246,.1)}
+  .chat-input-wrap textarea{width:100%;background:transparent;border:none;outline:none;resize:none;height:22px;max-height:120px;line-height:1.45;color:var(--text);font-size:13.5px;display:block}
   .chat-input-wrap textarea::placeholder{color:var(--text-dim)}
-  .send-btn{position:absolute;right:8px;bottom:8px;width:32px;height:32px;border:none;border-radius:8px;background:var(--accent);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,opacity .15s}
+  .send-btn{position:absolute;right:6px;bottom:6px;width:30px;height:30px;border:none;border-radius:8px;background:var(--accent);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center}
   .send-btn:hover{background:#2563eb}
   .send-btn:disabled{background:#cbd5e1;cursor:not-allowed}
   .send-btn.stop{background:var(--red)}
-  .send-btn.stop:hover{background:#dc2626}
-  .chat-hint{margin-top:8px;font-size:11px;color:var(--text-dim);display:flex;justify-content:space-between;align-items:center}
-  .chat-hint kbd{background:#f3f4f6;border:1px solid var(--border);padding:1px 5px;border-radius:3px;font-size:10px;color:var(--text-soft)}
-
-  /* ─ office (right panel) ───────────────────────────────────────────── */
-  .office-header{padding:14px 16px 10px;font-size:10px;color:var(--office-text);letter-spacing:2px;font-weight:700;border-bottom:1px solid var(--office-wall);display:flex;justify-content:space-between;align-items:center}
-  .office-header .running{width:6px;height:6px;border-radius:50%;background:#374151}
-  .office-header .running.live{background:#10b981;animation:pulse 1.4s ease-in-out infinite}
-  .office-stage{flex:1;position:relative;overflow:hidden;padding:18px 14px;display:flex;align-items:center;justify-content:center}
-  .office-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:18px 14px;width:100%;height:100%;max-width:248px;max-height:540px}
-
-  /* ─ desk + pixel character ─────────────────────────────────────────── */
-  .slot{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
-  .slot .name{position:absolute;bottom:-14px;font-size:8px;color:var(--office-text);letter-spacing:.5px;opacity:.55;white-space:nowrap}
-  .slot.working .name{color:#fff;opacity:1}
-  .desk{width:52px;height:18px;background:#4a3622;background:linear-gradient(180deg,#5b4228,#3d2c19);border-radius:2px;box-shadow:inset 0 -3px 0 rgba(0,0,0,.45);position:relative;z-index:1}
-  .pxc{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);width:12px;height:22px;z-index:2}
-  .pxc .head{position:absolute;top:0;left:2px;width:8px;height:8px;background:#f6d5ad;box-shadow:inset 0 -2px 0 rgba(0,0,0,.15)}
-  .pxc .hair{position:absolute;top:0;left:2px;width:8px;height:2px;background:#2d1f10}
-  .pxc .eye-l,.pxc .eye-r{position:absolute;top:4px;width:1px;height:1px;background:#000}
-  .pxc .eye-l{left:4px}
-  .pxc .eye-r{left:7px}
-  .pxc .body{position:absolute;top:8px;left:2px;width:8px;height:10px;background:var(--c,#9ca3af);box-shadow:inset 0 -2px 0 rgba(0,0,0,.2)}
-  .pxc .arm-l,.pxc .arm-r{position:absolute;top:8px;width:2px;height:6px;background:var(--c,#9ca3af)}
-  .pxc .arm-l{left:0}
-  .pxc .arm-r{left:10px}
-  .pxc .leg-l,.pxc .leg-r{position:absolute;top:18px;width:3px;height:4px;background:#1f2937}
-  .pxc .leg-l{left:3px}
-  .pxc .leg-r{left:6px}
-
-  /* idle: gentle bob */
-  .slot .pxc{animation:bob 3s ease-in-out infinite}
-  @keyframes bob{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-1px)}}
-
-  /* working: typing — arms wiggle + faster bob */
-  .slot.working .pxc{animation:bob 0.7s ease-in-out infinite}
-  .slot.working .pxc .arm-l{animation:type-l 0.3s linear infinite}
-  .slot.working .pxc .arm-r{animation:type-r 0.3s linear infinite}
-  @keyframes type-l{0%,100%{top:8px;height:6px}50%{top:10px;height:4px}}
-  @keyframes type-r{0%,100%{top:10px;height:4px}50%{top:8px;height:6px}}
-
-  /* done: jump + check */
-  .slot.done .pxc{animation:jump 0.55s ease-out 1}
-  @keyframes jump{0%{transform:translateX(-50%) translateY(0)}40%{transform:translateX(-50%) translateY(-8px)}100%{transform:translateX(-50%) translateY(0)}}
-  .slot .check{position:absolute;top:-4px;right:-2px;width:12px;height:12px;background:#10b981;color:#fff;border-radius:50%;display:none;align-items:center;justify-content:center;font-size:9px;font-weight:bold;animation:check-pop 0.4s ease-out 1}
-  .slot.done .check{display:flex}
-  @keyframes check-pop{from{transform:scale(0)}to{transform:scale(1)}}
-
-  /* bubble */
-  .slot .bubble{position:absolute;bottom:44px;left:50%;transform:translateX(-50%);background:#fff;color:#1f2937;font-size:9px;padding:3px 6px;border-radius:4px;white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis;box-shadow:0 2px 6px rgba(0,0,0,.3);z-index:3;animation:bubble-in .2s ease-out}
-  .slot .bubble::after{content:'';position:absolute;bottom:-4px;left:50%;transform:translateX(-50%);border:4px solid transparent;border-top-color:#fff}
-  @keyframes bubble-in{from{opacity:0;transform:translateX(-50%) translateY(2px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
-
-  /* err */
-  .slot.err .pxc .body{background:var(--red)!important}
-  .slot.err .check{display:flex;background:var(--red)}
-  .slot.err .check::before{content:'!';}
-  .slot.err .check::after{content:none}
+  .chat-hint{margin-top:6px;font-size:10px;color:var(--text-dim)}
+  .chat-hint kbd{background:#f3f4f6;border:1px solid var(--border);padding:1px 4px;border-radius:3px;font-size:10px;color:var(--text-soft)}
 </style>
 </head>
 <body>
 <div class="app">
-
-  <!-- ─ sidebar ───────────────────────────────────────────────────── -->
-  <nav class="sidebar">
-    <div class="logo"><span class="mark"></span>CORVUS X</div>
-
-    <button class="nav-btn active" id="navNewChat">
-      <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
-      새 채팅
-    </button>
-
-    <div class="nav-divider">프로젝트</div>
-    <div class="nav-projects" id="navProjects">
-      <div class="nav-new" id="navProjectNew">+ 새 프로젝트</div>
+  <div id="phaser-container">
+    <div class="office-title">◢ CORVUS X OFFICE</div>
+    <div class="office-status">
+      <span class="dot" id="officeStatusDot"></span>
+      <span id="officeStatusText">대기 중</span>
     </div>
+  </div>
 
-    <div class="nav-divider">운영</div>
-    <a href="/?view=dashboard" class="nav-btn">
-      <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="5" height="5"/><rect x="9" y="3" width="5" height="5"/><rect x="2" y="10" width="5" height="3"/><rect x="9" y="10" width="5" height="3"/></svg>
-      매출 대시보드
-    </a>
-    <a href="/?view=store-ops" class="nav-btn">
-      <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5l1.5-3h9L14 5M2 5v8h12V5M2 5h12M6 8h4"/></svg>
-      매장 운영
-    </a>
-    <a href="/?view=pos" class="nav-btn">
-      <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="8" rx="1"/><path d="M5 13h6M8 11v2"/></svg>
-      POS 관리
-    </a>
-  </nav>
-
-  <!-- ─ chat ──────────────────────────────────────────────────────── -->
-  <section class="chat">
-    <div class="chat-header">
-      <span class="chat-title" id="projectName">신규 프로젝트</span>
-      <span class="chat-status">
-        <span class="dot" id="statusDot"></span>
-        <span id="statusText">대기 중</span>
-      </span>
-    </div>
-
-    <div class="chat-log" id="chatLog">
-      <div class="chat-empty">
-        <h3>무엇을 도와드릴까요?</h3>
-        <p>지시를 입력하면 필요한 부서만 자동으로 움직입니다.</p>
+  <div class="bottom">
+    <nav class="sidebar">
+      <div class="logo"><span class="mark"></span>CORVUS X</div>
+      <button class="nav-btn active" id="navNewChat">
+        <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
+        새 채팅
+      </button>
+      <div class="nav-divider">프로젝트</div>
+      <div class="nav-projects" id="navProjects">
+        <div class="nav-new" id="navProjectNew">+ 새 프로젝트</div>
       </div>
-    </div>
+      <div class="nav-divider">운영</div>
+      <a href="/?view=dashboard" class="nav-btn">
+        <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="5" height="5"/><rect x="9" y="3" width="5" height="5"/><rect x="2" y="10" width="5" height="3"/><rect x="9" y="10" width="5" height="3"/></svg>
+        매출 대시보드
+      </a>
+      <a href="/?view=store-ops" class="nav-btn">
+        <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5l1.5-3h9L14 5M2 5v8h12V5M2 5h12M6 8h4"/></svg>
+        매장 운영
+      </a>
+      <a href="/?view=pos" class="nav-btn">
+        <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="8" rx="1"/><path d="M5 13h6M8 11v2"/></svg>
+        POS 관리
+      </a>
+    </nav>
 
-    <div class="chat-input">
-      <div class="chat-input-wrap">
-        <textarea id="directive" rows="1" placeholder="무엇이든 물어보세요..."></textarea>
-        <button class="send-btn" id="sendBtn" title="전송" aria-label="전송">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
-        </button>
+    <section class="chat">
+      <div class="chat-header">
+        <span class="chat-title" id="projectName">신규 프로젝트</span>
       </div>
-      <div class="chat-hint">
-        <span><kbd>Enter</kbd> 전송 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 줄바꿈</span>
-        <span id="runInfo"></span>
+      <div class="chat-log" id="chatLog">
+        <div class="chat-empty">
+          <h3>무엇을 도와드릴까요?</h3>
+          <p>지시를 입력하면 필요한 부서 직원이 회의실로 이동해 작업합니다.</p>
+        </div>
       </div>
-    </div>
-  </section>
-
-  <!-- ─ pixel office ──────────────────────────────────────────────── -->
-  <aside class="office">
-    <div class="office-header">
-      <span>◢ OFFICE</span>
-      <span class="running" id="officeRunning" title="상태"></span>
-    </div>
-    <div class="office-stage">
-      <div class="office-grid" id="officeGrid"><!-- rendered --></div>
-    </div>
-  </aside>
+      <div class="chat-input">
+        <div class="chat-input-wrap">
+          <textarea id="directive" rows="1" placeholder="무엇이든 물어보세요..."></textarea>
+          <button class="send-btn" id="sendBtn" title="전송">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+          </button>
+        </div>
+        <div class="chat-hint"><kbd>Enter</kbd> 전송 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 줄바꿈</div>
+      </div>
+    </section>
+  </div>
 </div>
 
 <script>
 (() => {
   const API_BASE = location.origin.includes('localhost') ? 'http://localhost:8000' : '';
+
+  // ─── 부서 정의 ─────────────────────────────────────────────────────
   const DEPTS = [
-    {id:'market',    kr:'시장',  color:'#3b82f6'},
-    {id:'compete',   kr:'경쟁',  color:'#f97316'},
-    {id:'legal',     kr:'법무',  color:'#a855f7'},
-    {id:'finance',   kr:'재무',  color:'#eab308'},
-    {id:'marketing', kr:'마케팅',color:'#ec4899'},
-    {id:'rnd',       kr:'R&D',  color:'#22c55e'},
-    {id:'data',      kr:'데이터',color:'#06b6d4'},
-    {id:'content',   kr:'콘텐츠',color:'#ef4444'},
-    {id:'sns',       kr:'SNS',  color:'#d946ef'},
+    { id:'market',    kr:'시장조사', color:0x3b82f6, hex:'#3b82f6', row:0, col:0 },
+    { id:'marketing', kr:'마케팅',   color:0xec4899, hex:'#ec4899', row:0, col:1 },
+    { id:'finance',   kr:'재무',     color:0x22c55e, hex:'#22c55e', row:0, col:2 },
+    { id:'legal',     kr:'법무',     color:0xa855f7, hex:'#a855f7', row:1, col:0 },
+    { id:'compete',   kr:'경쟁분석', color:0xef4444, hex:'#ef4444', row:1, col:1 },
+    { id:'rnd',       kr:'R&D',      color:0xf97316, hex:'#f97316', row:1, col:2 },
+    { id:'data',      kr:'데이터',   color:0x06b6d4, hex:'#06b6d4', row:2, col:0 },
+    { id:'content',   kr:'콘텐츠',   color:0xeab308, hex:'#eab308', row:2, col:1 },
+    { id:'sns',       kr:'SNS',      color:0x14b8a6, hex:'#14b8a6', row:2, col:2 },
   ];
   const DEPT_BY_ID = Object.fromEntries(DEPTS.map(d => [d.id, d]));
 
+  // ─── 전역 상태 ─────────────────────────────────────────────────────
   const LS_PROJECT = 'corvus-x-office.current-project';
   const LS_PROJECTS = 'corvus-x-office.projects';
-
   const state = {
     es: null,
     running: false,
+    scene: null,
     currentProject: loadLS(LS_PROJECT, '신규 프로젝트'),
     projects: loadLS(LS_PROJECTS, []),
-    deptBubbleCache: {},
-    startTs: 0,
   };
 
+  function loadLS(key, fb) {
+    try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fb; }
+    catch { return fb; }
+  }
+  function saveLS(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} }
+
+  // ─── Phaser Scene ──────────────────────────────────────────────────
+  const W = 1280, H = 520;
+  const TILE_W = 54, TILE_H = 27;   // isometric tile (2:1)
+  const ORIGIN_X = W / 2;
+  const ORIGIN_Y = 110;
+
+  // grid coord → screen
+  function isoX(tx, ty) { return ORIGIN_X + (tx - ty) * (TILE_W / 2); }
+  function isoY(tx, ty) { return ORIGIN_Y + (tx + ty) * (TILE_H / 2); }
+
+  // 방 정의 (grid 좌표)
+  // Meeting room: tx 0-2, ty 0-1
+  // CEO room:     tx 6-8, ty 0-1
+  // Cubicles:     tx 1-7, ty 2-5  (9 큐비클 3x3)
+  // Lounge:       tx 2-6, ty 6-7
+
+  // 큐비클 위치 (캐릭터 자리 = 의자 위치)
+  // 9 cubicles laid out so each dept has a distinct chair
+  const CUBICLES = DEPTS.map((d, i) => {
+    const col = i % 3;   // 0 1 2
+    const row = Math.floor(i / 3);  // 0 1 2
+    return {
+      deptId: d.id,
+      tx: 1.5 + col * 2.2,  // 1.5, 3.7, 5.9
+      ty: 2.5 + row * 1.2,  // 2.5, 3.7, 4.9
+    };
+  });
+
+  // 회의실 좌석 (부서별로 다른 자리 배정)
+  const MEETING_SEATS = [
+    { tx: 0.6, ty: 0.2 }, { tx: 1.2, ty: 0.2 }, { tx: 1.8, ty: 0.2 },
+    { tx: 0.4, ty: 0.9 }, { tx: 2.0, ty: 0.9 },
+    { tx: 0.6, ty: 1.5 }, { tx: 1.2, ty: 1.5 }, { tx: 1.8, ty: 1.5 },
+    { tx: 1.2, ty: 0.9 }, // 중앙
+  ];
+  DEPTS.forEach((d, i) => { d._meetingSeat = MEETING_SEATS[i]; });
+
+  // ─── 좌표계/색상 유틸 ─────────────────────────────────────────────
+  const FLOOR_A = 0x1f2937;
+  const FLOOR_B = 0x262f3d;
+  const FLOOR_EDGE = 0x0d1117;
+  const ROOM_TINT_MEETING = 0x1e293b;
+  const ROOM_TINT_CEO = 0x292524;
+  const ROOM_TINT_LOUNGE = 0x1e1b4b;
+  const WALL_COLOR = 0x374151;
+
+  class OfficeScene extends Phaser.Scene {
+    constructor() { super('office'); }
+
+    create() {
+      state.scene = this;
+
+      // 배경 레이어
+      this.bgLayer = this.add.container(0, 0);
+      this.floorLayer = this.add.container(0, 0);
+      this.furnitureLayer = this.add.container(0, 0);
+      this.charLayer = this.add.container(0, 0);
+      this.uiLayer = this.add.container(0, 0);
+
+      this.drawFloor();
+      this.drawRooms();
+      this.drawFurniture();
+      this.createCharacters();
+
+      // 룸 레이블
+      this.addRoomLabel('회의실',  isoX(1, 0.5),   isoY(1, 0.5) - 55, 0xcbd5e1);
+      this.addRoomLabel('CEO 사장실', isoX(7, 0.5), isoY(7, 0.5) - 55, 0xfbbf24);
+      this.addRoomLabel('휴게실',  isoX(4, 6.5),   isoY(4, 6.5) - 55, 0xc7d2fe);
+      this.addRoomLabel('업무공간', isoX(4, 3.5),   isoY(4, 3.5) - 70, 0x9ca3af);
+
+      // 완료 이펙트용 파티클 매니저 (간단 버전)
+      this.tweens.timeScale = 1;
+    }
+
+    addRoomLabel(text, x, y, color = 0xffffff) {
+      const t = this.add.text(x, y, text, {
+        fontFamily: 'system-ui,-apple-system,"Segoe UI",sans-serif',
+        fontSize: '11px', fontStyle: 'bold',
+        color: '#' + color.toString(16).padStart(6, '0'),
+        letterSpacing: '1px',
+      }).setOrigin(0.5, 0.5);
+      this.bgLayer.add(t);
+    }
+
+    drawFloor() {
+      const g = this.add.graphics();
+      this.bgLayer.add(g);
+
+      // grid 8 x 7 tiles
+      const cols = 8, rows = 7;
+      for (let tx = 0; tx < cols; tx++) {
+        for (let ty = 0; ty < rows; ty++) {
+          const cx = isoX(tx, ty);
+          const cy = isoY(tx, ty);
+
+          // 룸별 tint
+          let tint = (tx + ty) % 2 === 0 ? FLOOR_A : FLOOR_B;
+          if (ty <= 1 && tx <= 2) tint = ROOM_TINT_MEETING;
+          else if (ty <= 1 && tx >= 6) tint = ROOM_TINT_CEO;
+          else if (ty >= 6 && tx >= 2 && tx <= 5) tint = ROOM_TINT_LOUNGE;
+
+          g.fillStyle(tint, 1);
+          g.beginPath();
+          g.moveTo(cx,            cy - TILE_H / 2);
+          g.lineTo(cx + TILE_W/2, cy);
+          g.lineTo(cx,            cy + TILE_H / 2);
+          g.lineTo(cx - TILE_W/2, cy);
+          g.closePath();
+          g.fillPath();
+
+          // 체크무늬 하이라이트
+          g.lineStyle(1, FLOOR_EDGE, 0.55);
+          g.strokePath();
+        }
+      }
+    }
+
+    drawRooms() {
+      const g = this.add.graphics();
+      this.bgLayer.add(g);
+
+      // 벽은 룸 외곽선으로 연한 선만
+      const wallSegments = [
+        // meeting room (tx 0-2, ty 0-1)
+        { from:{tx:0,ty:2}, to:{tx:3,ty:2}, c:0x475569 },
+        { from:{tx:3,ty:0}, to:{tx:3,ty:2}, c:0x475569 },
+        // CEO room (tx 6-8, ty 0-1)
+        { from:{tx:5,ty:0}, to:{tx:5,ty:2}, c:0x78350f },
+        { from:{tx:5,ty:2}, to:{tx:8,ty:2}, c:0x78350f },
+        // lounge (tx 2-5, ty 6-7)
+        { from:{tx:2,ty:5}, to:{tx:2,ty:7}, c:0x4c1d95 },
+        { from:{tx:2,ty:5}, to:{tx:6,ty:5}, c:0x4c1d95 },
+        { from:{tx:6,ty:5}, to:{tx:6,ty:7}, c:0x4c1d95 },
+      ];
+      for (const seg of wallSegments) {
+        g.lineStyle(3, seg.c, 0.9);
+        g.beginPath();
+        g.moveTo(isoX(seg.from.tx, seg.from.ty), isoY(seg.from.tx, seg.from.ty));
+        g.lineTo(isoX(seg.to.tx,   seg.to.ty),   isoY(seg.to.tx,   seg.to.ty));
+        g.strokePath();
+      }
+    }
+
+    // ─── 가구 ────────────────────────────────────────────────────────
+    // 아이소메트릭 큐브: (tx, ty, wTiles, dTiles, hPx) → 간이 박스
+    drawIsoBox(g, tx, ty, wTiles, dTiles, hPx, topColor, sideL, sideR) {
+      const x1 = isoX(tx, ty);
+      const y1 = isoY(tx, ty);
+      const x2 = isoX(tx + wTiles, ty);
+      const y2 = isoY(tx + wTiles, ty);
+      const x3 = isoX(tx + wTiles, ty + dTiles);
+      const y3 = isoY(tx + wTiles, ty + dTiles);
+      const x4 = isoX(tx, ty + dTiles);
+      const y4 = isoY(tx, ty + dTiles);
+
+      // 측면 R (오른쪽)
+      g.fillStyle(sideR, 1);
+      g.beginPath();
+      g.moveTo(x2, y2); g.lineTo(x3, y3); g.lineTo(x3, y3 - hPx); g.lineTo(x2, y2 - hPx); g.closePath();
+      g.fillPath();
+
+      // 측면 L (정면)
+      g.fillStyle(sideL, 1);
+      g.beginPath();
+      g.moveTo(x3, y3); g.lineTo(x4, y4); g.lineTo(x4, y4 - hPx); g.lineTo(x3, y3 - hPx); g.closePath();
+      g.fillPath();
+
+      // 윗면
+      g.fillStyle(topColor, 1);
+      g.beginPath();
+      g.moveTo(x1, y1 - hPx); g.lineTo(x2, y2 - hPx); g.lineTo(x3, y3 - hPx); g.lineTo(x4, y4 - hPx); g.closePath();
+      g.fillPath();
+
+      // 외곽선
+      g.lineStyle(1, 0x0d1117, 0.75);
+      g.strokePath();
+    }
+
+    drawFurniture() {
+      const g = this.add.graphics();
+      this.furnitureLayer.add(g);
+
+      // 회의실 원형 테이블 (중앙)
+      const cx1 = isoX(1.2, 0.9), cy1 = isoY(1.2, 0.9);
+      g.fillStyle(0x44403c, 1);
+      g.fillEllipse(cx1, cy1, 80, 40);
+      g.lineStyle(1, 0x0d1117, 0.8);
+      g.strokeEllipse(cx1, cy1, 80, 40);
+      g.fillStyle(0x1c1917, 1);
+      g.fillEllipse(cx1, cy1 - 2, 65, 30);
+
+      // CEO 큰 책상 + 의자
+      this.drawIsoBox(g, 6, 0.4, 1.5, 0.9, 12, 0x78350f, 0x451a03, 0x5c2309);
+      // CEO 의자 (뒤)
+      this.drawIsoBox(g, 7.2, 0.3, 0.4, 0.4, 16, 0x1f2937, 0x111827, 0x111827);
+
+      // 큐비클 책상 9개 (부서별)
+      for (const c of CUBICLES) {
+        this.drawIsoBox(g, c.tx - 0.5, c.ty - 0.3, 1.0, 0.6, 10, 0x4a3620, 0x2a1f12, 0x392815);
+
+        // 모니터
+        const mx = isoX(c.tx, c.ty - 0.1);
+        const my = isoY(c.tx, c.ty - 0.1) - 10;
+        g.fillStyle(0x0d1117, 1);
+        g.fillRect(mx - 8, my - 10, 16, 10);
+        g.fillStyle(0x1e40af, 1); // 화면 기본색
+        g.fillRect(mx - 6, my - 8, 12, 6);
+        // 모니터 스탠드
+        g.fillStyle(0x374151, 1);
+        g.fillRect(mx - 2, my, 4, 3);
+      }
+
+      // 휴게실 소파 (가로 배치)
+      this.drawIsoBox(g, 2.7, 5.8, 2.4, 0.5, 10, 0x4c1d95, 0x312e81, 0x3730a3);
+      this.drawIsoBox(g, 2.7, 5.6, 2.4, 0.2, 16, 0x6d28d9, 0x4c1d95, 0x581c87);
+      // 테이블 앞
+      this.drawIsoBox(g, 3.4, 6.5, 1, 0.4, 6, 0x78350f, 0x451a03, 0x5c2309);
+
+      // 화분 (회의실 구석)
+      this.drawPlant(g, isoX(0.3, 1.7), isoY(0.3, 1.7));
+      this.drawPlant(g, isoX(7.7, 1.7), isoY(7.7, 1.7));
+      this.drawPlant(g, isoX(5.7, 6.7), isoY(5.7, 6.7));
+
+      // 모니터 깜빡임 타이머
+      this.time.addEvent({
+        delay: 900, loop: true,
+        callback: () => {
+          // 랜덤 부서 모니터 색상 살짝 변경 — 책상 위에 동적 모니터로 덮어씀
+          if (!this._monitorDynG) {
+            this._monitorDynG = this.add.graphics();
+            this.furnitureLayer.add(this._monitorDynG);
+          }
+          this._monitorDynG.clear();
+          for (const c of CUBICLES) {
+            const mx = isoX(c.tx, c.ty - 0.1);
+            const my = isoY(c.tx, c.ty - 0.1) - 10;
+            const isOn = Math.random() > 0.4;
+            const col = isOn ? (Math.random() > 0.5 ? 0x3b82f6 : 0x10b981) : 0x0f172a;
+            this._monitorDynG.fillStyle(col, 0.85);
+            this._monitorDynG.fillRect(mx - 6, my - 8, 12, 6);
+          }
+        },
+      });
+    }
+
+    drawPlant(g, cx, cy) {
+      // 화분
+      g.fillStyle(0x78350f, 1);
+      g.fillRect(cx - 5, cy - 2, 10, 8);
+      // 잎
+      g.fillStyle(0x15803d, 1);
+      g.fillCircle(cx, cy - 6, 7);
+      g.fillStyle(0x16a34a, 1);
+      g.fillCircle(cx - 3, cy - 8, 5);
+      g.fillCircle(cx + 3, cy - 8, 5);
+    }
+
+    // ─── 캐릭터 ──────────────────────────────────────────────────────
+    createCharacters() {
+      this.characters = {};
+      DEPTS.forEach((d) => {
+        const cub = CUBICLES.find(c => c.deptId === d.id);
+        const sx = isoX(cub.tx, cub.ty);
+        const sy = isoY(cub.tx, cub.ty) - 8;
+
+        const container = this.add.container(sx, sy);
+        container.setDepth(Math.floor(sy)); // 아이소 깊이 정렬
+
+        // 몸 파츠 (16x24 논리 → 2배 스케일로 렌더)
+        const head = this.add.rectangle(0, -18, 10, 10, 0xf6d5ad).setOrigin(0.5, 0.5);
+        const hairColor = 0x1f2937;
+        const hair = this.add.rectangle(0, -22, 10, 3, hairColor).setOrigin(0.5, 0.5);
+        const eyeL = this.add.rectangle(-2, -18, 1, 1, 0x000000).setOrigin(0.5, 0.5);
+        const eyeR = this.add.rectangle(2, -18, 1, 1, 0x000000).setOrigin(0.5, 0.5);
+        const body = this.add.rectangle(0, -8, 10, 12, d.color).setOrigin(0.5, 0.5);
+        const armL = this.add.rectangle(-6, -8, 2, 8, d.color).setOrigin(0.5, 0.5);
+        const armR = this.add.rectangle(6, -8, 2, 8, d.color).setOrigin(0.5, 0.5);
+        const legL = this.add.rectangle(-2, 1, 3, 6, 0x1f2937).setOrigin(0.5, 0.5);
+        const legR = this.add.rectangle(2, 1, 3, 6, 0x1f2937).setOrigin(0.5, 0.5);
+
+        container.add([hair, head, eyeL, eyeR, body, armL, armR, legL, legR]);
+
+        const charData = {
+          deptId: d.id, color: d.color, hex: d.hex, container,
+          head, hair, body, armL, armR, legL, legR,
+          cubicle: cub, meetingSeat: d._meetingSeat,
+          state: 'idle', bubble: null, bubbleTimer: null,
+          bobTween: null, armTween: null, walkTween: null,
+        };
+        this.characters[d.id] = charData;
+        this.charLayer.add(container);
+
+        // idle bobbing
+        this.startIdleBob(charData);
+      });
+    }
+
+    startIdleBob(c) {
+      this.stopTweens(c);
+      c.bobTween = this.tweens.add({
+        targets: c.container,
+        y: c.container.y - 1.5,
+        duration: 1200, yoyo: true, repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    }
+    stopTweens(c) {
+      if (c.bobTween) { c.bobTween.stop(); c.bobTween = null; }
+      if (c.armTween) { c.armTween.stop(); c.armTween = null; }
+      if (c.walkTween) { c.walkTween.stop(); c.walkTween = null; }
+    }
+
+    walkCharTo(c, tx, ty, onComplete) {
+      this.stopTweens(c);
+      const destX = isoX(tx, ty);
+      const destY = isoY(tx, ty) - 8;
+
+      // 간단 L-경로: 수평 먼저(세로 좌표 유지), 그다음 수직
+      const midX = destX;
+      const midY = c.container.y;
+
+      c.walkTween = this.tweens.chain({
+        targets: c.container,
+        tweens: [
+          { x: midX, duration: 500, ease: 'Linear' },
+          { y: destY, duration: 500, ease: 'Linear' },
+        ],
+        onComplete: () => {
+          c.container.setDepth(Math.floor(destY));
+          // 도착 후 작업 애니메이션 or idle
+          if (onComplete) onComplete();
+        },
+      });
+
+      // 걸어가는 동안 다리 움직임 (swap 색으로 단순 구현)
+      const step = this.tweens.add({
+        targets: [c.legL, c.legR],
+        y: { from: 1, to: -1 },
+        duration: 120, yoyo: true, repeat: 8, ease: 'Linear',
+      });
+    }
+
+    startTyping(c) {
+      this.stopTweens(c);
+      c.armTween = this.tweens.add({
+        targets: c.armL,
+        angle: { from: -5, to: 15 },
+        y: { from: -8, to: -6 },
+        duration: 180, yoyo: true, repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+      this.tweens.add({
+        targets: c.armR,
+        angle: { from: 5, to: -15 },
+        y: { from: -6, to: -8 },
+        duration: 180, yoyo: true, repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    }
+
+    setBubble(c, text, colorHex = '#ffffff', autoHideMs = 3000) {
+      this.clearBubble(c);
+      const bg = this.add.graphics();
+      const t = this.add.text(0, 0, String(text).slice(0, 20), {
+        fontFamily: 'system-ui,-apple-system,sans-serif',
+        fontSize: '10px',
+        color: '#1f2937',
+      }).setOrigin(0.5, 0.5);
+      const w = t.width + 10, h = 14;
+      bg.fillStyle(Phaser.Display.Color.HexStringToColor(colorHex).color, 1);
+      bg.fillRoundedRect(-w / 2, -h / 2, w, h, 3);
+      bg.lineStyle(1, 0x1f2937, 1);
+      bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 3);
+      // tail
+      bg.fillStyle(Phaser.Display.Color.HexStringToColor(colorHex).color, 1);
+      bg.fillTriangle(-3, h / 2 - 1, 3, h / 2 - 1, 0, h / 2 + 3);
+
+      const bubble = this.add.container(0, -32, [bg, t]);
+      c.container.add(bubble);
+      c.bubble = bubble;
+
+      if (c.bubbleTimer) c.bubbleTimer.remove();
+      if (autoHideMs > 0) {
+        c.bubbleTimer = this.time.delayedCall(autoHideMs, () => this.clearBubble(c));
+      }
+    }
+    clearBubble(c) {
+      if (c.bubble) { c.bubble.destroy(); c.bubble = null; }
+      if (c.bubbleTimer) { c.bubbleTimer.remove(); c.bubbleTimer = null; }
+    }
+
+    emitStars(c) {
+      // 완료 파티클 — ★ 3개가 위로 날아오르며 사라짐
+      const parent = c.container;
+      for (let i = 0; i < 3; i++) {
+        const s = this.add.text(0, -28, '★', {
+          fontFamily: 'system-ui', fontSize: '13px',
+          color: '#fbbf24',
+        }).setOrigin(0.5, 0.5);
+        parent.add(s);
+        this.tweens.add({
+          targets: s,
+          x: (i - 1) * 10,
+          y: -48 - Math.random() * 10,
+          alpha: { from: 1, to: 0 },
+          duration: 900 + i * 120,
+          ease: 'Cubic.easeOut',
+          onComplete: () => s.destroy(),
+        });
+      }
+    }
+
+    // ─── 공개 API: 이벤트 핸들러 ─────────────────────────────────────
+    goWork(deptId, objective) {
+      const c = this.characters[deptId]; if (!c) return;
+      c.state = 'walking';
+      const seat = c.meetingSeat;
+      this.walkCharTo(c, seat.tx, seat.ty, () => {
+        c.state = 'working';
+        this.startTyping(c);
+        if (objective) this.setBubble(c, objective, '#dbeafe', 0);
+      });
+    }
+    progressMsg(deptId, msg) {
+      const c = this.characters[deptId]; if (!c) return;
+      if (c.state === 'working' && msg) this.setBubble(c, msg, '#dbeafe', 0);
+    }
+    goDone(deptId) {
+      const c = this.characters[deptId]; if (!c) return;
+      this.stopTweens(c);
+      this.clearBubble(c);
+      c.state = 'returning';
+      this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty, () => {
+        c.state = 'idle';
+        this.setBubble(c, '✓ 완료', '#d1fae5', 1800);
+        this.emitStars(c);
+        this.startIdleBob(c);
+      });
+    }
+    goError(deptId) {
+      const c = this.characters[deptId]; if (!c) return;
+      this.clearBubble(c);
+      this.setBubble(c, '! 오류', '#fecaca', 3000);
+      this.stopTweens(c);
+      c.state = 'idle';
+      this.startIdleBob(c);
+    }
+    resetAll() {
+      for (const c of Object.values(this.characters)) {
+        this.stopTweens(c);
+        this.clearBubble(c);
+        c.container.setPosition(isoX(c.cubicle.tx, c.cubicle.ty), isoY(c.cubicle.tx, c.cubicle.ty) - 8);
+        c.state = 'idle';
+        this.startIdleBob(c);
+      }
+    }
+  }
+
+  // ─── Phaser 초기화 ─────────────────────────────────────────────────
+  const game = new Phaser.Game({
+    type: Phaser.AUTO,
+    parent: 'phaser-container',
+    backgroundColor: '#0d1117',
+    scale: {
+      mode: Phaser.Scale.FIT,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+      width: W, height: H,
+    },
+    scene: OfficeScene,
+    pixelArt: true,
+    roundPixels: false,
+  });
+
+  // ─── DOM refs ──────────────────────────────────────────────────────
   const $ = (id) => document.getElementById(id);
   const dom = {
-    statusDot: $('statusDot'),
-    statusText: $('statusText'),
-    officeRunning: $('officeRunning'),
     projectName: $('projectName'),
-    officeGrid: $('officeGrid'),
+    officeStatusDot: $('officeStatusDot'),
+    officeStatusText: $('officeStatusText'),
     chatLog: $('chatLog'),
     directive: $('directive'),
     sendBtn: $('sendBtn'),
     navNewChat: $('navNewChat'),
     navProjects: $('navProjects'),
-    runInfo: $('runInfo'),
   };
 
-  function loadLS(key, fallback) {
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return fallback;
-      const parsed = JSON.parse(raw);
-      return parsed ?? fallback;
-    } catch {
-      return fallback;
-    }
-  }
-  function saveLS(key, val) {
-    try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
-  }
-
-  // ─ office grid ─────────────────────────────────────────────────────
-  function renderOffice() {
-    dom.officeGrid.innerHTML = '';
-    DEPTS.forEach(d => {
-      const slot = document.createElement('div');
-      slot.className = 'slot idle';
-      slot.dataset.dept = d.id;
-      slot.innerHTML = `
-        <div class="desk"></div>
-        <div class="pxc" style="--c:${d.color}">
-          <div class="hair"></div>
-          <div class="head"></div>
-          <div class="eye-l"></div><div class="eye-r"></div>
-          <div class="body"></div>
-          <div class="arm-l"></div><div class="arm-r"></div>
-          <div class="leg-l"></div><div class="leg-r"></div>
-        </div>
-        <div class="check"><span>✓</span></div>
-        <div class="name">${d.kr}</div>
-      `;
-      dom.officeGrid.appendChild(slot);
-    });
-  }
-
-  function setDeptState(deptId, name) {
-    const slot = dom.officeGrid.querySelector(`.slot[data-dept="${deptId}"]`);
-    if (!slot) return;
-    slot.classList.remove('idle','working','done','err');
-    slot.classList.add(name);
-  }
-  function setBubble(deptId, text) {
-    const slot = dom.officeGrid.querySelector(`.slot[data-dept="${deptId}"]`);
-    if (!slot || !text) return;
-    let b = slot.querySelector('.bubble');
-    if (!b) {
-      b = document.createElement('div');
-      b.className = 'bubble';
-      slot.appendChild(b);
-    }
-    b.textContent = text.slice(0, 24);
-    b.title = text;
-  }
-  function clearBubble(deptId) {
-    const b = dom.officeGrid.querySelector(`.slot[data-dept="${deptId}"] .bubble`);
-    if (b) b.remove();
-  }
-  function resetOffice() {
-    DEPTS.forEach(d => { setDeptState(d.id, 'idle'); clearBubble(d.id); });
-  }
-
-  // ─ chat rendering ──────────────────────────────────────────────────
+  // ─── chat rendering ────────────────────────────────────────────────
   function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
@@ -356,27 +696,22 @@
     const msg = document.createElement('div');
     msg.className = 'msg ' + kind;
     if (deptId && DEPT_BY_ID[deptId]) {
-      msg.style.setProperty('--dept-color', DEPT_BY_ID[deptId].color);
+      msg.style.setProperty('--dept-color', DEPT_BY_ID[deptId].hex);
     }
     const whoEl = document.createElement('div');
     whoEl.className = 'who';
-    if (kind === 'dept') {
-      whoEl.innerHTML = `<span class="dot"></span>${escapeHtml(who)}`;
-    } else if (who) {
-      whoEl.textContent = who;
-    }
+    if (kind === 'dept') whoEl.innerHTML = `<span class="dot"></span>${escapeHtml(who)}`;
+    else if (who) whoEl.textContent = who;
     const bodyEl = document.createElement('div');
     bodyEl.className = 'body';
     if (html) bodyEl.innerHTML = body;
     else bodyEl.textContent = body;
-
     if (kind !== 'user' || who) msg.appendChild(whoEl);
     msg.appendChild(bodyEl);
     dom.chatLog.appendChild(msg);
     dom.chatLog.scrollTop = dom.chatLog.scrollHeight;
     return msg;
   }
-
   function renderDeptReport(deptId, report) {
     const d = DEPT_BY_ID[deptId];
     const name = d ? `${d.kr}팀` : deptId;
@@ -384,17 +719,14 @@
     let html = '';
     if (st?.summary) html += escapeHtml(st.summary);
     if (st?.keyFindings?.length) {
-      html += '<div class="sec-label">핵심</div><ul>' +
-        st.keyFindings.slice(0, 4).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+      html += '<div class="sec">핵심</div><ul>' + st.keyFindings.slice(0,4).map(x=>`<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     }
     if (st?.risks?.length) {
-      html += '<div class="sec-label">리스크</div><ul>' +
-        st.risks.slice(0, 3).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+      html += '<div class="sec">리스크</div><ul>' + st.risks.slice(0,3).map(x=>`<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     }
     if (!html && report?.sections?.[0]) {
       const s = report.sections[0];
-      html = `<div class="sec-label">${escapeHtml(s.heading)}</div><ul>` +
-        (s.items || []).slice(0, 4).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+      html = `<div class="sec">${escapeHtml(s.heading)}</div><ul>` + (s.items || []).slice(0,4).map(x=>`<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     }
     if (!html) html = '(보고 내용 없음)';
     addMsg({ who: name, body: html, kind: 'dept', deptId, html: true });
@@ -402,100 +734,73 @@
   function renderCeoBriefing(b) {
     let html = '';
     if (b?.summary) html += escapeHtml(b.summary);
-    if (b?.opportunities?.length) {
-      html += '<div class="sec-label">기회</div><ul>' + b.opportunities.slice(0, 3).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    }
-    if (b?.risks?.length) {
-      html += '<div class="sec-label">리스크</div><ul>' + b.risks.slice(0, 3).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    }
-    if (b?.recommendations?.length) {
-      html += '<div class="sec-label">권고</div><ul>' + b.recommendations.slice(0, 3).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    }
-    if (typeof b?.overallConfidence === 'number') {
-      html += `<div class="sec-label">신뢰도 ${Math.round(b.overallConfidence * 100)}%</div>`;
-    }
+    if (b?.opportunities?.length) html += '<div class="sec">기회</div><ul>' + b.opportunities.slice(0,3).map(x=>`<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (b?.risks?.length) html += '<div class="sec">리스크</div><ul>' + b.risks.slice(0,3).map(x=>`<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (b?.recommendations?.length) html += '<div class="sec">권고</div><ul>' + b.recommendations.slice(0,3).map(x=>`<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (typeof b?.overallConfidence === 'number') html += `<div class="sec">신뢰도 ${Math.round(b.overallConfidence*100)}%</div>`;
     addMsg({ who: 'CEO 브리핑', body: html || '통합 브리핑', kind: 'ceo', html: true });
   }
   function renderCriticReview(r) {
-    const verdict = r?.verdict === 'pass' ? '✓ PASS' : '⚠ 보강 필요';
-    let html = `<b>${verdict}</b><br>${escapeHtml(r?.summary || '')}`;
+    const v = r?.verdict === 'pass' ? '✓ PASS' : '⚠ 보강 필요';
+    let html = `<b>${v}</b><br>${escapeHtml(r?.summary || '')}`;
     const issues = (r?.keyIssues || []).concat(r?.contradictions || []).slice(0, 3);
-    if (issues.length) html += '<ul>' + issues.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (issues.length) html += '<ul>' + issues.map(x=>`<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     addMsg({ who: 'CRITIC 검증', body: html, kind: 'critic', html: true });
   }
 
-  // ─ SSE events ──────────────────────────────────────────────────────
+  // ─── SSE handler ───────────────────────────────────────────────────
   function onEvent(ev) {
     let p;
     try { p = JSON.parse(ev.data); } catch { return; }
     const type = p.type || ev.type;
+    const scene = state.scene;
+    if (!scene) return;
 
     switch (type) {
       case 'dept_start':
-        setDeptState(p.deptId, 'working');
-        if (p.objective) setBubble(p.deptId, p.objective);
+        scene.goWork(p.deptId, p.objective);
         break;
-
       case 'dept_progress':
-        if (p.message && state.deptBubbleCache[p.deptId] !== p.message) {
-          setBubble(p.deptId, p.message);
-          state.deptBubbleCache[p.deptId] = p.message;
-        }
+        scene.progressMsg(p.deptId, p.message);
         break;
-
       case 'dept_done':
-        setDeptState(p.deptId, 'done');
-        clearBubble(p.deptId);
+        scene.goDone(p.deptId);
         if (p.report) renderDeptReport(p.deptId, p.report);
         break;
-
       case 'dept_error':
-        setDeptState(p.deptId, 'err');
-        clearBubble(p.deptId);
+        scene.goError(p.deptId);
         addMsg({
           who: (DEPT_BY_ID[p.deptId]?.kr || p.deptId) + '팀',
           body: `오류: ${p.error || '알 수 없는 오류'}`,
           kind: 'err',
         });
         break;
-
       case 'critic_review':
         renderCriticReview(p.review);
         break;
-
       case 'ceo_briefing':
         renderCeoBriefing(p.briefing);
         break;
-
       case 'all_done':
         finishRun();
         break;
-
       case 'error':
         addMsg({ who: '오류', body: p.message, kind: 'err' });
         finishRun(true);
         break;
-
-      // 조용한 이벤트 (채팅 미출력):
-      // mission_start / pmo_plan / ensemble_* / stream_end
     }
   }
 
-  // ─ actions ─────────────────────────────────────────────────────────
+  // ─── 실행 ──────────────────────────────────────────────────────────
   function startRun() {
     const directive = dom.directive.value.trim();
-    if (!directive) return;
-    if (state.running) return;
+    if (!directive || state.running) return;
 
     addMsg({ who: '', body: directive, kind: 'user' });
-    resetOffice();
+    state.scene?.resetAll();
     state.running = true;
-    state.startTs = Date.now();
-    state.deptBubbleCache = {};
-
-    dom.statusDot.className = 'dot live';
-    dom.statusText.textContent = '실행 중...';
-    dom.officeRunning.className = 'running live';
+    dom.officeStatusDot.className = 'dot live';
+    dom.officeStatusText.textContent = '실행 중...';
     dom.sendBtn.classList.add('stop');
     dom.sendBtn.title = '중단';
     dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="10" height="10"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>';
@@ -509,36 +814,30 @@
       const es = new EventSource(url.toString(), { withCredentials: true });
       state.es = es;
       ['dept_start','dept_progress','dept_done','dept_error','critic_review','ceo_briefing','all_done','error','stream_end']
-        .forEach(name => es.addEventListener(name, onEvent));
+        .forEach(n => es.addEventListener(n, onEvent));
       es.onerror = () => {
         if (state.running) {
-          addMsg({ who: '', body: '연결 오류. 잠시 후 다시 시도하세요.', kind: 'err' });
+          addMsg({ who: '', body: '연결 오류.', kind: 'err' });
           finishRun(true);
         }
       };
-    } catch (err) {
-      addMsg({ who: '', body: '연결 실패: ' + err.message, kind: 'err' });
+    } catch (e) {
+      addMsg({ who: '', body: '연결 실패: ' + e.message, kind: 'err' });
       finishRun(true);
     }
 
     dom.directive.value = '';
-    autoSizeInput();
+    autoSize();
   }
 
   function finishRun(isErr = false) {
     state.running = false;
     if (state.es) { try { state.es.close(); } catch {} state.es = null; }
-    dom.statusDot.className = 'dot' + (isErr ? ' err' : '');
-    dom.statusText.textContent = isErr ? '오류' : '대기 중';
-    dom.officeRunning.className = 'running';
+    dom.officeStatusDot.className = 'dot' + (isErr ? ' err' : '');
+    dom.officeStatusText.textContent = isErr ? '오류' : '대기 중';
     dom.sendBtn.classList.remove('stop');
     dom.sendBtn.title = '전송';
-    dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M3 8h10M9 4l4 4-4 4"/></svg>';
-
-    if (!isErr && state.startTs) {
-      const sec = Math.round((Date.now() - state.startTs) / 1000);
-      dom.runInfo.textContent = `마지막 실행 ${sec}초`;
-    }
+    dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M3 8h10M9 4l4 4-4 4"/></svg>';
   }
 
   function newChat() {
@@ -546,27 +845,24 @@
     dom.chatLog.innerHTML = `
       <div class="chat-empty">
         <h3>무엇을 도와드릴까요?</h3>
-        <p>지시를 입력하면 필요한 부서만 자동으로 움직입니다.</p>
+        <p>지시를 입력하면 필요한 부서 직원이 회의실로 이동해 작업합니다.</p>
       </div>
     `;
-    resetOffice();
+    state.scene?.resetAll();
     dom.directive.value = '';
     dom.directive.focus();
-    dom.runInfo.textContent = '';
   }
 
-  // ─ projects ────────────────────────────────────────────────────────
-  function renderProjectName() {
-    dom.projectName.textContent = state.currentProject || '신규 프로젝트';
-  }
+  // ─── projects ──────────────────────────────────────────────────────
+  function renderProjectName() { dom.projectName.textContent = state.currentProject || '신규 프로젝트'; }
   function saveProjectName(name) {
-    const trimmed = (name || '').trim() || '신규 프로젝트';
-    state.currentProject = trimmed;
-    if (trimmed !== '신규 프로젝트' && !state.projects.includes(trimmed)) {
-      state.projects.push(trimmed);
+    const t = (name || '').trim() || '신규 프로젝트';
+    state.currentProject = t;
+    if (t !== '신규 프로젝트' && !state.projects.includes(t)) {
+      state.projects.push(t);
       saveLS(LS_PROJECTS, state.projects);
     }
-    saveLS(LS_PROJECT, trimmed);
+    saveLS(LS_PROJECT, t);
     renderProjectName();
     renderProjectsNav();
   }
@@ -579,39 +875,36 @@
       el.onclick = () => { saveProjectName(p); newChat(); };
       dom.navProjects.appendChild(el);
     });
-    const addEl = document.createElement('div');
-    addEl.className = 'nav-new';
-    addEl.id = 'navProjectNew';
-    addEl.textContent = '+ 새 프로젝트';
-    addEl.onclick = () => {
+    const add = document.createElement('div');
+    add.className = 'nav-new';
+    add.textContent = '+ 새 프로젝트';
+    add.onclick = () => {
       const name = prompt('새 프로젝트 이름');
       if (name && name.trim()) { saveProjectName(name.trim()); newChat(); }
     };
-    dom.navProjects.appendChild(addEl);
+    dom.navProjects.appendChild(add);
   }
 
-  // ─ input autosize ──────────────────────────────────────────────────
-  function autoSizeInput() {
+  // ─── input ─────────────────────────────────────────────────────────
+  function autoSize() {
     const ta = dom.directive;
-    ta.style.height = '24px';
-    const max = 200;
-    ta.style.height = Math.min(ta.scrollHeight, max) + 'px';
+    ta.style.height = '22px';
+    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
   }
 
-  // ─ bind ────────────────────────────────────────────────────────────
+  // ─── bind ──────────────────────────────────────────────────────────
   function bind() {
     dom.sendBtn.addEventListener('click', () => {
       if (state.running) { finishRun(); addMsg({ who: '', body: '중단됨', kind: 'sys' }); }
       else startRun();
     });
-    dom.directive.addEventListener('input', autoSizeInput);
+    dom.directive.addEventListener('input', autoSize);
     dom.directive.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
         startRun();
       }
     });
-
     dom.navNewChat.addEventListener('click', (e) => { e.preventDefault(); newChat(); });
 
     dom.projectName.addEventListener('click', () => {
@@ -629,12 +922,11 @@
     });
   }
 
-  // ─ go ─────────────────────────────────────────────────────────────
-  renderOffice();
+  // ─── go ────────────────────────────────────────────────────────────
   renderProjectName();
   renderProjectsNav();
   bind();
-  setTimeout(() => dom.directive.focus(), 100);
+  setTimeout(() => dom.directive.focus(), 200);
 })();
 </script>
 </body>
