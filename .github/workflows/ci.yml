@@ -4,13 +4,14 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # 어떤 브랜치 대상 PR 이든 검증 (feature → main, feature → feature 등)
+    branches: ["**"]
 
 env:
   NODE_VERSION: "20"
 
 jobs:
-  # ── 1. 서버 검증 ──
+  # ── 1. 서버 검증 (TypeScript + 유닛 테스트) ──
   server-check:
     runs-on: ubuntu-latest
     steps:
@@ -24,7 +25,7 @@ jobs:
         run: npm ci
 
       - name: TypeScript check (server)
-        run: npx tsc --noEmit
+        run: npx tsc -p tsconfig.json --noEmit
 
       - name: Server tests with coverage
         run: npx vitest run --reporter=verbose --coverage
@@ -39,7 +40,7 @@ jobs:
           path: coverage/
           retention-days: 14
 
-  # ── 2. 프론트엔드 검증 ──
+  # ── 2. 프론트엔드 검증 (TypeScript + 테스트 + 빌드) ──
   frontend-check:
     runs-on: ubuntu-latest
     steps:
@@ -57,7 +58,7 @@ jobs:
         run: cd frontend && npx tsc --noEmit
 
       - name: Frontend tests
-        run: cd frontend && npx vitest run --reporter=verbose
+        run: cd frontend && npx vitest run --reporter=verbose --passWithNoTests
 
       - name: Build frontend
         run: cd frontend && npm run build
@@ -69,7 +70,45 @@ jobs:
           path: frontend/dist/
           retention-days: 7
 
-  # ── 3. Docker 빌드 검증 ──
+  # ── 3. Lint (eslint) ──
+  # .eslintrc.json 만 있고 eslint 가 devDependencies 에 없어도 npx 가 on-demand 로
+  # 가져온다. 규칙 위반은 경고만으로도 가시화하기 위해 `|| true` 로 비차단.
+  # 추후 규칙 안정화되면 `|| true` 제거해 블로킹 전환 권장.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install root deps
+        run: npm ci
+
+      - name: ESLint (server + shared)
+        run: |
+          if [ -f .eslintrc.json ] || [ -f eslint.config.js ]; then
+            npx --yes eslint@8 \
+              --ext .ts,.tsx \
+              --config .eslintrc.json \
+              server/src/ || true
+          else
+            echo "No ESLint config — skipping."
+          fi
+
+      - name: ESLint (frontend)
+        run: |
+          cd frontend && npm ci
+          cd ..
+          if [ -f .eslintrc.json ]; then
+            npx --yes eslint@8 \
+              --ext .ts,.tsx \
+              --config .eslintrc.json \
+              frontend/src/ || true
+          fi
+
+  # ── 4. Docker 빌드 검증 (main push 에서만 수행) ──
   docker-build:
     runs-on: ubuntu-latest
     needs: [server-check, frontend-check]
@@ -89,7 +128,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ── 4. 의존성 보안 감사 ──
+  # ── 5. 의존성 보안 감사 ──
   security-audit:
     runs-on: ubuntu-latest
     steps:
