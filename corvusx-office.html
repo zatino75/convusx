@@ -641,11 +641,23 @@
     }
     goError(deptId) {
       const c = this.characters[deptId]; if (!c) return;
-      this.clearBubble(c);
-      this.setBubble(c, '! 오류', '#fecaca', 3000);
       this.stopTweens(c);
-      c.state = 'idle';
-      this.startIdleBob(c);
+      this.clearBubble(c);
+      // 회의실(혹은 이동 중)에 있으면 자리로 복귀시킨 후 오류 말풍선
+      const homeX = isoX(c.cubicle.tx, c.cubicle.ty);
+      const dx = Math.abs(c.container.x - homeX);
+      if (dx > 3) {
+        c.state = 'returning';
+        this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty, () => {
+          c.state = 'idle';
+          this.setBubble(c, '! 오류', '#fecaca', 3000);
+          this.startIdleBob(c);
+        });
+      } else {
+        c.state = 'idle';
+        this.setBubble(c, '! 오류', '#fecaca', 3000);
+        this.startIdleBob(c);
+      }
     }
     resetAll() {
       for (const c of Object.values(this.characters)) {
@@ -654,6 +666,20 @@
         c.container.setPosition(isoX(c.cubicle.tx, c.cubicle.ty), isoY(c.cubicle.tx, c.cubicle.ty) - 8);
         c.state = 'idle';
         this.startIdleBob(c);
+      }
+    }
+    // 세션 종료(all_done/stream_end/onerror) 시 회의실에 갇힌 캐릭터를 자리로 복귀시킴.
+    // 이미 idle/returning 상태는 건드리지 않음 — 진행 중인 복귀 tween 을 중단하지 않기 위해서.
+    settleAll() {
+      for (const c of Object.values(this.characters)) {
+        if (c.state !== 'working' && c.state !== 'walking') continue;
+        this.stopTweens(c);
+        this.clearBubble(c);
+        c.state = 'returning';
+        this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty, () => {
+          c.state = 'idle';
+          this.startIdleBob(c);
+        });
       }
     }
   }
@@ -784,6 +810,12 @@
       case 'all_done':
         finishRun();
         break;
+      // 백업: all_done 을 못 받고 stream 이 먼저 끝날 때 (예: 서버에서 all_done 전 res.end).
+      // directorStream.ts 가 all_done 다음에 stream_end 를 emit 하므로 정상 경로에서는
+      // finishRun 이 이미 호출되어 state.running=false, 이 분기는 no-op 가 된다.
+      case 'stream_end':
+        if (state.running) finishRun(false);
+        break;
       case 'error':
         addMsg({ who: '오류', body: p.message, kind: 'err' });
         finishRun(true);
@@ -838,6 +870,9 @@
     dom.sendBtn.classList.remove('stop');
     dom.sendBtn.title = '전송';
     dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M3 8h10M9 4l4 4-4 4"/></svg>';
+    // 회의실에 고립된 캐릭터(working/walking 상태) 가 있으면 자리로 복귀.
+    // 이미 returning 중인 캐릭터는 건드리지 않음 — 진행 중 tween 보호.
+    state.scene?.settleAll();
   }
 
   function newChat() {
