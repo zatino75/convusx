@@ -5,6 +5,7 @@ import { useWebSocket } from "../../hooks/useWebSocket";
 import type { WsMessage } from "../../hooks/useWebSocket";
 import { OpsKpiCard, OpsPanel } from "../ops/OpsGamePrimitives";
 import DeptStatsCard from "./DeptStatsCard";
+import CeoStrategyCard from "./CeoStrategyCard";
 
 type ProviderKey = "openai" | "claude" | "gemini" | "perplexity";
 
@@ -461,6 +462,15 @@ export function DashboardView() {
           </div>
         </OpsPanel>
       ) : null}
+
+      {/* Phase 7 — CEO 전략 대시보드 (부서 타이쿤 상위 집계) */}
+      <OpsPanel
+        className="dashboard-panel"
+        title="CEO 전략 대시보드"
+        right={<span style={{ opacity: 0.55, fontSize: 11 }}>실시간 (WS) + 30s polling</span>}
+      >
+        <CeoStrategyCard />
+      </OpsPanel>
 
       {/* Phase 5 — 부서 타이쿤 (레벨/XP/성공률/비용) */}
       <OpsPanel
