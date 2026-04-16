@@ -3,457 +3,354 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=1440" />
-<title>CORVUS X — Pixel Office</title>
+<title>CORVUS X</title>
 <style>
   :root {
-    --bg:#0a0e1a; --bg-2:#0f1420; --panel:#131a2a;
-    --wall:#1a2540; --wall-lt:#2a3a5c;
-    --floor-a:#1e2838; --floor-b:#242f42;
-    --wood:#6b4a2b; --wood-lt:#8a623b;
-    --ink:#e0e8f0; --dim:#7a8aa0; --soft:#4a5670;
-    --cyan:#00d4ff; --gold:#ffc94a; --red:#ff5e5e;
-    --green:#4ade80; --magenta:#ff3ea5; --purple:#a855f7;
+    --bg:#f5f5f5;
+    --surface:#ffffff;
+    --border:#e5e7eb;
+    --text:#1f2937;
+    --text-soft:#6b7280;
+    --text-dim:#9ca3af;
+    --accent:#3b82f6;
+    --accent-soft:#dbeafe;
+    --gold:#d97706;
+    --red:#ef4444;
+    --office-bg:#0d1117;
+    --office-wall:#1f2937;
+    --office-text:#9ca3af;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.05);
+    --shadow-md: 0 2px 8px rgba(0,0,0,.06);
   }
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:'Courier New','D2Coding',monospace;overflow:hidden;font-size:13px}
+  html,body{
+    margin:0;height:100%;
+    background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic","Pretendard",sans-serif;
+    overflow:hidden;
+    font-size:14px;line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  button,input,textarea{font-family:inherit;font-size:inherit;color:inherit}
+  kbd{font-family:inherit}
 
   /* ─ layout ─────────────────────────────────────────────────────────── */
-  .app{display:grid;grid-template-columns:160px 1fr 320px;grid-template-rows:44px 1fr;height:100vh}
-  .topbar{grid-column:1 / -1;display:flex;align-items:center;gap:14px;padding:0 14px;background:#06090f;border-bottom:1px solid #1a2540;font-size:13px}
-  .sidebar{grid-column:1;grid-row:2;background:var(--bg-2);border-right:1px solid #1a2540;display:flex;flex-direction:column;overflow-y:auto;padding:8px 0}
-  .office{grid-column:2;grid-row:2;position:relative;min-height:0;overflow:hidden;background:linear-gradient(45deg,var(--floor-a) 25%,transparent 25%),linear-gradient(-45deg,var(--floor-a) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,var(--floor-a) 75%),linear-gradient(-45deg,transparent 75%,var(--floor-a) 75%),var(--floor-b);background-size:28px 28px;background-position:0 0,0 14px,14px -14px,-14px 0;border-bottom:2px solid #1a2540}
-  .chat{grid-column:3;grid-row:2;background:var(--bg-2);border-left:1px solid #1a2540;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .app{display:grid;grid-template-columns:200px 1fr 280px;height:100vh;background:var(--bg)}
+  .sidebar{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;padding:16px 0 12px}
+  .chat{display:flex;flex-direction:column;min-height:0;overflow:hidden;background:var(--surface);border-right:1px solid var(--border)}
+  .office{background:var(--office-bg);display:flex;flex-direction:column;overflow:hidden;color:var(--office-text)}
 
-  /* ─ topbar ────────────────────────────────────────────────────────── */
-  .logo{font-weight:bold;color:var(--cyan);letter-spacing:2px;font-size:14px}
-  .project-name{color:var(--ink);font-weight:bold;padding:4px 10px;border-radius:3px;background:rgba(255,255,255,.04);cursor:pointer;flex:1;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid transparent}
-  .project-name:hover{border-color:var(--wall-lt)}
-  .project-name[contenteditable="true"]{border-color:var(--cyan);background:#0b1020}
-  .status-dot{width:8px;height:8px;border-radius:50%;background:var(--soft);flex-shrink:0}
-  .status-dot.live{background:var(--green);animation:pulse 1.4s ease-in-out infinite}
-  .status-dot.err{background:var(--red)}
-  @keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
-  .spacer{flex:1}
-  .icon-btn{width:28px;height:28px;border:none;background:none;color:var(--dim);cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:16px;transition:background .15s}
-  .icon-btn:hover{background:var(--wall-lt);color:var(--ink)}
-  .icon-btn.active{background:var(--cyan);color:#000}
+  /* ─ sidebar ────────────────────────────────────────────────────────── */
+  .logo{padding:0 16px 20px;font-size:15px;font-weight:700;letter-spacing:.5px;color:var(--text);display:flex;align-items:center;gap:6px}
+  .logo .mark{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+  .nav-btn{display:flex;align-items:center;gap:10px;padding:9px 16px;margin:0;color:var(--text);cursor:pointer;font-size:13px;text-decoration:none;border:none;background:none;width:100%;text-align:left;transition:background .12s}
+  .nav-btn:hover{background:#f9fafb}
+  .nav-btn.active{background:#f3f4f6;font-weight:600}
+  .nav-btn .ic{width:14px;height:14px;flex-shrink:0;opacity:.7}
+  .nav-divider{padding:16px 16px 6px;font-size:10px;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase;font-weight:600}
+  .nav-projects{flex-shrink:0;max-height:220px;overflow-y:auto}
+  .nav-project{padding:6px 16px 6px 30px;color:var(--text-soft);font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;transition:background .12s}
+  .nav-project:hover{background:#f9fafb;color:var(--text)}
+  .nav-project.active{background:#eff6ff;color:var(--accent);font-weight:500}
+  .nav-project .dot{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.4}
+  .nav-new{padding:6px 16px 6px 30px;color:var(--text-dim);font-size:12px;cursor:pointer;font-style:normal;transition:color .12s}
+  .nav-new:hover{color:var(--accent)}
 
-  /* ─ sidebar ───────────────────────────────────────────────────────── */
-  .nav-item{display:flex;align-items:center;gap:8px;padding:8px 14px;color:var(--dim);cursor:pointer;font-size:12px;text-decoration:none;border-left:2px solid transparent;transition:all .15s}
-  .nav-item:hover{background:rgba(255,255,255,.03);color:var(--ink)}
-  .nav-item.active{color:var(--cyan);border-left-color:var(--cyan);background:rgba(0,212,255,.06)}
-  .nav-item .ic{width:14px;flex-shrink:0;opacity:.85}
-  .nav-divider{padding:10px 14px 4px;font-size:9px;color:var(--soft);letter-spacing:1.5px;text-transform:uppercase}
-  .nav-projects{flex:1;overflow-y:auto;min-height:40px}
-  .nav-project{padding:6px 14px 6px 30px;color:var(--dim);font-size:11px;cursor:pointer;border-left:2px solid transparent}
-  .nav-project:hover{background:rgba(255,255,255,.03);color:var(--ink)}
-  .nav-project.active{color:var(--cyan);border-left-color:var(--cyan)}
-  .nav-project-new{padding:6px 14px 6px 30px;color:var(--soft);font-size:11px;cursor:pointer;border-left:2px solid transparent;font-style:italic}
-  .nav-project-new:hover{color:var(--cyan)}
+  /* ─ chat ───────────────────────────────────────────────────────────── */
+  .chat-header{padding:14px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+  .chat-title{font-size:15px;font-weight:600;color:var(--text);cursor:pointer;padding:3px 8px;border-radius:4px;border:1px solid transparent;outline:none}
+  .chat-title:hover{border-color:var(--border)}
+  .chat-title[contenteditable="true"]{border-color:var(--accent);background:#fff}
+  .chat-status{font-size:12px;color:var(--text-dim);display:flex;align-items:center;gap:6px}
+  .chat-status .dot{width:7px;height:7px;border-radius:50%;background:#d1d5db}
+  .chat-status .dot.live{background:#10b981;animation:pulse 1.4s ease-in-out infinite}
+  .chat-status .dot.err{background:var(--red)}
+  @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
 
-  /* ─ office ────────────────────────────────────────────────────────── */
-  .room{position:absolute;border:2px solid var(--wall);background:rgba(10,14,26,.55);border-radius:2px}
-  .room .label{position:absolute;top:4px;left:8px;font-size:10px;letter-spacing:1px;color:var(--dim)}
-  .room.critic{top:12px;left:16px;width:180px;height:140px;border-color:#ff3ea5}
-  .room.critic .label{color:#ff3ea5}
-  .room.meeting{top:12px;left:208px;right:208px;height:140px;border-color:var(--cyan)}
-  .room.meeting .label{color:var(--cyan)}
-  .room.archive{top:12px;right:16px;width:180px;height:140px;border-color:var(--gold)}
-  .room.archive .label{color:var(--gold)}
-
-  .desks{position:absolute;top:170px;left:40px;right:40px;display:grid;grid-template-columns:repeat(3,1fr);grid-gap:22px 40px;padding-top:8px}
-  .desk{position:relative;height:66px;background:linear-gradient(180deg,var(--wood-lt),var(--wood));border-radius:4px;box-shadow:inset 0 -6px 0 rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px;font-size:10px;color:#2b1a0d;font-weight:bold;letter-spacing:1px;transition:box-shadow .3s}
-  .desk .ring{position:absolute;top:-22px;left:50%;transform:translateX(-50%);width:42px;height:42px;border-radius:50%;pointer-events:none}
-  .desk[data-state="working"] .ring{background:radial-gradient(circle,rgba(0,212,255,.35) 40%,rgba(0,212,255,0) 70%);animation:pulse 1.4s ease-in-out infinite}
-  .desk[data-state="done"] .ring{background:radial-gradient(circle,rgba(255,201,74,.55) 40%,rgba(255,201,74,0) 70%);animation:done-flash 1.8s ease-out}
-  .desk[data-state="error"] .ring{background:radial-gradient(circle,rgba(255,94,94,.55) 40%,rgba(255,94,94,0) 70%)}
-  .desk[data-state="idle"] .ring{background:none}
-  .desk .badge{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;background:var(--bg);display:none;align-items:center;justify-content:center;font-size:10px;border:2px solid var(--panel)}
-  .desk[data-state="done"] .badge,.desk[data-state="error"] .badge{display:flex}
-  .desk[data-state="done"] .badge{background:var(--gold);color:#111;border-color:var(--gold)}
-  .desk[data-state="done"] .badge::before{content:"✓"}
-  .desk[data-state="error"] .badge{background:var(--red);color:#fff;border-color:var(--red)}
-  .desk[data-state="error"] .badge::before{content:"!"}
-  .desk .level-badge{position:absolute;top:-4px;left:-4px;min-width:22px;height:16px;padding:0 4px;border-radius:8px;background:linear-gradient(135deg,#ffc94a,#ff8a00);color:#1a0f00;font-size:9px;font-weight:bold;display:none;align-items:center;justify-content:center;border:1px solid var(--panel)}
-  body.show-xp .desk .level-badge{display:flex}
-  @keyframes done-flash{0%{filter:brightness(1.6)}100%{filter:brightness(1)}}
-
-  .desk.levelup-upgrading{animation:desk-upgrade 2.4s cubic-bezier(.25,.8,.35,1)}
-  @keyframes desk-upgrade{0%{transform:translateY(0) scale(1)}22%{transform:translateY(-6px) scale(1.03);filter:brightness(1.6);box-shadow:inset 0 -6px 0 rgba(0,0,0,.35),0 0 18px rgba(255,201,74,.75)}100%{transform:translateY(0) scale(1);filter:brightness(1)}}
-
-  .ceo-desk{position:absolute;left:50%;transform:translateX(-50%);bottom:20px;width:260px;height:46px;background:linear-gradient(180deg,#8a623b,#5c3f22);border-radius:4px 4px 0 0;box-shadow:inset 0 -8px 0 rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:11px;color:#ffe8b8;letter-spacing:3px;font-weight:bold}
-
-  /* ─ characters ────────────────────────────────────────────────────── */
-  .char{position:absolute;width:30px;height:30px;pointer-events:none;transition:left .7s ease,top .7s ease,opacity .3s;z-index:5}
-  .char svg{image-rendering:pixelated;width:100%;height:100%;filter:drop-shadow(0 2px 0 rgba(0,0,0,.5))}
-  .char[data-active="true"] svg{animation:bob 1s ease-in-out infinite}
-  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
-  .char .nametag{position:absolute;top:30px;left:50%;transform:translateX(-50%);font-size:8px;color:var(--ink);background:rgba(10,14,26,.9);padding:1px 4px;border-radius:2px;white-space:nowrap;border:1px solid #2a3a5c;letter-spacing:.5px}
-  .bubble{position:absolute;bottom:34px;left:50%;transform:translateX(-50%);background:#fff;color:#111;font-size:10px;padding:3px 7px;border-radius:3px;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;z-index:6;animation:bubble-in .2s ease-out}
-  .bubble::after{content:'';position:absolute;bottom:-4px;left:50%;transform:translateX(-50%);border:4px solid transparent;border-top-color:#fff}
-  .bubble.think{background:#cfe6ff}.bubble.think::after{border-top-color:#cfe6ff}
-  .bubble.crit{background:#ffd0d0}.bubble.crit::after{border-top-color:#ffd0d0}
-  .bubble.done{background:#ffe3a0}.bubble.done::after{border-top-color:#ffe3a0}
-  @keyframes bubble-in{from{opacity:0;transform:translateX(-50%) translateY(4px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
-
-  /* ─ 3-AI meeting room ─────────────────────────────────────────────── */
-  .ai-trio{position:absolute;top:40px;left:0;right:0;display:flex;justify-content:space-around;align-items:flex-end;padding:0 16px;pointer-events:none;height:80px}
-  .ai-seat{position:relative;width:42px;height:68px;display:flex;flex-direction:column;align-items:center;opacity:.35;transition:opacity .3s,transform .3s}
-  .ai-seat.active{opacity:1;transform:translateY(-3px)}
-  .ai-seat.active::before{content:'';position:absolute;inset:-4px;border-radius:50%;background:radial-gradient(closest-side,currentColor 0%,transparent 70%);opacity:.35;animation:aipulse 1.2s ease-in-out infinite;z-index:0}
-  .ai-seat svg{width:30px;height:30px;position:relative;z-index:1}
-  .ai-seat .ai-tag{margin-top:2px;font-size:8px;letter-spacing:1px;font-weight:bold;text-shadow:0 0 4px currentColor;position:relative;z-index:1}
-  .ai-seat[data-ai="claude"]{color:#a855f7}
-  .ai-seat[data-ai="gpt"]{color:#10a37f}
-  .ai-seat[data-ai="gemini"]{color:#4285f4}
-  .room.meeting.consensus{box-shadow:0 0 0 2px var(--cyan) inset,0 0 18px rgba(0,212,255,.45);transition:box-shadow .4s}
-  @keyframes aipulse{0%,100%{transform:scale(.92);opacity:.25}50%{transform:scale(1.18);opacity:.55}}
-
-  /* ─ chat panel ────────────────────────────────────────────────────── */
-  .chat-log{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px;min-height:0}
+  .chat-log{flex:1;overflow-y:auto;padding:24px 24px 12px;display:flex;flex-direction:column;gap:14px;min-height:0}
   .chat-log::-webkit-scrollbar{width:6px}
-  .chat-log::-webkit-scrollbar-thumb{background:var(--wall-lt);border-radius:3px}
-  .chat-empty{color:var(--soft);font-size:11px;font-style:italic;text-align:center;padding:20px 0}
-  .msg{display:flex;flex-direction:column;gap:3px;animation:msg-in .2s ease-out}
+  .chat-log::-webkit-scrollbar-thumb{background:#e5e7eb;border-radius:3px}
+  .chat-empty{color:var(--text-dim);font-size:13px;text-align:center;padding:60px 20px}
+  .chat-empty h3{margin:0 0 6px;font-size:14px;color:var(--text-soft);font-weight:600}
+
+  .msg{display:flex;flex-direction:column;gap:4px;animation:msg-in .25s ease-out;max-width:78%}
   @keyframes msg-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
-  .msg .msg-head{display:flex;align-items:center;gap:6px;font-size:9px;color:var(--dim);letter-spacing:.5px}
-  .msg .msg-head .who{padding:1px 6px;border-radius:2px;background:#1f2a42;color:var(--cyan);font-weight:bold;font-size:9px;letter-spacing:1px}
-  .msg .msg-body{font-size:12px;line-height:1.45;color:var(--ink);padding:6px 10px;border-radius:4px;background:#0b1020;border-left:2px solid var(--wall-lt);word-break:break-word}
-  .msg.user .who{background:var(--cyan);color:#000}
-  .msg.user .msg-body{border-left-color:var(--cyan);background:rgba(0,212,255,.05)}
-  .msg.dept .who{background:var(--dept-color,#1f2a42);color:#fff}
-  .msg.dept .msg-body{border-left-color:var(--dept-color,var(--wall-lt))}
-  .msg.sys .who{background:var(--wall-lt);color:var(--dim)}
-  .msg.sys .msg-body{color:var(--dim);font-size:11px}
-  .msg.err .who{background:var(--red);color:#fff}
-  .msg.err .msg-body{border-left-color:var(--red);color:#ffbcc0}
-  .msg.ceo .who{background:var(--gold);color:#1a0f00}
-  .msg.ceo .msg-body{border-left-color:var(--gold);background:rgba(255,201,74,.05)}
-  .msg.critic .who{background:var(--magenta);color:#fff}
-  .msg.critic .msg-body{border-left-color:var(--magenta)}
-  .msg .msg-body ul{margin:4px 0;padding-left:18px}
-  .msg .msg-body ul li{margin:2px 0;font-size:11px;color:var(--ink)}
-  .msg .msg-body .sub-sec{margin-top:4px;font-size:10px;color:var(--dim);font-weight:bold;letter-spacing:.5px}
+  .msg.user{align-self:flex-end;align-items:flex-end}
+  .msg.ai,.msg.dept,.msg.ceo,.msg.critic,.msg.sys,.msg.err{align-self:flex-start;align-items:flex-start}
+  .msg .who{font-size:11px;color:var(--text-dim);margin-bottom:2px;padding:0 4px}
+  .msg .body{padding:10px 14px;border-radius:14px;font-size:13.5px;line-height:1.55;word-break:break-word;white-space:pre-wrap}
+  .msg.user .body{background:var(--accent-soft);color:#1e3a8a;border-bottom-right-radius:4px}
+  .msg.ai .body{background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-sm);border-bottom-left-radius:4px}
+  .msg.dept .body{background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-sm);border-bottom-left-radius:4px}
+  .msg.dept .who{display:flex;align-items:center;gap:5px;font-weight:500}
+  .msg.dept .who .dot{width:8px;height:8px;border-radius:50%;background:var(--dept-color,#9ca3af)}
+  .msg.ceo .body{background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-sm);border-left:4px solid var(--gold);border-bottom-left-radius:4px;font-weight:500}
+  .msg.ceo .who{color:var(--gold);font-weight:600}
+  .msg.critic .body{background:#fef2f2;border:1px solid #fecaca;border-bottom-left-radius:4px}
+  .msg.critic .who{color:#dc2626;font-weight:500}
+  .msg.sys{max-width:100%}
+  .msg.sys .body{background:transparent;padding:4px 8px;color:var(--text-dim);font-size:12px;font-style:italic}
+  .msg.err .body{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-bottom-left-radius:4px}
+  .msg .body ul{margin:6px 0 2px;padding-left:20px}
+  .msg .body li{font-size:12.5px;margin:2px 0}
+  .msg .body .sec-label{font-size:11px;color:var(--text-dim);font-weight:600;margin-top:8px;text-transform:uppercase;letter-spacing:.5px}
 
-  .chat-input{padding:10px;border-top:1px solid #1a2540;background:#06090f;display:flex;flex-direction:column;gap:6px}
-  .chat-input textarea{width:100%;background:#0b1020;border:1px solid #2a3a5c;color:var(--ink);padding:8px 10px;font-family:inherit;font-size:13px;line-height:1.45;border-radius:3px;resize:none;height:70px}
-  .chat-input textarea:focus{outline:none;border-color:var(--cyan)}
-  .chat-input .hint{font-size:9px;color:var(--soft);display:flex;justify-content:space-between;align-items:center}
-  .chat-input .hint kbd{background:var(--wall-lt);padding:1px 4px;border-radius:2px;color:var(--ink);font-size:9px}
-  .chat-input button{background:var(--cyan);border:none;color:#000;padding:6px 12px;font-family:inherit;font-weight:bold;font-size:11px;letter-spacing:1px;cursor:pointer;border-radius:2px}
-  .chat-input button:disabled{background:var(--soft);cursor:not-allowed}
-  .chat-input button.stop{background:var(--red);color:#fff}
+  .chat-input{padding:14px 20px 20px;border-top:1px solid var(--border);background:var(--surface)}
+  .chat-input-wrap{position:relative;background:#f9fafb;border:1px solid var(--border);border-radius:12px;padding:10px 52px 10px 14px;transition:border-color .15s,box-shadow .15s}
+  .chat-input-wrap:focus-within{border-color:var(--accent);background:var(--surface);box-shadow:0 0 0 3px rgba(59,130,246,.1)}
+  .chat-input-wrap textarea{width:100%;background:transparent;border:none;outline:none;resize:none;height:24px;max-height:200px;line-height:1.5;color:var(--text);font-size:14px;display:block}
+  .chat-input-wrap textarea::placeholder{color:var(--text-dim)}
+  .send-btn{position:absolute;right:8px;bottom:8px;width:32px;height:32px;border:none;border-radius:8px;background:var(--accent);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,opacity .15s}
+  .send-btn:hover{background:#2563eb}
+  .send-btn:disabled{background:#cbd5e1;cursor:not-allowed}
+  .send-btn.stop{background:var(--red)}
+  .send-btn.stop:hover{background:#dc2626}
+  .chat-hint{margin-top:8px;font-size:11px;color:var(--text-dim);display:flex;justify-content:space-between;align-items:center}
+  .chat-hint kbd{background:#f3f4f6;border:1px solid var(--border);padding:1px 5px;border-radius:3px;font-size:10px;color:var(--text-soft)}
 
-  /* ─ settings panel (hidden drawer) ────────────────────────────────── */
-  .settings{position:absolute;top:48px;right:10px;background:var(--panel);border:1px solid var(--wall-lt);border-radius:4px;padding:12px;font-size:11px;z-index:50;display:none;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
-  .settings.open{display:block}
-  .settings h4{margin:0 0 8px;font-size:10px;color:var(--cyan);letter-spacing:1px}
-  .settings label{display:flex;align-items:center;gap:8px;margin:6px 0;cursor:pointer;color:var(--ink)}
-  .settings label input{accent-color:var(--cyan)}
+  /* ─ office (right panel) ───────────────────────────────────────────── */
+  .office-header{padding:14px 16px 10px;font-size:10px;color:var(--office-text);letter-spacing:2px;font-weight:700;border-bottom:1px solid var(--office-wall);display:flex;justify-content:space-between;align-items:center}
+  .office-header .running{width:6px;height:6px;border-radius:50%;background:#374151}
+  .office-header .running.live{background:#10b981;animation:pulse 1.4s ease-in-out infinite}
+  .office-stage{flex:1;position:relative;overflow:hidden;padding:18px 14px;display:flex;align-items:center;justify-content:center}
+  .office-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:18px 14px;width:100%;height:100%;max-width:248px;max-height:540px}
 
-  /* ─ critic walk highlight ─────────────────────────────────────────── */
-  .desk.under-review{box-shadow:0 0 0 2px #ff3ea5 inset,0 0 14px rgba(255,62,165,.4);animation:reviewscan 1s ease-in-out infinite alternate}
-  @keyframes reviewscan{from{box-shadow:0 0 0 2px #ff3ea5 inset,0 0 6px rgba(255,62,165,.2)}to{box-shadow:0 0 0 2px #ff3ea5 inset,0 0 18px rgba(255,62,165,.6)}}
+  /* ─ desk + pixel character ─────────────────────────────────────────── */
+  .slot{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
+  .slot .name{position:absolute;bottom:-14px;font-size:8px;color:var(--office-text);letter-spacing:.5px;opacity:.55;white-space:nowrap}
+  .slot.working .name{color:#fff;opacity:1}
+  .desk{width:52px;height:18px;background:#4a3622;background:linear-gradient(180deg,#5b4228,#3d2c19);border-radius:2px;box-shadow:inset 0 -3px 0 rgba(0,0,0,.45);position:relative;z-index:1}
+  .pxc{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);width:12px;height:22px;z-index:2}
+  .pxc .head{position:absolute;top:0;left:2px;width:8px;height:8px;background:#f6d5ad;box-shadow:inset 0 -2px 0 rgba(0,0,0,.15)}
+  .pxc .hair{position:absolute;top:0;left:2px;width:8px;height:2px;background:#2d1f10}
+  .pxc .eye-l,.pxc .eye-r{position:absolute;top:4px;width:1px;height:1px;background:#000}
+  .pxc .eye-l{left:4px}
+  .pxc .eye-r{left:7px}
+  .pxc .body{position:absolute;top:8px;left:2px;width:8px;height:10px;background:var(--c,#9ca3af);box-shadow:inset 0 -2px 0 rgba(0,0,0,.2)}
+  .pxc .arm-l,.pxc .arm-r{position:absolute;top:8px;width:2px;height:6px;background:var(--c,#9ca3af)}
+  .pxc .arm-l{left:0}
+  .pxc .arm-r{left:10px}
+  .pxc .leg-l,.pxc .leg-r{position:absolute;top:18px;width:3px;height:4px;background:#1f2937}
+  .pxc .leg-l{left:3px}
+  .pxc .leg-r{left:6px}
+
+  /* idle: gentle bob */
+  .slot .pxc{animation:bob 3s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-1px)}}
+
+  /* working: typing — arms wiggle + faster bob */
+  .slot.working .pxc{animation:bob 0.7s ease-in-out infinite}
+  .slot.working .pxc .arm-l{animation:type-l 0.3s linear infinite}
+  .slot.working .pxc .arm-r{animation:type-r 0.3s linear infinite}
+  @keyframes type-l{0%,100%{top:8px;height:6px}50%{top:10px;height:4px}}
+  @keyframes type-r{0%,100%{top:10px;height:4px}50%{top:8px;height:6px}}
+
+  /* done: jump + check */
+  .slot.done .pxc{animation:jump 0.55s ease-out 1}
+  @keyframes jump{0%{transform:translateX(-50%) translateY(0)}40%{transform:translateX(-50%) translateY(-8px)}100%{transform:translateX(-50%) translateY(0)}}
+  .slot .check{position:absolute;top:-4px;right:-2px;width:12px;height:12px;background:#10b981;color:#fff;border-radius:50%;display:none;align-items:center;justify-content:center;font-size:9px;font-weight:bold;animation:check-pop 0.4s ease-out 1}
+  .slot.done .check{display:flex}
+  @keyframes check-pop{from{transform:scale(0)}to{transform:scale(1)}}
+
+  /* bubble */
+  .slot .bubble{position:absolute;bottom:44px;left:50%;transform:translateX(-50%);background:#fff;color:#1f2937;font-size:9px;padding:3px 6px;border-radius:4px;white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis;box-shadow:0 2px 6px rgba(0,0,0,.3);z-index:3;animation:bubble-in .2s ease-out}
+  .slot .bubble::after{content:'';position:absolute;bottom:-4px;left:50%;transform:translateX(-50%);border:4px solid transparent;border-top-color:#fff}
+  @keyframes bubble-in{from{opacity:0;transform:translateX(-50%) translateY(2px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+
+  /* err */
+  .slot.err .pxc .body{background:var(--red)!important}
+  .slot.err .check{display:flex;background:var(--red)}
+  .slot.err .check::before{content:'!';}
+  .slot.err .check::after{content:none}
 </style>
 </head>
 <body>
 <div class="app">
 
-  <div class="topbar">
-    <span class="logo">◢◤ CORVUS X</span>
-    <span class="status-dot" id="statusDot" title="대기 중"></span>
-    <div class="project-name" id="projectName" title="클릭하면 프로젝트명 편집">신규 프로젝트</div>
-    <span class="spacer"></span>
-    <button class="icon-btn" id="settingsBtn" title="설정">⚙</button>
-  </div>
-
+  <!-- ─ sidebar ───────────────────────────────────────────────────── -->
   <nav class="sidebar">
-    <a href="#" class="nav-item active" id="navNewChat">
-      <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h12v9H5l-3 3V3z"/></svg>
+    <div class="logo"><span class="mark"></span>CORVUS X</div>
+
+    <button class="nav-btn active" id="navNewChat">
+      <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
       새 채팅
-    </a>
+    </button>
+
     <div class="nav-divider">프로젝트</div>
     <div class="nav-projects" id="navProjects">
-      <div class="nav-project-new" id="navProjectNew">+ 새 프로젝트</div>
+      <div class="nav-new" id="navProjectNew">+ 새 프로젝트</div>
     </div>
+
     <div class="nav-divider">운영</div>
-    <a href="/?view=dashboard" class="nav-item">
+    <a href="/?view=dashboard" class="nav-btn">
       <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="5" height="5"/><rect x="9" y="3" width="5" height="5"/><rect x="2" y="10" width="5" height="3"/><rect x="9" y="10" width="5" height="3"/></svg>
       매출 대시보드
     </a>
-    <a href="/?view=store-ops" class="nav-item">
+    <a href="/?view=store-ops" class="nav-btn">
       <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5l1.5-3h9L14 5M2 5v8h12V5M2 5h12M6 8h4"/></svg>
       매장 운영
     </a>
-    <a href="/?view=pos" class="nav-item">
+    <a href="/?view=pos" class="nav-btn">
       <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="8" rx="1"/><path d="M5 13h6M8 11v2"/></svg>
       POS 관리
     </a>
-    <a href="/?view=risk" class="nav-item">
-      <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2l6 11H2l6-11zM8 7v3M8 12v.5"/></svg>
-      리스크 대응
-    </a>
   </nav>
 
-  <div class="office" id="office">
+  <!-- ─ chat ──────────────────────────────────────────────────────── -->
+  <section class="chat">
+    <div class="chat-header">
+      <span class="chat-title" id="projectName">신규 프로젝트</span>
+      <span class="chat-status">
+        <span class="dot" id="statusDot"></span>
+        <span id="statusText">대기 중</span>
+      </span>
+    </div>
 
-    <div class="room critic"><div class="label">◢ CRITIC</div></div>
-    <div class="room meeting" id="meetingRoom">
-      <div class="label">◢ 3-AI 회의실</div>
-      <div class="ai-trio">
-        <div class="ai-seat" data-ai="claude" id="ai-claude">
-          <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
-            <rect x="5" y="2" width="6" height="5" fill="#f6d5ad"/>
-            <rect x="6" y="4" width="1" height="1" fill="#000"/><rect x="9" y="4" width="1" height="1" fill="#000"/>
-            <rect x="4" y="7" width="8" height="6" fill="#a855f7"/>
-            <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
-          </svg>
-          <div class="ai-tag">CLAUDE</div>
-        </div>
-        <div class="ai-seat" data-ai="gpt" id="ai-gpt">
-          <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
-            <rect x="5" y="2" width="6" height="5" fill="#f6d5ad"/>
-            <rect x="6" y="4" width="1" height="1" fill="#000"/><rect x="9" y="4" width="1" height="1" fill="#000"/>
-            <rect x="4" y="7" width="8" height="6" fill="#10a37f"/>
-            <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
-          </svg>
-          <div class="ai-tag">GPT</div>
-        </div>
-        <div class="ai-seat" data-ai="gemini" id="ai-gemini">
-          <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
-            <rect x="5" y="2" width="6" height="5" fill="#f6d5ad"/>
-            <rect x="6" y="4" width="1" height="1" fill="#000"/><rect x="9" y="4" width="1" height="1" fill="#000"/>
-            <rect x="4" y="7" width="8" height="6" fill="#4285f4"/>
-            <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
-          </svg>
-          <div class="ai-tag">GEMINI</div>
-        </div>
+    <div class="chat-log" id="chatLog">
+      <div class="chat-empty">
+        <h3>무엇을 도와드릴까요?</h3>
+        <p>지시를 입력하면 필요한 부서만 자동으로 움직입니다.</p>
       </div>
     </div>
-    <div class="room archive"><div class="label">◢ 자료실</div></div>
 
-    <div class="desks" id="desks"><!-- 동적 --></div>
-
-    <div class="ceo-desk">👑 CEO DIRECTOR</div>
-
-    <!-- 정적 캐릭터: CRITIC -->
-    <div class="char" id="char-critic" style="left:70px; top:60px;">
-      <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
-        <rect x="5" y="2" width="6" height="5" fill="#f6d5ad"/>
-        <rect x="6" y="4" width="1" height="1" fill="#000"/><rect x="9" y="4" width="1" height="1" fill="#000"/>
-        <rect x="4" y="7" width="8" height="6" fill="#ff3ea5"/>
-        <rect x="11" y="8" width="2" height="2" fill="#ff5e5e"/>
-        <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
-      </svg>
-      <div class="nametag">CRITIC</div>
-    </div>
-
-    <!-- 설정 드로어 -->
-    <div class="settings" id="settingsPanel">
-      <h4>◢ 표시 옵션</h4>
-      <label><input type="checkbox" id="optShowXp"> XP / 레벨 배지 표시</label>
-      <label><input type="checkbox" id="optVerbose"> 상세 진행 로그 (채팅)</label>
-      <label><input type="checkbox" id="optShowDemo"> DEMO 버튼 (개발용)</label>
-    </div>
-  </div>
-
-  <section class="chat">
-    <div class="chat-log" id="chatLog">
-      <div class="chat-empty">지시사항을 입력하면 필요한 부서만 자동으로 움직입니다.</div>
-    </div>
     <div class="chat-input">
-      <textarea id="directive" placeholder="예) 케토 김밥 신제품 마진 35% 이상으로 런칭하고 싶어. 식약처 규제도 확인해줘."></textarea>
-      <div class="hint">
-        <span><kbd>Enter</kbd> 전송 · <kbd>Shift+Enter</kbd> 줄바꿈</span>
-        <div>
-          <button id="demoBtn" style="display:none;background:var(--wall-lt);color:var(--ink)">DEMO</button>
-          <button id="sendBtn">▶ 실행</button>
-          <button id="stopBtn" class="stop" style="display:none">■ 중단</button>
-        </div>
+      <div class="chat-input-wrap">
+        <textarea id="directive" rows="1" placeholder="무엇이든 물어보세요..."></textarea>
+        <button class="send-btn" id="sendBtn" title="전송" aria-label="전송">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+        </button>
+      </div>
+      <div class="chat-hint">
+        <span><kbd>Enter</kbd> 전송 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 줄바꿈</span>
+        <span id="runInfo"></span>
       </div>
     </div>
   </section>
+
+  <!-- ─ pixel office ──────────────────────────────────────────────── -->
+  <aside class="office">
+    <div class="office-header">
+      <span>◢ OFFICE</span>
+      <span class="running" id="officeRunning" title="상태"></span>
+    </div>
+    <div class="office-stage">
+      <div class="office-grid" id="officeGrid"><!-- rendered --></div>
+    </div>
+  </aside>
 </div>
 
 <script>
 (() => {
-  // ─── 설정 ──────────────────────────────────────────────────────────
   const API_BASE = location.origin.includes('localhost') ? 'http://localhost:8000' : '';
   const DEPTS = [
-    {id:'market',    label:'MARKET',    kr:'시장조사', color:'#00d4ff'},
-    {id:'compete',   label:'COMPETE',   kr:'경쟁사',   color:'#f97316'},
-    {id:'legal',     label:'LEGAL',     kr:'법무',     color:'#a855f7'},
-    {id:'finance',   label:'FINANCE',   kr:'재무',     color:'#ffc94a'},
-    {id:'marketing', label:'MARKETING', kr:'마케팅',   color:'#ff3ea5'},
-    {id:'rnd',       label:'R&D',       kr:'R&D',      color:'#4ade80'},
-    {id:'data',      label:'DATA',      kr:'데이터',   color:'#3b82f6'},
-    {id:'content',   label:'CONTENT',   kr:'콘텐츠',   color:'#ef4444'},
-    {id:'sns',       label:'SNS',       kr:'SNS',      color:'#ec4899'},
+    {id:'market',    kr:'시장',  color:'#3b82f6'},
+    {id:'compete',   kr:'경쟁',  color:'#f97316'},
+    {id:'legal',     kr:'법무',  color:'#a855f7'},
+    {id:'finance',   kr:'재무',  color:'#eab308'},
+    {id:'marketing', kr:'마케팅',color:'#ec4899'},
+    {id:'rnd',       kr:'R&D',  color:'#22c55e'},
+    {id:'data',      kr:'데이터',color:'#06b6d4'},
+    {id:'content',   kr:'콘텐츠',color:'#ef4444'},
+    {id:'sns',       kr:'SNS',  color:'#d946ef'},
   ];
   const DEPT_BY_ID = Object.fromEntries(DEPTS.map(d => [d.id, d]));
 
-  const LS_PROJECT_KEY = 'corvus-x-office.current-project';
-  const LS_PROJECTS_KEY = 'corvus-x-office.projects';
-  const LS_OPTS_KEY = 'corvus-x-office.options';
+  const LS_PROJECT = 'corvus-x-office.current-project';
+  const LS_PROJECTS = 'corvus-x-office.projects';
 
-  // ─── 상태 ──────────────────────────────────────────────────────────
   const state = {
-    eventSource: null,
-    startTime: 0,
+    es: null,
     running: false,
-    currentProject: loadProject(),
-    projects: loadProjects(),
-    options: loadOptions(),
-    deptProgressBubbles: {},   // deptId → last bubble text (중복 방지)
+    currentProject: loadLS(LS_PROJECT, '신규 프로젝트'),
+    projects: loadLS(LS_PROJECTS, []),
+    deptBubbleCache: {},
+    startTs: 0,
   };
 
-  // ─── DOM refs ──────────────────────────────────────────────────────
   const $ = (id) => document.getElementById(id);
   const dom = {
     statusDot: $('statusDot'),
+    statusText: $('statusText'),
+    officeRunning: $('officeRunning'),
     projectName: $('projectName'),
-    settingsBtn: $('settingsBtn'),
-    settingsPanel: $('settingsPanel'),
-    desks: $('desks'),
-    office: $('office'),
+    officeGrid: $('officeGrid'),
     chatLog: $('chatLog'),
     directive: $('directive'),
     sendBtn: $('sendBtn'),
-    demoBtn: $('demoBtn'),
-    stopBtn: $('stopBtn'),
     navNewChat: $('navNewChat'),
     navProjects: $('navProjects'),
-    navProjectNew: $('navProjectNew'),
-    optShowXp: $('optShowXp'),
-    optVerbose: $('optVerbose'),
-    optShowDemo: $('optShowDemo'),
+    runInfo: $('runInfo'),
   };
 
-  // ─── 초기화 ────────────────────────────────────────────────────────
-  function init() {
-    renderDesks();
-    setTimeout(positionAtHome, 50);
-    renderProjectName();
-    renderProjectsNav();
-    applyOptions();
-    bindEvents();
-    setTimeout(() => {
-      fetchDeptStats();
-      setInterval(fetchDeptStats, 30_000);
-      connectDeptWs();
-    }, 300);
-  }
-
-  // ─── 책상/캐릭터 ───────────────────────────────────────────────────
-  function renderDesks() {
-    dom.desks.innerHTML = '';
-    DEPTS.forEach(d => {
-      const el = document.createElement('div');
-      el.className = 'desk';
-      el.dataset.dept = d.id;
-      el.dataset.state = 'idle';
-      el.innerHTML = `<div class="ring"></div><span style="color:${d.color};text-shadow:0 0 2px rgba(0,0,0,.5)">${d.label}</span><div class="badge"></div><div class="level-badge"></div>`;
-      dom.desks.appendChild(el);
-
-      const char = document.createElement('div');
-      char.className = 'char';
-      char.id = 'char-' + d.id;
-      char.dataset.active = 'false';
-      char.innerHTML = `
-        <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
-          <rect x="5" y="2" width="6" height="5" fill="#f6d5ad"/>
-          <rect x="6" y="4" width="1" height="1" fill="#000"/><rect x="9" y="4" width="1" height="1" fill="#000"/>
-          <rect x="4" y="7" width="8" height="6" fill="${d.color}"/>
-          <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
-        </svg>
-        <div class="nametag">${d.kr}</div>
-      `;
-      dom.office.appendChild(char);
-    });
-  }
-
-  function positionAtHome() {
-    DEPTS.forEach(d => {
-      const desk = dom.desks.querySelector(`.desk[data-dept="${d.id}"]`);
-      const char = document.getElementById('char-' + d.id);
-      if (!desk || !char) return;
-      const rect = desk.getBoundingClientRect();
-      const officeRect = dom.office.getBoundingClientRect();
-      char.style.left = (rect.left - officeRect.left + rect.width/2 - 15) + 'px';
-      char.style.top  = (rect.top  - officeRect.top - 18) + 'px';
-    });
-  }
-  window.addEventListener('resize', positionAtHome);
-
-  function setDeptState(deptId, stateName) {
-    const desk = dom.desks.querySelector(`.desk[data-dept="${deptId}"]`);
-    if (!desk) return;
-    desk.dataset.state = stateName;
-    const char = document.getElementById('char-' + deptId);
-    if (char) char.dataset.active = (stateName === 'working') ? 'true' : 'false';
-  }
-
-  function setBubble(charId, text, kind='think') {
-    const char = document.getElementById(charId);
-    if (!char) return;
-    let bubble = char.querySelector('.bubble');
-    if (!bubble) {
-      bubble = document.createElement('div');
-      char.appendChild(bubble);
+  function loadLS(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      return parsed ?? fallback;
+    } catch {
+      return fallback;
     }
-    bubble.className = 'bubble ' + kind;
-    bubble.textContent = text.slice(0, 32);
-    bubble.title = text;
   }
-  function clearBubble(charId) {
-    const b = document.getElementById(charId)?.querySelector('.bubble');
+  function saveLS(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+  }
+
+  // ─ office grid ─────────────────────────────────────────────────────
+  function renderOffice() {
+    dom.officeGrid.innerHTML = '';
+    DEPTS.forEach(d => {
+      const slot = document.createElement('div');
+      slot.className = 'slot idle';
+      slot.dataset.dept = d.id;
+      slot.innerHTML = `
+        <div class="desk"></div>
+        <div class="pxc" style="--c:${d.color}">
+          <div class="hair"></div>
+          <div class="head"></div>
+          <div class="eye-l"></div><div class="eye-r"></div>
+          <div class="body"></div>
+          <div class="arm-l"></div><div class="arm-r"></div>
+          <div class="leg-l"></div><div class="leg-r"></div>
+        </div>
+        <div class="check"><span>✓</span></div>
+        <div class="name">${d.kr}</div>
+      `;
+      dom.officeGrid.appendChild(slot);
+    });
+  }
+
+  function setDeptState(deptId, name) {
+    const slot = dom.officeGrid.querySelector(`.slot[data-dept="${deptId}"]`);
+    if (!slot) return;
+    slot.classList.remove('idle','working','done','err');
+    slot.classList.add(name);
+  }
+  function setBubble(deptId, text) {
+    const slot = dom.officeGrid.querySelector(`.slot[data-dept="${deptId}"]`);
+    if (!slot || !text) return;
+    let b = slot.querySelector('.bubble');
+    if (!b) {
+      b = document.createElement('div');
+      b.className = 'bubble';
+      slot.appendChild(b);
+    }
+    b.textContent = text.slice(0, 24);
+    b.title = text;
+  }
+  function clearBubble(deptId) {
+    const b = dom.officeGrid.querySelector(`.slot[data-dept="${deptId}"] .bubble`);
     if (b) b.remove();
   }
-
-  // ─── 3-AI 앙상블 연출 ──────────────────────────────────────────────
-  function modelToAi(model) {
-    const m = String(model || '').toLowerCase();
-    if (m.includes('claude') || m.includes('opus') || m.includes('sonnet')) return 'claude';
-    if (m.includes('gpt') || m.includes('openai') || m.match(/^o[134]/)) return 'gpt';
-    if (m.includes('gemini') || m.includes('google')) return 'gemini';
-    return null;
-  }
-  function ensembleStart() {
-    document.getElementById('meetingRoom')?.classList.add('consensus');
-    ['claude','gpt','gemini'].forEach(ai => document.getElementById('ai-' + ai)?.classList.add('active'));
-  }
-  function ensembleVoice(model) {
-    const ai = modelToAi(model);
-    if (ai) document.getElementById('ai-' + ai)?.classList.add('active');
-  }
-  function ensembleDone() {
-    setTimeout(() => {
-      document.getElementById('meetingRoom')?.classList.remove('consensus');
-      ['claude','gpt','gemini'].forEach(ai => document.getElementById('ai-' + ai)?.classList.remove('active'));
-    }, 3000);
+  function resetOffice() {
+    DEPTS.forEach(d => { setDeptState(d.id, 'idle'); clearBubble(d.id); });
   }
 
-  // ─── CRITIC 이동 ───────────────────────────────────────────────────
-  function criticWalkTo(deptId, isPass) {
-    const critic = document.getElementById('char-critic');
-    const desk = dom.desks.querySelector(`.desk[data-dept="${deptId}"]`);
-    if (!critic) return;
-    if (desk) {
-      desk.classList.add('under-review');
-      const dRect = desk.getBoundingClientRect();
-      const oRect = dom.office.getBoundingClientRect();
-      critic.style.left = (dRect.left - oRect.left + dRect.width/2 - 15) + 'px';
-      critic.style.top  = (dRect.top  - oRect.top - 24) + 'px';
-    }
-    setTimeout(() => {
-      if (desk) desk.classList.remove('under-review');
-      critic.style.left = '70px';
-      critic.style.top = '60px';
-    }, 4200);
+  // ─ chat rendering ──────────────────────────────────────────────────
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
-
-  // ─── 채팅 ──────────────────────────────────────────────────────────
-  function addMsg({ who, body, kind = 'sys', deptId = null, html = false }) {
+  function addMsg({ who, body, kind = 'ai', deptId = null, html = false }) {
     const empty = dom.chatLog.querySelector('.chat-empty');
     if (empty) empty.remove();
     const msg = document.createElement('div');
@@ -461,346 +358,253 @@
     if (deptId && DEPT_BY_ID[deptId]) {
       msg.style.setProperty('--dept-color', DEPT_BY_ID[deptId].color);
     }
+    const whoEl = document.createElement('div');
+    whoEl.className = 'who';
+    if (kind === 'dept') {
+      whoEl.innerHTML = `<span class="dot"></span>${escapeHtml(who)}`;
+    } else if (who) {
+      whoEl.textContent = who;
+    }
     const bodyEl = document.createElement('div');
-    bodyEl.className = 'msg-body';
+    bodyEl.className = 'body';
     if (html) bodyEl.innerHTML = body;
     else bodyEl.textContent = body;
-    msg.innerHTML = `<div class="msg-head"><span class="who">${escapeHtml(who)}</span><span id="ts-${Date.now()}">${nowTime()}</span></div>`;
+
+    if (kind !== 'user' || who) msg.appendChild(whoEl);
     msg.appendChild(bodyEl);
     dom.chatLog.appendChild(msg);
     dom.chatLog.scrollTop = dom.chatLog.scrollHeight;
     return msg;
   }
-  function nowTime() {
-    const d = new Date();
-    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-  }
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  }
 
   function renderDeptReport(deptId, report) {
     const d = DEPT_BY_ID[deptId];
     const name = d ? `${d.kr}팀` : deptId;
-    const structured = report?.structured;
-
-    let body = '';
-    if (structured?.summary) body += escapeHtml(structured.summary);
-    if (structured?.keyFindings?.length) {
-      body += '<div class="sub-sec">핵심</div><ul>' +
-        structured.keyFindings.slice(0, 4).map(s => `<li>${escapeHtml(s)}</li>`).join('') + '</ul>';
+    const st = report?.structured;
+    let html = '';
+    if (st?.summary) html += escapeHtml(st.summary);
+    if (st?.keyFindings?.length) {
+      html += '<div class="sec-label">핵심</div><ul>' +
+        st.keyFindings.slice(0, 4).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     }
-    if (structured?.risks?.length) {
-      body += '<div class="sub-sec">리스크</div><ul>' +
-        structured.risks.slice(0, 3).map(s => `<li>${escapeHtml(s)}</li>`).join('') + '</ul>';
+    if (st?.risks?.length) {
+      html += '<div class="sec-label">리스크</div><ul>' +
+        st.risks.slice(0, 3).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     }
-    if (!body && report?.sections?.[0]) {
-      const first = report.sections[0];
-      body = `<div class="sub-sec">${escapeHtml(first.heading)}</div><ul>` +
-        (first.items || []).slice(0, 4).map(s => `<li>${escapeHtml(s)}</li>`).join('') + '</ul>';
+    if (!html && report?.sections?.[0]) {
+      const s = report.sections[0];
+      html = `<div class="sec-label">${escapeHtml(s.heading)}</div><ul>` +
+        (s.items || []).slice(0, 4).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     }
-    if (!body) body = '(보고 내용 없음)';
-    addMsg({ who: name, body, kind: 'dept', deptId, html: true });
+    if (!html) html = '(보고 내용 없음)';
+    addMsg({ who: name, body: html, kind: 'dept', deptId, html: true });
   }
-
   function renderCeoBriefing(b) {
-    let body = '';
-    if (b.summary) body += escapeHtml(b.summary);
-    if (b.opportunities?.length) {
-      body += '<div class="sub-sec">기회</div><ul>' + b.opportunities.slice(0, 3).map(s => `<li>${escapeHtml(s)}</li>`).join('') + '</ul>';
+    let html = '';
+    if (b?.summary) html += escapeHtml(b.summary);
+    if (b?.opportunities?.length) {
+      html += '<div class="sec-label">기회</div><ul>' + b.opportunities.slice(0, 3).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     }
-    if (b.risks?.length) {
-      body += '<div class="sub-sec">리스크</div><ul>' + b.risks.slice(0, 3).map(s => `<li>${escapeHtml(s)}</li>`).join('') + '</ul>';
+    if (b?.risks?.length) {
+      html += '<div class="sec-label">리스크</div><ul>' + b.risks.slice(0, 3).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     }
-    if (b.recommendations?.length) {
-      body += '<div class="sub-sec">권고</div><ul>' + b.recommendations.slice(0, 3).map(s => `<li>${escapeHtml(s)}</li>`).join('') + '</ul>';
+    if (b?.recommendations?.length) {
+      html += '<div class="sec-label">권고</div><ul>' + b.recommendations.slice(0, 3).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     }
-    if (typeof b.overallConfidence === 'number') {
-      body += `<div class="sub-sec">신뢰도 ${Math.round(b.overallConfidence * 100)}%</div>`;
+    if (typeof b?.overallConfidence === 'number') {
+      html += `<div class="sec-label">신뢰도 ${Math.round(b.overallConfidence * 100)}%</div>`;
     }
-    addMsg({ who: 'CEO', body: body || '통합 브리핑', kind: 'ceo', html: true });
+    addMsg({ who: 'CEO 브리핑', body: html || '통합 브리핑', kind: 'ceo', html: true });
   }
-
   function renderCriticReview(r) {
-    const verdict = r?.verdict === 'pass' ? '✅ PASS' : '⚠️ 보강 필요';
-    let body = `<b>${verdict}</b><br>${escapeHtml(r?.summary || '')}`;
+    const verdict = r?.verdict === 'pass' ? '✓ PASS' : '⚠ 보강 필요';
+    let html = `<b>${verdict}</b><br>${escapeHtml(r?.summary || '')}`;
     const issues = (r?.keyIssues || []).concat(r?.contradictions || []).slice(0, 3);
-    if (issues.length) body += '<ul>' + issues.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    addMsg({ who: 'CRITIC', body, kind: 'critic', html: true });
+    if (issues.length) html += '<ul>' + issues.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    addMsg({ who: 'CRITIC 검증', body: html, kind: 'critic', html: true });
   }
 
-  // ─── SSE 핸들러 ────────────────────────────────────────────────────
+  // ─ SSE events ──────────────────────────────────────────────────────
   function onEvent(ev) {
-    let payload;
-    try { payload = JSON.parse(ev.data); } catch { return; }
-    const type = payload.type || ev.type;
+    let p;
+    try { p = JSON.parse(ev.data); } catch { return; }
+    const type = p.type || ev.type;
 
     switch (type) {
-      case 'mission_start':
-        if (state.options.verbose) addMsg({ who: '시스템', body: `미션 분해 · 도메인 ${payload.domain} · ${payload.deptCount}개 부서 검토`, kind: 'sys' });
-        break;
-
-      case 'pmo_plan':
-        if (state.options.verbose) addMsg({ who: 'PMO', body: `실행 계획 ${payload.plan?.taskChecklist?.length || 0}건 · 성공 기준 ${payload.plan?.successCriteria?.length || 0}건`, kind: 'sys' });
-        // 계획에 없는 부서는 idle 유지
-        break;
-
       case 'dept_start':
-        setDeptState(payload.deptId, 'working');
-        setBubble('char-' + payload.deptId, payload.objective || '분석 중', 'think');
-        if (state.options.verbose) {
-          const d = DEPT_BY_ID[payload.deptId];
-          addMsg({ who: (d?.kr || payload.deptId) + '팀', body: `시작 · ${payload.objective?.slice(0, 60) || ''}`, kind: 'dept', deptId: payload.deptId });
-        }
+        setDeptState(p.deptId, 'working');
+        if (p.objective) setBubble(p.deptId, p.objective);
         break;
 
       case 'dept_progress':
-        if (payload.message) {
-          const prev = state.deptProgressBubbles[payload.deptId];
-          if (prev !== payload.message) {
-            setBubble('char-' + payload.deptId, payload.message, 'think');
-            state.deptProgressBubbles[payload.deptId] = payload.message;
-          }
+        if (p.message && state.deptBubbleCache[p.deptId] !== p.message) {
+          setBubble(p.deptId, p.message);
+          state.deptBubbleCache[p.deptId] = p.message;
         }
         break;
 
       case 'dept_done':
-        setDeptState(payload.deptId, 'done');
-        setBubble('char-' + payload.deptId, '완료', 'done');
-        setTimeout(() => clearBubble('char-' + payload.deptId), 2500);
-        if (payload.report) renderDeptReport(payload.deptId, payload.report);
+        setDeptState(p.deptId, 'done');
+        clearBubble(p.deptId);
+        if (p.report) renderDeptReport(p.deptId, p.report);
         break;
 
       case 'dept_error':
-        setDeptState(payload.deptId, 'error');
-        setBubble('char-' + payload.deptId, '오류', 'crit');
-        setTimeout(() => clearBubble('char-' + payload.deptId), 3500);
-        addMsg({ who: (DEPT_BY_ID[payload.deptId]?.kr || payload.deptId) + '팀', body: `오류: ${payload.error || '알 수 없는 오류'}`, kind: 'err' });
-        break;
-
-      case 'ensemble_start':
-        ensembleStart();
-        if (state.options.verbose) addMsg({ who: '앙상블', body: `3-AI 병렬 분석 시작 · ${payload.reason || ''}`, kind: 'sys' });
-        break;
-
-      case 'ensemble_voice':
-        ensembleVoice(payload.model);
-        if (state.options.verbose && payload.message) {
-          const ai = modelToAi(payload.model) || '?';
-          addMsg({ who: ai.toUpperCase(), body: payload.message.slice(0, 160), kind: 'sys' });
-        }
-        break;
-
-      case 'ensemble_done':
-        ensembleDone();
+        setDeptState(p.deptId, 'err');
+        clearBubble(p.deptId);
+        addMsg({
+          who: (DEPT_BY_ID[p.deptId]?.kr || p.deptId) + '팀',
+          body: `오류: ${p.error || '알 수 없는 오류'}`,
+          kind: 'err',
+        });
         break;
 
       case 'critic_review':
-        renderCriticReview(payload.review);
-        if (payload.deptId || payload.review?.targetDeptId) {
-          criticWalkTo(payload.deptId || payload.review.targetDeptId, payload.review?.verdict === 'pass');
-        }
+        renderCriticReview(p.review);
         break;
 
       case 'ceo_briefing':
-        renderCeoBriefing(payload.briefing);
+        renderCeoBriefing(p.briefing);
         break;
 
       case 'all_done':
-        addMsg({ who: '시스템', body: `전체 완료 (라운드 ${payload.roundNumber})`, kind: 'sys' });
         finishRun();
         break;
 
       case 'error':
-        addMsg({ who: '오류', body: payload.message, kind: 'err' });
+        addMsg({ who: '오류', body: p.message, kind: 'err' });
         finishRun(true);
         break;
+
+      // 조용한 이벤트 (채팅 미출력):
+      // mission_start / pmo_plan / ensemble_* / stream_end
     }
   }
 
-  // ─── 실행/중단 ─────────────────────────────────────────────────────
+  // ─ actions ─────────────────────────────────────────────────────────
   function startRun() {
     const directive = dom.directive.value.trim();
     if (!directive) return;
     if (state.running) return;
 
-    addMsg({ who: '나', body: directive, kind: 'user' });
-    resetDeskStates();
+    addMsg({ who: '', body: directive, kind: 'user' });
+    resetOffice();
     state.running = true;
-    state.startTime = Date.now();
-    dom.statusDot.className = 'status-dot live';
-    dom.statusDot.title = '실행 중';
-    dom.sendBtn.style.display = 'none';
-    dom.stopBtn.style.display = '';
+    state.startTs = Date.now();
+    state.deptBubbleCache = {};
 
-    const projectName = state.currentProject || dom.projectName.textContent.trim() || '신규 프로젝트';
+    dom.statusDot.className = 'dot live';
+    dom.statusText.textContent = '실행 중...';
+    dom.officeRunning.className = 'running live';
+    dom.sendBtn.classList.add('stop');
+    dom.sendBtn.title = '중단';
+    dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="10" height="10"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>';
+
+    const projectName = state.currentProject || '신규 프로젝트';
     const url = new URL(API_BASE + '/api/director/stream', location.href);
     url.searchParams.set('directive', directive);
     url.searchParams.set('projectName', projectName);
 
     try {
       const es = new EventSource(url.toString(), { withCredentials: true });
-      state.eventSource = es;
-      const EVTYPES = ['mission_start','pmo_plan','dept_start','dept_progress','dept_done','dept_error','ensemble_start','ensemble_voice','ensemble_done','critic_review','ceo_briefing','all_done','error','stream_end'];
-      EVTYPES.forEach(name => es.addEventListener(name, onEvent));
+      state.es = es;
+      ['dept_start','dept_progress','dept_done','dept_error','critic_review','ceo_briefing','all_done','error','stream_end']
+        .forEach(name => es.addEventListener(name, onEvent));
       es.onerror = () => {
         if (state.running) {
-          addMsg({ who: '시스템', body: '연결 오류 — 잠시 후 다시 시도하세요.', kind: 'err' });
+          addMsg({ who: '', body: '연결 오류. 잠시 후 다시 시도하세요.', kind: 'err' });
           finishRun(true);
         }
       };
     } catch (err) {
-      addMsg({ who: '시스템', body: 'EventSource 생성 실패: ' + err.message, kind: 'err' });
+      addMsg({ who: '', body: '연결 실패: ' + err.message, kind: 'err' });
       finishRun(true);
     }
 
     dom.directive.value = '';
+    autoSizeInput();
   }
 
   function finishRun(isErr = false) {
     state.running = false;
-    state.deptProgressBubbles = {};
-    if (state.eventSource) { state.eventSource.close(); state.eventSource = null; }
-    dom.statusDot.className = 'status-dot' + (isErr ? ' err' : '');
-    dom.statusDot.title = isErr ? '오류' : '대기 중';
-    dom.sendBtn.style.display = '';
-    dom.stopBtn.style.display = 'none';
+    if (state.es) { try { state.es.close(); } catch {} state.es = null; }
+    dom.statusDot.className = 'dot' + (isErr ? ' err' : '');
+    dom.statusText.textContent = isErr ? '오류' : '대기 중';
+    dom.officeRunning.className = 'running';
+    dom.sendBtn.classList.remove('stop');
+    dom.sendBtn.title = '전송';
+    dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M3 8h10M9 4l4 4-4 4"/></svg>';
+
+    if (!isErr && state.startTs) {
+      const sec = Math.round((Date.now() - state.startTs) / 1000);
+      dom.runInfo.textContent = `마지막 실행 ${sec}초`;
+    }
   }
 
-  function resetDeskStates() {
-    DEPTS.forEach(d => {
-      setDeptState(d.id, 'idle');
-      clearBubble('char-' + d.id);
-    });
-    positionAtHome();
-  }
-
-  // ─── 새 채팅 / 프로젝트 ────────────────────────────────────────────
   function newChat() {
-    if (state.running) { return; }
-    dom.chatLog.innerHTML = '<div class="chat-empty">지시사항을 입력하면 필요한 부서만 자동으로 움직입니다.</div>';
-    resetDeskStates();
+    if (state.running) return;
+    dom.chatLog.innerHTML = `
+      <div class="chat-empty">
+        <h3>무엇을 도와드릴까요?</h3>
+        <p>지시를 입력하면 필요한 부서만 자동으로 움직입니다.</p>
+      </div>
+    `;
+    resetOffice();
     dom.directive.value = '';
     dom.directive.focus();
+    dom.runInfo.textContent = '';
   }
 
+  // ─ projects ────────────────────────────────────────────────────────
   function renderProjectName() {
     dom.projectName.textContent = state.currentProject || '신규 프로젝트';
   }
-  function saveProject(name) {
+  function saveProjectName(name) {
     const trimmed = (name || '').trim() || '신규 프로젝트';
     state.currentProject = trimmed;
-    if (!state.projects.includes(trimmed) && trimmed !== '신규 프로젝트') {
+    if (trimmed !== '신규 프로젝트' && !state.projects.includes(trimmed)) {
       state.projects.push(trimmed);
-      localStorage.setItem(LS_PROJECTS_KEY, JSON.stringify(state.projects));
+      saveLS(LS_PROJECTS, state.projects);
     }
-    localStorage.setItem(LS_PROJECT_KEY, trimmed);
+    saveLS(LS_PROJECT, trimmed);
     renderProjectName();
     renderProjectsNav();
   }
-  function loadProject() {
-    try { return localStorage.getItem(LS_PROJECT_KEY) || '신규 프로젝트'; }
-    catch { return '신규 프로젝트'; }
-  }
-  function loadProjects() {
-    try { return JSON.parse(localStorage.getItem(LS_PROJECTS_KEY) || '[]'); }
-    catch { return []; }
-  }
   function renderProjectsNav() {
-    const list = dom.navProjects;
-    // keep the last "+ 새 프로젝트" button
-    list.innerHTML = '';
+    dom.navProjects.innerHTML = '';
     state.projects.forEach(p => {
-      const item = document.createElement('div');
-      item.className = 'nav-project' + (p === state.currentProject ? ' active' : '');
-      item.textContent = p;
-      item.onclick = () => { saveProject(p); newChat(); };
-      list.appendChild(item);
+      const el = document.createElement('div');
+      el.className = 'nav-project' + (p === state.currentProject ? ' active' : '');
+      el.innerHTML = `<span class="dot"></span><span>${escapeHtml(p)}</span>`;
+      el.onclick = () => { saveProjectName(p); newChat(); };
+      dom.navProjects.appendChild(el);
     });
-    const add = document.createElement('div');
-    add.className = 'nav-project-new';
-    add.textContent = '+ 새 프로젝트';
-    add.onclick = () => {
+    const addEl = document.createElement('div');
+    addEl.className = 'nav-new';
+    addEl.id = 'navProjectNew';
+    addEl.textContent = '+ 새 프로젝트';
+    addEl.onclick = () => {
       const name = prompt('새 프로젝트 이름');
-      if (name && name.trim()) { saveProject(name.trim()); newChat(); }
+      if (name && name.trim()) { saveProjectName(name.trim()); newChat(); }
     };
-    list.appendChild(add);
+    dom.navProjects.appendChild(addEl);
   }
 
-  // ─── 옵션 ──────────────────────────────────────────────────────────
-  function loadOptions() {
-    try { return Object.assign({ showXp:false, verbose:false, showDemo:false }, JSON.parse(localStorage.getItem(LS_OPTS_KEY) || '{}')); }
-    catch { return { showXp:false, verbose:false, showDemo:false }; }
-  }
-  function saveOptions() { localStorage.setItem(LS_OPTS_KEY, JSON.stringify(state.options)); }
-  function applyOptions() {
-    dom.optShowXp.checked = state.options.showXp;
-    dom.optVerbose.checked = state.options.verbose;
-    dom.optShowDemo.checked = state.options.showDemo;
-    document.body.classList.toggle('show-xp', !!state.options.showXp);
-    dom.demoBtn.style.display = state.options.showDemo ? '' : 'none';
+  // ─ input autosize ──────────────────────────────────────────────────
+  function autoSizeInput() {
+    const ta = dom.directive;
+    ta.style.height = '24px';
+    const max = 200;
+    ta.style.height = Math.min(ta.scrollHeight, max) + 'px';
   }
 
-  // ─── 부서 레벨/XP (숨김 모드 기본) ────────────────────────────────
-  const deptLevelCache = {};
-  async function fetchDeptStats() {
-    try {
-      const resp = await fetch(API_BASE + '/api/departments/stats', { credentials: 'include' });
-      if (!resp.ok) return;
-      const data = await resp.json();
-      (data.departments || []).forEach(d => {
-        if (!d?.dept_id) return;
-        deptLevelCache[d.dept_id] = d;
-        const badge = dom.desks.querySelector(`.desk[data-dept="${d.dept_id}"] .level-badge`);
-        if (badge) badge.textContent = 'L' + (d.level || 0);
-      });
-    } catch { /* ignore */ }
-  }
-  function connectDeptWs() {
-    try {
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = location.host.includes(':') ? location.host : (location.host + ':8000');
-      const ws = new WebSocket(`${protocol}//${host}/ws`);
-      ws.onmessage = (ev) => {
-        try {
-          const msg = JSON.parse(String(ev.data));
-          if (msg?.type !== 'dept:levelup') return;
-          const { dept_id, previous_level, new_level } = msg.payload || {};
-          if (!dept_id) return;
-          const desk = dom.desks.querySelector(`.desk[data-dept="${dept_id}"]`);
-          if (desk) {
-            desk.classList.remove('levelup-upgrading');
-            void desk.offsetWidth;
-            desk.classList.add('levelup-upgrading');
-            const badge = desk.querySelector('.level-badge');
-            if (badge) badge.textContent = 'L' + new_level;
-          }
-          // 조용한 축하 — 채팅에 표시 안 함 (설정에서 verbose 켜야 노출)
-          if (state.options.verbose) {
-            const d = DEPT_BY_ID[dept_id];
-            addMsg({ who: '레벨업', body: `${d?.kr || dept_id}팀 L${previous_level} → L${new_level}`, kind: 'sys' });
-          }
-          setTimeout(fetchDeptStats, 400);
-        } catch { /* ignore */ }
-      };
-      ws.onclose = () => setTimeout(connectDeptWs, 3000);
-      ws.onerror = () => { try { ws.close(); } catch {} };
-    } catch { /* ignore */ }
-  }
-
-  // ─── DEMO (개발용) ─────────────────────────────────────────────────
-  function runDemo() {
-    if (state.running) return;
-    dom.directive.value = '케토 김밥 신제품 런칭 전략 분석. 마진 35% 이상, 식약처 규제 확인 필수, MZ 타겟.';
-    startRun();
-  }
-
-  // ─── 이벤트 바인딩 ─────────────────────────────────────────────────
-  function bindEvents() {
-    dom.sendBtn.addEventListener('click', startRun);
-    dom.stopBtn.addEventListener('click', () => { finishRun(); addMsg({ who: '시스템', body: '중단됨', kind: 'err' }); });
-    dom.demoBtn.addEventListener('click', runDemo);
-
+  // ─ bind ────────────────────────────────────────────────────────────
+  function bind() {
+    dom.sendBtn.addEventListener('click', () => {
+      if (state.running) { finishRun(); addMsg({ who: '', body: '중단됨', kind: 'sys' }); }
+      else startRun();
+    });
+    dom.directive.addEventListener('input', autoSizeInput);
     dom.directive.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
@@ -809,18 +613,7 @@
     });
 
     dom.navNewChat.addEventListener('click', (e) => { e.preventDefault(); newChat(); });
-    dom.settingsBtn.addEventListener('click', () => dom.settingsPanel.classList.toggle('open'));
-    document.addEventListener('click', (e) => {
-      if (!dom.settingsPanel.contains(e.target) && e.target !== dom.settingsBtn) {
-        dom.settingsPanel.classList.remove('open');
-      }
-    });
 
-    dom.optShowXp.addEventListener('change', () => { state.options.showXp = dom.optShowXp.checked; saveOptions(); applyOptions(); });
-    dom.optVerbose.addEventListener('change', () => { state.options.verbose = dom.optVerbose.checked; saveOptions(); applyOptions(); });
-    dom.optShowDemo.addEventListener('change', () => { state.options.showDemo = dom.optShowDemo.checked; saveOptions(); applyOptions(); });
-
-    // 프로젝트명 인라인 편집
     dom.projectName.addEventListener('click', () => {
       dom.projectName.contentEditable = 'true';
       dom.projectName.focus();
@@ -832,12 +625,16 @@
     });
     dom.projectName.addEventListener('blur', () => {
       dom.projectName.contentEditable = 'false';
-      saveProject(dom.projectName.textContent);
+      saveProjectName(dom.projectName.textContent);
     });
   }
 
-  // ─── go ────────────────────────────────────────────────────────────
-  init();
+  // ─ go ─────────────────────────────────────────────────────────────
+  renderOffice();
+  renderProjectName();
+  renderProjectsNav();
+  bind();
+  setTimeout(() => dom.directive.focus(), 100);
 })();
 </script>
 </body>
