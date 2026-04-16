@@ -903,7 +903,12 @@
   dom.demoBtn.addEventListener('click', runDemo);
   dom.stopBtn.addEventListener('click', () => { finishRun(); logMsg('SYSTEM','중단됨','err'); });
   dom.directive.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.key === 'Enter') startRun();
+    // Enter 단독 → 전송 (SEND 버튼과 동일). Shift+Enter 는 줄바꿈 (기본 동작 유지).
+    // isComposing 체크: 한글 IME 조합 중 Enter 는 조합 확정용이므로 무시.
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      startRun();
+    }
   });
 
   // ─── Phase 7: 부서 레벨/성장 연출 ────────────────────────────────────
