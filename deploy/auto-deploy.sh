@@ -79,11 +79,10 @@ say "5. nginx root 로 rsync (${NGINX_ROOT})"
 mkdir -p "${NGINX_ROOT}"
 rsync -a --delete "${CORVUS_ROOT}/frontend/dist/" "${NGINX_ROOT}/"
 
-# 정적 HTML 한 개(corvusx-office.html)는 vite 빌드 밖에 있으므로 별도 복사.
-# rsync --delete 이후에 복사해야 살아남음.
-if [[ -f "${CORVUS_ROOT}/corvusx-office.html" ]]; then
-  cp "${CORVUS_ROOT}/corvusx-office.html" "${NGINX_ROOT}/corvusx-office.html"
-  echo "corvusx-office.html copied"
+# 구 standalone corvusx-office.html 는 폐기됨. nginx root 에 남아 있으면 제거.
+if [[ -f "${NGINX_ROOT}/corvusx-office.html" ]]; then
+  rm -f "${NGINX_ROOT}/corvusx-office.html"
+  echo "legacy corvusx-office.html removed from nginx root"
 fi
 
 echo "${NGINX_ROOT} 반영:"

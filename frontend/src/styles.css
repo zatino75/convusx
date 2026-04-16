@@ -1,21 +1,21 @@
 :root {
   color-scheme: light;
 
-  /* Claude AI 크림/테라코타 팔레트 */
-  --gold-1: #fafaf8;
-  --gold-2: #f5f4ef;
-  --gold-3: #efeee8;
-  --gold-4: #e8e7e0;
-  --silver-1: #f0eee8;
-  --silver-2: #e8e6df;
-  --silver-3: #dddbd4;
+  /* Claude AI 실버톤 팔레트 */
+  --gold-1: #f5f5f5;
+  --gold-2: #e8e8e8;
+  --gold-3: #dcdcdc;
+  --gold-4: #d0d0d0;
+  --silver-1: #f0f0f0;
+  --silver-2: #e0e0e0;
+  --silver-3: #cccccc;
 
-  --bg-app: var(--gold-2);
-  --bg-main: var(--gold-1);
-  --bg-sidebar: var(--gold-3);
-  --bg-surface: #fefefe;
-  --bg-soft: var(--gold-2);
-  --bg-soft-2: var(--gold-3);
+  --bg-app: #e8e8e8;
+  --bg-main: #f0f0f0;
+  --bg-sidebar: #dcdcdc;
+  --bg-surface: #ffffff;
+  --bg-soft: #e8e8e8;
+  --bg-soft-2: #dcdcdc;
 
   --border: rgba(140, 130, 115, 0.25);
   --border-soft: rgba(140, 130, 115, 0.15);
@@ -44,9 +44,9 @@
   --surface-active: rgba(140, 130, 115, 0.10);
 }
 
-/* 전체 그라데이션 — 극저강도 금색펄 */
+/* 전체 그라데이션 — 실버톤 */
 :root {
-  --pearl-gradient: linear-gradient(135deg, #fefefe 0%, #fafaf8 30%, #f7f6f2 55%, #fafaf8 80%, #fefefe 100%);
+  --pearl-gradient: linear-gradient(135deg, #f5f5f5 0%, #f0f0f0 30%, #e8e8e8 55%, #f0f0f0 80%, #f5f5f5 100%);
 }
 
 
