@@ -1,0 +1,63 @@
+# Node
+node_modules
+**/node_modules
+npm-debug.log*
+yarn-error.log
+
+# Build artifacts (Docker 스테이지에서 새로 생성)
+dist
+frontend/dist
+coverage
+
+# Git / CI
+.git
+.github
+.gitignore
+.dockerignore
+.eslintrc.json
+
+# Dev tools / editor
+.vscode
+.idea
+.claude
+.analysis
+
+# Environment — .env 는 compose 의 env_file 로 마운트하거나 배포 시 주입.
+# 이미지에 embed 시 시크릿 유출 위험.
+.env
+.env.local
+.env.*.local
+!.env.example
+!.env.production.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs / markdown 은 런타임에 불필요
+*.md
+!CLAUDE.md
+
+# Tests / fixtures
+server/tests
+frontend/tests
+**/*.test.ts
+**/*.test.tsx
+
+# Backups
+*.bak
+*.bak.*
+*.zip
+*.tar.gz
+*.tgz
+corvusx-deploy.tar.gz
+
+# SQLite 데이터 (volume 으로 마운트)
+data/*.db
+data/*.db-*
+data/thread-memory.json
+data/project-memory.json
+
+# Misc
+*.log
+scripts/

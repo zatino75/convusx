@@ -1,11 +1,18 @@
-version: "3.8"
-
 services:
   app:
     build: .
+    image: corvus-x:latest
+    container_name: corvus-x
     ports:
       - "8000:8000"
-    env_file: .env
+    # .env 이 없어도 컨테이너 자체는 기동되어야 검증 가능.
+    # 실제 API 키는 배포 시점에 마운트하거나 external secret 사용 권장.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - NODE_ENV=production
+      - PORT=8000
     volumes:
       - ./data:/app/data
     restart: unless-stopped
@@ -13,4 +20,11 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
+      start_period: 20s
       retries: 3
+    # Phase 7: 컨테이너 로그는 rotate 해서 디스크 폭주 방지
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
