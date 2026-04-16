@@ -39,8 +39,8 @@ interface DeptReportEntry {
 async function callClaudeForBriefing(systemPrompt: string, userPrompt: string): Promise<string> {
   try {
     const { callClaude } = await import('../adapters/wrappers.js');
-    // CEO 브리핑은 thinking 비활성 — 빠른 synthesis 우선
-    return await callClaude(systemPrompt, userPrompt, 4096);
+    // CEO 브리핑은 thinking 비활성 — 빠른 synthesis 우선. max_tokens 8000 으로 상향 (2026-04-17)
+    return await callClaude(systemPrompt, userPrompt, 8000);
   } catch (err) {
     logger.error({ err }, '[CeoBriefing] Claude 호출 실패');
     throw err;

@@ -3,21 +3,25 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=1440" />
-<title>CORVUS X — Isometric Office</title>
+<title>CORVUS X</title>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 <style>
   :root {
-    --bg:#f5f5f5;
-    --surface:#ffffff;
-    --border:#e5e7eb;
-    --text:#1f2937;
-    --text-soft:#6b7280;
+    --bg:#F5F4EF;
+    --sidebar-bg:#EEEEE8;
+    --surface:#FFFFFF;
+    --border:#E2E0D8;
+    --border-strong:#D6D3C9;
+    --text:#1f2024;
+    --text-soft:#5f6368;
     --text-dim:#9ca3af;
-    --accent:#3b82f6;
+    --accent:#2563eb;
     --accent-soft:#dbeafe;
-    --gold:#d97706;
-    --red:#ef4444;
-    --shadow-sm: 0 1px 2px rgba(0,0,0,.05);
+    --gold:#b45309;
+    --magenta:#be185d;
+    --red:#dc2626;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.04);
+    --shadow-md: 0 2px 10px rgba(0,0,0,.05);
   }
   *{box-sizing:border-box}
   html,body{
@@ -30,103 +34,110 @@
   }
   button,input,textarea{font-family:inherit;font-size:inherit;color:inherit}
 
-  /* layout: top 55% canvas, bottom 45% split into sidebar + chat */
-  .app{display:grid;grid-template-rows:55% 45%;height:100vh;background:#0d1117}
-  #phaser-container{position:relative;overflow:hidden;background:#0d1117}
-  #phaser-container canvas{display:block}
-  .office-title{position:absolute;top:10px;left:16px;color:#d1d5db;font-size:11px;letter-spacing:2px;font-weight:700;z-index:3;text-shadow:0 1px 2px rgba(0,0,0,.5);pointer-events:none}
-  .office-status{position:absolute;top:10px;right:16px;color:#d1d5db;font-size:11px;display:flex;align-items:center;gap:6px;z-index:3;pointer-events:none}
-  .office-status .dot{width:7px;height:7px;border-radius:50%;background:#374151}
+  /* ─ layout: sidebar(200) left, right side split office(30%) + chat(70%) ─ */
+  .app{display:grid;grid-template-columns:200px 1fr;height:100vh;background:var(--bg)}
+  .sidebar{background:var(--sidebar-bg);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;padding:14px 0 10px}
+  .main-col{display:grid;grid-template-rows:30% 70%;min-height:0;min-width:0;background:var(--bg)}
+  .office-wrap{position:relative;background:var(--bg);overflow:hidden;border-bottom:1px solid var(--border)}
+  .office-title{position:absolute;top:8px;left:14px;color:var(--text-soft);font-size:10.5px;letter-spacing:2px;font-weight:600;z-index:3;pointer-events:none}
+  .office-status{position:absolute;top:8px;right:14px;color:var(--text-soft);font-size:10.5px;display:flex;align-items:center;gap:6px;z-index:3;pointer-events:none}
+  .office-status .dot{width:7px;height:7px;border-radius:50%;background:#D6D3C9}
   .office-status .dot.live{background:#10b981;animation:pulse 1.4s ease-in-out infinite}
   .office-status .dot.err{background:var(--red)}
   @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
+  #phaser-container{width:100%;height:100%}
+  #phaser-container canvas{display:block}
 
-  .bottom{display:grid;grid-template-columns:180px 1fr;background:var(--bg);min-height:0}
+  .chat{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:var(--surface)}
 
-  /* sidebar */
-  .sidebar{background:#f9fafb;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;padding:14px 0 10px}
-  .logo{padding:0 16px 14px;font-size:14px;font-weight:700;letter-spacing:.5px;color:var(--text);display:flex;align-items:center;gap:6px}
+  /* ─ sidebar ────────────────────────────────────────────────────────── */
+  .logo{padding:0 14px 12px;font-size:14px;font-weight:700;letter-spacing:.5px;color:var(--text);display:flex;align-items:center;gap:6px}
   .logo .mark{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent)}
-  .nav-btn{display:flex;align-items:center;gap:9px;padding:8px 16px;color:var(--text);cursor:pointer;font-size:12.5px;text-decoration:none;border:none;background:none;width:100%;text-align:left;transition:background .12s}
-  .nav-btn:hover{background:#f1f5f9}
-  .nav-btn.active{background:#e5e7eb;font-weight:600}
-  .nav-btn .ic{width:13px;height:13px;flex-shrink:0;opacity:.7}
-  .nav-divider{padding:12px 16px 4px;font-size:10px;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase;font-weight:600}
-  .nav-projects{max-height:200px;overflow-y:auto;flex-shrink:0}
-  .nav-project{padding:5px 16px 5px 28px;color:var(--text-soft);font-size:11.5px;cursor:pointer;display:flex;align-items:center;gap:6px;transition:background .12s}
-  .nav-project:hover{background:#f1f5f9;color:var(--text)}
-  .nav-project.active{background:#eff6ff;color:var(--accent);font-weight:500}
-  .nav-project .dot{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.4}
-  .nav-new{padding:5px 16px 5px 28px;color:var(--text-dim);font-size:11.5px;cursor:pointer;transition:color .12s}
-  .nav-new:hover{color:var(--accent)}
+  .sidebar-scroll{flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column}
+  .sidebar-scroll::-webkit-scrollbar{width:6px}
+  .sidebar-scroll::-webkit-scrollbar-thumb{background:#D6D3C9;border-radius:3px}
+  .nav-btn{display:flex;align-items:center;gap:9px;padding:8px 14px;color:var(--text);cursor:pointer;font-size:12.5px;text-decoration:none;border:none;background:none;width:100%;text-align:left;transition:background .12s}
+  .nav-btn:hover{background:#E5E3DB}
+  .nav-btn.active{background:#DDDBD2;font-weight:600}
+  .nav-btn .ic{width:14px;height:14px;flex-shrink:0;opacity:.7}
+  .nav-divider{padding:14px 14px 4px;font-size:10px;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase;font-weight:700}
 
-  /* chat */
-  .chat{display:flex;flex-direction:column;min-height:0;overflow:hidden;background:var(--surface)}
-  .chat-header{padding:10px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
-  .chat-title{font-size:13.5px;font-weight:600;color:var(--text);cursor:pointer;padding:3px 8px;border-radius:4px;border:1px solid transparent;outline:none}
+  .thread-list{display:flex;flex-direction:column;gap:2px;padding:0 6px}
+  .thread-item{padding:7px 10px;border-radius:6px;cursor:pointer;font-size:11.5px;color:var(--text-soft);display:flex;flex-direction:column;gap:2px;transition:background .12s;overflow:hidden}
+  .thread-item:hover{background:#E5E3DB}
+  .thread-item.active{background:#D8D5C9;color:var(--text)}
+  .thread-item .title{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .thread-item .time{font-size:10px;color:var(--text-dim)}
+  .thread-empty{padding:6px 14px;font-size:11px;color:var(--text-dim);font-style:italic}
+
+  .project-block{margin-bottom:4px}
+  .project-head{padding:4px 14px;font-size:11px;color:var(--text-soft);display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+  .project-head .caret{font-size:10px;transition:transform .15s}
+  .project-head.collapsed .caret{transform:rotate(-90deg)}
+  .project-head .name{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .project-head .count{color:var(--text-dim);font-size:10px}
+  .project-new{padding:6px 14px 6px 28px;color:var(--text-dim);font-size:11.5px;cursor:pointer}
+  .project-new:hover{color:var(--accent)}
+
+  /* ─ chat ───────────────────────────────────────────────────────────── */
+  .chat-header{padding:10px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0}
+  .chat-title{font-size:13.5px;font-weight:600;color:var(--text);cursor:pointer;padding:3px 8px;border-radius:4px;border:1px solid transparent;outline:none;max-width:480px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .chat-title:hover{border-color:var(--border)}
-  .chat-title[contenteditable="true"]{border-color:var(--accent);background:#fff}
+  .chat-title[contenteditable="true"]{border-color:var(--accent);background:var(--surface)}
 
-  .chat-log{flex:1;overflow-y:auto;padding:14px 20px 10px;display:flex;flex-direction:column;gap:10px;min-height:0}
-  .chat-log::-webkit-scrollbar{width:6px}
-  .chat-log::-webkit-scrollbar-thumb{background:#e5e7eb;border-radius:3px}
-  .chat-empty{color:var(--text-dim);font-size:12px;text-align:center;padding:30px 20px}
-  .chat-empty h3{margin:0 0 4px;font-size:13px;color:var(--text-soft);font-weight:600}
+  .chat-log{flex:1;overflow-y:auto;padding:18px 28px 12px;display:flex;flex-direction:column;gap:12px;min-height:0}
+  .chat-log::-webkit-scrollbar{width:7px}
+  .chat-log::-webkit-scrollbar-thumb{background:#E2E0D8;border-radius:4px}
+  .chat-empty{color:var(--text-dim);font-size:13px;text-align:center;padding:60px 20px}
+  .chat-empty h3{margin:0 0 6px;font-size:15px;color:var(--text-soft);font-weight:600}
 
-  .msg{display:flex;flex-direction:column;gap:3px;animation:msg-in .2s ease-out;max-width:78%}
+  .msg{display:flex;flex-direction:column;gap:3px;animation:msg-in .2s ease-out;max-width:84%}
   @keyframes msg-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
   .msg.user{align-self:flex-end;align-items:flex-end}
   .msg.ai,.msg.dept,.msg.ceo,.msg.critic,.msg.sys,.msg.err{align-self:flex-start;align-items:flex-start}
-  .msg .who{font-size:10px;color:var(--text-dim);margin-bottom:2px;padding:0 4px;display:flex;align-items:center;gap:5px}
-  .msg .body{padding:8px 12px;border-radius:12px;font-size:13px;line-height:1.5;word-break:break-word;white-space:pre-wrap}
+  .msg .who{font-size:10.5px;color:var(--text-dim);margin-bottom:2px;padding:0 4px;display:flex;align-items:center;gap:5px}
+  .msg .body{padding:9px 13px;border-radius:13px;font-size:13px;line-height:1.55;word-break:break-word;white-space:pre-wrap}
   .msg.user .body{background:var(--accent-soft);color:#1e3a8a;border-bottom-right-radius:4px}
   .msg.dept .body{background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-sm);border-bottom-left-radius:4px}
   .msg.dept .who .dot{width:7px;height:7px;border-radius:50%;background:var(--dept-color,#9ca3af)}
   .msg.ceo .body{background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-sm);border-left:3px solid var(--gold);border-bottom-left-radius:4px;font-weight:500}
   .msg.ceo .who{color:var(--gold);font-weight:600}
-  .msg.critic .body{background:#fef2f2;border:1px solid #fecaca;border-bottom-left-radius:4px}
-  .msg.critic .who{color:#dc2626;font-weight:500}
-  .msg.sys{max-width:100%}
-  .msg.sys .body{background:transparent;padding:2px 6px;color:var(--text-dim);font-size:11px;font-style:italic}
+  .msg.critic .body{background:#fff7ed;border:1px solid #fed7aa;border-left:3px solid var(--magenta);border-bottom-left-radius:4px}
+  .msg.critic .who{color:var(--magenta);font-weight:600}
+  .msg.sys{max-width:100%;align-items:center}
+  .msg.sys .body{background:transparent;padding:2px 6px;color:var(--text-dim);font-size:11.5px;font-style:italic}
   .msg.err .body{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-bottom-left-radius:4px}
-  .msg .body ul{margin:4px 0;padding-left:18px}
-  .msg .body li{font-size:12px;margin:2px 0}
-  .msg .body .sec{font-size:10.5px;color:var(--text-dim);font-weight:600;margin-top:6px;text-transform:uppercase;letter-spacing:.4px}
+  .msg .body ul{margin:6px 0 2px;padding-left:20px}
+  .msg .body li{font-size:12.5px;margin:3px 0}
+  .msg .body .sec{font-size:10.5px;color:var(--text-dim);font-weight:700;margin-top:8px;text-transform:uppercase;letter-spacing:.4px}
 
-  .chat-input{padding:10px 16px 14px;border-top:1px solid var(--border);background:var(--surface)}
-  .chat-input-wrap{position:relative;background:#f9fafb;border:1px solid var(--border);border-radius:10px;padding:8px 46px 8px 12px}
-  .chat-input-wrap:focus-within{border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px rgba(59,130,246,.1)}
-  .chat-input-wrap textarea{width:100%;background:transparent;border:none;outline:none;resize:none;height:22px;max-height:120px;line-height:1.45;color:var(--text);font-size:13.5px;display:block}
+  .chat-input{padding:12px 20px 18px;border-top:1px solid var(--border);background:var(--surface);flex-shrink:0}
+  .chat-input-wrap{position:relative;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px 48px 10px 14px;transition:border-color .15s,box-shadow .15s}
+  .chat-input-wrap:focus-within{border-color:var(--accent);background:var(--surface);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+  .chat-input-wrap textarea{width:100%;background:transparent;border:none;outline:none;resize:none;height:24px;max-height:180px;line-height:1.5;color:var(--text);font-size:14px;display:block}
   .chat-input-wrap textarea::placeholder{color:var(--text-dim)}
-  .send-btn{position:absolute;right:6px;bottom:6px;width:30px;height:30px;border:none;border-radius:8px;background:var(--accent);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center}
-  .send-btn:hover{background:#2563eb}
+  .send-btn{position:absolute;right:7px;bottom:7px;width:32px;height:32px;border:none;border-radius:9px;background:var(--accent);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .send-btn:hover{background:#1d4ed8}
   .send-btn:disabled{background:#cbd5e1;cursor:not-allowed}
   .send-btn.stop{background:var(--red)}
-  .chat-hint{margin-top:6px;font-size:10px;color:var(--text-dim)}
-  .chat-hint kbd{background:#f3f4f6;border:1px solid var(--border);padding:1px 4px;border-radius:3px;font-size:10px;color:var(--text-soft)}
+  .chat-hint{margin-top:8px;font-size:11px;color:var(--text-dim)}
+  .chat-hint kbd{background:#F0EEE6;border:1px solid var(--border);padding:1px 5px;border-radius:3px;font-size:10.5px;color:var(--text-soft)}
 </style>
 </head>
 <body>
 <div class="app">
-  <div id="phaser-container">
-    <div class="office-title">◢ CORVUS X OFFICE</div>
-    <div class="office-status">
-      <span class="dot" id="officeStatusDot"></span>
-      <span id="officeStatusText">대기 중</span>
-    </div>
-  </div>
 
-  <div class="bottom">
-    <nav class="sidebar">
-      <div class="logo"><span class="mark"></span>CORVUS X</div>
-      <button class="nav-btn active" id="navNewChat">
-        <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
-        새 채팅
-      </button>
+  <!-- ─ sidebar ────────────────────────────────────────────────────── -->
+  <nav class="sidebar">
+    <div class="logo"><span class="mark"></span>CORVUS X</div>
+    <button class="nav-btn active" id="navNewChat">
+      <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
+      새 대화
+    </button>
+    <div class="sidebar-scroll" id="sidebarScroll">
       <div class="nav-divider">프로젝트</div>
-      <div class="nav-projects" id="navProjects">
-        <div class="nav-new" id="navProjectNew">+ 새 프로젝트</div>
-      </div>
+      <div id="projectList"><!-- rendered --></div>
+      <div class="project-new" id="projectNew">+ 새 프로젝트</div>
       <div class="nav-divider">운영</div>
       <a href="/?view=dashboard" class="nav-btn">
         <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="5" height="5"/><rect x="9" y="3" width="5" height="5"/><rect x="2" y="10" width="5" height="3"/><rect x="9" y="10" width="5" height="3"/></svg>
@@ -140,16 +151,28 @@
         <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="8" rx="1"/><path d="M5 13h6M8 11v2"/></svg>
         POS 관리
       </a>
-    </nav>
+    </div>
+  </nav>
+
+  <!-- ─ right: office top + chat bottom ─────────────────────────────── -->
+  <div class="main-col">
+    <div class="office-wrap">
+      <div class="office-title">OFFICE</div>
+      <div class="office-status">
+        <span class="dot" id="officeStatusDot"></span>
+        <span id="officeStatusText">대기 중</span>
+      </div>
+      <div id="phaser-container"></div>
+    </div>
 
     <section class="chat">
       <div class="chat-header">
-        <span class="chat-title" id="projectName">신규 프로젝트</span>
+        <span class="chat-title" id="chatTitle">신규 대화</span>
       </div>
       <div class="chat-log" id="chatLog">
         <div class="chat-empty">
           <h3>무엇을 도와드릴까요?</h3>
-          <p>지시를 입력하면 필요한 부서 직원이 회의실로 이동해 작업합니다.</p>
+          <p>지시를 입력하면 필요한 부서 직원이 움직입니다.</p>
         </div>
       </div>
       <div class="chat-input">
@@ -171,448 +194,546 @@
 
   // ─── 부서 정의 ─────────────────────────────────────────────────────
   const DEPTS = [
-    { id:'market',    kr:'시장조사', color:0x3b82f6, hex:'#3b82f6', row:0, col:0 },
-    { id:'marketing', kr:'마케팅',   color:0xec4899, hex:'#ec4899', row:0, col:1 },
-    { id:'finance',   kr:'재무',     color:0x22c55e, hex:'#22c55e', row:0, col:2 },
-    { id:'legal',     kr:'법무',     color:0xa855f7, hex:'#a855f7', row:1, col:0 },
-    { id:'compete',   kr:'경쟁분석', color:0xef4444, hex:'#ef4444', row:1, col:1 },
-    { id:'rnd',       kr:'R&D',      color:0xf97316, hex:'#f97316', row:1, col:2 },
-    { id:'data',      kr:'데이터',   color:0x06b6d4, hex:'#06b6d4', row:2, col:0 },
-    { id:'content',   kr:'콘텐츠',   color:0xeab308, hex:'#eab308', row:2, col:1 },
-    { id:'sns',       kr:'SNS',      color:0x14b8a6, hex:'#14b8a6', row:2, col:2 },
+    { id:'market',    kr:'시장조사', color:0x3b82f6, hex:'#3b82f6' },
+    { id:'marketing', kr:'마케팅',   color:0xec4899, hex:'#ec4899' },
+    { id:'finance',   kr:'재무',     color:0x22c55e, hex:'#22c55e' },
+    { id:'legal',     kr:'법무',     color:0xa855f7, hex:'#a855f7' },
+    { id:'compete',   kr:'경쟁분석', color:0xef4444, hex:'#ef4444' },
+    { id:'rnd',       kr:'R&D',      color:0xf97316, hex:'#f97316' },
+    { id:'data',      kr:'데이터',   color:0x06b6d4, hex:'#06b6d4' },
+    { id:'content',   kr:'콘텐츠',   color:0xeab308, hex:'#eab308' },
+    { id:'sns',       kr:'SNS',      color:0x14b8a6, hex:'#14b8a6' },
   ];
   const DEPT_BY_ID = Object.fromEntries(DEPTS.map(d => [d.id, d]));
 
-  // ─── 전역 상태 ─────────────────────────────────────────────────────
-  const LS_PROJECT = 'corvus-x-office.current-project';
-  const LS_PROJECTS = 'corvus-x-office.projects';
+  // ─── LocalStorage keys ─────────────────────────────────────────────
+  const LS_PROJECTS = 'corvus-x-office.projects.v2';
+  const LS_CURRENT_PROJECT = 'corvus-x-office.currentProject.v2';
+  const LS_CURRENT_THREAD = 'corvus-x-office.currentThread.v2';
+  const LS_THREADS = 'corvus-x-office.threads.v2';  // { [projectName]: [{id,title,messages:[],updatedAt}] }
+
+  // ─── 상태 ──────────────────────────────────────────────────────────
   const state = {
     es: null,
     running: false,
     scene: null,
-    currentProject: loadLS(LS_PROJECT, '신규 프로젝트'),
-    projects: loadLS(LS_PROJECTS, []),
+    currentProject: localStorage.getItem(LS_CURRENT_PROJECT) || '신규 프로젝트',
+    currentThreadId: localStorage.getItem(LS_CURRENT_THREAD) || null,
+    projects: loadJson(LS_PROJECTS, []),
+    threads: loadJson(LS_THREADS, {}),
+    collapsedProjects: new Set(),
+    deptBubbleCache: {},
+    missionDeptCount: 0,
+    deptCompletedCount: 0,
+    executiveActive: false,
   };
 
-  function loadLS(key, fb) {
+  function loadJson(key, fb) {
     try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fb; }
     catch { return fb; }
   }
-  function saveLS(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} }
+  function saveJson(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} }
 
-  // ─── Phaser Scene ──────────────────────────────────────────────────
-  const W = 1280, H = 520;
-  const TILE_W = 54, TILE_H = 27;   // isometric tile (2:1)
+  // ─── DOM ──────────────────────────────────────────────────────────
+  const $ = (id) => document.getElementById(id);
+  const dom = {
+    projectList: $('projectList'),
+    projectNew: $('projectNew'),
+    navNewChat: $('navNewChat'),
+    chatTitle: $('chatTitle'),
+    chatLog: $('chatLog'),
+    directive: $('directive'),
+    sendBtn: $('sendBtn'),
+    officeStatusDot: $('officeStatusDot'),
+    officeStatusText: $('officeStatusText'),
+  };
+
+  // ─── Phaser constants ─────────────────────────────────────────────
+  const W = 1280, H = 420;
+  const TILE_W = 58, TILE_H = 29;
   const ORIGIN_X = W / 2;
-  const ORIGIN_Y = 110;
-
-  // grid coord → screen
+  const ORIGIN_Y = 80;
   function isoX(tx, ty) { return ORIGIN_X + (tx - ty) * (TILE_W / 2); }
   function isoY(tx, ty) { return ORIGIN_Y + (tx + ty) * (TILE_H / 2); }
 
-  // 방 정의 (grid 좌표)
-  // Meeting room: tx 0-2, ty 0-1
-  // CEO room:     tx 6-8, ty 0-1
-  // Cubicles:     tx 1-7, ty 2-5  (9 큐비클 3x3)
-  // Lounge:       tx 2-6, ty 6-7
-
-  // 큐비클 위치 (캐릭터 자리 = 의자 위치)
-  // 9 cubicles laid out so each dept has a distinct chair
+  // 그리드 (8x6). 상단 좌: 회의실(0-2,0-1) / 중: 복도 / 상단 우: 상무실(3-4,0-1) / 우: CEO(5-7,0-1)
+  // 가운데 큐비클 3x3(2-6,2-4). 하단 복도(7,0-7).
+  // 9 큐비클 배치 (한 줄 3칸)
   const CUBICLES = DEPTS.map((d, i) => {
-    const col = i % 3;   // 0 1 2
-    const row = Math.floor(i / 3);  // 0 1 2
-    return {
-      deptId: d.id,
-      tx: 1.5 + col * 2.2,  // 1.5, 3.7, 5.9
-      ty: 2.5 + row * 1.2,  // 2.5, 3.7, 4.9
-    };
+    const col = i % 3;
+    const row = Math.floor(i / 3);
+    return { deptId: d.id, tx: 2.0 + col * 1.6, ty: 2.3 + row * 1.0 };
   });
-
-  // 회의실 좌석 (부서별로 다른 자리 배정)
-  const MEETING_SEATS = [
-    { tx: 0.6, ty: 0.2 }, { tx: 1.2, ty: 0.2 }, { tx: 1.8, ty: 0.2 },
-    { tx: 0.4, ty: 0.9 }, { tx: 2.0, ty: 0.9 },
-    { tx: 0.6, ty: 1.5 }, { tx: 1.2, ty: 1.5 }, { tx: 1.8, ty: 1.5 },
-    { tx: 1.2, ty: 0.9 }, // 중앙
-  ];
+  // 회의실 자리 배치 (부서별 고유 좌석)
+  const MEETING_SEATS = DEPTS.map((d, i) => ({
+    tx: 0.5 + (i % 3) * 0.6,
+    ty: 0.3 + Math.floor(i / 3) * 0.5,
+  }));
   DEPTS.forEach((d, i) => { d._meetingSeat = MEETING_SEATS[i]; });
 
-  // ─── 좌표계/색상 유틸 ─────────────────────────────────────────────
-  const FLOOR_A = 0x1f2937;
-  const FLOOR_B = 0x262f3d;
-  const FLOOR_EDGE = 0x0d1117;
-  const ROOM_TINT_MEETING = 0x1e293b;
-  const ROOM_TINT_CEO = 0x292524;
-  const ROOM_TINT_LOUNGE = 0x1e1b4b;
-  const WALL_COLOR = 0x374151;
+  // ─── Color palette (bright beige/cream) ────────────────────────────
+  const C = {
+    floorA: 0xF2EFE6,       // 체크 바닥 A
+    floorB: 0xEEE9DC,       // 체크 바닥 B
+    floorEdge: 0xD6D3C9,
+    wallTop: 0xE8DFCE,
+    wallSide: 0xC8B995,
+    wallDark: 0xA68B6C,
+    deskTop: 0xD9C8A8,      // 책상 윗면 (원목)
+    deskSide: 0x9B7F59,
+    deskFront: 0xB69468,
+    chairBody: 0x6B5842,
+    chairSeat: 0x4A3C2E,
+    monitorBezel: 0x1F2937,
+    monitorScreen: 0x3b82f6,
+    keyboard: 0xF5F5F0,
+    plantPot: 0x8B4513,
+    plantLeaf: 0x4CAF50,
+    plantLeafLight: 0x66BB6A,
+    sofaPurple: 0x9F7AEA,
+    sofaDark: 0x7C5FC2,
+    bookshelf: 0x654321,
+    tableWood: 0xAD895F,
+    doorWood: 0x8B6F47,
+    executiveGlow: 0xFBBF24,
+    ceoGlow: 0xF59E0B,
+    hallwayFloor: 0xEFE8D7,
+  };
 
+  // ─── Phaser Scene ──────────────────────────────────────────────────
   class OfficeScene extends Phaser.Scene {
     constructor() { super('office'); }
 
     create() {
       state.scene = this;
-
-      // 배경 레이어
-      this.bgLayer = this.add.container(0, 0);
+      this.bg = this.add.container(0, 0);
       this.floorLayer = this.add.container(0, 0);
-      this.furnitureLayer = this.add.container(0, 0);
+      this.staticFurn = this.add.container(0, 0);
+      this.dynamicFurn = this.add.container(0, 0);
       this.charLayer = this.add.container(0, 0);
-      this.uiLayer = this.add.container(0, 0);
+      this.lightLayer = this.add.container(0, 0);
 
       this.drawFloor();
+      this.drawWalls();
       this.drawRooms();
       this.drawFurniture();
       this.createCharacters();
-
-      // 룸 레이블
-      this.addRoomLabel('회의실',  isoX(1, 0.5),   isoY(1, 0.5) - 55, 0xcbd5e1);
-      this.addRoomLabel('CEO 사장실', isoX(7, 0.5), isoY(7, 0.5) - 55, 0xfbbf24);
-      this.addRoomLabel('휴게실',  isoX(4, 6.5),   isoY(4, 6.5) - 55, 0xc7d2fe);
-      this.addRoomLabel('업무공간', isoX(4, 3.5),   isoY(4, 3.5) - 70, 0x9ca3af);
-
-      // 완료 이펙트용 파티클 매니저 (간단 버전)
-      this.tweens.timeScale = 1;
+      this.addRoomLabels();
+      this.initLights();
+      this.initMonitorFlicker();
     }
 
-    addRoomLabel(text, x, y, color = 0xffffff) {
-      const t = this.add.text(x, y, text, {
-        fontFamily: 'system-ui,-apple-system,"Segoe UI",sans-serif',
-        fontSize: '11px', fontStyle: 'bold',
-        color: '#' + color.toString(16).padStart(6, '0'),
-        letterSpacing: '1px',
+    addRoomLabels() {
+      const mk = (x, y, txt, color) => this.add.text(x, y, txt, {
+        fontFamily: 'system-ui,-apple-system,sans-serif',
+        fontSize: '10px', fontStyle: 'bold',
+        color,
       }).setOrigin(0.5, 0.5);
-      this.bgLayer.add(t);
+      this.bg.add(mk(isoX(1, 0.5), isoY(1, 0.5) - 45, '회의실',     '#78543a'));
+      this.bg.add(mk(isoX(3.5, 0.5), isoY(3.5, 0.5) - 45, '상무실',   '#b45309'));
+      this.bg.add(mk(isoX(6.5, 0.5), isoY(6.5, 0.5) - 45,'CEO 사장실', '#92400e'));
+      this.bg.add(mk(isoX(3.5, 3.0), isoY(3.5, 3.0) - 62, '업무공간',  '#6f6457'));
+      this.bg.add(mk(isoX(3.5, 5.0), isoY(3.5, 5.0) - 25, '휴게실',    '#6f6457'));
     }
 
     drawFloor() {
       const g = this.add.graphics();
-      this.bgLayer.add(g);
-
-      // grid 8 x 7 tiles
-      const cols = 8, rows = 7;
+      this.floorLayer.add(g);
+      const cols = 8, rows = 6;
       for (let tx = 0; tx < cols; tx++) {
         for (let ty = 0; ty < rows; ty++) {
-          const cx = isoX(tx, ty);
-          const cy = isoY(tx, ty);
-
-          // 룸별 tint
-          let tint = (tx + ty) % 2 === 0 ? FLOOR_A : FLOOR_B;
-          if (ty <= 1 && tx <= 2) tint = ROOM_TINT_MEETING;
-          else if (ty <= 1 && tx >= 6) tint = ROOM_TINT_CEO;
-          else if (ty >= 6 && tx >= 2 && tx <= 5) tint = ROOM_TINT_LOUNGE;
-
+          const cx = isoX(tx, ty), cy = isoY(tx, ty);
+          const tint = (tx + ty) % 2 === 0 ? C.floorA : C.floorB;
           g.fillStyle(tint, 1);
           g.beginPath();
-          g.moveTo(cx,            cy - TILE_H / 2);
-          g.lineTo(cx + TILE_W/2, cy);
-          g.lineTo(cx,            cy + TILE_H / 2);
-          g.lineTo(cx - TILE_W/2, cy);
+          g.moveTo(cx, cy - TILE_H / 2);
+          g.lineTo(cx + TILE_W / 2, cy);
+          g.lineTo(cx, cy + TILE_H / 2);
+          g.lineTo(cx - TILE_W / 2, cy);
           g.closePath();
           g.fillPath();
-
-          // 체크무늬 하이라이트
-          g.lineStyle(1, FLOOR_EDGE, 0.55);
+          g.lineStyle(1, C.floorEdge, 0.4);
           g.strokePath();
         }
       }
     }
 
-    drawRooms() {
+    drawWalls() {
+      // 룸 구분용 얇은 벽선 (베이지 톤)
       const g = this.add.graphics();
-      this.bgLayer.add(g);
-
-      // 벽은 룸 외곽선으로 연한 선만
-      const wallSegments = [
-        // meeting room (tx 0-2, ty 0-1)
-        { from:{tx:0,ty:2}, to:{tx:3,ty:2}, c:0x475569 },
-        { from:{tx:3,ty:0}, to:{tx:3,ty:2}, c:0x475569 },
-        // CEO room (tx 6-8, ty 0-1)
-        { from:{tx:5,ty:0}, to:{tx:5,ty:2}, c:0x78350f },
-        { from:{tx:5,ty:2}, to:{tx:8,ty:2}, c:0x78350f },
-        // lounge (tx 2-5, ty 6-7)
-        { from:{tx:2,ty:5}, to:{tx:2,ty:7}, c:0x4c1d95 },
-        { from:{tx:2,ty:5}, to:{tx:6,ty:5}, c:0x4c1d95 },
-        { from:{tx:6,ty:5}, to:{tx:6,ty:7}, c:0x4c1d95 },
+      this.floorLayer.add(g);
+      const segs = [
+        // 회의실 외곽 (tx 0-2, ty 0-1)
+        { a:{tx:0,ty:2}, b:{tx:2,ty:2}, c: C.wallDark },
+        { a:{tx:2,ty:0}, b:{tx:2,ty:2}, c: C.wallDark },
+        // 상무실 (tx 3-4, ty 0-1)
+        { a:{tx:3,ty:0}, b:{tx:3,ty:2}, c: 0xA68B6C },
+        { a:{tx:3,ty:2}, b:{tx:5,ty:2}, c: 0xA68B6C },
+        { a:{tx:5,ty:0}, b:{tx:5,ty:2}, c: 0xA68B6C },
+        // CEO 사장실 (tx 5-7, ty 0-1) — 공유벽은 위에서 처리, 우측/하단만
+        { a:{tx:5,ty:2}, b:{tx:8,ty:2}, c: C.wallDark },
+        // 휴게실 (tx 2-5, ty 5)
+        { a:{tx:2,ty:5}, b:{tx:5,ty:5}, c: 0xB09873 },
       ];
-      for (const seg of wallSegments) {
-        g.lineStyle(3, seg.c, 0.9);
+      for (const s of segs) {
+        g.lineStyle(3, s.c, 0.85);
         g.beginPath();
-        g.moveTo(isoX(seg.from.tx, seg.from.ty), isoY(seg.from.tx, seg.from.ty));
-        g.lineTo(isoX(seg.to.tx,   seg.to.ty),   isoY(seg.to.tx,   seg.to.ty));
+        g.moveTo(isoX(s.a.tx, s.a.ty), isoY(s.a.tx, s.a.ty));
+        g.lineTo(isoX(s.b.tx, s.b.ty), isoY(s.b.tx, s.b.ty));
         g.strokePath();
       }
     }
 
-    // ─── 가구 ────────────────────────────────────────────────────────
-    // 아이소메트릭 큐브: (tx, ty, wTiles, dTiles, hPx) → 간이 박스
-    drawIsoBox(g, tx, ty, wTiles, dTiles, hPx, topColor, sideL, sideR) {
-      const x1 = isoX(tx, ty);
-      const y1 = isoY(tx, ty);
-      const x2 = isoX(tx + wTiles, ty);
-      const y2 = isoY(tx + wTiles, ty);
-      const x3 = isoX(tx + wTiles, ty + dTiles);
-      const y3 = isoY(tx + wTiles, ty + dTiles);
-      const x4 = isoX(tx, ty + dTiles);
-      const y4 = isoY(tx, ty + dTiles);
+    drawRooms() {
+      // 룸 바닥 색 오버레이 (회의실/상무실/CEO/휴게실 tint)
+      const g = this.add.graphics();
+      this.floorLayer.add(g);
+      this.fillRoomFloor(g, 0, 2, 0, 2, 0xE8DCC2, 0.45); // 회의실
+      this.fillRoomFloor(g, 3, 5, 0, 2, 0xF0E4CC, 0.45); // 상무실
+      this.fillRoomFloor(g, 5, 8, 0, 2, 0xEDDCB8, 0.55); // CEO
+      this.fillRoomFloor(g, 2, 5, 5, 6, 0xE5E0D0, 0.55); // 휴게실
+    }
+    fillRoomFloor(g, x1, x2, y1, y2, color, alpha = 0.5) {
+      const points = [
+        [x1, y1], [x2, y1], [x2, y2], [x1, y2],
+      ];
+      g.fillStyle(color, alpha);
+      g.beginPath();
+      const start = points[0];
+      g.moveTo(isoX(start[0], start[1]), isoY(start[0], start[1]));
+      for (let i = 1; i < points.length; i++) {
+        g.lineTo(isoX(points[i][0], points[i][1]), isoY(points[i][0], points[i][1]));
+      }
+      g.closePath();
+      g.fillPath();
+    }
 
-      // 측면 R (오른쪽)
-      g.fillStyle(sideR, 1);
+    // 간이 3면 박스
+    isoBox(g, tx, ty, wTiles, dTiles, hPx, topCol, sideLCol, sideRCol) {
+      const x1 = isoX(tx, ty), y1 = isoY(tx, ty);
+      const x2 = isoX(tx + wTiles, ty), y2 = isoY(tx + wTiles, ty);
+      const x3 = isoX(tx + wTiles, ty + dTiles), y3 = isoY(tx + wTiles, ty + dTiles);
+      const x4 = isoX(tx, ty + dTiles), y4 = isoY(tx, ty + dTiles);
+      g.fillStyle(sideRCol, 1);
       g.beginPath();
       g.moveTo(x2, y2); g.lineTo(x3, y3); g.lineTo(x3, y3 - hPx); g.lineTo(x2, y2 - hPx); g.closePath();
       g.fillPath();
-
-      // 측면 L (정면)
-      g.fillStyle(sideL, 1);
+      g.fillStyle(sideLCol, 1);
       g.beginPath();
       g.moveTo(x3, y3); g.lineTo(x4, y4); g.lineTo(x4, y4 - hPx); g.lineTo(x3, y3 - hPx); g.closePath();
       g.fillPath();
-
-      // 윗면
-      g.fillStyle(topColor, 1);
+      g.fillStyle(topCol, 1);
       g.beginPath();
       g.moveTo(x1, y1 - hPx); g.lineTo(x2, y2 - hPx); g.lineTo(x3, y3 - hPx); g.lineTo(x4, y4 - hPx); g.closePath();
       g.fillPath();
-
-      // 외곽선
-      g.lineStyle(1, 0x0d1117, 0.75);
+      g.lineStyle(1, 0x3a2f1f, 0.5);
       g.strokePath();
+    }
+
+    drawMonitor(g, cx, cy) {
+      // bezel
+      g.fillStyle(C.monitorBezel, 1);
+      g.fillRect(cx - 9, cy - 13, 18, 12);
+      // screen (동적 레이어에서 flicker 처리)
+      g.fillStyle(0x0f172a, 1);
+      g.fillRect(cx - 7, cy - 11, 14, 8);
+      // stand
+      g.fillStyle(0x4b5563, 1);
+      g.fillRect(cx - 2, cy - 1, 4, 3);
+      g.fillRect(cx - 5, cy + 2, 10, 1);
+    }
+    drawKeyboard(g, cx, cy) {
+      g.fillStyle(C.keyboard, 1);
+      g.fillRect(cx - 8, cy + 4, 16, 4);
+      g.lineStyle(0.5, 0xCCCCCC, 0.8);
+      g.strokeRect(cx - 8, cy + 4, 16, 4);
+    }
+    drawChair(g, tx, ty) {
+      // 의자 (책상 앞)
+      this.isoBox(g, tx - 0.15, ty + 0.05, 0.3, 0.3, 6, C.chairSeat, 0x2b2218, 0x3a2f22);
+      // 등받이
+      this.isoBox(g, tx - 0.15, ty + 0.05, 0.3, 0.08, 14, C.chairBody, 0x4a3c2e, 0x5a4a38);
+    }
+    drawPlant(g, cx, cy) {
+      g.fillStyle(C.plantPot, 1);
+      g.fillRect(cx - 5, cy - 2, 10, 8);
+      g.fillStyle(C.plantLeaf, 1);
+      g.fillCircle(cx - 2, cy - 6, 5);
+      g.fillCircle(cx + 3, cy - 7, 5);
+      g.fillStyle(C.plantLeafLight, 1);
+      g.fillCircle(cx, cy - 9, 4);
+      g.fillCircle(cx + 5, cy - 5, 3);
     }
 
     drawFurniture() {
       const g = this.add.graphics();
-      this.furnitureLayer.add(g);
+      this.staticFurn.add(g);
 
-      // 회의실 원형 테이블 (중앙)
-      const cx1 = isoX(1.2, 0.9), cy1 = isoY(1.2, 0.9);
-      g.fillStyle(0x44403c, 1);
-      g.fillEllipse(cx1, cy1, 80, 40);
-      g.lineStyle(1, 0x0d1117, 0.8);
-      g.strokeEllipse(cx1, cy1, 80, 40);
-      g.fillStyle(0x1c1917, 1);
-      g.fillEllipse(cx1, cy1 - 2, 65, 30);
-
-      // CEO 큰 책상 + 의자
-      this.drawIsoBox(g, 6, 0.4, 1.5, 0.9, 12, 0x78350f, 0x451a03, 0x5c2309);
-      // CEO 의자 (뒤)
-      this.drawIsoBox(g, 7.2, 0.3, 0.4, 0.4, 16, 0x1f2937, 0x111827, 0x111827);
-
-      // 큐비클 책상 9개 (부서별)
-      for (const c of CUBICLES) {
-        this.drawIsoBox(g, c.tx - 0.5, c.ty - 0.3, 1.0, 0.6, 10, 0x4a3620, 0x2a1f12, 0x392815);
-
-        // 모니터
-        const mx = isoX(c.tx, c.ty - 0.1);
-        const my = isoY(c.tx, c.ty - 0.1) - 10;
-        g.fillStyle(0x0d1117, 1);
-        g.fillRect(mx - 8, my - 10, 16, 10);
-        g.fillStyle(0x1e40af, 1); // 화면 기본색
-        g.fillRect(mx - 6, my - 8, 12, 6);
-        // 모니터 스탠드
-        g.fillStyle(0x374151, 1);
-        g.fillRect(mx - 2, my, 4, 3);
+      // 1. 회의실 — 원형 목재 테이블 + 의자 6개
+      const mcx = isoX(1.0, 0.9), mcy = isoY(1.0, 0.9);
+      g.fillStyle(C.tableWood, 1);
+      g.fillEllipse(mcx, mcy, 88, 44);
+      g.lineStyle(1.5, 0x5a3f1f, 0.8);
+      g.strokeEllipse(mcx, mcy, 88, 44);
+      g.fillStyle(0x8a6744, 1);
+      g.fillEllipse(mcx, mcy - 2, 70, 34);
+      // 의자 주변 점으로 표현
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        const cx = mcx + Math.cos(a) * 54;
+        const cy = mcy + Math.sin(a) * 26;
+        g.fillStyle(C.chairBody, 1);
+        g.fillEllipse(cx, cy + 2, 14, 9);
+        g.fillStyle(0x3a2f22, 1);
+        g.fillEllipse(cx, cy, 11, 6);
       }
+      // 화분 2개
+      this.drawPlant(g, isoX(0.2, 0.2), isoY(0.2, 0.2));
+      this.drawPlant(g, isoX(1.9, 1.9), isoY(1.9, 1.9));
 
-      // 휴게실 소파 (가로 배치)
-      this.drawIsoBox(g, 2.7, 5.8, 2.4, 0.5, 10, 0x4c1d95, 0x312e81, 0x3730a3);
-      this.drawIsoBox(g, 2.7, 5.6, 2.4, 0.2, 16, 0x6d28d9, 0x4c1d95, 0x581c87);
-      // 테이블 앞
-      this.drawIsoBox(g, 3.4, 6.5, 1, 0.4, 6, 0x78350f, 0x451a03, 0x5c2309);
+      // 2. 상무실 — 중간 책상 + 의자 + 책장 작게
+      this.isoBox(g, 3.3, 0.7, 1.2, 0.6, 13, C.deskTop, C.deskFront, C.deskSide);
+      this.drawMonitor(g, isoX(3.9, 0.85), isoY(3.9, 0.85) - 8);
+      this.drawKeyboard(g, isoX(3.9, 1.0), isoY(3.9, 1.0) - 8);
+      this.drawChair(g, 3.9, 1.55);
+      // 작은 책장
+      this.isoBox(g, 3.1, 0.1, 0.25, 0.8, 26, C.bookshelf, 0x3a2412, 0x4d3320);
+      // 책들 (가로 선 4줄)
+      const bx = isoX(3.15, 0.5), by = isoY(3.15, 0.5);
+      for (let i = 0; i < 4; i++) {
+        const bookY = by - 24 + i * 5;
+        g.fillStyle(i === 0 ? 0xDC2626 : i === 1 ? 0x2563EB : i === 2 ? 0x059669 : 0xD97706, 1);
+        g.fillRect(bx - 4, bookY, 8, 4);
+      }
+      // 화분
+      this.drawPlant(g, isoX(4.7, 0.3), isoY(4.7, 0.3));
 
-      // 화분 (회의실 구석)
-      this.drawPlant(g, isoX(0.3, 1.7), isoY(0.3, 1.7));
-      this.drawPlant(g, isoX(7.7, 1.7), isoY(7.7, 1.7));
-      this.drawPlant(g, isoX(5.7, 6.7), isoY(5.7, 6.7));
+      // 3. CEO 사장실 — 큰 책상 + 큰 의자 + 소파 + 책장
+      // 큰 책상
+      this.isoBox(g, 5.5, 0.4, 1.8, 0.9, 14, C.deskTop, C.deskFront, C.deskSide);
+      this.drawMonitor(g, isoX(6.4, 0.65), isoY(6.4, 0.65) - 9);
+      this.drawKeyboard(g, isoX(6.4, 0.85), isoY(6.4, 0.85) - 9);
+      // CEO 의자 (큰, 뒤)
+      this.isoBox(g, 6.3, 1.35, 0.5, 0.5, 22, 0x2c2418, 0x1a1610, 0x221c14);
+      // 소파 (옆쪽)
+      this.isoBox(g, 7.2, 0.5, 0.5, 1.3, 8, C.sofaPurple, C.sofaDark, 0x5A44A0);
+      this.isoBox(g, 7.2, 0.5, 0.5, 0.2, 14, 0xB597E5, C.sofaPurple, 0x8B6FCE);
+      // 책장
+      this.isoBox(g, 5.1, 0.1, 0.25, 1.0, 26, C.bookshelf, 0x3a2412, 0x4d3320);
+      const cbx = isoX(5.15, 0.6), cby = isoY(5.15, 0.6);
+      for (let i = 0; i < 5; i++) {
+        const bookY = cby - 24 + i * 5;
+        const c = [0xDC2626, 0x2563EB, 0x059669, 0xD97706, 0x7C3AED][i];
+        g.fillStyle(c, 1);
+        g.fillRect(cbx - 4, bookY, 8, 4);
+      }
+      // 화분
+      this.drawPlant(g, isoX(5.4, 1.8), isoY(5.4, 1.8));
 
-      // 모니터 깜빡임 타이머
+      // 4. 업무공간 — 9 큐비클 책상 + 모니터 + 키보드 + 의자 + 화분
+      for (const c of CUBICLES) {
+        // 책상
+        this.isoBox(g, c.tx - 0.45, c.ty - 0.35, 0.9, 0.65, 10, C.deskTop, C.deskFront, C.deskSide);
+        // 모니터
+        this.drawMonitor(g, isoX(c.tx, c.ty - 0.12), isoY(c.tx, c.ty - 0.12) - 8);
+        // 키보드
+        this.drawKeyboard(g, isoX(c.tx, c.ty + 0.05), isoY(c.tx, c.ty + 0.05) - 8);
+        // 의자 (책상 앞)
+        this.drawChair(g, c.tx, c.ty + 0.35);
+      }
+      // 업무공간 화분 몇 개
+      this.drawPlant(g, isoX(0.3, 3.5), isoY(0.3, 3.5));
+      this.drawPlant(g, isoX(7.3, 3.0), isoY(7.3, 3.0));
+      this.drawPlant(g, isoX(0.4, 2.0), isoY(0.4, 2.0));
+
+      // 5. 휴게실 — 소파 + 커피 테이블
+      this.isoBox(g, 2.8, 5.3, 2.0, 0.4, 10, 0x7A6B55, 0x4A3F30, 0x5A4C3A);
+      this.isoBox(g, 2.8, 5.15, 2.0, 0.15, 14, 0x9F8F76, 0x7A6B55, 0x88785E);
+      // 커피 테이블 중앙
+      this.isoBox(g, 3.4, 5.7, 0.8, 0.3, 6, C.tableWood, 0x5a3f1f, 0x7a5a30);
+      // 화분
+      this.drawPlant(g, isoX(5.2, 5.8), isoY(5.2, 5.8));
+    }
+
+    // 상무/CEO 룸 조명 오버레이 (초기 off)
+    initLights() {
+      this.executiveLight = this.add.graphics();
+      this.ceoLight = this.add.graphics();
+      this.lightLayer.add(this.executiveLight);
+      this.lightLayer.add(this.ceoLight);
+      this.executiveLight.setVisible(false);
+      this.ceoLight.setVisible(false);
+    }
+    lightExecutive(on) {
+      const g = this.executiveLight;
+      g.clear();
+      if (!on) { g.setVisible(false); return; }
+      g.setVisible(true);
+      // 상무실 (tx 3-5, ty 0-2) 위에 노란 글로우
+      const points = [[3, 0], [5, 0], [5, 2], [3, 2]];
+      g.fillStyle(C.executiveGlow, 0.22);
+      g.beginPath();
+      g.moveTo(isoX(points[0][0], points[0][1]), isoY(points[0][0], points[0][1]));
+      for (let i = 1; i < points.length; i++) g.lineTo(isoX(points[i][0], points[i][1]), isoY(points[i][0], points[i][1]));
+      g.closePath();
+      g.fillPath();
+      // 깜빡이는 효과
+      this.tweens.add({ targets: g, alpha: { from: 0.6, to: 1 }, duration: 900, yoyo: true, repeat: -1 });
+    }
+    lightCeo(on) {
+      const g = this.ceoLight;
+      g.clear();
+      if (!on) { g.setVisible(false); return; }
+      g.setVisible(true);
+      const points = [[5, 0], [8, 0], [8, 2], [5, 2]];
+      g.fillStyle(C.ceoGlow, 0.22);
+      g.beginPath();
+      g.moveTo(isoX(points[0][0], points[0][1]), isoY(points[0][0], points[0][1]));
+      for (let i = 1; i < points.length; i++) g.lineTo(isoX(points[i][0], points[i][1]), isoY(points[i][0], points[i][1]));
+      g.closePath();
+      g.fillPath();
+      this.tweens.add({ targets: g, alpha: { from: 0.6, to: 1 }, duration: 1100, yoyo: true, repeat: -1 });
+    }
+
+    initMonitorFlicker() {
+      this.monitorG = this.add.graphics();
+      this.dynamicFurn.add(this.monitorG);
       this.time.addEvent({
-        delay: 900, loop: true,
+        delay: 800, loop: true,
         callback: () => {
-          // 랜덤 부서 모니터 색상 살짝 변경 — 책상 위에 동적 모니터로 덮어씀
-          if (!this._monitorDynG) {
-            this._monitorDynG = this.add.graphics();
-            this.furnitureLayer.add(this._monitorDynG);
-          }
-          this._monitorDynG.clear();
+          this.monitorG.clear();
           for (const c of CUBICLES) {
-            const mx = isoX(c.tx, c.ty - 0.1);
-            const my = isoY(c.tx, c.ty - 0.1) - 10;
-            const isOn = Math.random() > 0.4;
+            const mx = isoX(c.tx, c.ty - 0.12);
+            const my = isoY(c.tx, c.ty - 0.12) - 8;
+            const isOn = Math.random() > 0.35;
             const col = isOn ? (Math.random() > 0.5 ? 0x3b82f6 : 0x10b981) : 0x0f172a;
-            this._monitorDynG.fillStyle(col, 0.85);
-            this._monitorDynG.fillRect(mx - 6, my - 8, 12, 6);
+            this.monitorG.fillStyle(col, 0.85);
+            this.monitorG.fillRect(mx - 7, my - 11, 14, 8);
           }
+          // 상무실 / CEO 모니터도 깜빡
+          const eMX = isoX(3.9, 0.85), eMY = isoY(3.9, 0.85) - 8;
+          const cMX = isoX(6.4, 0.65), cMY = isoY(6.4, 0.65) - 9;
+          this.monitorG.fillStyle(Math.random() > 0.3 ? 0x3b82f6 : 0x0f172a, 0.85);
+          this.monitorG.fillRect(eMX - 7, eMY - 11, 14, 8);
+          this.monitorG.fillStyle(Math.random() > 0.3 ? 0x10b981 : 0x0f172a, 0.85);
+          this.monitorG.fillRect(cMX - 7, cMY - 11, 14, 8);
         },
       });
     }
 
-    drawPlant(g, cx, cy) {
-      // 화분
-      g.fillStyle(0x78350f, 1);
-      g.fillRect(cx - 5, cy - 2, 10, 8);
-      // 잎
-      g.fillStyle(0x15803d, 1);
-      g.fillCircle(cx, cy - 6, 7);
-      g.fillStyle(0x16a34a, 1);
-      g.fillCircle(cx - 3, cy - 8, 5);
-      g.fillCircle(cx + 3, cy - 8, 5);
-    }
-
-    // ─── 캐릭터 ──────────────────────────────────────────────────────
+    // ─── 캐릭터 ────────────────────────────────────────────────────
     createCharacters() {
       this.characters = {};
       DEPTS.forEach((d) => {
         const cub = CUBICLES.find(c => c.deptId === d.id);
-        const sx = isoX(cub.tx, cub.ty);
-        const sy = isoY(cub.tx, cub.ty) - 8;
-
+        const sx = isoX(cub.tx, cub.ty + 0.3);
+        const sy = isoY(cub.tx, cub.ty + 0.3) - 4;
         const container = this.add.container(sx, sy);
-        container.setDepth(Math.floor(sy)); // 아이소 깊이 정렬
-
-        // 몸 파츠 (16x24 논리 → 2배 스케일로 렌더)
+        container.setDepth(Math.floor(sy));
+        const hair = this.add.rectangle(0, -22, 10, 3, 0x1f2937).setOrigin(0.5, 0.5);
         const head = this.add.rectangle(0, -18, 10, 10, 0xf6d5ad).setOrigin(0.5, 0.5);
-        const hairColor = 0x1f2937;
-        const hair = this.add.rectangle(0, -22, 10, 3, hairColor).setOrigin(0.5, 0.5);
-        const eyeL = this.add.rectangle(-2, -18, 1, 1, 0x000000).setOrigin(0.5, 0.5);
-        const eyeR = this.add.rectangle(2, -18, 1, 1, 0x000000).setOrigin(0.5, 0.5);
+        const eyeL = this.add.rectangle(-2, -18, 1, 1, 0x000).setOrigin(0.5, 0.5);
+        const eyeR = this.add.rectangle(2, -18, 1, 1, 0x000).setOrigin(0.5, 0.5);
         const body = this.add.rectangle(0, -8, 10, 12, d.color).setOrigin(0.5, 0.5);
         const armL = this.add.rectangle(-6, -8, 2, 8, d.color).setOrigin(0.5, 0.5);
         const armR = this.add.rectangle(6, -8, 2, 8, d.color).setOrigin(0.5, 0.5);
         const legL = this.add.rectangle(-2, 1, 3, 6, 0x1f2937).setOrigin(0.5, 0.5);
         const legR = this.add.rectangle(2, 1, 3, 6, 0x1f2937).setOrigin(0.5, 0.5);
-
         container.add([hair, head, eyeL, eyeR, body, armL, armR, legL, legR]);
-
-        const charData = {
+        const data = {
           deptId: d.id, color: d.color, hex: d.hex, container,
           head, hair, body, armL, armR, legL, legR,
           cubicle: cub, meetingSeat: d._meetingSeat,
           state: 'idle', bubble: null, bubbleTimer: null,
-          bobTween: null, armTween: null, walkTween: null,
+          bobTween: null, armTweenL: null, armTweenR: null, walkTween: null,
         };
-        this.characters[d.id] = charData;
+        this.characters[d.id] = data;
         this.charLayer.add(container);
-
-        // idle bobbing
-        this.startIdleBob(charData);
+        this.startIdleBob(data);
       });
     }
 
     startIdleBob(c) {
       this.stopTweens(c);
       c.bobTween = this.tweens.add({
-        targets: c.container,
-        y: c.container.y - 1.5,
-        duration: 1200, yoyo: true, repeat: -1,
-        ease: 'Sine.easeInOut',
+        targets: c.container, y: c.container.y - 1.5,
+        duration: 1200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
       });
     }
     stopTweens(c) {
-      if (c.bobTween) { c.bobTween.stop(); c.bobTween = null; }
-      if (c.armTween) { c.armTween.stop(); c.armTween = null; }
-      if (c.walkTween) { c.walkTween.stop(); c.walkTween = null; }
+      [c.bobTween, c.armTweenL, c.armTweenR, c.walkTween].forEach(t => t && t.stop());
+      c.bobTween = c.armTweenL = c.armTweenR = c.walkTween = null;
     }
 
-    walkCharTo(c, tx, ty, onComplete) {
+    walkCharTo(c, tx, ty, done) {
       this.stopTweens(c);
-      const destX = isoX(tx, ty);
-      const destY = isoY(tx, ty) - 8;
-
-      // 간단 L-경로: 수평 먼저(세로 좌표 유지), 그다음 수직
-      const midX = destX;
-      const midY = c.container.y;
-
+      const destX = isoX(tx, ty), destY = isoY(tx, ty) - 4;
       c.walkTween = this.tweens.chain({
         targets: c.container,
         tweens: [
-          { x: midX, duration: 500, ease: 'Linear' },
-          { y: destY, duration: 500, ease: 'Linear' },
+          { x: destX, duration: 520, ease: 'Linear' },
+          { y: destY, duration: 520, ease: 'Linear' },
         ],
         onComplete: () => {
           c.container.setDepth(Math.floor(destY));
-          // 도착 후 작업 애니메이션 or idle
-          if (onComplete) onComplete();
+          if (done) done();
         },
       });
-
-      // 걸어가는 동안 다리 움직임 (swap 색으로 단순 구현)
-      const step = this.tweens.add({
-        targets: [c.legL, c.legR],
-        y: { from: 1, to: -1 },
+      this.tweens.add({
+        targets: [c.legL, c.legR], y: { from: 1, to: -1 },
         duration: 120, yoyo: true, repeat: 8, ease: 'Linear',
       });
     }
 
     startTyping(c) {
       this.stopTweens(c);
-      c.armTween = this.tweens.add({
-        targets: c.armL,
-        angle: { from: -5, to: 15 },
-        y: { from: -8, to: -6 },
-        duration: 180, yoyo: true, repeat: -1,
-        ease: 'Sine.easeInOut',
+      c.armTweenL = this.tweens.add({
+        targets: c.armL, y: { from: -8, to: -5 },
+        duration: 170, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
       });
-      this.tweens.add({
-        targets: c.armR,
-        angle: { from: 5, to: -15 },
-        y: { from: -6, to: -8 },
-        duration: 180, yoyo: true, repeat: -1,
-        ease: 'Sine.easeInOut',
+      c.armTweenR = this.tweens.add({
+        targets: c.armR, y: { from: -5, to: -8 },
+        duration: 170, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
       });
     }
 
     setBubble(c, text, colorHex = '#ffffff', autoHideMs = 3000) {
       this.clearBubble(c);
       const bg = this.add.graphics();
-      const t = this.add.text(0, 0, String(text).slice(0, 20), {
-        fontFamily: 'system-ui,-apple-system,sans-serif',
-        fontSize: '10px',
-        color: '#1f2937',
+      const t = this.add.text(0, 0, String(text).slice(0, 24), {
+        fontFamily: 'system-ui,sans-serif', fontSize: '10px', color: '#1f2937',
       }).setOrigin(0.5, 0.5);
       const w = t.width + 10, h = 14;
       bg.fillStyle(Phaser.Display.Color.HexStringToColor(colorHex).color, 1);
       bg.fillRoundedRect(-w / 2, -h / 2, w, h, 3);
       bg.lineStyle(1, 0x1f2937, 1);
       bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 3);
-      // tail
-      bg.fillStyle(Phaser.Display.Color.HexStringToColor(colorHex).color, 1);
       bg.fillTriangle(-3, h / 2 - 1, 3, h / 2 - 1, 0, h / 2 + 3);
-
       const bubble = this.add.container(0, -32, [bg, t]);
       c.container.add(bubble);
       c.bubble = bubble;
-
       if (c.bubbleTimer) c.bubbleTimer.remove();
-      if (autoHideMs > 0) {
-        c.bubbleTimer = this.time.delayedCall(autoHideMs, () => this.clearBubble(c));
-      }
+      if (autoHideMs > 0) c.bubbleTimer = this.time.delayedCall(autoHideMs, () => this.clearBubble(c));
     }
     clearBubble(c) {
       if (c.bubble) { c.bubble.destroy(); c.bubble = null; }
       if (c.bubbleTimer) { c.bubbleTimer.remove(); c.bubbleTimer = null; }
     }
-
     emitStars(c) {
-      // 완료 파티클 — ★ 3개가 위로 날아오르며 사라짐
-      const parent = c.container;
       for (let i = 0; i < 3; i++) {
         const s = this.add.text(0, -28, '★', {
-          fontFamily: 'system-ui', fontSize: '13px',
-          color: '#fbbf24',
+          fontFamily: 'system-ui', fontSize: '13px', color: '#f59e0b',
         }).setOrigin(0.5, 0.5);
-        parent.add(s);
+        c.container.add(s);
         this.tweens.add({
-          targets: s,
-          x: (i - 1) * 10,
-          y: -48 - Math.random() * 10,
-          alpha: { from: 1, to: 0 },
-          duration: 900 + i * 120,
-          ease: 'Cubic.easeOut',
+          targets: s, x: (i - 1) * 10, y: -48 - Math.random() * 10,
+          alpha: { from: 1, to: 0 }, duration: 900 + i * 120, ease: 'Cubic.easeOut',
           onComplete: () => s.destroy(),
         });
       }
     }
 
-    // ─── 공개 API: 이벤트 핸들러 ─────────────────────────────────────
+    // 공개 API
     goWork(deptId, objective) {
       const c = this.characters[deptId]; if (!c) return;
       c.state = 'walking';
@@ -632,7 +753,7 @@
       this.stopTweens(c);
       this.clearBubble(c);
       c.state = 'returning';
-      this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty, () => {
+      this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty + 0.3, () => {
         c.state = 'idle';
         this.setBubble(c, '✓ 완료', '#d1fae5', 1800);
         this.emitStars(c);
@@ -643,12 +764,10 @@
       const c = this.characters[deptId]; if (!c) return;
       this.stopTweens(c);
       this.clearBubble(c);
-      // 회의실(혹은 이동 중)에 있으면 자리로 복귀시킨 후 오류 말풍선
-      const homeX = isoX(c.cubicle.tx, c.cubicle.ty);
-      const dx = Math.abs(c.container.x - homeX);
-      if (dx > 3) {
+      const homeX = isoX(c.cubicle.tx, c.cubicle.ty + 0.3);
+      if (Math.abs(c.container.x - homeX) > 3) {
         c.state = 'returning';
-        this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty, () => {
+        this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty + 0.3, () => {
           c.state = 'idle';
           this.setBubble(c, '! 오류', '#fecaca', 3000);
           this.startIdleBob(c);
@@ -660,70 +779,63 @@
       }
     }
     resetAll() {
+      this.lightExecutive(false);
+      this.lightCeo(false);
       for (const c of Object.values(this.characters)) {
         this.stopTweens(c);
         this.clearBubble(c);
-        c.container.setPosition(isoX(c.cubicle.tx, c.cubicle.ty), isoY(c.cubicle.tx, c.cubicle.ty) - 8);
+        const home = c.cubicle;
+        c.container.setPosition(isoX(home.tx, home.ty + 0.3), isoY(home.tx, home.ty + 0.3) - 4);
         c.state = 'idle';
         this.startIdleBob(c);
       }
     }
-    // 세션 종료(all_done/stream_end/onerror) 시 회의실에 갇힌 캐릭터를 자리로 복귀시킴.
-    // 이미 idle/returning 상태는 건드리지 않음 — 진행 중인 복귀 tween 을 중단하지 않기 위해서.
     settleAll() {
       for (const c of Object.values(this.characters)) {
         if (c.state !== 'working' && c.state !== 'walking') continue;
         this.stopTweens(c);
         this.clearBubble(c);
         c.state = 'returning';
-        this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty, () => {
+        this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty + 0.3, () => {
           c.state = 'idle';
           this.startIdleBob(c);
         });
       }
     }
+    // 상무 보완 요청 — 특정 부서 회의실로 복귀
+    recallToMeeting(deptId, reason) {
+      const c = this.characters[deptId]; if (!c) return;
+      c.state = 'walking';
+      this.stopTweens(c);
+      this.walkCharTo(c, c.meetingSeat.tx, c.meetingSeat.ty, () => {
+        c.state = 'working';
+        this.startTyping(c);
+        this.setBubble(c, reason || '보완 작업', '#ffe3a0', 4000);
+      });
+    }
   }
 
-  // ─── Phaser 초기화 ─────────────────────────────────────────────────
-  const game = new Phaser.Game({
+  // ─── Phaser init ───────────────────────────────────────────────────
+  new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'phaser-container',
-    backgroundColor: '#0d1117',
-    scale: {
-      mode: Phaser.Scale.FIT,
-      autoCenter: Phaser.Scale.CENTER_BOTH,
-      width: W, height: H,
-    },
+    backgroundColor: '#F5F4EF',
+    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, width: W, height: H },
     scene: OfficeScene,
-    pixelArt: true,
+    pixelArt: false,
     roundPixels: false,
   });
 
-  // ─── DOM refs ──────────────────────────────────────────────────────
-  const $ = (id) => document.getElementById(id);
-  const dom = {
-    projectName: $('projectName'),
-    officeStatusDot: $('officeStatusDot'),
-    officeStatusText: $('officeStatusText'),
-    chatLog: $('chatLog'),
-    directive: $('directive'),
-    sendBtn: $('sendBtn'),
-    navNewChat: $('navNewChat'),
-    navProjects: $('navProjects'),
-  };
-
-  // ─── chat rendering ────────────────────────────────────────────────
+  // ─── Chat rendering ────────────────────────────────────────────────
   function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
-  function addMsg({ who, body, kind = 'ai', deptId = null, html = false }) {
+  function addMsg({ who, body, kind = 'ai', deptId = null, html = false }, persist = true) {
     const empty = dom.chatLog.querySelector('.chat-empty');
     if (empty) empty.remove();
     const msg = document.createElement('div');
     msg.className = 'msg ' + kind;
-    if (deptId && DEPT_BY_ID[deptId]) {
-      msg.style.setProperty('--dept-color', DEPT_BY_ID[deptId].hex);
-    }
+    if (deptId && DEPT_BY_ID[deptId]) msg.style.setProperty('--dept-color', DEPT_BY_ID[deptId].hex);
     const whoEl = document.createElement('div');
     whoEl.className = 'who';
     if (kind === 'dept') whoEl.innerHTML = `<span class="dot"></span>${escapeHtml(who)}`;
@@ -736,6 +848,10 @@
     msg.appendChild(bodyEl);
     dom.chatLog.appendChild(msg);
     dom.chatLog.scrollTop = dom.chatLog.scrollHeight;
+    // 영속화
+    if (persist && state.currentThreadId) {
+      appendMessageToThread(state.currentThreadId, { who, body, kind, deptId, html, ts: Date.now() });
+    }
     return msg;
   }
   function renderDeptReport(deptId, report) {
@@ -745,14 +861,20 @@
     let html = '';
     if (st?.summary) html += escapeHtml(st.summary);
     if (st?.keyFindings?.length) {
-      html += '<div class="sec">핵심</div><ul>' + st.keyFindings.slice(0,4).map(x=>`<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+      html += '<div class="sec">핵심</div><ul>' + st.keyFindings.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     }
     if (st?.risks?.length) {
-      html += '<div class="sec">리스크</div><ul>' + st.risks.slice(0,3).map(x=>`<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+      html += '<div class="sec">리스크</div><ul>' + st.risks.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     }
-    if (!html && report?.sections?.[0]) {
-      const s = report.sections[0];
-      html = `<div class="sec">${escapeHtml(s.heading)}</div><ul>` + (s.items || []).slice(0,4).map(x=>`<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (st?.assumptions?.length) {
+      html += '<div class="sec">가정</div><ul>' + st.assumptions.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    }
+    if (st?.needsFollowup?.length) {
+      html += '<div class="sec">추가 확인</div><ul>' + st.needsFollowup.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    }
+    if (!html && report?.sections) {
+      html = report.sections.map(s => `<div class="sec">${escapeHtml(s.heading)}</div><ul>` +
+        (s.items || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>').join('');
     }
     if (!html) html = '(보고 내용 없음)';
     addMsg({ who: name, body: html, kind: 'dept', deptId, html: true });
@@ -760,29 +882,35 @@
   function renderCeoBriefing(b) {
     let html = '';
     if (b?.summary) html += escapeHtml(b.summary);
-    if (b?.opportunities?.length) html += '<div class="sec">기회</div><ul>' + b.opportunities.slice(0,3).map(x=>`<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    if (b?.risks?.length) html += '<div class="sec">리스크</div><ul>' + b.risks.slice(0,3).map(x=>`<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    if (b?.recommendations?.length) html += '<div class="sec">권고</div><ul>' + b.recommendations.slice(0,3).map(x=>`<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    if (typeof b?.overallConfidence === 'number') html += `<div class="sec">신뢰도 ${Math.round(b.overallConfidence*100)}%</div>`;
+    if (b?.opportunities?.length) html += '<div class="sec">기회</div><ul>' + b.opportunities.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (b?.risks?.length) html += '<div class="sec">리스크</div><ul>' + b.risks.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (b?.recommendations?.length) html += '<div class="sec">권고</div><ul>' + b.recommendations.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (b?.conflictingSignals?.length) html += '<div class="sec">상충 신호</div><ul>' + b.conflictingSignals.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (typeof b?.overallConfidence === 'number') html += `<div class="sec">통합 신뢰도 ${Math.round(b.overallConfidence * 100)}%</div>`;
     addMsg({ who: 'CEO 브리핑', body: html || '통합 브리핑', kind: 'ceo', html: true });
   }
   function renderCriticReview(r) {
-    const v = r?.verdict === 'pass' ? '✓ PASS' : '⚠ 보강 필요';
-    let html = `<b>${v}</b><br>${escapeHtml(r?.summary || '')}`;
-    const issues = (r?.keyIssues || []).concat(r?.contradictions || []).slice(0, 3);
-    if (issues.length) html += '<ul>' + issues.map(x=>`<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    addMsg({ who: 'CRITIC 검증', body: html, kind: 'critic', html: true });
+    const verdict = r?.verdict === 'pass' ? '✓ PASS' : '⚠ 보강 필요';
+    let html = `<b>${verdict}</b><br>${escapeHtml(r?.summary || '')}`;
+    const issues = (r?.keyIssues || []).concat(r?.contradictions || []);
+    if (issues.length) html += '<ul>' + issues.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (r?.verificationNeeded?.length) html += '<div class="sec">검증 필요</div><ul>' + r.verificationNeeded.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    addMsg({ who: '상무 검토', body: html, kind: 'critic', html: true });
   }
 
-  // ─── SSE handler ───────────────────────────────────────────────────
+  // ─── SSE ───────────────────────────────────────────────────────────
   function onEvent(ev) {
-    let p;
-    try { p = JSON.parse(ev.data); } catch { return; }
+    let p; try { p = JSON.parse(ev.data); } catch { return; }
     const type = p.type || ev.type;
     const scene = state.scene;
     if (!scene) return;
 
     switch (type) {
+      case 'mission_start':
+        state.missionDeptCount = Number(p.deptCount || 9);
+        state.deptCompletedCount = 0;
+        state.executiveActive = false;
+        break;
       case 'dept_start':
         scene.goWork(p.deptId, p.objective);
         break;
@@ -792,6 +920,7 @@
       case 'dept_done':
         scene.goDone(p.deptId);
         if (p.report) renderDeptReport(p.deptId, p.report);
+        checkAllDeptsDone();
         break;
       case 'dept_error':
         scene.goError(p.deptId);
@@ -800,19 +929,28 @@
           body: `오류: ${p.error || '알 수 없는 오류'}`,
           kind: 'err',
         });
+        checkAllDeptsDone();
         break;
       case 'critic_review':
+        // 상무 검토 결과 도착
+        scene.lightExecutive(true);
         renderCriticReview(p.review);
+        // needs_followup 이면 해당 부서를 회의실로 복귀시켜 보완 작업 연출
+        if (p.review?.verdict === 'needs_followup' && (p.review?.targetDeptId || p.deptId)) {
+          const tgt = p.review.targetDeptId || p.deptId;
+          setTimeout(() => scene.recallToMeeting(tgt, '상무 보완 지시'), 800);
+        }
+        // 2초 뒤 상무실 불 끔 (유지하고 싶으면 주석)
+        setTimeout(() => scene.lightExecutive(false), 5000);
         break;
       case 'ceo_briefing':
+        scene.lightCeo(true);
         renderCeoBriefing(p.briefing);
+        setTimeout(() => scene.lightCeo(false), 6000);
         break;
       case 'all_done':
         finishRun();
         break;
-      // 백업: all_done 을 못 받고 stream 이 먼저 끝날 때 (예: 서버에서 all_done 전 res.end).
-      // directorStream.ts 가 all_done 다음에 stream_end 를 emit 하므로 정상 경로에서는
-      // finishRun 이 이미 호출되어 state.running=false, 이 분기는 no-op 가 된다.
       case 'stream_end':
         if (state.running) finishRun(false);
         break;
@@ -823,29 +961,52 @@
     }
   }
 
-  // ─── 실행 ──────────────────────────────────────────────────────────
+  function checkAllDeptsDone() {
+    state.deptCompletedCount++;
+    if (!state.executiveActive && state.deptCompletedCount >= state.missionDeptCount) {
+      state.executiveActive = true;
+      state.scene?.lightExecutive(true);
+      addMsg({ who: '', body: '상무 검토 중...', kind: 'sys' });
+    }
+  }
+
+  // ─── 실행 ─────────────────────────────────────────────────────────
   function startRun() {
     const directive = dom.directive.value.trim();
     if (!directive || state.running) return;
 
+    ensureThread(); // 현재 스레드 없으면 새로 생성
     addMsg({ who: '', body: directive, kind: 'user' });
     state.scene?.resetAll();
     state.running = true;
+    state.deptBubbleCache = {};
+    state.missionDeptCount = 9;
+    state.deptCompletedCount = 0;
+    state.executiveActive = false;
+
     dom.officeStatusDot.className = 'dot live';
     dom.officeStatusText.textContent = '실행 중...';
     dom.sendBtn.classList.add('stop');
     dom.sendBtn.title = '중단';
     dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="10" height="10"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>';
 
-    const projectName = state.currentProject || '신규 프로젝트';
+    // 첫 메시지라면 thread 제목 = directive 앞 30자
+    const cur = getCurrentThread();
+    if (cur && (!cur.title || cur.title === '신규 대화')) {
+      cur.title = directive.slice(0, 30);
+      saveThreads();
+      renderThreadList();
+      dom.chatTitle.textContent = cur.title;
+    }
+
     const url = new URL(API_BASE + '/api/director/stream', location.href);
     url.searchParams.set('directive', directive);
-    url.searchParams.set('projectName', projectName);
+    url.searchParams.set('projectName', state.currentProject);
 
     try {
       const es = new EventSource(url.toString(), { withCredentials: true });
       state.es = es;
-      ['dept_start','dept_progress','dept_done','dept_error','critic_review','ceo_briefing','all_done','error','stream_end']
+      ['mission_start','dept_start','dept_progress','dept_done','dept_error','critic_review','ceo_briefing','all_done','error','stream_end']
         .forEach(n => es.addEventListener(n, onEvent));
       es.onerror = () => {
         if (state.running) {
@@ -870,98 +1031,193 @@
     dom.sendBtn.classList.remove('stop');
     dom.sendBtn.title = '전송';
     dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M3 8h10M9 4l4 4-4 4"/></svg>';
-    // 회의실에 고립된 캐릭터(working/walking 상태) 가 있으면 자리로 복귀.
-    // 이미 returning 중인 캐릭터는 건드리지 않음 — 진행 중 tween 보호.
     state.scene?.settleAll();
   }
 
+  // ─── 스레드 / 프로젝트 ─────────────────────────────────────────────
+  function saveThreads() { saveJson(LS_THREADS, state.threads); }
+
+  function projectThreads(name) {
+    if (!state.threads[name]) state.threads[name] = [];
+    return state.threads[name];
+  }
+  function getCurrentThread() {
+    const list = projectThreads(state.currentProject);
+    return list.find(t => t.id === state.currentThreadId) || null;
+  }
+  function ensureThread() {
+    if (!state.currentThreadId || !getCurrentThread()) {
+      createNewThread();
+    }
+  }
+  function createNewThread() {
+    const id = 'th_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const t = { id, title: '신규 대화', messages: [], updatedAt: Date.now() };
+    projectThreads(state.currentProject).unshift(t);
+    state.currentThreadId = id;
+    localStorage.setItem(LS_CURRENT_THREAD, id);
+    saveThreads();
+    return t;
+  }
+  function appendMessageToThread(threadId, msg) {
+    const list = projectThreads(state.currentProject);
+    const t = list.find(x => x.id === threadId);
+    if (!t) return;
+    t.messages.push(msg);
+    t.updatedAt = Date.now();
+    saveThreads();
+    renderThreadList();
+  }
+  function loadThread(threadId) {
+    if (state.running) return;
+    const list = projectThreads(state.currentProject);
+    const t = list.find(x => x.id === threadId);
+    if (!t) return;
+    state.currentThreadId = threadId;
+    localStorage.setItem(LS_CURRENT_THREAD, threadId);
+    state.scene?.resetAll();
+    dom.chatLog.innerHTML = '';
+    for (const m of t.messages) {
+      addMsg(m, false);
+    }
+    if (t.messages.length === 0) {
+      dom.chatLog.innerHTML = `<div class="chat-empty"><h3>무엇을 도와드릴까요?</h3><p>지시를 입력하면 필요한 부서 직원이 움직입니다.</p></div>`;
+    }
+    dom.chatTitle.textContent = t.title;
+    renderThreadList();
+  }
   function newChat() {
     if (state.running) return;
-    dom.chatLog.innerHTML = `
-      <div class="chat-empty">
-        <h3>무엇을 도와드릴까요?</h3>
-        <p>지시를 입력하면 필요한 부서 직원이 회의실로 이동해 작업합니다.</p>
-      </div>
-    `;
+    createNewThread();
+    dom.chatLog.innerHTML = `<div class="chat-empty"><h3>무엇을 도와드릴까요?</h3><p>지시를 입력하면 필요한 부서 직원이 움직입니다.</p></div>`;
     state.scene?.resetAll();
     dom.directive.value = '';
     dom.directive.focus();
+    dom.chatTitle.textContent = '신규 대화';
+    renderThreadList();
   }
 
-  // ─── projects ──────────────────────────────────────────────────────
-  function renderProjectName() { dom.projectName.textContent = state.currentProject || '신규 프로젝트'; }
-  function saveProjectName(name) {
-    const t = (name || '').trim() || '신규 프로젝트';
-    state.currentProject = t;
-    if (t !== '신규 프로젝트' && !state.projects.includes(t)) {
-      state.projects.push(t);
-      saveLS(LS_PROJECTS, state.projects);
+  // ─── 렌더: 프로젝트+스레드 사이드바 ────────────────────────────────
+  function renderThreadList() {
+    const el = dom.projectList;
+    el.innerHTML = '';
+    // 현재 프로젝트가 없으면 추가
+    if (!state.projects.includes(state.currentProject)) {
+      state.projects.unshift(state.currentProject);
+      saveJson(LS_PROJECTS, state.projects);
     }
-    saveLS(LS_PROJECT, t);
-    renderProjectName();
-    renderProjectsNav();
-  }
-  function renderProjectsNav() {
-    dom.navProjects.innerHTML = '';
-    state.projects.forEach(p => {
-      const el = document.createElement('div');
-      el.className = 'nav-project' + (p === state.currentProject ? ' active' : '');
-      el.innerHTML = `<span class="dot"></span><span>${escapeHtml(p)}</span>`;
-      el.onclick = () => { saveProjectName(p); newChat(); };
-      dom.navProjects.appendChild(el);
-    });
-    const add = document.createElement('div');
-    add.className = 'nav-new';
-    add.textContent = '+ 새 프로젝트';
-    add.onclick = () => {
-      const name = prompt('새 프로젝트 이름');
-      if (name && name.trim()) { saveProjectName(name.trim()); newChat(); }
-    };
-    dom.navProjects.appendChild(add);
+    for (const proj of state.projects) {
+      const block = document.createElement('div');
+      block.className = 'project-block';
+      const head = document.createElement('div');
+      head.className = 'project-head' + (state.collapsedProjects.has(proj) ? ' collapsed' : '');
+      const threads = projectThreads(proj);
+      head.innerHTML = `<span class="caret">▼</span><span class="name">${escapeHtml(proj)}</span><span class="count">${threads.length}</span>`;
+      head.onclick = () => {
+        if (state.collapsedProjects.has(proj)) state.collapsedProjects.delete(proj);
+        else state.collapsedProjects.add(proj);
+        state.currentProject = proj;
+        localStorage.setItem(LS_CURRENT_PROJECT, proj);
+        renderThreadList();
+      };
+      block.appendChild(head);
+      if (!state.collapsedProjects.has(proj)) {
+        const list = document.createElement('div');
+        list.className = 'thread-list';
+        if (threads.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'thread-empty';
+          empty.textContent = '대화 없음';
+          list.appendChild(empty);
+        } else {
+          const sorted = [...threads].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+          for (const t of sorted) {
+            const item = document.createElement('div');
+            item.className = 'thread-item' + (t.id === state.currentThreadId && proj === state.currentProject ? ' active' : '');
+            const time = new Date(t.updatedAt || Date.now()).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+            item.innerHTML = `<div class="title">${escapeHtml(t.title || '새 대화')}</div><div class="time">${escapeHtml(time)}</div>`;
+            item.onclick = () => {
+              if (state.currentProject !== proj) {
+                state.currentProject = proj;
+                localStorage.setItem(LS_CURRENT_PROJECT, proj);
+              }
+              loadThread(t.id);
+            };
+            list.appendChild(item);
+          }
+        }
+        block.appendChild(list);
+      }
+      el.appendChild(block);
+    }
   }
 
-  // ─── input ─────────────────────────────────────────────────────────
+  function newProject() {
+    const name = prompt('새 프로젝트 이름');
+    if (!name) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (!state.projects.includes(trimmed)) {
+      state.projects.unshift(trimmed);
+      saveJson(LS_PROJECTS, state.projects);
+    }
+    state.currentProject = trimmed;
+    localStorage.setItem(LS_CURRENT_PROJECT, trimmed);
+    createNewThread();
+    newChat();
+  }
+
+  // ─── 입력 자동 높이 ────────────────────────────────────────────────
   function autoSize() {
     const ta = dom.directive;
-    ta.style.height = '22px';
-    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+    ta.style.height = '24px';
+    ta.style.height = Math.min(ta.scrollHeight, 180) + 'px';
   }
 
-  // ─── bind ──────────────────────────────────────────────────────────
-  function bind() {
-    dom.sendBtn.addEventListener('click', () => {
-      if (state.running) { finishRun(); addMsg({ who: '', body: '중단됨', kind: 'sys' }); }
-      else startRun();
-    });
-    dom.directive.addEventListener('input', autoSize);
-    dom.directive.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-        e.preventDefault();
-        startRun();
-      }
-    });
-    dom.navNewChat.addEventListener('click', (e) => { e.preventDefault(); newChat(); });
+  // ─── 바인딩 ───────────────────────────────────────────────────────
+  dom.sendBtn.addEventListener('click', () => {
+    if (state.running) { finishRun(); addMsg({ who: '', body: '중단됨', kind: 'sys' }); }
+    else startRun();
+  });
+  dom.directive.addEventListener('input', autoSize);
+  dom.directive.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      startRun();
+    }
+  });
+  dom.navNewChat.addEventListener('click', (e) => { e.preventDefault(); newChat(); });
+  dom.projectNew.addEventListener('click', newProject);
+  dom.chatTitle.addEventListener('click', () => {
+    dom.chatTitle.contentEditable = 'true';
+    dom.chatTitle.focus();
+    document.execCommand('selectAll', false, null);
+  });
+  dom.chatTitle.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); dom.chatTitle.blur(); }
+    if (e.key === 'Escape') { dom.chatTitle.blur(); }
+  });
+  dom.chatTitle.addEventListener('blur', () => {
+    dom.chatTitle.contentEditable = 'false';
+    const t = getCurrentThread();
+    if (t) { t.title = dom.chatTitle.textContent.trim() || '신규 대화'; saveThreads(); renderThreadList(); }
+  });
 
-    dom.projectName.addEventListener('click', () => {
-      dom.projectName.contentEditable = 'true';
-      dom.projectName.focus();
-      document.execCommand('selectAll', false, null);
-    });
-    dom.projectName.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); dom.projectName.blur(); }
-      if (e.key === 'Escape') { dom.projectName.textContent = state.currentProject; dom.projectName.blur(); }
-    });
-    dom.projectName.addEventListener('blur', () => {
-      dom.projectName.contentEditable = 'false';
-      saveProjectName(dom.projectName.textContent);
-    });
+  // ─── 초기 로드 ─────────────────────────────────────────────────────
+  if (!state.projects.length) {
+    state.projects.push('신규 프로젝트');
+    saveJson(LS_PROJECTS, state.projects);
   }
-
-  // ─── go ────────────────────────────────────────────────────────────
-  renderProjectName();
-  renderProjectsNav();
-  bind();
-  setTimeout(() => dom.directive.focus(), 200);
+  renderThreadList();
+  const cur = getCurrentThread();
+  if (cur) {
+    dom.chatTitle.textContent = cur.title || '신규 대화';
+    if (cur.messages.length > 0) {
+      dom.chatLog.innerHTML = '';
+      for (const m of cur.messages) addMsg(m, false);
+    }
+  }
+  setTimeout(() => dom.directive.focus(), 300);
 })();
 </script>
 </body>

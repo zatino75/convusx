@@ -98,7 +98,7 @@ function buildFallbackReview(reports: DeptReportEntry[]): CriticReviewResult {
 
 async function callCriticModel(userPrompt: string): Promise<string> {
   const { callClaude } = await import("../adapters/wrappers.js");
-  return callClaude(CRITIC_SYSTEM_PROMPT, userPrompt, 3000);
+  return callClaude(CRITIC_SYSTEM_PROMPT, userPrompt, 8000);
 }
 
 function buildPrompt(directive: string, reports: DeptReportEntry[]): string {
