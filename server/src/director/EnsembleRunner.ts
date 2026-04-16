@@ -175,11 +175,33 @@ export async function runEnsemble(opts: {
 
   const validDrafts = drafts.filter((d) => !d.error && d.text.trim().length > 0);
   if (validDrafts.length === 0) {
+    // Phase 6 — 무음 fallback 방지. 3-AI 모두 실패 시 warn 레벨로 가시화.
+    // 모델별 실패 원인을 정리해서 로그에 남겨 다음 incident 때 추적 가능하게 함.
+    const failureSummary = drafts.map((d) => ({
+      model: d.model,
+      durationMs: d.durationMs,
+      reason: d.error ?? (d.text.trim().length === 0 ? "empty_response" : "unknown"),
+    }));
+    logger.warn(
+      { deptId, objective: objective.slice(0, 120), failures: failureSummary },
+      "[Ensemble] 3-AI 모두 유효 draft 생성 실패 — low_confidence fallback"
+    );
     verdict = "low_confidence";
     summary = "3-AI 모두 응답 실패 — 부서 단독 모델 fallback";
     synthesis = summary;
     send({ type: "ensemble_done", deptId, verdict, summary });
     return { drafts, synthesis, verdict, summary };
+  }
+
+  // 부분 실패(1-2개만 성공)도 상위에서 판단할 수 있도록 warn 로 기록. 흐름은 계속.
+  if (validDrafts.length < drafts.length) {
+    const partialFailures = drafts
+      .filter((d) => d.error || d.text.trim().length === 0)
+      .map((d) => ({ model: d.model, reason: d.error ?? "empty_response" }));
+    logger.warn(
+      { deptId, validCount: validDrafts.length, totalCount: drafts.length, partialFailures },
+      "[Ensemble] 일부 모델 draft 실패 — 나머지 모델로 통합 진행"
+    );
   }
 
   try {
