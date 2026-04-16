@@ -5,6 +5,7 @@ import { ScrollDownIcon } from "./ChatIcons";
 import MessageBubble from "./MessageBubble";
 import { t } from "../../i18n";
 import { showToast } from "../ui/Toast";
+import type { ChatMode } from "../../hooks/useChatMode";
 
 type AttachedFile = { name: string; type: string; base64: string; size: number };
 
@@ -23,7 +24,15 @@ type Props = {
   onAttachFiles?: (files: AttachedFile[]) => void;
   onOpenArtifact?: (title: string, code: string, language: string) => void;
   onDownloadSlide?: (slideData: Record<string, unknown>) => void;
+  chatMode?: ChatMode;
+  onChatModeChange?: (mode: ChatMode) => void;
 };
+
+const MODE_PILLS: Array<{ id: ChatMode; label: string; hint: string }> = [
+  { id: "auto", label: "자동", hint: "키워드로 Director 자동 감지" },
+  { id: "agent", label: "단일 에이전트", hint: "Claude Opus 4.6 단일 루프 강제" },
+  { id: "director", label: "Director", hint: "9개 부서 병렬 멀티에이전트 강제" },
+];
 
 function phaseLabel(phase: "idle" | "dispatch" | "working" | "meeting") {
   if (phase === "dispatch") return "지시 전달";
@@ -64,7 +73,9 @@ export default function ChatView({
   attachedFiles,
   onAttachFiles,
   onOpenArtifact,
-  onDownloadSlide
+  onDownloadSlide,
+  chatMode = "auto",
+  onChatModeChange,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -257,6 +268,48 @@ export default function ChatView({
                 ))}
               </div>
             ) : null}
+
+            <div
+              className="chat-composer__mode-row"
+              role="tablist"
+              aria-label="응답 모드 선택"
+              style={{
+                display: "flex",
+                gap: 6,
+                alignItems: "center",
+                padding: "4px 2px 8px",
+                fontSize: 11,
+              }}
+            >
+              <span style={{ opacity: 0.55, letterSpacing: 0.3 }}>모드</span>
+              {MODE_PILLS.map((pill) => {
+                const active = chatMode === pill.id;
+                return (
+                  <button
+                    key={pill.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    title={pill.hint}
+                    onClick={() => onChatModeChange?.(pill.id)}
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: 999,
+                      border: active
+                        ? "1px solid rgba(122, 180, 255, 0.85)"
+                        : "1px solid rgba(255,255,255,0.08)",
+                      background: active ? "rgba(60, 120, 220, 0.22)" : "transparent",
+                      color: active ? "var(--text-main)" : "rgba(210, 220, 240, 0.6)",
+                      fontSize: 11,
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    {pill.label}
+                  </button>
+                );
+              })}
+            </div>
 
             <div className="chat-composer__row">
               <button

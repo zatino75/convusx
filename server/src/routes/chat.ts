@@ -315,6 +315,10 @@ const DIRECTOR_ROUTE_ACTIONS = [
 ]
 
 function shouldRouteToDirector(input: any, query: string): boolean {
+  // 명시적 강제 플래그가 최우선: Phase 3 모드 토글과 연결된다.
+  //   force_single_agent === true  → 무조건 단일 에이전트 루프 (자동 감지 비활성)
+  //   force_director    === true   → 무조건 Director 멀티에이전트
+  if (input?.force_single_agent === true) return false
   if (input?.force_director === true) return true
   if (input?.attached_file) return false
   const q = safeString(query)

@@ -29,6 +29,7 @@ import type { WorkspaceState } from "../store/workspaceStore";
 import { nowIso, devLog } from "../utils/helpers";
 import type { DebugMeta, Message, ProviderDraft, StreamEvent, Thread } from "../types/workspace";
 import type { ConnectionState } from "./useConnectionStatus";
+import type { ChatMode } from "./useChatMode";
 
 /** 서버 에러 메시지를 사용자 친화적 메시지로 매핑 */
 function mapErrorCodeToMessage(raw: string): string {
@@ -76,6 +77,8 @@ type UseSendChatOptions = {
   onDraftClear: () => void;
   /** 서버 연결 상태 — offline 시 전송 차단 */
   connectionStatus?: ConnectionState;
+  /** Phase 3 — auto/agent/director 모드. useChatMode() 로부터 전달. */
+  chatMode?: ChatMode;
 };
 
 export function useSendChat({
@@ -88,6 +91,7 @@ export function useSendChat({
   setPanelPage,
   onDraftClear,
   connectionStatus,
+  chatMode = "auto",
 }: UseSendChatOptions) {
   const [isSending, setIsSending] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; type: string; base64: string; size: number }[]>([]);
@@ -401,6 +405,9 @@ export function useSendChat({
           global_instruction: globalInstruction?.trim() || null,
           project_instruction: workspace.activeProject?.meta?.instruction?.trim() || null,
           domain_profile: localStorage.getItem("corvus-x.domain-profile") ?? "general",
+          // Phase 3 — 모드 토글. auto 일 때는 force 플래그 없이 서버 휴리스틱에 맡김.
+          ...(chatMode === "director" ? { force_director: true } : {}),
+          ...(chatMode === "agent" ? { force_single_agent: true } : {}),
           ...(files.length > 0 ? {
             attached_files: files.map((f: { name: string; type: string; base64: string; size: number }) => ({
               name: f.name,

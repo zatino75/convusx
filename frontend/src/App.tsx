@@ -5,6 +5,7 @@ import { useConnectionStatus } from "./hooks/useConnectionStatus";
 import { apiFetch } from "./api/url";
 import { saveMessages as apiSaveMessages, saveThread as apiSaveThread, syncState as apiSyncState } from "./api/workspace";
 import { useSendChat } from "./hooks/useSendChat";
+import { useChatMode } from "./hooks/useChatMode";
 import { useScrollBehavior } from "./hooks/useScrollBehavior";
 import ChatView from "./components/chat/ChatView";
 import HomeView from "./components/chat/HomeView";
@@ -224,6 +225,9 @@ export default function App() {
     setEditingDraft("");
   }
 
+  // Phase 3 — 단일 에이전트 / Director 모드 토글 상태
+  const { chatMode, setChatMode } = useChatMode();
+
   // ── 전송/스트림 훅 ──────────────────────────────────────────────────────
   const {
     isSending,
@@ -242,6 +246,7 @@ export default function App() {
     markScrollToBottom,
     setPanelPage,
     onDraftClear: () => setDraft(""),
+    chatMode,
   });
 
   function handleStopCurrentTurn() {
@@ -738,6 +743,8 @@ export default function App() {
                 onDownloadSlide={handleDownloadSlide}
                 showScrollToBottom={showScrollToBottom}
                 onScrollToBottom={handleScrollToBottom}
+                chatMode={chatMode}
+                onChatModeChange={setChatMode}
               />
               </ViewErrorBoundary>
             )}
