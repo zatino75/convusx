@@ -70,6 +70,7 @@ export type ModelRequest = {
 export type ModelResponse = {
   provider: ProviderName
   model?: string | null
+  /** 본문 텍스트의 유일한 공식 필드. 어댑터는 반드시 이 필드에 씀. */
   answer: string
   usage?: ModelUsage
   attempts: ModelAttempt[]
@@ -77,6 +78,11 @@ export type ModelResponse = {
   raw?: any
   output_text?: string
   answer_text?: string
+  /**
+   * @deprecated 어떤 어댑터도 이 필드를 세팅하지 않음. 사용 금지.
+   * 이 필드를 읽던 wrappers.ts 버그로 Director 앙상블이 장기 고장 상태였음 (2026-04-16 수정).
+   * 새 코드는 반드시 .answer 를 읽을 것. 호환성 유지를 위해 타입만 남김.
+   */
   text?: string
   streaming_supported?: boolean
   [key: string]: any
