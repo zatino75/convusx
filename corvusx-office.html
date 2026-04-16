@@ -5,199 +5,155 @@
 <meta name="viewport" content="width=1440" />
 <title>CORVUS X — Pixel Office</title>
 <style>
-  :root{
+  :root {
     --bg:#0a0e1a; --bg-2:#0f1420; --panel:#131a2a;
     --wall:#1a2540; --wall-lt:#2a3a5c;
     --floor-a:#1e2838; --floor-b:#242f42;
     --wood:#6b4a2b; --wood-lt:#8a623b;
-    --ink:#e0e8f0; --dim:#7a8aa0;
+    --ink:#e0e8f0; --dim:#7a8aa0; --soft:#4a5670;
     --cyan:#00d4ff; --gold:#ffc94a; --red:#ff5e5e;
-    --green:#4ade80; --magenta:#ff3ea5;
+    --green:#4ade80; --magenta:#ff3ea5; --purple:#a855f7;
   }
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:'Courier New','D2Coding',monospace;overflow:hidden}
-  .app{display:grid;grid-template-columns:1fr 480px;grid-template-rows:52px 1fr;height:100vh}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:'Courier New','D2Coding',monospace;overflow:hidden;font-size:13px}
 
-  /* top bar */
-  .topbar{grid-column:1 / -1;display:flex;align-items:center;gap:14px;padding:0 18px;background:#06090f;border-bottom:1px solid #1a2540;font-size:15px}
-  .logo{font-weight:bold;color:var(--cyan);letter-spacing:2px}
-  .proj{color:var(--dim)} .proj b{color:var(--ink)}
-  .tag{padding:2px 8px;border:1px solid #2a3a5c;border-radius:2px;color:var(--dim);font-size:11px}
-  .tag.live{border-color:var(--green);color:var(--green);animation:pulse 1.6s ease-in-out infinite}
-  .tag.idle{border-color:#2a3a5c;color:var(--dim)}
-  .tag.err{border-color:var(--red);color:var(--red)}
+  /* ─ layout ─────────────────────────────────────────────────────────── */
+  .app{display:grid;grid-template-columns:160px 1fr 320px;grid-template-rows:44px 1fr;height:100vh}
+  .topbar{grid-column:1 / -1;display:flex;align-items:center;gap:14px;padding:0 14px;background:#06090f;border-bottom:1px solid #1a2540;font-size:13px}
+  .sidebar{grid-column:1;grid-row:2;background:var(--bg-2);border-right:1px solid #1a2540;display:flex;flex-direction:column;overflow-y:auto;padding:8px 0}
+  .office{grid-column:2;grid-row:2;position:relative;min-height:0;overflow:hidden;background:linear-gradient(45deg,var(--floor-a) 25%,transparent 25%),linear-gradient(-45deg,var(--floor-a) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,var(--floor-a) 75%),linear-gradient(-45deg,transparent 75%,var(--floor-a) 75%),var(--floor-b);background-size:28px 28px;background-position:0 0,0 14px,14px -14px,-14px 0;border-bottom:2px solid #1a2540}
+  .chat{grid-column:3;grid-row:2;background:var(--bg-2);border-left:1px solid #1a2540;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+
+  /* ─ topbar ────────────────────────────────────────────────────────── */
+  .logo{font-weight:bold;color:var(--cyan);letter-spacing:2px;font-size:14px}
+  .project-name{color:var(--ink);font-weight:bold;padding:4px 10px;border-radius:3px;background:rgba(255,255,255,.04);cursor:pointer;flex:1;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid transparent}
+  .project-name:hover{border-color:var(--wall-lt)}
+  .project-name[contenteditable="true"]{border-color:var(--cyan);background:#0b1020}
+  .status-dot{width:8px;height:8px;border-radius:50%;background:var(--soft);flex-shrink:0}
+  .status-dot.live{background:var(--green);animation:pulse 1.4s ease-in-out infinite}
+  .status-dot.err{background:var(--red)}
   @keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
   .spacer{flex:1}
-  .topbar button{background:var(--cyan);color:#000;border:none;padding:5px 12px;font-family:inherit;font-weight:bold;letter-spacing:1px;cursor:pointer;border-radius:2px;font-size:11px}
-  .topbar button.stop{background:var(--red);color:#fff}
+  .icon-btn{width:28px;height:28px;border:none;background:none;color:var(--dim);cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:16px;transition:background .15s}
+  .icon-btn:hover{background:var(--wall-lt);color:var(--ink)}
+  .icon-btn.active{background:var(--cyan);color:#000}
 
-  /* office */
-  .office{
-    position:relative;
-    min-height:0;
-    background:
-      linear-gradient(45deg,var(--floor-a) 25%,transparent 25%),
-      linear-gradient(-45deg,var(--floor-a) 25%,transparent 25%),
-      linear-gradient(45deg,transparent 75%,var(--floor-a) 75%),
-      linear-gradient(-45deg,transparent 75%,var(--floor-a) 75%),
-      var(--floor-b);
-    background-size:28px 28px;
-    background-position:0 0,0 14px,14px -14px,-14px 0;
-    overflow:hidden;border-bottom:2px solid #1a2540;
-  }
-  .room{position:absolute;border:3px solid var(--wall);background:rgba(10,14,26,.55);border-radius:2px}
-  .room .label{position:absolute;top:4px;left:8px;font-size:11px;letter-spacing:1px;color:var(--dim)}
-  .room.critic{top:14px;left:16px;width:200px;height:160px;border-color:#ff3ea5}
+  /* ─ sidebar ───────────────────────────────────────────────────────── */
+  .nav-item{display:flex;align-items:center;gap:8px;padding:8px 14px;color:var(--dim);cursor:pointer;font-size:12px;text-decoration:none;border-left:2px solid transparent;transition:all .15s}
+  .nav-item:hover{background:rgba(255,255,255,.03);color:var(--ink)}
+  .nav-item.active{color:var(--cyan);border-left-color:var(--cyan);background:rgba(0,212,255,.06)}
+  .nav-item .ic{width:14px;flex-shrink:0;opacity:.85}
+  .nav-divider{padding:10px 14px 4px;font-size:9px;color:var(--soft);letter-spacing:1.5px;text-transform:uppercase}
+  .nav-projects{flex:1;overflow-y:auto;min-height:40px}
+  .nav-project{padding:6px 14px 6px 30px;color:var(--dim);font-size:11px;cursor:pointer;border-left:2px solid transparent}
+  .nav-project:hover{background:rgba(255,255,255,.03);color:var(--ink)}
+  .nav-project.active{color:var(--cyan);border-left-color:var(--cyan)}
+  .nav-project-new{padding:6px 14px 6px 30px;color:var(--soft);font-size:11px;cursor:pointer;border-left:2px solid transparent;font-style:italic}
+  .nav-project-new:hover{color:var(--cyan)}
+
+  /* ─ office ────────────────────────────────────────────────────────── */
+  .room{position:absolute;border:2px solid var(--wall);background:rgba(10,14,26,.55);border-radius:2px}
+  .room .label{position:absolute;top:4px;left:8px;font-size:10px;letter-spacing:1px;color:var(--dim)}
+  .room.critic{top:12px;left:16px;width:180px;height:140px;border-color:#ff3ea5}
   .room.critic .label{color:#ff3ea5}
-  .room.meeting{top:14px;left:232px;right:232px;height:160px;border-color:var(--cyan)}
+  .room.meeting{top:12px;left:208px;right:208px;height:140px;border-color:var(--cyan)}
   .room.meeting .label{color:var(--cyan)}
-  .room.archive{top:14px;right:16px;width:200px;height:160px;border-color:var(--gold)}
+  .room.archive{top:12px;right:16px;width:180px;height:140px;border-color:var(--gold)}
   .room.archive .label{color:var(--gold)}
 
-  .desks{position:absolute;top:200px;left:40px;right:40px;display:grid;grid-template-columns:repeat(3,1fr);grid-gap:24px 40px;padding-top:8px}
-  .desk{position:relative;height:70px;background:linear-gradient(180deg,var(--wood-lt),var(--wood));border-radius:4px;box-shadow:inset 0 -6px 0 rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px;font-size:11px;color:#2b1a0d;font-weight:bold;letter-spacing:1px;transition:box-shadow .3s}
-  .desk .ring{position:absolute;top:-22px;left:50%;transform:translateX(-50%);width:42px;height:42px;border-radius:50%}
-  .desk[data-state="thinking"] .ring,.desk[data-state="working"] .ring{background:radial-gradient(circle,rgba(0,212,255,.35) 40%,rgba(0,212,255,0) 70%);animation:pulse 1.4s ease-in-out infinite}
-  .desk[data-state="done"] .ring{background:radial-gradient(circle,rgba(255,201,74,.55) 40%,rgba(255,201,74,0) 70%)}
+  .desks{position:absolute;top:170px;left:40px;right:40px;display:grid;grid-template-columns:repeat(3,1fr);grid-gap:22px 40px;padding-top:8px}
+  .desk{position:relative;height:66px;background:linear-gradient(180deg,var(--wood-lt),var(--wood));border-radius:4px;box-shadow:inset 0 -6px 0 rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px;font-size:10px;color:#2b1a0d;font-weight:bold;letter-spacing:1px;transition:box-shadow .3s}
+  .desk .ring{position:absolute;top:-22px;left:50%;transform:translateX(-50%);width:42px;height:42px;border-radius:50%;pointer-events:none}
+  .desk[data-state="working"] .ring{background:radial-gradient(circle,rgba(0,212,255,.35) 40%,rgba(0,212,255,0) 70%);animation:pulse 1.4s ease-in-out infinite}
+  .desk[data-state="done"] .ring{background:radial-gradient(circle,rgba(255,201,74,.55) 40%,rgba(255,201,74,0) 70%);animation:done-flash 1.8s ease-out}
   .desk[data-state="error"] .ring{background:radial-gradient(circle,rgba(255,94,94,.55) 40%,rgba(255,94,94,0) 70%)}
   .desk[data-state="idle"] .ring{background:none}
-  .desk .badge{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:11px;border:2px solid var(--panel)}
+  .desk .badge{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;background:var(--bg);display:none;align-items:center;justify-content:center;font-size:10px;border:2px solid var(--panel)}
+  .desk[data-state="done"] .badge,.desk[data-state="error"] .badge{display:flex}
   .desk[data-state="done"] .badge{background:var(--gold);color:#111;border-color:var(--gold)}
   .desk[data-state="done"] .badge::before{content:"✓"}
   .desk[data-state="error"] .badge{background:var(--red);color:#fff;border-color:var(--red)}
   .desk[data-state="error"] .badge::before{content:"!"}
-  .desk .pct{position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);font-size:9px;color:var(--cyan)}
+  .desk .level-badge{position:absolute;top:-4px;left:-4px;min-width:22px;height:16px;padding:0 4px;border-radius:8px;background:linear-gradient(135deg,#ffc94a,#ff8a00);color:#1a0f00;font-size:9px;font-weight:bold;display:none;align-items:center;justify-content:center;border:1px solid var(--panel)}
+  body.show-xp .desk .level-badge{display:flex}
+  @keyframes done-flash{0%{filter:brightness(1.6)}100%{filter:brightness(1)}}
 
-  .ceo-desk{position:absolute;left:50%;transform:translateX(-50%);bottom:82px;width:320px;height:54px;background:linear-gradient(180deg,#8a623b,#5c3f22);border-radius:4px 4px 0 0;box-shadow:inset 0 -8px 0 rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:12px;color:#ffe8b8;letter-spacing:3px;font-weight:bold}
+  .desk.levelup-upgrading{animation:desk-upgrade 2.4s cubic-bezier(.25,.8,.35,1)}
+  @keyframes desk-upgrade{0%{transform:translateY(0) scale(1)}22%{transform:translateY(-6px) scale(1.03);filter:brightness(1.6);box-shadow:inset 0 -6px 0 rgba(0,0,0,.35),0 0 18px rgba(255,201,74,.75)}100%{transform:translateY(0) scale(1);filter:brightness(1)}}
 
-  .tools{position:absolute;left:0;right:0;bottom:10px;display:flex;justify-content:space-around;padding:0 40px}
-  .tool{width:130px;height:60px;background:var(--panel);border:2px solid var(--wall-lt);border-radius:3px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;color:var(--dim);letter-spacing:1px;position:relative;transition:all .3s}
-  .tool .icon{font-size:22px;margin-bottom:2px;filter:grayscale(.3)}
-  .tool.active{border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 14px rgba(0,212,255,.35)}
-  .tool.active .icon{filter:none}
+  .ceo-desk{position:absolute;left:50%;transform:translateX(-50%);bottom:20px;width:260px;height:46px;background:linear-gradient(180deg,#8a623b,#5c3f22);border-radius:4px 4px 0 0;box-shadow:inset 0 -8px 0 rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:11px;color:#ffe8b8;letter-spacing:3px;font-weight:bold}
 
-  /* character */
-  .char{position:absolute;width:34px;height:34px;pointer-events:auto;transition:left .9s ease,top .9s ease,opacity .3s;z-index:5}
+  /* ─ characters ────────────────────────────────────────────────────── */
+  .char{position:absolute;width:30px;height:30px;pointer-events:none;transition:left .7s ease,top .7s ease,opacity .3s;z-index:5}
   .char svg{image-rendering:pixelated;width:100%;height:100%;filter:drop-shadow(0 2px 0 rgba(0,0,0,.5))}
-  .char .nametag{position:absolute;top:34px;left:50%;transform:translateX(-50%);font-size:9px;color:var(--ink);background:rgba(10,14,26,.85);padding:1px 5px;border-radius:2px;white-space:nowrap;border:1px solid #2a3a5c}
-  .bubble{position:absolute;top:-22px;left:50%;transform:translateX(-50%);background:#fff;color:#111;font-size:10px;padding:2px 6px;border-radius:3px;white-space:nowrap;animation:bob 1.8s ease-in-out infinite;max-width:180px;overflow:hidden;text-overflow:ellipsis}
+  .char[data-active="true"] svg{animation:bob 1s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+  .char .nametag{position:absolute;top:30px;left:50%;transform:translateX(-50%);font-size:8px;color:var(--ink);background:rgba(10,14,26,.9);padding:1px 4px;border-radius:2px;white-space:nowrap;border:1px solid #2a3a5c;letter-spacing:.5px}
+  .bubble{position:absolute;bottom:34px;left:50%;transform:translateX(-50%);background:#fff;color:#111;font-size:10px;padding:3px 7px;border-radius:3px;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;z-index:6;animation:bubble-in .2s ease-out}
   .bubble::after{content:'';position:absolute;bottom:-4px;left:50%;transform:translateX(-50%);border:4px solid transparent;border-top-color:#fff}
-  .bubble.think{background:#cfe6ff} .bubble.think::after{border-top-color:#cfe6ff}
-  .bubble.crit{background:#ffd0d0} .bubble.crit::after{border-top-color:#ffd0d0}
-  .bubble.done{background:#ffe3a0} .bubble.done::after{border-top-color:#ffe3a0}
-  @keyframes bob{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,-3px)}}
+  .bubble.think{background:#cfe6ff}.bubble.think::after{border-top-color:#cfe6ff}
+  .bubble.crit{background:#ffd0d0}.bubble.crit::after{border-top-color:#ffd0d0}
+  .bubble.done{background:#ffe3a0}.bubble.done::after{border-top-color:#ffe3a0}
+  @keyframes bubble-in{from{opacity:0;transform:translateX(-50%) translateY(4px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 
-  .legend{position:absolute;left:14px;bottom:14px;display:flex;flex-direction:column;gap:4px;font-size:10px;color:var(--dim);background:rgba(10,14,26,.7);padding:8px;border:1px solid #2a3a5c;border-radius:3px;z-index:20}
-  .legend b{color:var(--ink)}
-  .legend .sw{display:inline-block;width:10px;height:10px;margin-right:4px;border-radius:2px;vertical-align:middle}
-
-  /* right sidebar (vertical stack) */
-  .bottom{display:grid;grid-template-rows:1.6fr 1fr 1fr;gap:1px;background:#1a2030;border-left:2px solid #1a2540;overflow:hidden}
-  .panel{background:var(--bg-2);padding:14px 16px;overflow-y:auto;min-height:0}
-  .panel h3{margin:0 0 10px;font-size:13px;color:var(--cyan);letter-spacing:2px;border-bottom:1px solid #2a3a5c;padding-bottom:6px;display:flex;justify-content:space-between}
-  .panel h3 .sub{color:var(--dim);font-weight:normal;font-size:11px;letter-spacing:1px}
-
-  .msg{margin-bottom:9px;font-size:14px;line-height:1.55;word-wrap:break-word}
-  .msg.user{color:var(--ink)}
-  .msg.sys{color:var(--dim);font-size:12px}
-  .msg.err{color:var(--red);font-size:12px}
-  .msg.ok{color:var(--green);font-size:12px}
-  .msg .who{display:inline-block;padding:1px 7px;margin-right:6px;border-radius:2px;background:#1f2a42;color:var(--cyan);font-size:11px;letter-spacing:1px}
-  .msg.user .who{background:var(--cyan);color:#000}
-  .msg.err .who{background:var(--red);color:#fff}
-  .msg.ok .who{background:var(--green);color:#000}
-
-  .input{margin-top:10px;display:flex;gap:8px;position:sticky;bottom:0;background:var(--bg-2);padding-top:10px}
-  .input textarea{flex:1;background:#0b1020;border:1px solid #2a3a5c;color:var(--ink);padding:10px 12px;font-family:inherit;font-size:14px;line-height:1.5;border-radius:2px;resize:none;height:120px}
-  .input .col{display:flex;flex-direction:column;gap:6px}
-  .input button{background:var(--cyan);border:none;color:#000;padding:0 14px;font-weight:bold;letter-spacing:1px;font-family:inherit;cursor:pointer;border-radius:2px;font-size:12px;height:56px}
-  .input button.demo{background:#2a3a5c;color:var(--ink);height:56px}
-
-  .pmo-item{font-size:13px;margin-bottom:6px;padding:8px 10px;background:#0b1020;border-left:3px solid #2a3a5c;display:flex;justify-content:space-between;gap:8px;transition:all .3s}
-  .pmo-item[data-state="done"]{border-left-color:var(--gold);color:var(--dim)}
-  .pmo-item[data-state="working"]{border-left-color:var(--cyan);color:var(--cyan)}
-  .pmo-item[data-state="pending"]{border-left-color:#2a3a5c;color:var(--dim)}
-  .pmo-item[data-state="error"]{border-left-color:var(--red);color:var(--red)}
-  .pmo-item .eta{font-size:10px;color:var(--dim)}
-
-  .critic-box{padding:8px;background:#2a1220;border:1px solid var(--magenta);border-radius:2px;font-size:11px;line-height:1.5}
-  .critic-box.pass{background:#0d2218;border-color:var(--green)}
-  .critic-box .verdict{display:inline-block;padding:1px 8px;background:var(--magenta);color:#fff;font-size:10px;letter-spacing:1px;margin-bottom:4px}
-  .critic-box.pass .verdict{background:var(--green);color:#000}
-  .critic-box .issue{color:#ffc0d8;padding-left:10px;position:relative;margin-top:4px;font-size:10px}
-  .critic-box .issue::before{content:'▸';position:absolute;left:0;color:var(--magenta)}
-  .critic-box.pass .issue{color:#b4f0c5}
-  .critic-box.pass .issue::before{color:var(--green)}
-
-  .briefing{padding:8px;background:#0b1020;border:1px solid var(--gold);border-radius:2px;font-size:11px;line-height:1.5;margin-top:10px}
-  .briefing h4{margin:0 0 4px;color:var(--gold);font-size:11px;letter-spacing:1px}
-  .briefing .metric{display:flex;justify-content:space-between;margin-top:3px;font-size:10px;color:var(--dim)}
-  .briefing .metric b{color:var(--gold)}
-  .briefing ul{margin:4px 0;padding-left:16px;font-size:10px}
-  .briefing .sec{margin-top:6px}
-  .briefing .sec b{color:var(--gold);font-size:10px;letter-spacing:1px}
-
-  .empty{color:var(--dim);font-size:11px;font-style:italic;padding:14px 0;text-align:center}
-
-  /* ── 회의실 3-AI 앙상블 trio ────────────────────────────────────────── */
-  .ai-trio{position:absolute;top:48px;left:0;right:0;display:flex;justify-content:space-around;align-items:flex-end;padding:0 18px;pointer-events:none;height:90px}
-  .ai-trio .ai-seat{position:relative;width:48px;height:78px;display:flex;flex-direction:column;align-items:center;opacity:.35;transition:opacity .3s,transform .3s}
-  .ai-trio .ai-seat.active{opacity:1;transform:translateY(-4px)}
-  .ai-trio .ai-seat.active::before{content:'';position:absolute;inset:-4px;border-radius:50%;background:radial-gradient(closest-side,currentColor 0%,transparent 70%);opacity:.35;animation:aipulse 1.2s ease-in-out infinite;z-index:0}
-  .ai-trio .ai-seat svg{width:34px;height:34px;position:relative;z-index:1}
-  .ai-trio .ai-seat .ai-tag{margin-top:2px;font-size:9px;letter-spacing:1px;font-weight:bold;text-shadow:0 0 4px currentColor;position:relative;z-index:1}
-  .ai-trio .ai-seat[data-ai="claude"]{color:#a855f7}
-  .ai-trio .ai-seat[data-ai="gpt"]{color:#10a37f}
-  .ai-trio .ai-seat[data-ai="gemini"]{color:#4285f4}
-  .ai-trio .ai-seat .ai-bubble{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);background:#0b1020;border:1px solid currentColor;color:#e6e8ef;padding:3px 6px;border-radius:2px;font-size:9px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;display:none;z-index:2}
-  .ai-trio .ai-seat.active .ai-bubble{display:block}
+  /* ─ 3-AI meeting room ─────────────────────────────────────────────── */
+  .ai-trio{position:absolute;top:40px;left:0;right:0;display:flex;justify-content:space-around;align-items:flex-end;padding:0 16px;pointer-events:none;height:80px}
+  .ai-seat{position:relative;width:42px;height:68px;display:flex;flex-direction:column;align-items:center;opacity:.35;transition:opacity .3s,transform .3s}
+  .ai-seat.active{opacity:1;transform:translateY(-3px)}
+  .ai-seat.active::before{content:'';position:absolute;inset:-4px;border-radius:50%;background:radial-gradient(closest-side,currentColor 0%,transparent 70%);opacity:.35;animation:aipulse 1.2s ease-in-out infinite;z-index:0}
+  .ai-seat svg{width:30px;height:30px;position:relative;z-index:1}
+  .ai-seat .ai-tag{margin-top:2px;font-size:8px;letter-spacing:1px;font-weight:bold;text-shadow:0 0 4px currentColor;position:relative;z-index:1}
+  .ai-seat[data-ai="claude"]{color:#a855f7}
+  .ai-seat[data-ai="gpt"]{color:#10a37f}
+  .ai-seat[data-ai="gemini"]{color:#4285f4}
   .room.meeting.consensus{box-shadow:0 0 0 2px var(--cyan) inset,0 0 18px rgba(0,212,255,.45);transition:box-shadow .4s}
   @keyframes aipulse{0%,100%{transform:scale(.92);opacity:.25}50%{transform:scale(1.18);opacity:.55}}
 
-  /* CRITIC 워킹 시 부서 책상 옆 표식 */
+  /* ─ chat panel ────────────────────────────────────────────────────── */
+  .chat-log{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px;min-height:0}
+  .chat-log::-webkit-scrollbar{width:6px}
+  .chat-log::-webkit-scrollbar-thumb{background:var(--wall-lt);border-radius:3px}
+  .chat-empty{color:var(--soft);font-size:11px;font-style:italic;text-align:center;padding:20px 0}
+  .msg{display:flex;flex-direction:column;gap:3px;animation:msg-in .2s ease-out}
+  @keyframes msg-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+  .msg .msg-head{display:flex;align-items:center;gap:6px;font-size:9px;color:var(--dim);letter-spacing:.5px}
+  .msg .msg-head .who{padding:1px 6px;border-radius:2px;background:#1f2a42;color:var(--cyan);font-weight:bold;font-size:9px;letter-spacing:1px}
+  .msg .msg-body{font-size:12px;line-height:1.45;color:var(--ink);padding:6px 10px;border-radius:4px;background:#0b1020;border-left:2px solid var(--wall-lt);word-break:break-word}
+  .msg.user .who{background:var(--cyan);color:#000}
+  .msg.user .msg-body{border-left-color:var(--cyan);background:rgba(0,212,255,.05)}
+  .msg.dept .who{background:var(--dept-color,#1f2a42);color:#fff}
+  .msg.dept .msg-body{border-left-color:var(--dept-color,var(--wall-lt))}
+  .msg.sys .who{background:var(--wall-lt);color:var(--dim)}
+  .msg.sys .msg-body{color:var(--dim);font-size:11px}
+  .msg.err .who{background:var(--red);color:#fff}
+  .msg.err .msg-body{border-left-color:var(--red);color:#ffbcc0}
+  .msg.ceo .who{background:var(--gold);color:#1a0f00}
+  .msg.ceo .msg-body{border-left-color:var(--gold);background:rgba(255,201,74,.05)}
+  .msg.critic .who{background:var(--magenta);color:#fff}
+  .msg.critic .msg-body{border-left-color:var(--magenta)}
+  .msg .msg-body ul{margin:4px 0;padding-left:18px}
+  .msg .msg-body ul li{margin:2px 0;font-size:11px;color:var(--ink)}
+  .msg .msg-body .sub-sec{margin-top:4px;font-size:10px;color:var(--dim);font-weight:bold;letter-spacing:.5px}
+
+  .chat-input{padding:10px;border-top:1px solid #1a2540;background:#06090f;display:flex;flex-direction:column;gap:6px}
+  .chat-input textarea{width:100%;background:#0b1020;border:1px solid #2a3a5c;color:var(--ink);padding:8px 10px;font-family:inherit;font-size:13px;line-height:1.45;border-radius:3px;resize:none;height:70px}
+  .chat-input textarea:focus{outline:none;border-color:var(--cyan)}
+  .chat-input .hint{font-size:9px;color:var(--soft);display:flex;justify-content:space-between;align-items:center}
+  .chat-input .hint kbd{background:var(--wall-lt);padding:1px 4px;border-radius:2px;color:var(--ink);font-size:9px}
+  .chat-input button{background:var(--cyan);border:none;color:#000;padding:6px 12px;font-family:inherit;font-weight:bold;font-size:11px;letter-spacing:1px;cursor:pointer;border-radius:2px}
+  .chat-input button:disabled{background:var(--soft);cursor:not-allowed}
+  .chat-input button.stop{background:var(--red);color:#fff}
+
+  /* ─ settings panel (hidden drawer) ────────────────────────────────── */
+  .settings{position:absolute;top:48px;right:10px;background:var(--panel);border:1px solid var(--wall-lt);border-radius:4px;padding:12px;font-size:11px;z-index:50;display:none;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+  .settings.open{display:block}
+  .settings h4{margin:0 0 8px;font-size:10px;color:var(--cyan);letter-spacing:1px}
+  .settings label{display:flex;align-items:center;gap:8px;margin:6px 0;cursor:pointer;color:var(--ink)}
+  .settings label input{accent-color:var(--cyan)}
+
+  /* ─ critic walk highlight ─────────────────────────────────────────── */
   .desk.under-review{box-shadow:0 0 0 2px #ff3ea5 inset,0 0 14px rgba(255,62,165,.4);animation:reviewscan 1s ease-in-out infinite alternate}
   @keyframes reviewscan{from{box-shadow:0 0 0 2px #ff3ea5 inset,0 0 6px rgba(255,62,165,.2)}to{box-shadow:0 0 0 2px #ff3ea5 inset,0 0 18px rgba(255,62,165,.6)}}
-
-  /* ── Phase 7: 부서 레벨 배지 + 레벨업 연출 ─────────────────────────── */
-  .desk .level-badge{position:absolute;top:-6px;left:-6px;min-width:28px;height:18px;padding:0 5px;border-radius:9px;background:linear-gradient(135deg,#ffc94a,#ff8a00);color:#1a0f00;font-size:10px;font-weight:bold;letter-spacing:.5px;display:flex;align-items:center;justify-content:center;border:2px solid var(--panel);box-shadow:0 2px 4px rgba(0,0,0,.4);z-index:3}
-  .desk .level-badge.lv-high{background:linear-gradient(135deg,#ff3ea5,#ffc94a);color:#2a0011}
-  .desk .level-badge.lv-max{background:linear-gradient(135deg,#00d4ff,#ff3ea5);color:#fff;animation:badge-shimmer 2.2s ease-in-out infinite}
-  @keyframes badge-shimmer{0%,100%{filter:brightness(1)}50%{filter:brightness(1.35) drop-shadow(0 0 6px rgba(255,62,165,.5))}}
-
-  .desk.levelup-upgrading{
-    animation: desk-upgrade 2.6s cubic-bezier(.25,.8,.35,1);
-    z-index: 6;
-  }
-  @keyframes desk-upgrade {
-    0%   { transform:translateY(0)    scale(1);    filter:brightness(1);   box-shadow:inset 0 -6px 0 rgba(0,0,0,.35); }
-    22%  { transform:translateY(-8px) scale(1.04); filter:brightness(1.8); box-shadow:inset 0 -6px 0 rgba(0,0,0,.35), 0 0 22px rgba(255,201,74,.85); }
-    55%  { transform:translateY(-4px) scale(1.02); filter:brightness(1.4); box-shadow:inset 0 -6px 0 rgba(0,0,0,.35), 0 0 18px rgba(255,62,165,.7); }
-    100% { transform:translateY(0)    scale(1);    filter:brightness(1);   box-shadow:inset 0 -6px 0 rgba(0,0,0,.35); }
-  }
-  .desk .levelup-confetti{position:absolute;left:50%;top:-4px;font-size:18px;pointer-events:none;animation:confetti-burst 2.6s ease-out forwards;z-index:8}
-  @keyframes confetti-burst{
-    0%   { opacity:0; transform:translate(-50%,0) scale(.5); }
-    20%  { opacity:1; transform:translate(-50%,-28px) scale(1.25); }
-    100% { opacity:0; transform:translate(-50%,-64px) scale(1); }
-  }
-
-  /* ── Phase 7: 부서 성장 히스토리 타임라인 (오피스 좌하 overlay) ─── */
-  .growth-timeline{
-    position:absolute;left:14px;bottom:88px;width:280px;max-height:180px;
-    background:rgba(10,14,26,.88);border:1px solid #2a3a5c;border-radius:4px;
-    padding:8px 10px;font-size:10px;color:var(--dim);z-index:18;
-    display:flex;flex-direction:column;gap:6px;overflow-y:auto;
-  }
-  .growth-timeline .gt-title{font-size:10px;letter-spacing:1.5px;color:var(--gold);font-weight:bold;margin-bottom:2px;display:flex;justify-content:space-between}
-  .growth-timeline .gt-title .gt-sub{color:var(--dim);font-weight:normal;letter-spacing:.5px}
-  .growth-timeline .gt-row{display:grid;grid-template-columns:72px 1fr 36px;gap:6px;align-items:center;font-size:10px;padding:1px 0}
-  .growth-timeline .gt-row .gt-bar{height:5px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden}
-  .growth-timeline .gt-row .gt-bar i{display:block;height:100%;background:linear-gradient(90deg,rgba(120,180,255,.7),rgba(255,201,74,.9))}
-  .growth-timeline .gt-row .gt-lv{color:var(--gold);font-weight:bold;text-align:right}
-  .growth-timeline .gt-events{margin-top:4px;padding-top:4px;border-top:1px dashed rgba(255,255,255,.08);max-height:68px;overflow-y:auto}
-  .growth-timeline .gt-ev{font-size:10px;padding:1px 0;color:var(--ink)}
-  .growth-timeline .gt-ev .gt-dot{display:inline-block;width:6px;height:6px;background:var(--gold);border-radius:50%;margin-right:5px;vertical-align:middle}
-  .growth-timeline .gt-empty{font-size:10px;color:var(--dim);font-style:italic;text-align:center;padding:4px 0}
 </style>
 </head>
 <body>
@@ -205,21 +161,46 @@
 
   <div class="topbar">
     <span class="logo">◢◤ CORVUS X</span>
-    <span class="proj">프로젝트: <b id="projName">대기 중</b></span>
-    <span class="tag" id="domainTag">도메인: —</span>
-    <span class="tag idle" id="statusTag">● IDLE</span>
+    <span class="status-dot" id="statusDot" title="대기 중"></span>
+    <div class="project-name" id="projectName" title="클릭하면 프로젝트명 편집">신규 프로젝트</div>
     <span class="spacer"></span>
-    <span class="proj">도구 호출: <b id="toolCount">0</b></span>
-    <span class="proj">경과: <b id="elapsed">0초</b></span>
-    <button id="stopBtn" class="stop" style="display:none">■ 중단</button>
+    <button class="icon-btn" id="settingsBtn" title="설정">⚙</button>
   </div>
+
+  <nav class="sidebar">
+    <a href="#" class="nav-item active" id="navNewChat">
+      <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h12v9H5l-3 3V3z"/></svg>
+      새 채팅
+    </a>
+    <div class="nav-divider">프로젝트</div>
+    <div class="nav-projects" id="navProjects">
+      <div class="nav-project-new" id="navProjectNew">+ 새 프로젝트</div>
+    </div>
+    <div class="nav-divider">운영</div>
+    <a href="/?view=dashboard" class="nav-item">
+      <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="5" height="5"/><rect x="9" y="3" width="5" height="5"/><rect x="2" y="10" width="5" height="3"/><rect x="9" y="10" width="5" height="3"/></svg>
+      매출 대시보드
+    </a>
+    <a href="/?view=store-ops" class="nav-item">
+      <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5l1.5-3h9L14 5M2 5v8h12V5M2 5h12M6 8h4"/></svg>
+      매장 운영
+    </a>
+    <a href="/?view=pos" class="nav-item">
+      <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="8" rx="1"/><path d="M5 13h6M8 11v2"/></svg>
+      POS 관리
+    </a>
+    <a href="/?view=risk" class="nav-item">
+      <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2l6 11H2l6-11zM8 7v3M8 12v.5"/></svg>
+      리스크 대응
+    </a>
+  </nav>
 
   <div class="office" id="office">
 
-    <div class="room critic"><div class="label">◢ CRITIC 사무실</div></div>
+    <div class="room critic"><div class="label">◢ CRITIC</div></div>
     <div class="room meeting" id="meetingRoom">
-      <div class="label">◢ 회의실 (PMO · 3-AI 앙상블)</div>
-      <div class="ai-trio" id="aiTrio">
+      <div class="label">◢ 3-AI 회의실</div>
+      <div class="ai-trio">
         <div class="ai-seat" data-ai="claude" id="ai-claude">
           <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
             <rect x="5" y="2" width="6" height="5" fill="#f6d5ad"/>
@@ -228,7 +209,6 @@
             <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
           </svg>
           <div class="ai-tag">CLAUDE</div>
-          <div class="ai-bubble"></div>
         </div>
         <div class="ai-seat" data-ai="gpt" id="ai-gpt">
           <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
@@ -238,7 +218,6 @@
             <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
           </svg>
           <div class="ai-tag">GPT</div>
-          <div class="ai-bubble"></div>
         </div>
         <div class="ai-seat" data-ai="gemini" id="ai-gemini">
           <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
@@ -248,40 +227,17 @@
             <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
           </svg>
           <div class="ai-tag">GEMINI</div>
-          <div class="ai-bubble"></div>
         </div>
       </div>
     </div>
-    <div class="room archive"><div class="label">◢ 자료실 (스레드 · 프로젝트 메모리)</div></div>
+    <div class="room archive"><div class="label">◢ 자료실</div></div>
 
-    <div class="desks" id="desks">
-      <!-- 동적 렌더 (JS) -->
-    </div>
+    <div class="desks" id="desks"><!-- 동적 --></div>
 
     <div class="ceo-desk">👑 CEO DIRECTOR</div>
 
-    <div class="tools">
-      <div class="tool" data-tool="perplexity"><span class="icon">🔎</span>PERPLEXITY</div>
-      <div class="tool" data-tool="regulation"><span class="icon">📚</span>법규 서고</div>
-      <div class="tool" data-tool="memory"><span class="icon">🗄️</span>파일 캐비넷</div>
-      <div class="tool" data-tool="image"><span class="icon">🎨</span>이미지 생성</div>
-      <div class="tool" data-tool="data"><span class="icon">📊</span>데이터 워크</div>
-    </div>
-
-    <!-- 정적 캐릭터: CEO, Critic, PMO -->
-    <div class="char" id="char-ceo" style="left:calc(50% - 17px); bottom:140px;">
-      <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
-        <rect x="5" y="1" width="6" height="1" fill="#ffc94a"/>
-        <rect x="4" y="2" width="8" height="1" fill="#ffc94a"/>
-        <rect x="5" y="3" width="6" height="4" fill="#f6d5ad"/>
-        <rect x="6" y="4" width="1" height="1" fill="#000"/><rect x="9" y="4" width="1" height="1" fill="#000"/>
-        <rect x="4" y="7" width="8" height="6" fill="#6b1f3a"/>
-        <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
-      </svg>
-      <div class="nametag">DIRECTOR</div>
-    </div>
-
-    <div class="char" id="char-critic" style="left:90px; top:80px;">
+    <!-- 정적 캐릭터: CRITIC -->
+    <div class="char" id="char-critic" style="left:70px; top:60px;">
       <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
         <rect x="5" y="2" width="6" height="5" fill="#f6d5ad"/>
         <rect x="6" y="4" width="1" height="1" fill="#000"/><rect x="9" y="4" width="1" height="1" fill="#000"/>
@@ -292,117 +248,103 @@
       <div class="nametag">CRITIC</div>
     </div>
 
-    <div class="char" id="char-pmo" style="left:360px; top:80px;">
-      <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
-        <rect x="5" y="2" width="6" height="5" fill="#f6d5ad"/>
-        <rect x="4" y="7" width="8" height="6" fill="#00d4ff"/>
-        <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
-      </svg>
-      <div class="nametag">PMO</div>
-    </div>
-
-    <div class="legend">
-      <div><b>상태 범례</b></div>
-      <div><span class="sw" style="background:#00d4ff"></span>작업 중</div>
-      <div><span class="sw" style="background:#ffc94a"></span>완료</div>
-      <div><span class="sw" style="background:#ff5e5e"></span>오류</div>
-      <div><span class="sw" style="background:#ff3ea5"></span>Critic 반박</div>
-    </div>
-
-    <!-- Phase 7: 부서 성장 히스토리 타임라인 -->
-    <div class="growth-timeline" id="growthTimeline">
-      <div class="gt-title">◢ 부서 성장 <span class="gt-sub" id="gtSub">대기 중</span></div>
-      <div id="gtRows">
-        <div class="gt-empty">/api/departments/stats 대기…</div>
-      </div>
-      <div class="gt-events" id="gtEvents">
-        <div class="gt-empty">레벨업 이벤트 없음</div>
-      </div>
+    <!-- 설정 드로어 -->
+    <div class="settings" id="settingsPanel">
+      <h4>◢ 표시 옵션</h4>
+      <label><input type="checkbox" id="optShowXp"> XP / 레벨 배지 표시</label>
+      <label><input type="checkbox" id="optVerbose"> 상세 진행 로그 (채팅)</label>
+      <label><input type="checkbox" id="optShowDemo"> DEMO 버튼 (개발용)</label>
     </div>
   </div>
 
-  <div class="bottom">
-
-    <div class="panel" id="chatPanel">
-      <h3>◢ CHAT · 대화 <span class="sub" id="chatSub">대기 중</span></h3>
-      <div id="chatLog">
-        <div class="empty">지시사항을 입력하면 9개 부서가 병렬 실행됩니다.</div>
-      </div>
-      <div class="input">
-        <textarea id="directive" placeholder="예: 케토 김밥 신제품 런칭 전략 분석. 마진 35% 이상, 식약처 규제 확인 필수, MZ 타겟."></textarea>
-        <div class="col">
-          <button id="sendBtn">SEND</button>
-          <button id="demoBtn" class="demo">DEMO</button>
+  <section class="chat">
+    <div class="chat-log" id="chatLog">
+      <div class="chat-empty">지시사항을 입력하면 필요한 부서만 자동으로 움직입니다.</div>
+    </div>
+    <div class="chat-input">
+      <textarea id="directive" placeholder="예) 케토 김밥 신제품 마진 35% 이상으로 런칭하고 싶어. 식약처 규제도 확인해줘."></textarea>
+      <div class="hint">
+        <span><kbd>Enter</kbd> 전송 · <kbd>Shift+Enter</kbd> 줄바꿈</span>
+        <div>
+          <button id="demoBtn" style="display:none;background:var(--wall-lt);color:var(--ink)">DEMO</button>
+          <button id="sendBtn">▶ 실행</button>
+          <button id="stopBtn" class="stop" style="display:none">■ 중단</button>
         </div>
       </div>
     </div>
-
-    <div class="panel">
-      <h3>◢ PMO · 실행 체크리스트 <span class="sub" id="pmoSub">-</span></h3>
-      <div id="pmoList">
-        <div class="empty">PMO 계획은 지시사항 접수 후 생성됩니다.</div>
-      </div>
-    </div>
-
-    <div class="panel">
-      <h3>◢ CRITIC · 브리핑 <span class="sub" id="reviewSub">-</span></h3>
-      <div id="criticBox"><div class="empty">부서 실행 완료 후 Critic이 검증합니다.</div></div>
-      <div id="briefingBox"></div>
-    </div>
-  </div>
+  </section>
 </div>
 
 <script>
 (() => {
-  // ─── 설정 ───────────────────────────────────────────────────────────
+  // ─── 설정 ──────────────────────────────────────────────────────────
   const API_BASE = location.origin.includes('localhost') ? 'http://localhost:8000' : '';
   const DEPTS = [
-    {id:'market',    label:'📊 MARKET',    color:'#00d4ff'},
-    {id:'compete',   label:'🔍 COMPETE',   color:'#f97316'},
-    {id:'legal',     label:'⚖️ LEGAL',     color:'#a855f7'},
-    {id:'finance',   label:'💰 FINANCE',   color:'#ffc94a'},
-    {id:'marketing', label:'📢 MARKETING', color:'#ff3ea5'},
-    {id:'rnd',       label:'🧪 R&D',       color:'#4ade80'},
-    {id:'data',      label:'📈 DATA',      color:'#3b82f6'},
-    {id:'content',   label:'✍️ CONTENT',   color:'#ef4444'},
-    {id:'sns',       label:'📱 SNS',       color:'#ec4899'},
+    {id:'market',    label:'MARKET',    kr:'시장조사', color:'#00d4ff'},
+    {id:'compete',   label:'COMPETE',   kr:'경쟁사',   color:'#f97316'},
+    {id:'legal',     label:'LEGAL',     kr:'법무',     color:'#a855f7'},
+    {id:'finance',   label:'FINANCE',   kr:'재무',     color:'#ffc94a'},
+    {id:'marketing', label:'MARKETING', kr:'마케팅',   color:'#ff3ea5'},
+    {id:'rnd',       label:'R&D',       kr:'R&D',      color:'#4ade80'},
+    {id:'data',      label:'DATA',      kr:'데이터',   color:'#3b82f6'},
+    {id:'content',   label:'CONTENT',   kr:'콘텐츠',   color:'#ef4444'},
+    {id:'sns',       label:'SNS',       kr:'SNS',      color:'#ec4899'},
   ];
+  const DEPT_BY_ID = Object.fromEntries(DEPTS.map(d => [d.id, d]));
 
-  // ─── 상태 ───────────────────────────────────────────────────────────
+  const LS_PROJECT_KEY = 'corvus-x-office.current-project';
+  const LS_PROJECTS_KEY = 'corvus-x-office.projects';
+  const LS_OPTS_KEY = 'corvus-x-office.options';
+
+  // ─── 상태 ──────────────────────────────────────────────────────────
   const state = {
     eventSource: null,
     startTime: 0,
-    elapsedTimer: null,
-    toolCallCount: 0,
-    sessionId: null,
-    deptStates: {},    // deptId → {state, percent, model}
     running: false,
+    currentProject: loadProject(),
+    projects: loadProjects(),
+    options: loadOptions(),
+    deptProgressBubbles: {},   // deptId → last bubble text (중복 방지)
   };
 
-  // ─── DOM refs ───────────────────────────────────────────────────────
+  // ─── DOM refs ──────────────────────────────────────────────────────
   const $ = (id) => document.getElementById(id);
   const dom = {
-    projName: $('projName'),
-    domainTag: $('domainTag'),
-    statusTag: $('statusTag'),
-    toolCount: $('toolCount'),
-    elapsed: $('elapsed'),
+    statusDot: $('statusDot'),
+    projectName: $('projectName'),
+    settingsBtn: $('settingsBtn'),
+    settingsPanel: $('settingsPanel'),
     desks: $('desks'),
     office: $('office'),
     chatLog: $('chatLog'),
-    chatSub: $('chatSub'),
-    pmoList: $('pmoList'),
-    pmoSub: $('pmoSub'),
-    criticBox: $('criticBox'),
-    briefingBox: $('briefingBox'),
-    reviewSub: $('reviewSub'),
     directive: $('directive'),
     sendBtn: $('sendBtn'),
     demoBtn: $('demoBtn'),
     stopBtn: $('stopBtn'),
+    navNewChat: $('navNewChat'),
+    navProjects: $('navProjects'),
+    navProjectNew: $('navProjectNew'),
+    optShowXp: $('optShowXp'),
+    optVerbose: $('optVerbose'),
+    optShowDemo: $('optShowDemo'),
   };
 
-  // ─── 책상/캐릭터 초기 렌더 ───────────────────────────────────────────
+  // ─── 초기화 ────────────────────────────────────────────────────────
+  function init() {
+    renderDesks();
+    setTimeout(positionAtHome, 50);
+    renderProjectName();
+    renderProjectsNav();
+    applyOptions();
+    bindEvents();
+    setTimeout(() => {
+      fetchDeptStats();
+      setInterval(fetchDeptStats, 30_000);
+      connectDeptWs();
+    }, 300);
+  }
+
+  // ─── 책상/캐릭터 ───────────────────────────────────────────────────
   function renderDesks() {
     dom.desks.innerHTML = '';
     DEPTS.forEach(d => {
@@ -410,14 +352,13 @@
       el.className = 'desk';
       el.dataset.dept = d.id;
       el.dataset.state = 'idle';
-      el.innerHTML = `<div class="ring"></div>${d.label}<div class="badge"></div><div class="pct"></div>`;
+      el.innerHTML = `<div class="ring"></div><span style="color:${d.color};text-shadow:0 0 2px rgba(0,0,0,.5)">${d.label}</span><div class="badge"></div><div class="level-badge"></div>`;
       dom.desks.appendChild(el);
 
-      // 캐릭터 생성 (책상 위)
       const char = document.createElement('div');
       char.className = 'char';
       char.id = 'char-' + d.id;
-      char.dataset.homeDept = d.id;
+      char.dataset.active = 'false';
       char.innerHTML = `
         <svg viewBox="0 0 16 16" shape-rendering="crispEdges">
           <rect x="5" y="2" width="6" height="5" fill="#f6d5ad"/>
@@ -425,12 +366,10 @@
           <rect x="4" y="7" width="8" height="6" fill="${d.color}"/>
           <rect x="5" y="13" width="2" height="3" fill="#1a1a2e"/><rect x="9" y="13" width="2" height="3" fill="#1a1a2e"/>
         </svg>
-        <div class="nametag">${d.label.split(' ')[1] || d.id.toUpperCase()}</div>
+        <div class="nametag">${d.kr}</div>
       `;
       dom.office.appendChild(char);
     });
-    // 캐릭터 홈 좌표 세팅
-    setTimeout(positionAtHome, 50);
   }
 
   function positionAtHome() {
@@ -440,21 +379,18 @@
       if (!desk || !char) return;
       const rect = desk.getBoundingClientRect();
       const officeRect = dom.office.getBoundingClientRect();
-      char.style.left = (rect.left - officeRect.left + rect.width/2 - 17) + 'px';
-      char.style.top = (rect.top - officeRect.top - 20) + 'px';
+      char.style.left = (rect.left - officeRect.left + rect.width/2 - 15) + 'px';
+      char.style.top  = (rect.top  - officeRect.top - 18) + 'px';
     });
   }
   window.addEventListener('resize', positionAtHome);
 
-  // ─── 캐릭터 이동/상태 ────────────────────────────────────────────────
-  function setDeptState(deptId, stateName, extras={}) {
+  function setDeptState(deptId, stateName) {
     const desk = dom.desks.querySelector(`.desk[data-dept="${deptId}"]`);
     if (!desk) return;
     desk.dataset.state = stateName;
-    if (extras.percent !== undefined) {
-      desk.querySelector('.pct').textContent = extras.percent + '%';
-    }
-    state.deptStates[deptId] = {state: stateName, ...extras};
+    const char = document.getElementById('char-' + deptId);
+    if (char) char.dataset.active = (stateName === 'working') ? 'true' : 'false';
   }
 
   function setBubble(charId, text, kind='think') {
@@ -466,86 +402,39 @@
       char.appendChild(bubble);
     }
     bubble.className = 'bubble ' + kind;
-    bubble.textContent = text;
+    bubble.textContent = text.slice(0, 32);
     bubble.title = text;
   }
   function clearBubble(charId) {
-    const char = document.getElementById(charId);
-    const b = char?.querySelector('.bubble');
+    const b = document.getElementById(charId)?.querySelector('.bubble');
     if (b) b.remove();
   }
 
-  function moveCharToTool(deptId, toolKey) {
-    const tool = document.querySelector(`.tool[data-tool="${toolKey}"]`);
-    const char = document.getElementById('char-' + deptId);
-    if (!tool || !char) return;
-    tool.classList.add('active');
-    const tRect = tool.getBoundingClientRect();
-    const oRect = dom.office.getBoundingClientRect();
-    char.style.left = (tRect.left - oRect.left + tRect.width/2 - 17) + 'px';
-    char.style.top = (tRect.top - oRect.top - 30) + 'px';
-    state.toolCallCount++;
-    dom.toolCount.textContent = state.toolCallCount;
-    // 몇 초 후 복귀
+  // ─── 3-AI 앙상블 연출 ──────────────────────────────────────────────
+  function modelToAi(model) {
+    const m = String(model || '').toLowerCase();
+    if (m.includes('claude') || m.includes('opus') || m.includes('sonnet')) return 'claude';
+    if (m.includes('gpt') || m.includes('openai') || m.match(/^o[134]/)) return 'gpt';
+    if (m.includes('gemini') || m.includes('google')) return 'gemini';
+    return null;
+  }
+  function ensembleStart() {
+    document.getElementById('meetingRoom')?.classList.add('consensus');
+    ['claude','gpt','gemini'].forEach(ai => document.getElementById('ai-' + ai)?.classList.add('active'));
+  }
+  function ensembleVoice(model) {
+    const ai = modelToAi(model);
+    if (ai) document.getElementById('ai-' + ai)?.classList.add('active');
+  }
+  function ensembleDone() {
     setTimeout(() => {
-      tool.classList.remove('active');
-      const desk = dom.desks.querySelector(`.desk[data-dept="${deptId}"]`);
-      if (desk) {
-        const dRect = desk.getBoundingClientRect();
-        char.style.left = (dRect.left - oRect.left + dRect.width/2 - 17) + 'px';
-        char.style.top = (dRect.top - oRect.top - 20) + 'px';
-      }
+      document.getElementById('meetingRoom')?.classList.remove('consensus');
+      ['claude','gpt','gemini'].forEach(ai => document.getElementById('ai-' + ai)?.classList.remove('active'));
     }, 3000);
   }
 
-  // ─── 3-AI 앙상블 회의실 연출 ─────────────────────────────────────────
-  // payload.model을 AI seat key로 정규화
-  function modelToAi(model) {
-    const m = String(model || '').toLowerCase();
-    if (m.includes('claude') || m.includes('opus') || m.includes('sonnet') || m.includes('haiku')) return 'claude';
-    if (m.includes('gpt') || m.includes('openai') || m.includes('o1') || m.includes('o3') || m.includes('o4')) return 'gpt';
-    if (m.includes('gemini') || m.includes('imagen') || m.includes('google')) return 'gemini';
-    return null;
-  }
-  function ensembleStart(reason) {
-    const room = document.getElementById('meetingRoom');
-    if (room) room.classList.add('consensus');
-    ['claude','gpt','gemini'].forEach(ai => {
-      const seat = document.getElementById('ai-' + ai);
-      if (!seat) return;
-      seat.classList.add('active');
-      const b = seat.querySelector('.ai-bubble');
-      if (b) b.textContent = reason ? reason.slice(0,40) : '초안 작성 중…';
-    });
-    logMsg('ENSEMBLE', `3-AI 앙상블 시작 · ${reason || ''}`, 'ok');
-  }
-  function ensembleVoice(model, text) {
-    const ai = modelToAi(model);
-    if (!ai) return;
-    const seat = document.getElementById('ai-' + ai);
-    if (!seat) return;
-    seat.classList.add('active');
-    const b = seat.querySelector('.ai-bubble');
-    if (b && text) b.textContent = String(text).slice(0,50);
-  }
-  function ensembleDone(verdict) {
-    const room = document.getElementById('meetingRoom');
-    if (room) {
-      room.classList.add('consensus');
-      setTimeout(() => room.classList.remove('consensus'), 800);
-    }
-    ['claude','gpt','gemini'].forEach(ai => {
-      const seat = document.getElementById('ai-' + ai);
-      if (!seat) return;
-      const b = seat.querySelector('.ai-bubble');
-      if (b) b.textContent = verdict ? verdict.slice(0,40) : '통합 완료';
-      // 4초 후 비활성
-      setTimeout(() => { seat.classList.remove('active'); if (b) b.textContent = ''; }, 4000);
-    });
-  }
-
-  // ─── CRITIC 워킹 — 부서 책상으로 걸어가서 검토 ──────────────────────
-  function criticWalkTo(deptId, summary, isPass) {
+  // ─── CRITIC 이동 ───────────────────────────────────────────────────
+  function criticWalkTo(deptId, isPass) {
     const critic = document.getElementById('char-critic');
     const desk = dom.desks.querySelector(`.desk[data-dept="${deptId}"]`);
     if (!critic) return;
@@ -553,105 +442,94 @@
       desk.classList.add('under-review');
       const dRect = desk.getBoundingClientRect();
       const oRect = dom.office.getBoundingClientRect();
-      critic.style.transition = 'left .9s ease, top .9s ease';
-      critic.style.left = (dRect.left - oRect.left + dRect.width/2 - 17) + 'px';
-      critic.style.top = (dRect.top - oRect.top - 28) + 'px';
+      critic.style.left = (dRect.left - oRect.left + dRect.width/2 - 15) + 'px';
+      critic.style.top  = (dRect.top  - oRect.top - 24) + 'px';
     }
-    setBubble('char-critic', (summary || '검토 중').slice(0,36), isPass ? 'done' : 'crit');
     setTimeout(() => {
       if (desk) desk.classList.remove('under-review');
-      critic.style.left = '90px';
-      critic.style.top = '80px';
-      clearBubble('char-critic');
-    }, 4500);
+      critic.style.left = '70px';
+      critic.style.top = '60px';
+    }, 4200);
   }
 
-  // ─── 채팅 로그 ───────────────────────────────────────────────────────
-  function logMsg(who, text, kind='sys') {
-    // 초기 empty 제거
-    const empty = dom.chatLog.querySelector('.empty');
+  // ─── 채팅 ──────────────────────────────────────────────────────────
+  function addMsg({ who, body, kind = 'sys', deptId = null, html = false }) {
+    const empty = dom.chatLog.querySelector('.chat-empty');
     if (empty) empty.remove();
-    const div = document.createElement('div');
-    div.className = 'msg ' + kind;
-    div.innerHTML = `<span class="who">${who}</span>${escapeHtml(text)}`;
-    dom.chatLog.appendChild(div);
+    const msg = document.createElement('div');
+    msg.className = 'msg ' + kind;
+    if (deptId && DEPT_BY_ID[deptId]) {
+      msg.style.setProperty('--dept-color', DEPT_BY_ID[deptId].color);
+    }
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'msg-body';
+    if (html) bodyEl.innerHTML = body;
+    else bodyEl.textContent = body;
+    msg.innerHTML = `<div class="msg-head"><span class="who">${escapeHtml(who)}</span><span id="ts-${Date.now()}">${nowTime()}</span></div>`;
+    msg.appendChild(bodyEl);
+    dom.chatLog.appendChild(msg);
     dom.chatLog.scrollTop = dom.chatLog.scrollHeight;
+    return msg;
+  }
+  function nowTime() {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   }
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
-  // ─── PMO 체크리스트 ─────────────────────────────────────────────────
-  function renderPmoPlan(plan) {
-    dom.pmoList.innerHTML = '';
-    dom.pmoSub.textContent = `${plan.taskChecklist?.length ?? 0}개 작업`;
-    (plan.taskChecklist || []).forEach(t => {
-      const el = document.createElement('div');
-      el.className = 'pmo-item';
-      el.dataset.state = 'pending';
-      el.dataset.dept = t.deptId;
-      el.innerHTML = `<span>${deptLabel(t.deptId)} · ${escapeHtml(t.objective)}</span><span class="eta">${t.etaMinutes||0}분</span>`;
-      dom.pmoList.appendChild(el);
-    });
-  }
-  function updatePmoState(deptId, newState, extraEta) {
-    const el = dom.pmoList.querySelector(`.pmo-item[data-dept="${deptId}"]`);
-    if (!el) return;
-    el.dataset.state = newState;
-    if (extraEta) {
-      const eta = el.querySelector('.eta');
-      if (eta) eta.textContent = extraEta;
+  function renderDeptReport(deptId, report) {
+    const d = DEPT_BY_ID[deptId];
+    const name = d ? `${d.kr}팀` : deptId;
+    const structured = report?.structured;
+
+    let body = '';
+    if (structured?.summary) body += escapeHtml(structured.summary);
+    if (structured?.keyFindings?.length) {
+      body += '<div class="sub-sec">핵심</div><ul>' +
+        structured.keyFindings.slice(0, 4).map(s => `<li>${escapeHtml(s)}</li>`).join('') + '</ul>';
     }
-  }
-  function deptLabel(id) {
-    const d = DEPTS.find(x => x.id === id);
-    return d ? d.label : id;
-  }
-
-  // ─── Critic / Briefing 렌더 ──────────────────────────────────────────
-  function renderCritic(review) {
-    const cls = review.verdict === 'pass' ? 'pass' : '';
-    const vtxt = review.verdict === 'pass' ? 'PASS' : 'NEEDS FOLLOWUP';
-    const issues = (review.keyIssues || []).concat(review.contradictions || []).slice(0,5);
-    const needs = (review.verificationNeeded || []).slice(0,3);
-    dom.criticBox.innerHTML = `
-      <div class="critic-box ${cls}">
-        <span class="verdict">${vtxt}</span>
-        <div>${escapeHtml(review.summary || '')}</div>
-        ${issues.map(i => `<div class="issue">${escapeHtml(i)}</div>`).join('')}
-        ${needs.length ? '<div class="issue" style="margin-top:6px;font-weight:bold">검증 필요:</div>' : ''}
-        ${needs.map(i => `<div class="issue">${escapeHtml(i)}</div>`).join('')}
-        <div style="margin-top:6px;color:#aaa">Critic 신뢰도: ${(review.confidence*100).toFixed(0)}%</div>
-      </div>
-    `;
-    dom.reviewSub.textContent = vtxt;
-    // Critic 캐릭터 이동 연출
-    const critic = document.getElementById('char-critic');
-    if (critic) {
-      setBubble('char-critic', review.summary?.slice(0,40) || '검토 완료', review.verdict === 'pass' ? 'done' : 'crit');
-      critic.style.left = '50%';
-      critic.style.top = '80px';
-      setTimeout(() => { critic.style.left = '90px'; clearBubble('char-critic'); }, 5000);
+    if (structured?.risks?.length) {
+      body += '<div class="sub-sec">리스크</div><ul>' +
+        structured.risks.slice(0, 3).map(s => `<li>${escapeHtml(s)}</li>`).join('') + '</ul>';
     }
+    if (!body && report?.sections?.[0]) {
+      const first = report.sections[0];
+      body = `<div class="sub-sec">${escapeHtml(first.heading)}</div><ul>` +
+        (first.items || []).slice(0, 4).map(s => `<li>${escapeHtml(s)}</li>`).join('') + '</ul>';
+    }
+    if (!body) body = '(보고 내용 없음)';
+    addMsg({ who: name, body, kind: 'dept', deptId, html: true });
   }
 
-  function renderBriefing(b) {
-    const opps = (b.opportunities||[]).slice(0,5);
-    const risks = (b.risks||[]).slice(0,5);
-    const recs = (b.recommendations||[]).slice(0,5);
-    dom.briefingBox.innerHTML = `
-      <div class="briefing">
-        <h4>◢ CEO BRIEFING</h4>
-        <div style="color:var(--ink);font-size:11px">${escapeHtml(b.summary || '')}</div>
-        <div class="sec"><b>기회</b><ul>${opps.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul></div>
-        <div class="sec"><b>리스크</b><ul>${risks.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul></div>
-        <div class="sec"><b>권고</b><ul>${recs.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul></div>
-        <div class="metric"><span>통합 신뢰도</span><b>${((b.overallConfidence||0)*100).toFixed(0)}%</b></div>
-      </div>
-    `;
+  function renderCeoBriefing(b) {
+    let body = '';
+    if (b.summary) body += escapeHtml(b.summary);
+    if (b.opportunities?.length) {
+      body += '<div class="sub-sec">기회</div><ul>' + b.opportunities.slice(0, 3).map(s => `<li>${escapeHtml(s)}</li>`).join('') + '</ul>';
+    }
+    if (b.risks?.length) {
+      body += '<div class="sub-sec">리스크</div><ul>' + b.risks.slice(0, 3).map(s => `<li>${escapeHtml(s)}</li>`).join('') + '</ul>';
+    }
+    if (b.recommendations?.length) {
+      body += '<div class="sub-sec">권고</div><ul>' + b.recommendations.slice(0, 3).map(s => `<li>${escapeHtml(s)}</li>`).join('') + '</ul>';
+    }
+    if (typeof b.overallConfidence === 'number') {
+      body += `<div class="sub-sec">신뢰도 ${Math.round(b.overallConfidence * 100)}%</div>`;
+    }
+    addMsg({ who: 'CEO', body: body || '통합 브리핑', kind: 'ceo', html: true });
   }
 
-  // ─── SSE 이벤트 핸들러 ───────────────────────────────────────────────
+  function renderCriticReview(r) {
+    const verdict = r?.verdict === 'pass' ? '✅ PASS' : '⚠️ 보강 필요';
+    let body = `<b>${verdict}</b><br>${escapeHtml(r?.summary || '')}`;
+    const issues = (r?.keyIssues || []).concat(r?.contradictions || []).slice(0, 3);
+    if (issues.length) body += '<ul>' + issues.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    addMsg({ who: 'CRITIC', body, kind: 'critic', html: true });
+  }
+
+  // ─── SSE 핸들러 ────────────────────────────────────────────────────
   function onEvent(ev) {
     let payload;
     try { payload = JSON.parse(ev.data); } catch { return; }
@@ -659,431 +537,307 @@
 
     switch (type) {
       case 'mission_start':
-        logMsg('DIRECTOR', `미션 분해 완료. 주제: ${payload.topic} · 도메인: ${payload.domain} · 부서 ${payload.deptCount}개`, 'ok');
-        dom.projName.textContent = payload.topic || '실행 중';
-        dom.domainTag.textContent = `도메인: ${payload.domain}`;
+        if (state.options.verbose) addMsg({ who: '시스템', body: `미션 분해 · 도메인 ${payload.domain} · ${payload.deptCount}개 부서 검토`, kind: 'sys' });
         break;
 
       case 'pmo_plan':
-        logMsg('PMO', `실행 계획 수립 · 체크리스트 ${payload.plan?.taskChecklist?.length||0}개 · 성공 기준 ${payload.plan?.successCriteria?.length||0}개`, 'ok');
-        renderPmoPlan(payload.plan);
-        setBubble('char-pmo', '계획 수립', 'think');
-        setTimeout(() => clearBubble('char-pmo'), 3000);
+        if (state.options.verbose) addMsg({ who: 'PMO', body: `실행 계획 ${payload.plan?.taskChecklist?.length || 0}건 · 성공 기준 ${payload.plan?.successCriteria?.length || 0}건`, kind: 'sys' });
+        // 계획에 없는 부서는 idle 유지
         break;
 
       case 'dept_start':
-        setDeptState(payload.deptId, 'thinking');
-        updatePmoState(payload.deptId, 'working', '진행 중');
-        logMsg(payload.deptId.toUpperCase(), `시작 · 목표: ${payload.objective?.slice(0,60)||''}`, 'sys');
-        setBubble('char-' + payload.deptId, '💭 ' + (payload.objective?.slice(0,24) || '분석 중'), 'think');
+        setDeptState(payload.deptId, 'working');
+        setBubble('char-' + payload.deptId, payload.objective || '분석 중', 'think');
+        if (state.options.verbose) {
+          const d = DEPT_BY_ID[payload.deptId];
+          addMsg({ who: (d?.kr || payload.deptId) + '팀', body: `시작 · ${payload.objective?.slice(0, 60) || ''}`, kind: 'dept', deptId: payload.deptId });
+        }
         break;
 
       case 'dept_progress':
-        setDeptState(payload.deptId, 'thinking', {percent: payload.percent||0});
-        if (payload.percent) updatePmoState(payload.deptId, 'working', payload.percent + '%');
-        // 도구 호출 감지
-        const msg = (payload.message || '').toLowerCase();
-        if (msg.includes('perplexity') || msg.includes('검색') || msg.includes('search')) moveCharToTool(payload.deptId, 'perplexity');
-        else if (msg.includes('법규') || msg.includes('regulation')) moveCharToTool(payload.deptId, 'regulation');
-        else if (msg.includes('메모리') || msg.includes('recall') || msg.includes('memory')) moveCharToTool(payload.deptId, 'memory');
-        else if (msg.includes('이미지') || msg.includes('image')) moveCharToTool(payload.deptId, 'image');
-        if (payload.message) setBubble('char-' + payload.deptId, payload.message.slice(0,30), 'think');
+        if (payload.message) {
+          const prev = state.deptProgressBubbles[payload.deptId];
+          if (prev !== payload.message) {
+            setBubble('char-' + payload.deptId, payload.message, 'think');
+            state.deptProgressBubbles[payload.deptId] = payload.message;
+          }
+        }
         break;
 
       case 'dept_done':
-        setDeptState(payload.deptId, 'done', {percent: 100});
-        updatePmoState(payload.deptId, 'done', Math.round(payload.durationMs/1000) + '초');
-        logMsg(payload.deptId.toUpperCase(), `✓ 완료 · ${Math.round(payload.durationMs/1000)}초 · 모델: ${payload.model}`, 'ok');
-        setBubble('char-' + payload.deptId, '✓ 완료', 'done');
-        setTimeout(() => clearBubble('char-' + payload.deptId), 4000);
+        setDeptState(payload.deptId, 'done');
+        setBubble('char-' + payload.deptId, '완료', 'done');
+        setTimeout(() => clearBubble('char-' + payload.deptId), 2500);
+        if (payload.report) renderDeptReport(payload.deptId, payload.report);
         break;
 
       case 'dept_error':
         setDeptState(payload.deptId, 'error');
-        updatePmoState(payload.deptId, 'error', 'ERR');
-        logMsg(payload.deptId.toUpperCase(), `✗ 오류: ${payload.error}`, 'err');
-        setBubble('char-' + payload.deptId, '⚠ ' + payload.error.slice(0,20), 'crit');
+        setBubble('char-' + payload.deptId, '오류', 'crit');
+        setTimeout(() => clearBubble('char-' + payload.deptId), 3500);
+        addMsg({ who: (DEPT_BY_ID[payload.deptId]?.kr || payload.deptId) + '팀', body: `오류: ${payload.error || '알 수 없는 오류'}`, kind: 'err' });
         break;
 
       case 'ensemble_start':
-        ensembleStart(payload.reason || payload.task || payload.objective);
-        if (payload.deptId) updatePmoState(payload.deptId, 'running', '앙상블');
+        ensembleStart();
+        if (state.options.verbose) addMsg({ who: '앙상블', body: `3-AI 병렬 분석 시작 · ${payload.reason || ''}`, kind: 'sys' });
         break;
 
       case 'ensemble_voice':
-        ensembleVoice(payload.model, payload.message || payload.text || payload.draft);
-        if (payload.message) logMsg('AI:' + (modelToAi(payload.model)||'?').toUpperCase(), payload.message.slice(0,80), 'sys');
+        ensembleVoice(payload.model);
+        if (state.options.verbose && payload.message) {
+          const ai = modelToAi(payload.model) || '?';
+          addMsg({ who: ai.toUpperCase(), body: payload.message.slice(0, 160), kind: 'sys' });
+        }
         break;
 
       case 'ensemble_done':
-        ensembleDone(payload.verdict || payload.summary || '통합 완료');
-        if (payload.summary) logMsg('ENSEMBLE', payload.summary.slice(0,120), 'ok');
+        ensembleDone();
         break;
 
       case 'critic_review':
-        logMsg('CRITIC', `검증 완료 · ${payload.review?.verdict || ''}`, payload.review?.verdict === 'pass' ? 'ok' : 'err');
-        renderCritic(payload.review);
-        // 부서가 지정된 비평이면 해당 책상으로 워킹
+        renderCriticReview(payload.review);
         if (payload.deptId || payload.review?.targetDeptId) {
-          criticWalkTo(payload.deptId || payload.review.targetDeptId, payload.review?.summary, payload.review?.verdict === 'pass');
+          criticWalkTo(payload.deptId || payload.review.targetDeptId, payload.review?.verdict === 'pass');
         }
         break;
 
       case 'ceo_briefing':
-        logMsg('CEO', '통합 브리핑 생성 완료', 'ok');
-        renderBriefing(payload.briefing);
+        renderCeoBriefing(payload.briefing);
         break;
 
       case 'all_done':
-        logMsg('SYSTEM', `전체 완료 · 라운드 ${payload.roundNumber}`, 'ok');
+        addMsg({ who: '시스템', body: `전체 완료 (라운드 ${payload.roundNumber})`, kind: 'sys' });
         finishRun();
         break;
 
       case 'error':
-        logMsg('ERROR', payload.message, 'err');
+        addMsg({ who: '오류', body: payload.message, kind: 'err' });
         finishRun(true);
         break;
-
-      default:
-        // 알 수 없는 이벤트는 로그만
-        console.log('[SSE]', type, payload);
     }
   }
 
-  // ─── 실행/중단 ──────────────────────────────────────────────────────
+  // ─── 실행/중단 ─────────────────────────────────────────────────────
   function startRun() {
     const directive = dom.directive.value.trim();
-    if (!directive) { alert('지시사항을 입력하세요.'); return; }
+    if (!directive) return;
     if (state.running) return;
 
-    resetRun();
+    addMsg({ who: '나', body: directive, kind: 'user' });
+    resetDeskStates();
     state.running = true;
     state.startTime = Date.now();
-    dom.statusTag.className = 'tag live';
-    dom.statusTag.textContent = '● LIVE';
+    dom.statusDot.className = 'status-dot live';
+    dom.statusDot.title = '실행 중';
+    dom.sendBtn.style.display = 'none';
     dom.stopBtn.style.display = '';
-    dom.sendBtn.disabled = true;
-    logMsg('YOU', directive, 'user');
 
-    state.elapsedTimer = setInterval(() => {
-      const sec = Math.floor((Date.now() - state.startTime)/1000);
-      dom.elapsed.textContent = sec < 60 ? sec + '초' : Math.floor(sec/60) + '분 ' + (sec%60) + '초';
-    }, 1000);
-
+    const projectName = state.currentProject || dom.projectName.textContent.trim() || '신규 프로젝트';
     const url = new URL(API_BASE + '/api/director/stream', location.href);
     url.searchParams.set('directive', directive);
-    url.searchParams.set('projectName', directive.slice(0,40));
+    url.searchParams.set('projectName', projectName);
 
     try {
       const es = new EventSource(url.toString(), { withCredentials: true });
       state.eventSource = es;
-      ['mission_start','pmo_plan','dept_start','dept_progress','dept_done','dept_error','ensemble_start','ensemble_voice','ensemble_done','critic_review','ceo_briefing','all_done','error','stream_end'].forEach(evName => {
-        es.addEventListener(evName, onEvent);
-      });
+      const EVTYPES = ['mission_start','pmo_plan','dept_start','dept_progress','dept_done','dept_error','ensemble_start','ensemble_voice','ensemble_done','critic_review','ceo_briefing','all_done','error','stream_end'];
+      EVTYPES.forEach(name => es.addEventListener(name, onEvent));
       es.onerror = () => {
         if (state.running) {
-          logMsg('SYSTEM', 'SSE 연결 오류 · 재시도 또는 DEMO 모드를 사용하세요.', 'err');
+          addMsg({ who: '시스템', body: '연결 오류 — 잠시 후 다시 시도하세요.', kind: 'err' });
           finishRun(true);
         }
       };
     } catch (err) {
-      logMsg('SYSTEM', 'EventSource 생성 실패: ' + err.message, 'err');
+      addMsg({ who: '시스템', body: 'EventSource 생성 실패: ' + err.message, kind: 'err' });
       finishRun(true);
     }
+
+    dom.directive.value = '';
   }
 
-  function finishRun(isErr=false) {
+  function finishRun(isErr = false) {
     state.running = false;
+    state.deptProgressBubbles = {};
     if (state.eventSource) { state.eventSource.close(); state.eventSource = null; }
-    if (state.elapsedTimer) { clearInterval(state.elapsedTimer); state.elapsedTimer = null; }
-    dom.statusTag.className = 'tag ' + (isErr ? 'err' : 'idle');
-    dom.statusTag.textContent = isErr ? '● ERROR' : '● DONE';
+    dom.statusDot.className = 'status-dot' + (isErr ? ' err' : '');
+    dom.statusDot.title = isErr ? '오류' : '대기 중';
+    dom.sendBtn.style.display = '';
     dom.stopBtn.style.display = 'none';
-    dom.sendBtn.disabled = false;
   }
 
-  function resetRun() {
-    state.toolCallCount = 0;
-    state.deptStates = {};
-    dom.toolCount.textContent = '0';
-    dom.elapsed.textContent = '0초';
-    dom.chatLog.innerHTML = '';
-    dom.pmoList.innerHTML = '<div class="empty">PMO 계획 대기…</div>';
-    dom.criticBox.innerHTML = '<div class="empty">Critic 검증 대기…</div>';
-    dom.briefingBox.innerHTML = '';
-    dom.reviewSub.textContent = '-';
+  function resetDeskStates() {
     DEPTS.forEach(d => {
-      setDeptState(d.id, 'idle', {percent: 0});
-      const desk = dom.desks.querySelector(`.desk[data-dept="${d.id}"]`);
-      if (desk) desk.querySelector('.pct').textContent = '';
+      setDeptState(d.id, 'idle');
       clearBubble('char-' + d.id);
     });
     positionAtHome();
   }
 
-  // ─── DEMO 모드 (백엔드 없이 목업 데이터 재생) ───────────────────────
-  function runDemo() {
-    if (state.running) return;
-    resetRun();
-    dom.directive.value = '케토 김밥 신제품 런칭 전략 분석. 마진 35% 이상, 식약처 규제 확인 필수, MZ 타겟.';
-    state.running = true;
-    state.startTime = Date.now();
-    dom.statusTag.className = 'tag live';
-    dom.statusTag.textContent = '● DEMO';
-    dom.stopBtn.style.display = '';
-    dom.sendBtn.disabled = true;
-    logMsg('YOU', dom.directive.value, 'user');
-    state.elapsedTimer = setInterval(() => {
-      const sec = Math.floor((Date.now()-state.startTime)/1000);
-      dom.elapsed.textContent = sec + '초';
-    }, 1000);
+  // ─── 새 채팅 / 프로젝트 ────────────────────────────────────────────
+  function newChat() {
+    if (state.running) { return; }
+    dom.chatLog.innerHTML = '<div class="chat-empty">지시사항을 입력하면 필요한 부서만 자동으로 움직입니다.</div>';
+    resetDeskStates();
+    dom.directive.value = '';
+    dom.directive.focus();
+  }
 
-    const script = [
-      [300,  {type:'mission_start',topic:'케토 김밥',domain:'food',deptCount:9}],
-      [800,  {type:'pmo_plan',plan:{
-        successCriteria:['규제 준수 확인','마진 35%+','MZ 타겟 근거'],
-        taskChecklist: DEPTS.map((d,i) => ({deptId:d.id,priority:'high',objective:`${d.label} 분석`,deliverable:'리포트',etaMinutes:5+i}))
-      }}],
-      [1200, {type:'dept_start',deptId:'legal',objective:'식약처 규제 확인',model:'claude-opus-4-6'}],
-      [1400, {type:'dept_start',deptId:'data',objective:'트렌드 분석',model:'claude-opus-4-6'}],
-      [1600, {type:'dept_start',deptId:'market',objective:'TAM/SAM/SOM',model:'claude-opus-4-6'}],
-      [1800, {type:'dept_start',deptId:'compete',objective:'경쟁사 스캔',model:'claude-opus-4-6'}],
-      [2000, {type:'dept_start',deptId:'finance',objective:'ROI 예측',model:'gpt-5.4-pro'}],
-      [2200, {type:'dept_start',deptId:'marketing',objective:'STP + 4P',model:'claude-opus-4-6'}],
-      [2400, {type:'dept_start',deptId:'rnd',objective:'레시피 설계',model:'claude-opus-4-6'}],
-      [2600, {type:'dept_start',deptId:'content',objective:'상세페이지 카피',model:'claude-opus-4-6'}],
-      [2800, {type:'dept_start',deptId:'sns',objective:'런칭 캠페인',model:'claude-opus-4-6'}],
-      [3500, {type:'dept_progress',deptId:'market',message:'Perplexity 검색: 케토 간편식 시장',percent:30}],
-      [4000, {type:'dept_progress',deptId:'legal',message:'법규 조회: 식품위생법 §7',percent:45}],
-      [5500, {type:'dept_done',deptId:'legal',model:'claude-opus-4-6',connectors:['regulation'],durationMs:4300}],
-      [6000, {type:'dept_done',deptId:'data',model:'claude-opus-4-6',connectors:['memory'],durationMs:4800}],
-      [7500, {type:'dept_done',deptId:'market',model:'claude-opus-4-6',connectors:['perplexity'],durationMs:5900}],
-      [8000, {type:'dept_error',deptId:'sns',error:'API 타임아웃'}],
-      [8800, {type:'dept_done',deptId:'compete',model:'claude-opus-4-6',connectors:['perplexity'],durationMs:7000}],
-      [9400, {type:'dept_done',deptId:'finance',model:'gpt-5.4-pro',connectors:[],durationMs:7400}],
-      // ── 3-AI 앙상블 회의실 시퀀스 (Marketing STP 고가치 task) ──
-      [9500, {type:'ensemble_start',deptId:'marketing',reason:'Marketing STP — 고가치 3-AI 앙상블'}],
-      [9650, {type:'ensemble_voice',model:'claude-opus-4-6',message:'MZ 타겟 페르소나 3개 도출, 케토 간편식 가치제안 차별화'}],
-      [9800, {type:'ensemble_voice',model:'gpt-5.4-pro',message:'4P 분석: 가격 4,900원 / 편의점 3사 / SNS 챌린지 / 한정판 SKU'}],
-      [9950, {type:'ensemble_voice',model:'gemini-3.1-pro-ultra',message:'장문 시장조사 — 케토 간편식 126% YoY, 단 MZ 데이터 부족'}],
-      [10200,{type:'ensemble_done',verdict:'통합 완료',summary:'3-AI 통합 — STP 골격 합의, MZ 데이터 보강 권고'}],
-      [10400,{type:'dept_done',deptId:'marketing',model:'claude-opus-4-6',connectors:['ensemble'],durationMs:8000}],
-      [10800,{type:'dept_done',deptId:'rnd',model:'claude-opus-4-6',connectors:[],durationMs:8400}],
-      [11400,{type:'dept_done',deptId:'content',model:'claude-opus-4-6',connectors:[],durationMs:8800}],
-      // ── CRITIC 워킹: marketing 책상으로 ──
-      [12000,{type:'critic_review',deptId:'marketing',review:{
-        verdict:'needs_followup',
-        targetDeptId:'marketing',
-        summary:'Marketing STP 근거 부족 + SNS 타임아웃 재시도 필요',
-        keyIssues:['Marketing STP MZ 타겟 외부 데이터 부족','Data 트렌드 126% vs Finance 월 3만개 상충','SNS 재시도 대기'],
-        contradictions:['데이터/재무 가정 상충'],
-        verificationNeeded:['식약처 고시 §7-②(26.3.18 개정) 반영','외부 소비자 조사 데이터'],
-        confidence:0.74
-      }}],
-      [13000,{type:'ceo_briefing',briefing:{
-        summary:'케토 김밥 런칭은 규제/시장 측면 타당. 단, MZ 타겟 근거 보강과 SNS 재실행이 선행 조건.',
-        opportunities:['케토 간편식 트렌드 126% 상승','규제 그린','B2C 배송채널 확대 여지'],
-        risks:['MZ 타겟 근거 데이터 부족','SNS 캠페인 실행 리스크','경쟁사 저가 공세'],
-        recommendations:['외부 소비자 조사 발주','SNS API 대체 경로 확보','초기 물량 30% 축소 테스트 런칭'],
-        overallConfidence:0.78
-      }}],
-      [13800,{type:'all_done',sessionId:'demo',roundNumber:1}],
-    ];
-
-    script.forEach(([delay, payload]) => {
-      setTimeout(() => {
-        if (!state.running) return;
-        onEvent({type: payload.type, data: JSON.stringify(payload)});
-      }, delay);
+  function renderProjectName() {
+    dom.projectName.textContent = state.currentProject || '신규 프로젝트';
+  }
+  function saveProject(name) {
+    const trimmed = (name || '').trim() || '신규 프로젝트';
+    state.currentProject = trimmed;
+    if (!state.projects.includes(trimmed) && trimmed !== '신규 프로젝트') {
+      state.projects.push(trimmed);
+      localStorage.setItem(LS_PROJECTS_KEY, JSON.stringify(state.projects));
+    }
+    localStorage.setItem(LS_PROJECT_KEY, trimmed);
+    renderProjectName();
+    renderProjectsNav();
+  }
+  function loadProject() {
+    try { return localStorage.getItem(LS_PROJECT_KEY) || '신규 프로젝트'; }
+    catch { return '신규 프로젝트'; }
+  }
+  function loadProjects() {
+    try { return JSON.parse(localStorage.getItem(LS_PROJECTS_KEY) || '[]'); }
+    catch { return []; }
+  }
+  function renderProjectsNav() {
+    const list = dom.navProjects;
+    // keep the last "+ 새 프로젝트" button
+    list.innerHTML = '';
+    state.projects.forEach(p => {
+      const item = document.createElement('div');
+      item.className = 'nav-project' + (p === state.currentProject ? ' active' : '');
+      item.textContent = p;
+      item.onclick = () => { saveProject(p); newChat(); };
+      list.appendChild(item);
     });
+    const add = document.createElement('div');
+    add.className = 'nav-project-new';
+    add.textContent = '+ 새 프로젝트';
+    add.onclick = () => {
+      const name = prompt('새 프로젝트 이름');
+      if (name && name.trim()) { saveProject(name.trim()); newChat(); }
+    };
+    list.appendChild(add);
   }
 
-  // ─── 이벤트 바인딩 ───────────────────────────────────────────────────
-  dom.sendBtn.addEventListener('click', startRun);
-  dom.demoBtn.addEventListener('click', runDemo);
-  dom.stopBtn.addEventListener('click', () => { finishRun(); logMsg('SYSTEM','중단됨','err'); });
-  dom.directive.addEventListener('keydown', (e) => {
-    // Enter 단독 → 전송 (SEND 버튼과 동일). Shift+Enter 는 줄바꿈 (기본 동작 유지).
-    // isComposing 체크: 한글 IME 조합 중 Enter 는 조합 확정용이므로 무시.
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-      e.preventDefault();
-      startRun();
-    }
-  });
-
-  // ─── Phase 7: 부서 레벨/성장 연출 ────────────────────────────────────
-  const deptLevelCache = {}; // deptId → { level, xp, tasks_completed, tasks_failed, success_rate, total_cost_usd }
-  const levelupEventLog = []; // {dept_id, previous_level, new_level, ts}
-
-  function levelClass(lv) {
-    if (lv >= 8) return 'lv-max';
-    if (lv >= 4) return 'lv-high';
-    return '';
+  // ─── 옵션 ──────────────────────────────────────────────────────────
+  function loadOptions() {
+    try { return Object.assign({ showXp:false, verbose:false, showDemo:false }, JSON.parse(localStorage.getItem(LS_OPTS_KEY) || '{}')); }
+    catch { return { showXp:false, verbose:false, showDemo:false }; }
+  }
+  function saveOptions() { localStorage.setItem(LS_OPTS_KEY, JSON.stringify(state.options)); }
+  function applyOptions() {
+    dom.optShowXp.checked = state.options.showXp;
+    dom.optVerbose.checked = state.options.verbose;
+    dom.optShowDemo.checked = state.options.showDemo;
+    document.body.classList.toggle('show-xp', !!state.options.showXp);
+    dom.demoBtn.style.display = state.options.showDemo ? '' : 'none';
   }
 
-  function renderLevelBadge(deptId, level) {
-    const desk = dom.desks.querySelector(`.desk[data-dept="${deptId}"]`);
-    if (!desk) return;
-    let badge = desk.querySelector('.level-badge');
-    if (!badge) {
-      badge = document.createElement('div');
-      badge.className = 'level-badge';
-      desk.appendChild(badge);
-    }
-    badge.textContent = 'L' + level;
-    badge.className = 'level-badge ' + levelClass(level);
-  }
-
-  function renderGrowthTimeline() {
-    const rowsEl = document.getElementById('gtRows');
-    const subEl = document.getElementById('gtSub');
-    if (!rowsEl) return;
-
-    const entries = Object.entries(deptLevelCache);
-    if (entries.length === 0) {
-      rowsEl.innerHTML = '<div class="gt-empty">/api/departments/stats 대기…</div>';
-      if (subEl) subEl.textContent = '대기 중';
-      return;
-    }
-    // 활성 부서 중 XP 순 정렬, 상위 6개
-    const sorted = entries
-      .map(([id, s]) => ({ id, ...s }))
-      .filter(r => (r.tasks_completed + r.tasks_failed) > 0)
-      .sort((a, b) => (b.xp||0) - (a.xp||0))
-      .slice(0, 6);
-    if (sorted.length === 0) {
-      rowsEl.innerHTML = '<div class="gt-empty">아직 실행 기록 없음</div>';
-      if (subEl) subEl.textContent = '기록 없음';
-      return;
-    }
-    const maxXp = Math.max(1, ...sorted.map(r => r.xp||0));
-    rowsEl.innerHTML = sorted.map(r => {
-      const pct = Math.min(100, ((r.xp||0) / maxXp) * 100);
-      return `
-        <div class="gt-row">
-          <span>${deptLabel(r.id)}</span>
-          <div class="gt-bar"><i style="width:${pct.toFixed(1)}%"></i></div>
-          <span class="gt-lv">L${r.level}</span>
-        </div>`;
-    }).join('');
-    if (subEl) subEl.textContent = `활성 ${sorted.length}/9`;
-  }
-
-  function renderLevelupLog() {
-    const evEl = document.getElementById('gtEvents');
-    if (!evEl) return;
-    if (levelupEventLog.length === 0) {
-      evEl.innerHTML = '<div class="gt-empty">레벨업 이벤트 없음</div>';
-      return;
-    }
-    evEl.innerHTML = levelupEventLog.slice(-6).reverse().map(ev => {
-      const ts = new Date(ev.ts).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
-      return `<div class="gt-ev"><span class="gt-dot"></span><b>${deptLabel(ev.dept_id)}</b> L${ev.previous_level}→L${ev.new_level} <span style="color:var(--dim);font-size:9px">· ${ts}</span></div>`;
-    }).join('');
-  }
-
-  function playLevelupAnimation(deptId) {
-    const desk = dom.desks.querySelector(`.desk[data-dept="${deptId}"]`);
-    if (!desk) return;
-    desk.classList.remove('levelup-upgrading');
-    // force reflow 로 animation 재시작
-    // eslint-disable-next-line no-void
-    void desk.offsetWidth;
-    desk.classList.add('levelup-upgrading');
-
-    // 콘페티 이모지
-    const conf = document.createElement('div');
-    conf.className = 'levelup-confetti';
-    conf.textContent = '🎉';
-    conf.style.transform = 'translate(-50%, 0)';
-    desk.appendChild(conf);
-    setTimeout(() => {
-      desk.classList.remove('levelup-upgrading');
-      conf.remove();
-    }, 2700);
-  }
-
+  // ─── 부서 레벨/XP (숨김 모드 기본) ────────────────────────────────
+  const deptLevelCache = {};
   async function fetchDeptStats() {
     try {
       const resp = await fetch(API_BASE + '/api/departments/stats', { credentials: 'include' });
       if (!resp.ok) return;
       const data = await resp.json();
-      const depts = Array.isArray(data?.departments) ? data.departments : [];
-      for (const d of depts) {
-        if (!d?.dept_id) continue;
-        deptLevelCache[d.dept_id] = {
-          level: Number(d.level || 0),
-          xp: Number(d.xp || 0),
-          tasks_completed: Number(d.tasks_completed || 0),
-          tasks_failed: Number(d.tasks_failed || 0),
-          success_rate: Number(d.success_rate || 0),
-          total_cost_usd: Number(d.total_cost_usd || 0),
-        };
-        renderLevelBadge(d.dept_id, Number(d.level || 0));
-      }
-      renderGrowthTimeline();
-    } catch (err) {
-      // 조용히 실패 (오피스 UI 는 선택적)
-    }
+      (data.departments || []).forEach(d => {
+        if (!d?.dept_id) return;
+        deptLevelCache[d.dept_id] = d;
+        const badge = dom.desks.querySelector(`.desk[data-dept="${d.dept_id}"] .level-badge`);
+        if (badge) badge.textContent = 'L' + (d.level || 0);
+      });
+    } catch { /* ignore */ }
   }
-
   function connectDeptWs() {
     try {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = location.host.includes(':') ? location.host : (location.host + ':8000');
-      const url = `${protocol}//${host}/ws`;
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(`${protocol}//${host}/ws`);
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(String(ev.data));
           if (msg?.type !== 'dept:levelup') return;
-          const p = msg.payload || {};
-          const deptId = String(p.dept_id || '');
-          if (!deptId) return;
-          const prev = Number(p.previous_level || 0);
-          const next = Number(p.new_level || 0);
-
-          // 캐시 갱신 + 즉시 렌더
-          deptLevelCache[deptId] = {
-            ...(deptLevelCache[deptId] || {}),
-            level: next,
-            xp: Number(p.xp || deptLevelCache[deptId]?.xp || 0),
-          };
-          renderLevelBadge(deptId, next);
-          playLevelupAnimation(deptId);
-
-          levelupEventLog.push({ dept_id: deptId, previous_level: prev, new_level: next, ts: Date.now() });
-          if (levelupEventLog.length > 40) levelupEventLog.shift();
-          renderLevelupLog();
-          renderGrowthTimeline();
-
-          logMsg('LEVELUP', `${deptLabel(deptId)} L${prev} → L${next}`, 'ok');
-
-          // 오래된 level 데이터 보정 위해 stats 재조회
+          const { dept_id, previous_level, new_level } = msg.payload || {};
+          if (!dept_id) return;
+          const desk = dom.desks.querySelector(`.desk[data-dept="${dept_id}"]`);
+          if (desk) {
+            desk.classList.remove('levelup-upgrading');
+            void desk.offsetWidth;
+            desk.classList.add('levelup-upgrading');
+            const badge = desk.querySelector('.level-badge');
+            if (badge) badge.textContent = 'L' + new_level;
+          }
+          // 조용한 축하 — 채팅에 표시 안 함 (설정에서 verbose 켜야 노출)
+          if (state.options.verbose) {
+            const d = DEPT_BY_ID[dept_id];
+            addMsg({ who: '레벨업', body: `${d?.kr || dept_id}팀 L${previous_level} → L${new_level}`, kind: 'sys' });
+          }
           setTimeout(fetchDeptStats, 400);
         } catch { /* ignore */ }
       };
-      ws.onclose = () => {
-        // 3초 후 재연결 (세션이 길어도 끊기지 않도록)
-        setTimeout(connectDeptWs, 3000);
-      };
+      ws.onclose = () => setTimeout(connectDeptWs, 3000);
       ws.onerror = () => { try { ws.close(); } catch {} };
-    } catch {
-      // WS 실패는 치명적이지 않음 — 폴링만으로도 배지/타임라인 갱신됨
-    }
+    } catch { /* ignore */ }
   }
 
-  // 초기 로드 + 30s 폴링 + WS 연결
-  setTimeout(() => {
-    fetchDeptStats();
-    setInterval(fetchDeptStats, 30000);
-    connectDeptWs();
-  }, 400);
+  // ─── DEMO (개발용) ─────────────────────────────────────────────────
+  function runDemo() {
+    if (state.running) return;
+    dom.directive.value = '케토 김밥 신제품 런칭 전략 분석. 마진 35% 이상, 식약처 규제 확인 필수, MZ 타겟.';
+    startRun();
+  }
 
-  // ─── 초기 렌더 ───────────────────────────────────────────────────────
-  renderDesks();
-  setTimeout(positionAtHome, 200);
-  logMsg('SYSTEM', '준비 완료 · SEND(실시간 SSE) / DEMO(목업 재생) 선택', 'ok');
+  // ─── 이벤트 바인딩 ─────────────────────────────────────────────────
+  function bindEvents() {
+    dom.sendBtn.addEventListener('click', startRun);
+    dom.stopBtn.addEventListener('click', () => { finishRun(); addMsg({ who: '시스템', body: '중단됨', kind: 'err' }); });
+    dom.demoBtn.addEventListener('click', runDemo);
+
+    dom.directive.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        startRun();
+      }
+    });
+
+    dom.navNewChat.addEventListener('click', (e) => { e.preventDefault(); newChat(); });
+    dom.settingsBtn.addEventListener('click', () => dom.settingsPanel.classList.toggle('open'));
+    document.addEventListener('click', (e) => {
+      if (!dom.settingsPanel.contains(e.target) && e.target !== dom.settingsBtn) {
+        dom.settingsPanel.classList.remove('open');
+      }
+    });
+
+    dom.optShowXp.addEventListener('change', () => { state.options.showXp = dom.optShowXp.checked; saveOptions(); applyOptions(); });
+    dom.optVerbose.addEventListener('change', () => { state.options.verbose = dom.optVerbose.checked; saveOptions(); applyOptions(); });
+    dom.optShowDemo.addEventListener('change', () => { state.options.showDemo = dom.optShowDemo.checked; saveOptions(); applyOptions(); });
+
+    // 프로젝트명 인라인 편집
+    dom.projectName.addEventListener('click', () => {
+      dom.projectName.contentEditable = 'true';
+      dom.projectName.focus();
+      document.execCommand('selectAll', false, null);
+    });
+    dom.projectName.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); dom.projectName.blur(); }
+      if (e.key === 'Escape') { dom.projectName.textContent = state.currentProject; dom.projectName.blur(); }
+    });
+    dom.projectName.addEventListener('blur', () => {
+      dom.projectName.contentEditable = 'false';
+      saveProject(dom.projectName.textContent);
+    });
+  }
+
+  // ─── go ────────────────────────────────────────────────────────────
+  init();
 })();
 </script>
 </body>
