@@ -78,8 +78,16 @@ echo "frontend/dist/index.html OK ($(stat -c %y dist/index.html))"
 say "5. nginx root 로 rsync (${NGINX_ROOT})"
 mkdir -p "${NGINX_ROOT}"
 rsync -a --delete "${CORVUS_ROOT}/frontend/dist/" "${NGINX_ROOT}/"
+
+# 정적 HTML 한 개(corvusx-office.html)는 vite 빌드 밖에 있으므로 별도 복사.
+# rsync --delete 이후에 복사해야 살아남음.
+if [[ -f "${CORVUS_ROOT}/corvusx-office.html" ]]; then
+  cp "${CORVUS_ROOT}/corvusx-office.html" "${NGINX_ROOT}/corvusx-office.html"
+  echo "corvusx-office.html copied"
+fi
+
 echo "${NGINX_ROOT} 반영:"
-ls -la "${NGINX_ROOT}" | head -5
+ls -la "${NGINX_ROOT}" | head -8
 
 say "6. systemctl restart ${SERVICE}"
 systemctl restart "${SERVICE}"
