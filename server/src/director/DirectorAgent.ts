@@ -198,7 +198,7 @@ export async function runDirector(
       });
 
       // Phase 5 — 부서 XP 누적 (fire-and-forget, 실패해도 실행 흐름 영향 없음)
-      awardXp(task.deptId, 'success', 0).catch(() => {});
+      awardXp(task.deptId, 'success', result.costUsd ?? 0).catch(() => {});
 
       // SQLite 비동기 저장 (결과 차단 안 함)
       persistDeptReport(

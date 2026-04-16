@@ -139,7 +139,7 @@ export default function DeptStatsCard() {
                 key={d.dept_id}
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "120px 40px 1fr 90px 70px 70px",
+                  gridTemplateColumns: "120px 40px 1fr 90px 70px 70px 70px",
                   gap: 8,
                   alignItems: "center",
                   fontSize: 11,
@@ -172,6 +172,9 @@ export default function DeptStatsCard() {
                 </span>
                 <span style={{ opacity: 0.75 }}>
                   {formatPct(d.success_rate)}
+                </span>
+                <span style={{ opacity: 0.75 }} title="누적 AI 호출 비용 (USD)">
+                  {formatCurrency(d.total_cost_usd)}
                 </span>
               </div>
             );

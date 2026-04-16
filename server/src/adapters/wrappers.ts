@@ -13,6 +13,13 @@ import { claudeAdapter }     from './claude.js';
 import { openaiAdapter }     from './openai.js';
 import { geminiAdapter, GEMINI_MODEL_ID } from './gemini.js';
 import { perplexityAdapter } from './perplexity.js';
+import type { ModelUsage } from './types.js';
+
+export type DetailedCallResult = {
+  text: string;
+  usage: ModelUsage;
+  model: string;
+};
 
 /** Claude Sonnet 4.6 호출 */
 export async function callClaude(
@@ -93,4 +100,85 @@ export async function callPerplexity(
   } as any);
   if (resp.error) throw new Error(resp.error.message);
   return resp.answer ?? '';
+}
+
+// ─── Detailed 변형 — 토큰 사용량·모델 ID 포함 반환 ────────────────────────────
+// DepartmentAgent 가 호출당 비용을 계산하려면 usage 를 알아야 하므로, 기존 문자열
+// 리턴 래퍼를 건드리지 않고 동일 호출을 세부 정보와 함께 돌려받는 variant 를 제공한다.
+
+const CLAUDE_MODEL_ID = 'claude-sonnet-4-6';
+const OPENAI_MODEL_ID = 'gpt-5.4-pro';
+const PERPLEXITY_MODEL_ID = 'sonar-pro';
+
+export async function callClaudeDetailed(
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens = 4096,
+  thinkingBudget?: number
+): Promise<DetailedCallResult> {
+  const req: any = {
+    provider: 'claude',
+    model: CLAUDE_MODEL_ID,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user',   content: userPrompt },
+    ],
+    max_tokens: maxTokens,
+  };
+  if (thinkingBudget && thinkingBudget > 0) {
+    req.thinking = { type: 'enabled', budget_tokens: thinkingBudget };
+  }
+  const resp = await claudeAdapter.generate(req);
+  if (resp.error) throw new Error(resp.error.message);
+  return { text: resp.answer ?? '', usage: resp.usage ?? {}, model: resp.model ?? CLAUDE_MODEL_ID };
+}
+
+export async function callOpenAIDetailed(
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens = 4096
+): Promise<DetailedCallResult> {
+  const resp = await openaiAdapter.generate({
+    provider: 'openai',
+    model: OPENAI_MODEL_ID,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user',   content: userPrompt },
+    ],
+    max_tokens: maxTokens,
+  } as any);
+  if (resp.error) throw new Error(resp.error.message);
+  return { text: resp.answer ?? '', usage: resp.usage ?? {}, model: resp.model ?? OPENAI_MODEL_ID };
+}
+
+export async function callGeminiDetailed(
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens = 4096
+): Promise<DetailedCallResult> {
+  const resp = await geminiAdapter.generate({
+    provider: 'gemini',
+    model: GEMINI_MODEL_ID,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user',   content: userPrompt },
+    ],
+    max_tokens: maxTokens,
+  } as any);
+  if (resp.error) throw new Error(resp.error.message);
+  return { text: resp.answer ?? '', usage: resp.usage ?? {}, model: resp.model ?? GEMINI_MODEL_ID };
+}
+
+export async function callPerplexityDetailed(
+  query: string,
+  maxTokens = 2000
+): Promise<DetailedCallResult> {
+  const resp = await perplexityAdapter.generate({
+    provider: 'perplexity',
+    model: PERPLEXITY_MODEL_ID,
+    messages: [{ role: 'user', content: query }],
+    max_tokens: maxTokens,
+  } as any);
+  if (resp.error) throw new Error(resp.error.message);
+  return { text: resp.answer ?? '', usage: resp.usage ?? {}, model: resp.model ?? PERPLEXITY_MODEL_ID };
 }

@@ -7,6 +7,8 @@ import type { DeptTask, DeptId } from '../director/TaskDecomposer.js';
 import type { DeptReport } from '../director/ProjectSession.js';
 import { getDept } from './DepartmentRegistry.js';
 import type { DeptConfig } from './DepartmentRegistry.js';
+import { estimateCostUsd } from '../cost/costCalc.js';
+import type { ModelUsage } from '../adapters/types.js';
 
 export type ProgressCallback = (deptId: DeptId, message: string, percent: number) => void;
 
@@ -23,21 +25,27 @@ export interface AgentRunResult {
   modelUsed: string;
   connectorsUsed: string[];
   durationMs: number;
+  /** 주요 AI 모델 호출 비용 (USD). MODEL_PRICING_USD_PER_1K_TOKENS 기반 추정. */
+  costUsd: number;
 }
 
-// ─── AI 어댑터 — wrappers.ts에서 통합 로드 ───────────────────────────────────
-async function callClaude(systemPrompt: string, userPrompt: string, maxTokens: number, thinkingBudget?: number): Promise<string> {
-  const { callClaude: _call } = await import('../adapters/wrappers.js');
+// ─── AI 어댑터 — wrappers.ts 의 detailed 변형을 dynamic import 로 사용.
+// 주요 AI 호출 결과는 toks·modelId 와 함께 돌려받아 비용을 계산한다.
+
+type DetailedCall = { text: string; usage: ModelUsage; model: string };
+
+async function callClaudeDetailed(systemPrompt: string, userPrompt: string, maxTokens: number, thinkingBudget?: number): Promise<DetailedCall> {
+  const { callClaudeDetailed: _call } = await import('../adapters/wrappers.js');
   return _call(systemPrompt, userPrompt, maxTokens, thinkingBudget);
 }
 
-async function callOpenAI(systemPrompt: string, userPrompt: string, maxTokens: number): Promise<string> {
-  const { callOpenAI: _call } = await import('../adapters/wrappers.js');
+async function callOpenAIDetailed(systemPrompt: string, userPrompt: string, maxTokens: number): Promise<DetailedCall> {
+  const { callOpenAIDetailed: _call } = await import('../adapters/wrappers.js');
   return _call(systemPrompt, userPrompt, maxTokens);
 }
 
-async function callGemini(systemPrompt: string, userPrompt: string, maxTokens: number): Promise<string> {
-  const { callGemini: _call } = await import('../adapters/wrappers.js');
+async function callGeminiDetailed(systemPrompt: string, userPrompt: string, maxTokens: number): Promise<DetailedCall> {
+  const { callGeminiDetailed: _call } = await import('../adapters/wrappers.js');
   return _call(systemPrompt, userPrompt, maxTokens);
 }
 
@@ -187,43 +195,48 @@ async function callPrimaryModel(
   userPrompt: string,
   onProgress?: ProgressCallback,
   deptId?: DeptId
-): Promise<{ text: string; model: string }> {
+): Promise<{ text: string; model: string; usage: ModelUsage; modelIdForPricing: string }> {
   const model = dept.primaryModel;
 
   if (deptId) onProgress?.(deptId, `${model} 분석 중...`, 50);
 
-  try {
-    if (model.startsWith('claude')) {
-      const text = await callClaude(systemPrompt, userPrompt, dept.maxTokens, dept.thinkingBudget);
-      return { text, model };
-    } else if (model.startsWith('gpt') || model.startsWith('o')) {
-      const text = await callOpenAI(systemPrompt, userPrompt, dept.maxTokens);
-      return { text, model };
-    } else if (model.startsWith('gemini')) {
-      const text = await callGemini(systemPrompt, userPrompt, dept.maxTokens);
-      return { text, model };
-    } else {
-      // fallback
-      const text = await callClaude(systemPrompt, userPrompt, dept.maxTokens);
-      return { text, model: 'claude-sonnet-4-6 (fallback)' };
+  const route = async (
+    m: string,
+    thinkingBudget?: number
+  ): Promise<{ text: string; usage: ModelUsage; modelIdForPricing: string }> => {
+    if (m.startsWith('claude')) {
+      const r = await callClaudeDetailed(systemPrompt, userPrompt, dept.maxTokens, thinkingBudget);
+      return { text: r.text, usage: r.usage, modelIdForPricing: r.model };
     }
+    if (m.startsWith('gpt') || m.startsWith('o')) {
+      const r = await callOpenAIDetailed(systemPrompt, userPrompt, dept.maxTokens);
+      return { text: r.text, usage: r.usage, modelIdForPricing: r.model };
+    }
+    if (m.startsWith('gemini')) {
+      const r = await callGeminiDetailed(systemPrompt, userPrompt, dept.maxTokens);
+      return { text: r.text, usage: r.usage, modelIdForPricing: r.model };
+    }
+    // 미지원 prefix → Claude fallback
+    const r = await callClaudeDetailed(systemPrompt, userPrompt, dept.maxTokens);
+    return { text: r.text, usage: r.usage, modelIdForPricing: r.model };
+  };
+
+  try {
+    const r = await route(model, dept.thinkingBudget);
+    return { text: r.text, model, usage: r.usage, modelIdForPricing: r.modelIdForPricing };
   } catch (err) {
-    // Primary 실패 → fallback 모델 시도
     if (dept.fallbackModel) {
       if (deptId) onProgress?.(deptId, `${dept.fallbackModel}로 재시도 중...`, 55);
       try {
-        if (dept.fallbackModel.startsWith('claude')) {
-          const text = await callClaude(systemPrompt, userPrompt, dept.maxTokens);
-          return { text, model: `${dept.fallbackModel} (fallback)` };
-        } else if (dept.fallbackModel.startsWith('gpt')) {
-          const text = await callOpenAI(systemPrompt, userPrompt, dept.maxTokens);
-          return { text, model: `${dept.fallbackModel} (fallback)` };
-        } else if (dept.fallbackModel.startsWith('gemini')) {
-          const text = await callGemini(systemPrompt, userPrompt, dept.maxTokens);
-          return { text, model: `${dept.fallbackModel} (fallback)` };
-        }
+        const r = await route(dept.fallbackModel);
+        return {
+          text: r.text,
+          model: `${dept.fallbackModel} (fallback)`,
+          usage: r.usage,
+          modelIdForPricing: r.modelIdForPricing,
+        };
       } catch {
-        // fallback도 실패
+        // fallback도 실패 → 원래 에러 전파
       }
     }
     throw err;
@@ -332,7 +345,12 @@ export async function runDepartmentAgent(
   const userPrompt = buildUserPrompt(task, preResearchData);
 
   // ③ 주요 AI 모델 호출
-  const { text: rawOutput, model: modelUsed } = await callPrimaryModel(
+  const {
+    text: rawOutput,
+    model: modelUsed,
+    usage,
+    modelIdForPricing,
+  } = await callPrimaryModel(
     dept,
     dept.systemPrompt,
     userPrompt,
@@ -345,14 +363,24 @@ export async function runDepartmentAgent(
   // ④ 결과 파싱 → DeptReport
   const report = parseReportFromText(rawOutput, task);
 
+  // ⑤ 비용 계산 (MODEL_PRICING_USD_PER_1K_TOKENS 기반). usage 미수집 시 0.
+  const costUsd = estimateCostUsd(modelIdForPricing, usage);
+
+  // tokensUsed 는 usage 실측값(있으면) 우선, 없으면 문자 길이 기반 추정
+  const actualTokens =
+    (usage.input_tokens ?? usage.prompt_tokens ?? 0) +
+    (usage.output_tokens ?? usage.completion_tokens ?? 0);
+  const tokensUsed = actualTokens > 0 ? actualTokens : estimateTokens(userPrompt + rawOutput);
+
   onProgress?.(task.deptId, '완료', 100);
 
   return {
     report,
-    tokensUsed: estimateTokens(userPrompt + rawOutput),
+    tokensUsed,
     modelUsed,
     connectorsUsed,
     durationMs: Date.now() - startTime,
+    costUsd,
   };
 }
 
