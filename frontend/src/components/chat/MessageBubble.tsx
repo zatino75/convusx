@@ -1,23 +1,19 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { Message, ProjectGroup, Thread } from "../../types/workspace";
+import { useEffect, useRef, useState } from "react";
+import type { Message } from "../../types/workspace";
 import renderMessageContent from "./MessageRenderer";
-import { FilePreviewThumbnail, FilePreviewCompact } from "./FilePreview";
+import { FilePreviewCompact } from "./FilePreview";
 import ToolCallTimeline, { type ToolCallTimelineEntry } from "./ToolCallTimeline";
 import EnsembleCompareView, { type EnsembleCompareData } from "./EnsembleCompareView";
-import ExportMenu from "./ExportMenu";
-import {
-  CopyIcon, EditIcon, ChevronLeftIcon, ChevronRightIcon,
-  ThumbUpIcon, ThumbDownIcon, RegenerateIcon
-} from "./ChatIcons";
+import AssistantActionToolbar from "./AssistantActionToolbar";
+import UserMessageToolsRow, { type MessageVersionState } from "./UserMessageToolsRow";
+import MessageEditComposer from "./MessageEditComposer";
+import MessageMediaPreviews from "./MessageMediaPreviews";
 import { apiFetch } from "../../api/url";
 import { copyText, devLog } from "../../utils/helpers";
 import { t } from "../../i18n";
-import { showToast } from "../ui/Toast";
 
-export type MessageVersionState = {
-  current: number;
-  total: number;
-};
+export type { MessageVersionState };
+export { default as ThreadMetaStrip } from "./ThreadMetaStrip";
 
 /* ── 단계 분류 (Claude 스타일 뱃지용) ── */
 function categorizeStep(step: string): { label: string; color: string } {
@@ -36,7 +32,6 @@ function categorizeStep(step: string): { label: string; color: string } {
 }
 
 function StatusHistoryBlock({ steps, isPending }: { steps: string[]; isPending?: boolean }) {
-  // isPending=false(완료) 시점에 마운트되면 접힌 상태로 시작, 스트리밍 중엔 펼쳐진 상태
   const [open, setOpen] = useState(isPending !== false);
   if (!steps || steps.length === 0) return null;
 
@@ -44,7 +39,6 @@ function StatusHistoryBlock({ steps, isPending }: { steps: string[]; isPending?:
 
   return (
     <div className="tp">
-      {/* 헤더: 접혀있을 때만 텍스트 표시 — 펼쳐지면 리스트가 이미 보이므로 collapse 화살표만 */}
       <button className="tp__header" onClick={() => setOpen(p => !p)} type="button">
         {!open && isPending && <span className="tp__spinner" />}
         {!open && (
@@ -59,12 +53,10 @@ function StatusHistoryBlock({ steps, isPending }: { steps: string[]; isPending?:
         </svg>
       </button>
 
-      {/* 접혀있을 때: 마지막 단계 미리보기 */}
       {!open && !isPending && lastStep && (
         <div className="tp__preview">{lastStep}</div>
       )}
 
-      {/* 펼쳐졌을 때: 단계 목록 (박스 없이 자연스럽게) */}
       {open && (
         <div className="tp__body">
           {steps.map((step, i) => {
@@ -98,325 +90,6 @@ export function formatTime(iso: string) {
 export function hasStructuredCopyTarget(content: string) {
   const normalized = String(content ?? "");
   return normalized.includes("```") || /\|.+\|/.test(normalized);
-}
-
-
-function AssistantActionToolbar({
-  visible,
-  onCopy,
-  onRegenerate,
-  onDelete,
-  onFeedback
-}: {
-  visible: boolean;
-  onCopy: () => void;
-  onRegenerate?: () => void;
-  onDelete?: () => void;
-  onFeedback?: (feedback: "up" | "down") => void;
-}) {
-  const [thumbState, setThumbState] = useState<"up" | "down" | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  function handleCopy() {
-    onCopy();
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
-  }
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 2,
-        height: 32,
-        opacity: visible ? 1 : 0,
-        pointerEvents: visible ? "auto" : "none",
-        transition: "opacity 0.14s ease"
-      }}
-    >
-      <button
-        type="button"
-        onClick={handleCopy}
-        title={copied ? t("chat.copied") : t("chat.copy")}
-        style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "none", background: "none", cursor: "pointer", borderRadius: 6, color: copied ? "#10a37f" : "var(--text-sub)", transition: "color 0.2s" }}
-        onMouseEnter={e => (e.currentTarget.style.background = "var(--surface-2, #f3f4f6)")}
-        onMouseLeave={e => (e.currentTarget.style.background = "none")}
-      >
-        {copied ? (
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 13l4 4L19 7" /></svg>
-        ) : (
-          <CopyIcon />
-        )}
-      </button>
-
-      <button
-        type="button"
-        onClick={() => {
-          const next = thumbState === "up" ? null : "up";
-          setThumbState(next);
-          if (next === "up") onFeedback?.("up");
-        }}
-        title={t("message.like")}
-        style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "none", background: "none", cursor: "pointer", borderRadius: 6, color: thumbState === "up" ? "#10b981" : "var(--text-sub)" }}
-        onMouseEnter={e => (e.currentTarget.style.background = "var(--surface-2, #f3f4f6)")}
-        onMouseLeave={e => (e.currentTarget.style.background = "none")}
-      >
-        <ThumbUpIcon />
-      </button>
-
-      <button
-        type="button"
-        onClick={() => {
-          const next = thumbState === "down" ? null : "down";
-          setThumbState(next);
-          if (next === "down") onFeedback?.("down");
-        }}
-        title={t("message.dislike")}
-        style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "none", background: "none", cursor: "pointer", borderRadius: 6, color: thumbState === "down" ? "#ef4444" : "var(--text-sub)" }}
-        onMouseEnter={e => (e.currentTarget.style.background = "var(--surface-2, #f3f4f6)")}
-        onMouseLeave={e => (e.currentTarget.style.background = "none")}
-      >
-        <ThumbDownIcon />
-      </button>
-
-      {onRegenerate && (
-        <button
-          type="button"
-          onClick={onRegenerate}
-          title={t("chat.regenerate")}
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: "none", background: "none", cursor: "pointer", borderRadius: 6, color: "var(--text-sub)" }}
-          onMouseEnter={e => (e.currentTarget.style.background = "var(--surface-2, #f3f4f6)")}
-          onMouseLeave={e => (e.currentTarget.style.background = "none")}
-        >
-          <RegenerateIcon />
-        </button>
-      )}
-
-    </div>
-  );
-}
-
-// ExportMenu moved to ./ExportMenu.tsx (Phase 4 decomposition).
-
-export function ThreadMetaStrip({ thread, project }: { thread: Thread; project: ProjectGroup | null }) {
-  const chips: string[] = [];
-
-  if (project?.meta?.memoryEnabled) chips.push("Project memory on");
-  if (thread.meta?.pinned) chips.push(t("sidebar.pinned"));
-  if (thread.meta?.sourceThreadIds?.length) chips.push(`Fusion ${thread.meta.sourceThreadIds.length}`);
-  if (thread.meta?.labels?.length) chips.push(...thread.meta.labels.slice(0, 2));
-
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-      <div className="thread-meta-strip">
-        {chips.length > 0 ? (
-          chips.map((chip) => (
-            <span key={chip} className="thread-badge">
-              {chip}
-            </span>
-          ))
-        ) : null}
-      </div>
-      <ExportMenu thread={thread} />
-    </div>
-  );
-}
-
-function UserMessageToolsRow({
-  visible,
-  state,
-  onPrev,
-  onNext,
-  onCopy,
-  onEdit,
-  onDelete,
-  onMouseEnter,
-  onMouseLeave
-}: {
-  visible: boolean;
-  state?: MessageVersionState;
-  onPrev: () => void;
-  onNext: () => void;
-  onCopy: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
-}) {
-  const [copied, setCopied] = useState(false);
-  function handleCopy() {
-    onCopy();
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
-  }
-  return (
-    <div
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      style={{
-        position: "absolute",
-        right: 8,
-        top: "100%",
-        marginTop: 10,
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        zIndex: 20,
-        pointerEvents: visible ? "auto" : "none",
-        whiteSpace: "nowrap",
-        opacity: visible ? 1 : 0,
-        transform: visible ? "translateY(0)" : "translateY(-2px)",
-        transition: "opacity 0.14s ease, transform 0.14s ease"
-      }}
-    >
-      {state && state.total > 1 ? (
-        <div
-          style={{
-            minHeight: 28,
-            padding: "0 6px",
-            border: "1px solid var(--border)",
-            borderRadius: 999,
-            background: "rgba(255,255,255,0.98)",
-            boxShadow: "0 4px 14px rgba(15,23,42,0.08)",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 2
-          }}
-        >
-          <button type="button" className="message-version-nav__button" onClick={onPrev} aria-label={t("chat.prevVersion")}>
-            <ChevronLeftIcon />
-          </button>
-          <span className="message-version-nav__label">
-            {state.current}/{state.total}
-          </span>
-          <button type="button" className="message-version-nav__button" onClick={onNext} aria-label={t("chat.nextVersion")}>
-            <ChevronRightIcon />
-          </button>
-        </div>
-      ) : null}
-
-      <div
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6
-        }}
-      >
-        <button type="button" className="user-message-tools__button" onClick={handleCopy}
-          aria-label={copied ? t("chat.copied") : t("message.copyMessage")}
-          title={copied ? t("chat.copied") : t("chat.copy")}
-          style={{ color: copied ? "#10a37f" : undefined, transition: "color 0.2s" }}>
-          {copied
-            ? <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 13l4 4L19 7" /></svg>
-            : <CopyIcon />}
-        </button>
-        <button type="button" className="user-message-tools__button" onClick={onEdit} aria-label={t("message.editMessage")}>
-          <EditIcon />
-        </button>
-
-      </div>
-    </div>
-  );
-}
-
-function AssistantInlineCopy({
-  visible,
-  onCopy
-}: {
-  visible: boolean;
-  onCopy: () => void;
-}) {
-  // 인라인 복사 버튼 제거 (액션 툴바로 통합)
-  return null;
-}
-
-function MessageEditComposer({
-  value,
-  isSending,
-  onChange,
-  onCancel,
-  onSubmit
-}: {
-  value: string;
-  isSending: boolean;
-  onChange: (value: string) => void;
-  onCancel: () => void;
-  onSubmit: () => void;
-}) {
-  const [localRef, setLocalRef] = useState<HTMLTextAreaElement | null>(null);
-
-  useEffect(() => {
-    if (!localRef) return;
-    localRef.style.height = "0px";
-    const nextHeight = Math.min(localRef.scrollHeight, 280);
-    localRef.style.height = `${nextHeight}px`;
-    localRef.style.overflowY = localRef.scrollHeight > 280 ? "auto" : "hidden";
-  }, [value, localRef]);
-
-  function handleKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      onSubmit();
-    }
-
-    if (event.key === "Escape") {
-      event.preventDefault();
-      onCancel();
-    }
-  }
-
-  return (
-    <div
-      className="message-edit-composer"
-      style={{
-        width: "100%",
-        minWidth: 0
-      }}
-    >
-      <textarea
-        ref={setLocalRef}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={handleKeyDown}
-        rows={1}
-        className="message-edit-composer__textarea"
-        style={{
-          width: "100%",
-          minWidth: 0,
-          boxSizing: "border-box",
-          padding: "10px 14px 8px",
-          textAlign: "left",
-          lineHeight: 1.45,
-          font: "inherit",
-          color: "inherit",
-          letterSpacing: "inherit"
-        }}
-      />
-
-      <div
-        className="message-edit-composer__footer"
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          gap: 8,
-          padding: "0 14px 12px"
-        }}
-      >
-        <button type="button" className="message-edit-composer__secondary" onClick={onCancel}>
-          {t("common.cancel")}
-        </button>
-        <button
-          type="button"
-          className="message-edit-composer__primary"
-          onClick={onSubmit}
-          disabled={isSending || !value.trim()}
-        >
-          {t("chat.sendEdit")}
-        </button>
-      </div>
-    </div>
-  );
 }
 
 export default function MessageBubble({
@@ -460,7 +133,6 @@ export default function MessageBubble({
   const isPending = message.status === "pending";
   const isError = message.status === "error";
 
-  // 생각중 경과 시간 타이머
   const [elapsedSec, setElapsedSec] = useState(0);
   useEffect(() => {
     if (!isPending) { setElapsedSec(0); return; }
@@ -468,7 +140,6 @@ export default function MessageBubble({
     const timer = setInterval(() => setElapsedSec(s => s + 1), 1000);
     return () => clearInterval(timer);
   }, [isPending]);
-  const showAssistantCopy = !isUser && hasStructuredCopyTarget(message.content);
 
   const msgMeta = (message.requestMeta ?? {}) as Record<string, any>;
   const orchestrationMeta = (msgMeta?.orchestration ?? msgMeta?.debug ?? null) as Record<string, any> | null;
@@ -512,28 +183,12 @@ export default function MessageBubble({
 
   if (isEditing && isUser) {
     return (
-      <div
-        className="message message--user"
-        style={{
-          width: "100%"
-        }}
-      >
+      <div className="message message--user" style={{ width: "100%" }}>
         <div
           className="message__body"
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "flex-start",
-            width: "100%"
-          }}
+          style={{ display: "flex", justifyContent: "center", alignItems: "flex-start", width: "100%" }}
         >
-          <div
-            style={{
-              width: "100%",
-              maxWidth: "2500px",
-              minWidth: 0
-            }}
-          >
+          <div style={{ width: "100%", maxWidth: "2500px", minWidth: 0 }}>
             <div
               style={{
                 width: "100%",
@@ -561,11 +216,7 @@ export default function MessageBubble({
   }
 
   const bodyStyle = isUser
-    ? {
-        display: "flex",
-        justifyContent: "flex-end",
-        alignItems: "flex-start"
-      }
+    ? { display: "flex", justifyContent: "flex-end", alignItems: "flex-start" }
     : undefined;
 
   const userSurfaceStyle = isUser
@@ -580,9 +231,7 @@ export default function MessageBubble({
         verticalAlign: "top" as const,
         overflow: "visible"
       }
-    : {
-        position: "relative" as const
-      };
+    : { position: "relative" as const };
 
   const statusHistoryBlock: React.ReactNode =
     !isUser && Array.isArray(message.statusHistory) && message.statusHistory.length > 0
@@ -598,34 +247,14 @@ export default function MessageBubble({
           onMouseEnter={openHover}
           onMouseLeave={scheduleHoverClose}
         >
-          {!isUser ? (
-            <AssistantInlineCopy
-              visible={showAssistantCopy}
-              onCopy={() => {
-                if (onCopyAssistantMessage) {
-                  onCopyAssistantMessage(message);
-                  return;
-                }
-                void copyText(message.content);
-              }}
-            />
-          ) : null}
-
           <div className={isError ? "message__error-box" : ""}>
-            {/* 유저 메시지 첨부파일 칩 */}
             {isUser && Array.isArray(message.attachedFiles) && message.attachedFiles.length > 0 ? (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5, padding: "8px 14px 2px" }}>
                 {(message.attachedFiles as { name: string; type: string; base64?: string; size: number }[]).map((f, idx) => (
-                  <FilePreviewCompact
-                    key={idx}
-                    name={f.name}
-                    type={f.type}
-                    size={f.size}
-                  />
+                  <FilePreviewCompact key={idx} name={f.name} type={f.type} size={f.size} />
                 ))}
               </div>
             ) : null}
-            {/* 진행과정: 완료 후엔 숨김 (ToolCallTimeline이 대신 표시), 스트리밍 중에만 표시 */}
 
             <div
               className={"message__text" + (isUser ? " message__text--user" : "")}
@@ -663,10 +292,8 @@ export default function MessageBubble({
               )}
             </div>
 
-            {/* 진행과정: 스트리밍 중에는 컨텐츠 바로 아래 따라다님 */}
             {isPending && statusHistoryBlock}
 
-            {/* Phase 3 — 에이전트 루프 도구 호출 타임라인 */}
             {!isUser &&
               Array.isArray((message.requestMeta as any)?.toolTimeline) &&
               ((message.requestMeta as any).toolTimeline as ToolCallTimelineEntry[]).length > 0 && (
@@ -678,111 +305,14 @@ export default function MessageBubble({
                 </div>
               )}
 
-            {/* Phase 3 — 병렬 앙상블 4탭 비교 뷰 */}
             {!isUser && !isPending && (message.requestMeta as any)?.ensembleData && (
               <div style={{ margin: "0 18px" }}>
-                <EnsembleCompareView
-                  data={(message.requestMeta as any).ensembleData as EnsembleCompareData}
-                />
+                <EnsembleCompareView data={(message.requestMeta as any).ensembleData as EnsembleCompareData} />
               </div>
             )}
 
-            {/* 슬라이드 다운로드 버튼 */}
-            {!isUser && !!message.requestMeta?.slide_data && onDownloadSlide && (
-              <div style={{ margin: "10px 18px 4px" }}>
-                <button
-                  type="button"
-                  onClick={() => onDownloadSlide(message.requestMeta!.slide_data)}
-                  style={{
-                    display: "inline-flex", alignItems: "center", gap: 7,
-                    padding: "7px 14px", borderRadius: 8,
-                    background: "#ffffff", color: "#374151",
-                    border: "1px solid #d1d5db", cursor: "pointer",
-                    fontSize: 13, fontWeight: 600,
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.07)"
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "#f3f4f6")}
-                  onMouseLeave={e => (e.currentTarget.style.background = "#ffffff")}
-                >
-                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
-                  {t("message.downloadPptx")}
-                </button>
-              </div>
-            )}
-
-            {/* 이미지 표시 — DALL-E / Imagen / Midjourney */}
-            {!isUser && !isPending && message.requestMeta?.image_url && (
-              <div style={{ padding: "10px 18px 4px" }}>
-                <img
-                  src={message.requestMeta.image_url}
-                  alt={t("message.aiImage")}
-                  style={{ maxWidth: "min(480px, 90vw)", height: "auto", borderRadius: 12, display: "block", border: "1px solid var(--border)" }}
-                  onError={e => {
-                    const img = e.target as HTMLImageElement;
-                    const fallback = document.createElement("div");
-                    fallback.textContent = t("errors.imageLoadFailed");
-                    fallback.style.cssText = "padding:12px 16px;border-radius:8px;background:var(--surface-1);color:var(--text-soft);font-size:12px;border:1px dashed var(--border)";
-                    img.replaceWith(fallback);
-                  }}
-                />
-                {message.requestMeta?.image_revised_prompt && (
-                  <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-sub)", fontStyle: "italic", maxWidth: "min(480px, 90vw)" }}>
-                    {message.requestMeta.image_revised_prompt}
-                  </div>
-                )}
-                {(message.requestMeta?.image_urls?.length ?? 0) > 1 && (
-                  <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, maxWidth: "min(480px, 90vw)" }}>
-                    {(message.requestMeta.image_urls as string[]).map((url: string, idx: number) => (
-                      <a key={idx} href={url} target="_blank" rel="noopener noreferrer">
-                        <img
-                          src={url}
-                          alt={t("message.imageN").replace("{n}", String(idx + 1))}
-                          style={{ width: "100%", aspectRatio: "1", objectFit: "cover", borderRadius: 8, display: "block", border: "1px solid var(--border)" }}
-                          onError={e => {
-                            const img = e.target as HTMLImageElement;
-                            const fallback = document.createElement("div");
-                            fallback.textContent = t("errors.imageLoadFailed");
-                            fallback.style.cssText = "padding:8px;border-radius:6px;background:var(--surface-1);color:var(--text-soft);font-size:11px;border:1px dashed var(--border);text-align:center";
-                            img.replaceWith(fallback);
-                          }}
-                        />
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 비디오 표시 — Runway / Veo */}
-            {!isUser && !isPending && message.requestMeta?.video_url && (
-              <div style={{ padding: "10px 18px 4px" }}>
-                {String(message.requestMeta.video_url).startsWith("gs://") ? (
-                  <div style={{ padding: "12px 16px", borderRadius: 10, background: "var(--bg-sub, #f3f4f6)", border: "1px solid var(--border)", maxWidth: 480, fontSize: 13 }}>
-                    <div style={{ fontWeight: 700, marginBottom: 4 }}>{t("message.videoComplete")}</div>
-                    <div style={{ fontSize: 11, color: "var(--text-sub)", wordBreak: "break-all" }}>
-                      {message.requestMeta.video_url}
-                    </div>
-                    <a
-                      href={message.requestMeta.video_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ display: "inline-block", marginTop: 8, fontSize: 12, color: "var(--accent, #6366f1)", textDecoration: "none", fontWeight: 600 }}
-                    >
-                      {t("message.openVideo")}
-                    </a>
-                  </div>
-                ) : (
-                  <video
-                    src={message.requestMeta.video_url}
-                    controls
-                    style={{ maxWidth: "100%", width: 480, borderRadius: 12, display: "block", border: "1px solid var(--border)" }}
-                  />
-                )}
-              </div>
+            {!isUser && !isPending && (
+              <MessageMediaPreviews message={message} onDownloadSlide={onDownloadSlide} />
             )}
 
             {isPending ? (
@@ -815,46 +345,44 @@ export default function MessageBubble({
                 {route ? <span>· {route}</span> : null}
               </div>
             ) : null}
-
           </div>
+
           {!isUser && !isPending ? (
             <div style={{ marginTop: 4 }}>
-              <div>
-                <AssistantActionToolbar
-                  visible={isBubbleHovered || isMenuHovered}
-                  onCopy={() => {
-                    if (onCopyAssistantMessage) {
-                      onCopyAssistantMessage(message);
-                      return;
-                    }
-                    void copyText(message.content);
-                  }}
-                  onRegenerate={onRegenerate}
-                  onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
-                  onFeedback={async (feedback) => {
-                    const meta = message.requestMeta;
-                    const provider = meta?.winnerProvider ?? meta?.displayWinner?.provider ?? null;
-                    const task = meta?.routerTask ?? "dialogue";
-                    const runnerUp = meta?.displayLosers?.[0] ?? null;
-                    if (!provider) return;
-                    try {
-                      await apiFetch("/api/feedback", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          feedback,
-                          provider,
-                          task,
-                          runner_up: runnerUp,
-                          message_id: message.id
-                        })
-                      });
-                    } catch (err) {
-                      devLog.warn(`[MessageBubble] ${t("message.feedbackFailed")}:`, err);
-                    }
-                  }}
-                />
-              </div>
+              <AssistantActionToolbar
+                visible={isBubbleHovered || isMenuHovered}
+                onCopy={() => {
+                  if (onCopyAssistantMessage) {
+                    onCopyAssistantMessage(message);
+                    return;
+                  }
+                  void copyText(message.content);
+                }}
+                onRegenerate={onRegenerate}
+                onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
+                onFeedback={async (feedback) => {
+                  const meta = message.requestMeta;
+                  const provider = meta?.winnerProvider ?? meta?.displayWinner?.provider ?? null;
+                  const task = meta?.routerTask ?? "dialogue";
+                  const runnerUp = meta?.displayLosers?.[0] ?? null;
+                  if (!provider) return;
+                  try {
+                    await apiFetch("/api/feedback", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        feedback,
+                        provider,
+                        task,
+                        runner_up: runnerUp,
+                        message_id: message.id
+                      })
+                    });
+                  } catch (err) {
+                    devLog.warn(`[MessageBubble] ${t("message.feedbackFailed")}:`, err);
+                  }
+                }}
+              />
             </div>
           ) : null}
 
