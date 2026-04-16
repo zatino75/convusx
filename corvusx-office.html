@@ -157,6 +157,47 @@
   /* CRITIC 워킹 시 부서 책상 옆 표식 */
   .desk.under-review{box-shadow:0 0 0 2px #ff3ea5 inset,0 0 14px rgba(255,62,165,.4);animation:reviewscan 1s ease-in-out infinite alternate}
   @keyframes reviewscan{from{box-shadow:0 0 0 2px #ff3ea5 inset,0 0 6px rgba(255,62,165,.2)}to{box-shadow:0 0 0 2px #ff3ea5 inset,0 0 18px rgba(255,62,165,.6)}}
+
+  /* ── Phase 7: 부서 레벨 배지 + 레벨업 연출 ─────────────────────────── */
+  .desk .level-badge{position:absolute;top:-6px;left:-6px;min-width:28px;height:18px;padding:0 5px;border-radius:9px;background:linear-gradient(135deg,#ffc94a,#ff8a00);color:#1a0f00;font-size:10px;font-weight:bold;letter-spacing:.5px;display:flex;align-items:center;justify-content:center;border:2px solid var(--panel);box-shadow:0 2px 4px rgba(0,0,0,.4);z-index:3}
+  .desk .level-badge.lv-high{background:linear-gradient(135deg,#ff3ea5,#ffc94a);color:#2a0011}
+  .desk .level-badge.lv-max{background:linear-gradient(135deg,#00d4ff,#ff3ea5);color:#fff;animation:badge-shimmer 2.2s ease-in-out infinite}
+  @keyframes badge-shimmer{0%,100%{filter:brightness(1)}50%{filter:brightness(1.35) drop-shadow(0 0 6px rgba(255,62,165,.5))}}
+
+  .desk.levelup-upgrading{
+    animation: desk-upgrade 2.6s cubic-bezier(.25,.8,.35,1);
+    z-index: 6;
+  }
+  @keyframes desk-upgrade {
+    0%   { transform:translateY(0)    scale(1);    filter:brightness(1);   box-shadow:inset 0 -6px 0 rgba(0,0,0,.35); }
+    22%  { transform:translateY(-8px) scale(1.04); filter:brightness(1.8); box-shadow:inset 0 -6px 0 rgba(0,0,0,.35), 0 0 22px rgba(255,201,74,.85); }
+    55%  { transform:translateY(-4px) scale(1.02); filter:brightness(1.4); box-shadow:inset 0 -6px 0 rgba(0,0,0,.35), 0 0 18px rgba(255,62,165,.7); }
+    100% { transform:translateY(0)    scale(1);    filter:brightness(1);   box-shadow:inset 0 -6px 0 rgba(0,0,0,.35); }
+  }
+  .desk .levelup-confetti{position:absolute;left:50%;top:-4px;font-size:18px;pointer-events:none;animation:confetti-burst 2.6s ease-out forwards;z-index:8}
+  @keyframes confetti-burst{
+    0%   { opacity:0; transform:translate(-50%,0) scale(.5); }
+    20%  { opacity:1; transform:translate(-50%,-28px) scale(1.25); }
+    100% { opacity:0; transform:translate(-50%,-64px) scale(1); }
+  }
+
+  /* ── Phase 7: 부서 성장 히스토리 타임라인 (오피스 좌하 overlay) ─── */
+  .growth-timeline{
+    position:absolute;left:14px;bottom:88px;width:280px;max-height:180px;
+    background:rgba(10,14,26,.88);border:1px solid #2a3a5c;border-radius:4px;
+    padding:8px 10px;font-size:10px;color:var(--dim);z-index:18;
+    display:flex;flex-direction:column;gap:6px;overflow-y:auto;
+  }
+  .growth-timeline .gt-title{font-size:10px;letter-spacing:1.5px;color:var(--gold);font-weight:bold;margin-bottom:2px;display:flex;justify-content:space-between}
+  .growth-timeline .gt-title .gt-sub{color:var(--dim);font-weight:normal;letter-spacing:.5px}
+  .growth-timeline .gt-row{display:grid;grid-template-columns:72px 1fr 36px;gap:6px;align-items:center;font-size:10px;padding:1px 0}
+  .growth-timeline .gt-row .gt-bar{height:5px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden}
+  .growth-timeline .gt-row .gt-bar i{display:block;height:100%;background:linear-gradient(90deg,rgba(120,180,255,.7),rgba(255,201,74,.9))}
+  .growth-timeline .gt-row .gt-lv{color:var(--gold);font-weight:bold;text-align:right}
+  .growth-timeline .gt-events{margin-top:4px;padding-top:4px;border-top:1px dashed rgba(255,255,255,.08);max-height:68px;overflow-y:auto}
+  .growth-timeline .gt-ev{font-size:10px;padding:1px 0;color:var(--ink)}
+  .growth-timeline .gt-ev .gt-dot{display:inline-block;width:6px;height:6px;background:var(--gold);border-radius:50%;margin-right:5px;vertical-align:middle}
+  .growth-timeline .gt-empty{font-size:10px;color:var(--dim);font-style:italic;text-align:center;padding:4px 0}
 </style>
 </head>
 <body>
@@ -266,6 +307,17 @@
       <div><span class="sw" style="background:#ffc94a"></span>완료</div>
       <div><span class="sw" style="background:#ff5e5e"></span>오류</div>
       <div><span class="sw" style="background:#ff3ea5"></span>Critic 반박</div>
+    </div>
+
+    <!-- Phase 7: 부서 성장 히스토리 타임라인 -->
+    <div class="growth-timeline" id="growthTimeline">
+      <div class="gt-title">◢ 부서 성장 <span class="gt-sub" id="gtSub">대기 중</span></div>
+      <div id="gtRows">
+        <div class="gt-empty">/api/departments/stats 대기…</div>
+      </div>
+      <div class="gt-events" id="gtEvents">
+        <div class="gt-empty">레벨업 이벤트 없음</div>
+      </div>
     </div>
   </div>
 
@@ -853,6 +905,175 @@
   dom.directive.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.key === 'Enter') startRun();
   });
+
+  // ─── Phase 7: 부서 레벨/성장 연출 ────────────────────────────────────
+  const deptLevelCache = {}; // deptId → { level, xp, tasks_completed, tasks_failed, success_rate, total_cost_usd }
+  const levelupEventLog = []; // {dept_id, previous_level, new_level, ts}
+
+  function levelClass(lv) {
+    if (lv >= 8) return 'lv-max';
+    if (lv >= 4) return 'lv-high';
+    return '';
+  }
+
+  function renderLevelBadge(deptId, level) {
+    const desk = dom.desks.querySelector(`.desk[data-dept="${deptId}"]`);
+    if (!desk) return;
+    let badge = desk.querySelector('.level-badge');
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.className = 'level-badge';
+      desk.appendChild(badge);
+    }
+    badge.textContent = 'L' + level;
+    badge.className = 'level-badge ' + levelClass(level);
+  }
+
+  function renderGrowthTimeline() {
+    const rowsEl = document.getElementById('gtRows');
+    const subEl = document.getElementById('gtSub');
+    if (!rowsEl) return;
+
+    const entries = Object.entries(deptLevelCache);
+    if (entries.length === 0) {
+      rowsEl.innerHTML = '<div class="gt-empty">/api/departments/stats 대기…</div>';
+      if (subEl) subEl.textContent = '대기 중';
+      return;
+    }
+    // 활성 부서 중 XP 순 정렬, 상위 6개
+    const sorted = entries
+      .map(([id, s]) => ({ id, ...s }))
+      .filter(r => (r.tasks_completed + r.tasks_failed) > 0)
+      .sort((a, b) => (b.xp||0) - (a.xp||0))
+      .slice(0, 6);
+    if (sorted.length === 0) {
+      rowsEl.innerHTML = '<div class="gt-empty">아직 실행 기록 없음</div>';
+      if (subEl) subEl.textContent = '기록 없음';
+      return;
+    }
+    const maxXp = Math.max(1, ...sorted.map(r => r.xp||0));
+    rowsEl.innerHTML = sorted.map(r => {
+      const pct = Math.min(100, ((r.xp||0) / maxXp) * 100);
+      return `
+        <div class="gt-row">
+          <span>${deptLabel(r.id)}</span>
+          <div class="gt-bar"><i style="width:${pct.toFixed(1)}%"></i></div>
+          <span class="gt-lv">L${r.level}</span>
+        </div>`;
+    }).join('');
+    if (subEl) subEl.textContent = `활성 ${sorted.length}/9`;
+  }
+
+  function renderLevelupLog() {
+    const evEl = document.getElementById('gtEvents');
+    if (!evEl) return;
+    if (levelupEventLog.length === 0) {
+      evEl.innerHTML = '<div class="gt-empty">레벨업 이벤트 없음</div>';
+      return;
+    }
+    evEl.innerHTML = levelupEventLog.slice(-6).reverse().map(ev => {
+      const ts = new Date(ev.ts).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+      return `<div class="gt-ev"><span class="gt-dot"></span><b>${deptLabel(ev.dept_id)}</b> L${ev.previous_level}→L${ev.new_level} <span style="color:var(--dim);font-size:9px">· ${ts}</span></div>`;
+    }).join('');
+  }
+
+  function playLevelupAnimation(deptId) {
+    const desk = dom.desks.querySelector(`.desk[data-dept="${deptId}"]`);
+    if (!desk) return;
+    desk.classList.remove('levelup-upgrading');
+    // force reflow 로 animation 재시작
+    // eslint-disable-next-line no-void
+    void desk.offsetWidth;
+    desk.classList.add('levelup-upgrading');
+
+    // 콘페티 이모지
+    const conf = document.createElement('div');
+    conf.className = 'levelup-confetti';
+    conf.textContent = '🎉';
+    conf.style.transform = 'translate(-50%, 0)';
+    desk.appendChild(conf);
+    setTimeout(() => {
+      desk.classList.remove('levelup-upgrading');
+      conf.remove();
+    }, 2700);
+  }
+
+  async function fetchDeptStats() {
+    try {
+      const resp = await fetch(API_BASE + '/api/departments/stats', { credentials: 'include' });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const depts = Array.isArray(data?.departments) ? data.departments : [];
+      for (const d of depts) {
+        if (!d?.dept_id) continue;
+        deptLevelCache[d.dept_id] = {
+          level: Number(d.level || 0),
+          xp: Number(d.xp || 0),
+          tasks_completed: Number(d.tasks_completed || 0),
+          tasks_failed: Number(d.tasks_failed || 0),
+          success_rate: Number(d.success_rate || 0),
+          total_cost_usd: Number(d.total_cost_usd || 0),
+        };
+        renderLevelBadge(d.dept_id, Number(d.level || 0));
+      }
+      renderGrowthTimeline();
+    } catch (err) {
+      // 조용히 실패 (오피스 UI 는 선택적)
+    }
+  }
+
+  function connectDeptWs() {
+    try {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = location.host.includes(':') ? location.host : (location.host + ':8000');
+      const url = `${protocol}//${host}/ws`;
+      const ws = new WebSocket(url);
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(String(ev.data));
+          if (msg?.type !== 'dept:levelup') return;
+          const p = msg.payload || {};
+          const deptId = String(p.dept_id || '');
+          if (!deptId) return;
+          const prev = Number(p.previous_level || 0);
+          const next = Number(p.new_level || 0);
+
+          // 캐시 갱신 + 즉시 렌더
+          deptLevelCache[deptId] = {
+            ...(deptLevelCache[deptId] || {}),
+            level: next,
+            xp: Number(p.xp || deptLevelCache[deptId]?.xp || 0),
+          };
+          renderLevelBadge(deptId, next);
+          playLevelupAnimation(deptId);
+
+          levelupEventLog.push({ dept_id: deptId, previous_level: prev, new_level: next, ts: Date.now() });
+          if (levelupEventLog.length > 40) levelupEventLog.shift();
+          renderLevelupLog();
+          renderGrowthTimeline();
+
+          logMsg('LEVELUP', `${deptLabel(deptId)} L${prev} → L${next}`, 'ok');
+
+          // 오래된 level 데이터 보정 위해 stats 재조회
+          setTimeout(fetchDeptStats, 400);
+        } catch { /* ignore */ }
+      };
+      ws.onclose = () => {
+        // 3초 후 재연결 (세션이 길어도 끊기지 않도록)
+        setTimeout(connectDeptWs, 3000);
+      };
+      ws.onerror = () => { try { ws.close(); } catch {} };
+    } catch {
+      // WS 실패는 치명적이지 않음 — 폴링만으로도 배지/타임라인 갱신됨
+    }
+  }
+
+  // 초기 로드 + 30s 폴링 + WS 연결
+  setTimeout(() => {
+    fetchDeptStats();
+    setInterval(fetchDeptStats, 30000);
+    connectDeptWs();
+  }, 400);
 
   // ─── 초기 렌더 ───────────────────────────────────────────────────────
   renderDesks();
