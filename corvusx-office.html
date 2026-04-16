@@ -2,162 +2,213 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=1440" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>CORVUS X</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 <style>
   :root {
-    --bg:#F5F4EF;
-    --sidebar-bg:#EEEEE8;
-    --surface:#FFFFFF;
-    --border:#E2E0D8;
-    --border-strong:#D6D3C9;
-    --text:#1f2024;
-    --text-soft:#5f6368;
-    --text-dim:#9ca3af;
-    --accent:#2563eb;
-    --accent-soft:#dbeafe;
-    --gold:#b45309;
-    --magenta:#be185d;
-    --red:#dc2626;
-    --shadow-sm: 0 1px 2px rgba(0,0,0,.04);
-    --shadow-md: 0 2px 10px rgba(0,0,0,.05);
+    --bg:#0F1117;
+    --sidebar:#0a0d14;
+    --chat:#0f1320;
+    --panel:#0a0d14;
+    --input:#1a2035;
+    --surface:#141a2a;
+    --border:#1f2740;
+    --border-soft:#18203a;
+    --text:#e0e8f0;
+    --text-soft:#94a3b8;
+    --text-dim:#64748b;
+    --accent:#3b82f6;
+    --accent-alt:#8b5cf6;
+    --gold:#f59e0b;
+    --magenta:#ec4899;
+    --red:#ef4444;
+    --green:#22c55e;
   }
   *{box-sizing:border-box}
   html,body{
     margin:0;height:100%;
     background:var(--bg);color:var(--text);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic","Pretendard",sans-serif;
-    overflow:hidden;
-    font-size:14px;line-height:1.5;
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic","Pretendard",sans-serif;
+    overflow:hidden;font-size:14px;line-height:1.5;
     -webkit-font-smoothing:antialiased;
   }
   button,input,textarea{font-family:inherit;font-size:inherit;color:inherit}
 
-  /* ─ layout: sidebar(200) left, right side split office(30%) + chat(70%) ─ */
-  .app{display:grid;grid-template-columns:200px 1fr;height:100vh;background:var(--bg)}
-  .sidebar{background:var(--sidebar-bg);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;padding:14px 0 10px}
-  .main-col{display:grid;grid-template-rows:30% 70%;min-height:0;min-width:0;background:var(--bg)}
-  .office-wrap{position:relative;background:var(--bg);overflow:hidden;border-bottom:1px solid var(--border)}
-  .office-title{position:absolute;top:8px;left:14px;color:var(--text-soft);font-size:10.5px;letter-spacing:2px;font-weight:600;z-index:3;pointer-events:none}
-  .office-status{position:absolute;top:8px;right:14px;color:var(--text-soft);font-size:10.5px;display:flex;align-items:center;gap:6px;z-index:3;pointer-events:none}
-  .office-status .dot{width:7px;height:7px;border-radius:50%;background:#D6D3C9}
-  .office-status .dot.live{background:#10b981;animation:pulse 1.4s ease-in-out infinite}
+  /* ─ layout: grid with toggleable columns ─ */
+  .app{
+    display:grid;
+    grid-template-columns:220px 1fr 300px;
+    height:100vh;
+    transition:grid-template-columns .25s ease;
+  }
+  .app[data-sidebar="closed"]{grid-template-columns:0 1fr 300px}
+  .app[data-panel="closed"]{grid-template-columns:220px 1fr 0}
+  .app[data-sidebar="closed"][data-panel="closed"]{grid-template-columns:0 1fr 0}
+
+  /* ─ sidebar (left) ─ */
+  .sidebar{background:var(--sidebar);border-right:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden;min-width:0}
+  .sidebar-inner{width:220px;display:flex;flex-direction:column;min-width:0;height:100%;padding:12px 0 8px}
+  .logo{padding:4px 14px 12px;font-size:14px;font-weight:700;letter-spacing:.5px;color:var(--text);display:flex;align-items:center;gap:7px}
+  .logo .mark{display:inline-block;width:7px;height:7px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-alt))}
+  .nav-btn{display:flex;align-items:center;gap:9px;padding:8px 14px;color:var(--text-soft);cursor:pointer;font-size:13px;text-decoration:none;border:none;background:none;width:100%;text-align:left;transition:background .12s,color .12s;border-radius:0}
+  .nav-btn:hover{background:rgba(255,255,255,.03);color:var(--text)}
+  .nav-btn.active{background:rgba(59,130,246,.10);color:#93c5fd}
+  .nav-btn .ic{width:14px;height:14px;flex-shrink:0;opacity:.8}
+  .nav-divider{padding:14px 14px 4px;font-size:10px;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase;font-weight:700}
+  .sidebar-scroll{flex:1;overflow-y:auto;min-height:0}
+  .sidebar-scroll::-webkit-scrollbar{width:5px}
+  .sidebar-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:3px}
+  .thread-item{padding:6px 14px 6px 24px;color:var(--text-soft);cursor:pointer;font-size:12px;display:flex;flex-direction:column;gap:2px;transition:background .12s}
+  .thread-item:hover{background:rgba(255,255,255,.03);color:var(--text)}
+  .thread-item.active{background:rgba(59,130,246,.12);color:#93c5fd}
+  .thread-item .t-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .thread-item .t-meta{font-size:10px;color:var(--text-dim)}
+  .project-row{display:flex;align-items:center;gap:6px;padding:6px 14px;cursor:pointer;font-size:12px;color:var(--text);user-select:none;transition:background .12s}
+  .project-row:hover{background:rgba(255,255,255,.03)}
+  .project-row .caret{font-size:9px;transition:transform .15s;width:10px;display:inline-block;text-align:center}
+  .project-row.collapsed .caret{transform:rotate(-90deg)}
+  .project-row .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+  .project-row .count{color:var(--text-dim);font-size:10px}
+  .project-row .project-menu{opacity:0;padding:2px 4px;font-size:11px}
+  .project-row:hover .project-menu{opacity:.7}
+  .project-menu:hover{color:var(--text);opacity:1!important}
+  .project-new-thread{padding:4px 14px 6px 36px;color:var(--text-dim);font-size:11px;cursor:pointer}
+  .project-new-thread:hover{color:var(--accent)}
+  .sub-new{padding:6px 14px 6px 26px;color:var(--text-dim);font-size:12px;cursor:pointer;font-style:italic}
+  .sub-new:hover{color:var(--accent)}
+
+  /* ─ main column (office + chat) ─ */
+  .main-col{display:grid;grid-template-rows:35% 65%;min-height:0;min-width:0;background:var(--bg)}
+  .office-wrap{position:relative;background:var(--bg);overflow:hidden;border-bottom:1px solid var(--border-soft)}
+  .office-title{position:absolute;top:8px;left:14px;color:var(--text-soft);font-size:11px;letter-spacing:2px;font-weight:600;z-index:3;pointer-events:none;opacity:.7}
+  .office-status{position:absolute;top:8px;right:14px;color:var(--text-soft);font-size:11px;display:flex;align-items:center;gap:6px;z-index:3;pointer-events:none}
+  .office-status .dot{width:7px;height:7px;border-radius:50%;background:#374151}
+  .office-status .dot.live{background:#22c55e;animation:pulse 1.4s ease-in-out infinite}
   .office-status .dot.err{background:var(--red)}
   @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
   #phaser-container{width:100%;height:100%}
   #phaser-container canvas{display:block}
 
-  .chat{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:var(--surface)}
-
-  /* ─ sidebar ────────────────────────────────────────────────────────── */
-  .logo{padding:0 14px 12px;font-size:14px;font-weight:700;letter-spacing:.5px;color:var(--text);display:flex;align-items:center;gap:6px}
-  .logo .mark{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent)}
-  .sidebar-scroll{flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column}
-  .sidebar-scroll::-webkit-scrollbar{width:6px}
-  .sidebar-scroll::-webkit-scrollbar-thumb{background:#D6D3C9;border-radius:3px}
-  .nav-btn{display:flex;align-items:center;gap:9px;padding:8px 14px;color:var(--text);cursor:pointer;font-size:12.5px;text-decoration:none;border:none;background:none;width:100%;text-align:left;transition:background .12s}
-  .nav-btn:hover{background:#E5E3DB}
-  .nav-btn.active{background:#DDDBD2;font-weight:600}
-  .nav-btn .ic{width:14px;height:14px;flex-shrink:0;opacity:.7}
-  .nav-divider{padding:14px 14px 4px;font-size:10px;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase;font-weight:700}
-
-  .thread-list{display:flex;flex-direction:column;gap:2px;padding:0 6px}
-  .thread-item{padding:7px 10px;border-radius:6px;cursor:pointer;font-size:11.5px;color:var(--text-soft);display:flex;flex-direction:column;gap:2px;transition:background .12s;overflow:hidden}
-  .thread-item:hover{background:#E5E3DB}
-  .thread-item.active{background:#D8D5C9;color:var(--text)}
-  .thread-item .title{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .thread-item .time{font-size:10px;color:var(--text-dim)}
-  .thread-empty{padding:6px 14px;font-size:11px;color:var(--text-dim);font-style:italic}
-
-  .project-block{margin-bottom:4px}
-  .project-head{padding:4px 14px;font-size:11px;color:var(--text-soft);display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
-  .project-head .caret{font-size:10px;transition:transform .15s}
-  .project-head.collapsed .caret{transform:rotate(-90deg)}
-  .project-head .name{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .project-head .count{color:var(--text-dim);font-size:10px}
-  .project-new{padding:6px 14px 6px 28px;color:var(--text-dim);font-size:11.5px;cursor:pointer}
-  .project-new:hover{color:var(--accent)}
-
-  /* ─ chat ───────────────────────────────────────────────────────────── */
-  .chat-header{padding:10px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0}
-  .chat-title{font-size:13.5px;font-weight:600;color:var(--text);cursor:pointer;padding:3px 8px;border-radius:4px;border:1px solid transparent;outline:none;max-width:480px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chat{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:var(--chat)}
+  .chat-header{padding:10px 20px;border-bottom:1px solid var(--border-soft);display:flex;align-items:center;gap:10px;flex-shrink:0}
+  .chat-title{font-size:13.5px;font-weight:600;color:var(--text);cursor:pointer;padding:3px 8px;border-radius:5px;border:1px solid transparent;outline:none;max-width:500px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .chat-title:hover{border-color:var(--border)}
-  .chat-title[contenteditable="true"]{border-color:var(--accent);background:var(--surface)}
+  .chat-title[contenteditable="true"]{border-color:var(--accent);background:var(--input)}
 
   .chat-log{flex:1;overflow-y:auto;padding:18px 28px 12px;display:flex;flex-direction:column;gap:12px;min-height:0}
-  .chat-log::-webkit-scrollbar{width:7px}
-  .chat-log::-webkit-scrollbar-thumb{background:#E2E0D8;border-radius:4px}
-  .chat-empty{color:var(--text-dim);font-size:13px;text-align:center;padding:60px 20px}
-  .chat-empty h3{margin:0 0 6px;font-size:15px;color:var(--text-soft);font-weight:600}
+  .chat-log::-webkit-scrollbar{width:6px}
+  .chat-log::-webkit-scrollbar-thumb{background:rgba(255,255,255,.06);border-radius:4px}
+  .chat-empty{color:var(--text-dim);font-size:13px;text-align:center;padding:80px 20px}
+  .chat-empty h3{margin:0 0 6px;font-size:16px;color:var(--text-soft);font-weight:600}
 
-  .msg{display:flex;flex-direction:column;gap:3px;animation:msg-in .2s ease-out;max-width:84%}
+  .msg{display:flex;flex-direction:column;gap:3px;animation:msg-in .2s ease-out;max-width:86%}
   @keyframes msg-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
   .msg.user{align-self:flex-end;align-items:flex-end}
-  .msg.ai,.msg.dept,.msg.ceo,.msg.critic,.msg.sys,.msg.err{align-self:flex-start;align-items:flex-start}
+  .msg:not(.user){align-self:flex-start;align-items:flex-start}
   .msg .who{font-size:10.5px;color:var(--text-dim);margin-bottom:2px;padding:0 4px;display:flex;align-items:center;gap:5px}
-  .msg .body{padding:9px 13px;border-radius:13px;font-size:13px;line-height:1.55;word-break:break-word;white-space:pre-wrap}
-  .msg.user .body{background:var(--accent-soft);color:#1e3a8a;border-bottom-right-radius:4px}
-  .msg.dept .body{background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-sm);border-bottom-left-radius:4px}
+  .msg .body{padding:10px 14px;border-radius:12px;font-size:13px;line-height:1.6;word-break:break-word;white-space:pre-wrap;background:var(--surface);border:1px solid var(--border);color:var(--text)}
+  .msg.user .body{background:linear-gradient(135deg,rgba(59,130,246,.18),rgba(99,102,241,.18));border-color:rgba(59,130,246,.3);color:#dbeafe;border-bottom-right-radius:4px}
+  .msg:not(.user) .body{border-bottom-left-radius:4px}
   .msg.dept .who .dot{width:7px;height:7px;border-radius:50%;background:var(--dept-color,#9ca3af)}
-  .msg.ceo .body{background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-sm);border-left:3px solid var(--gold);border-bottom-left-radius:4px;font-weight:500}
+  .msg.ceo .body{border-left:3px solid var(--gold);background:rgba(245,158,11,.05)}
   .msg.ceo .who{color:var(--gold);font-weight:600}
-  .msg.critic .body{background:#fff7ed;border:1px solid #fed7aa;border-left:3px solid var(--magenta);border-bottom-left-radius:4px}
+  .msg.critic .body{border-left:3px solid var(--magenta);background:rgba(236,72,153,.05)}
   .msg.critic .who{color:var(--magenta);font-weight:600}
   .msg.sys{max-width:100%;align-items:center}
-  .msg.sys .body{background:transparent;padding:2px 6px;color:var(--text-dim);font-size:11.5px;font-style:italic}
-  .msg.err .body{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-bottom-left-radius:4px}
-  .msg .body ul{margin:6px 0 2px;padding-left:20px}
+  .msg.sys .body{background:transparent;border:none;padding:2px 6px;color:var(--text-dim);font-size:11.5px;font-style:italic}
+  .msg.err .body{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.3);color:#fca5a5}
+  .msg .body ul{margin:6px 0;padding-left:20px}
   .msg .body li{font-size:12.5px;margin:3px 0}
   .msg .body .sec{font-size:10.5px;color:var(--text-dim);font-weight:700;margin-top:8px;text-transform:uppercase;letter-spacing:.4px}
 
-  .chat-input{padding:12px 20px 18px;border-top:1px solid var(--border);background:var(--surface);flex-shrink:0}
-  .chat-input-wrap{position:relative;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px 48px 10px 14px;transition:border-color .15s,box-shadow .15s}
-  .chat-input-wrap:focus-within{border-color:var(--accent);background:var(--surface);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+  .chat-input{padding:12px 20px 18px;border-top:1px solid var(--border-soft);background:var(--chat);flex-shrink:0}
+  .chat-input-wrap{position:relative;background:var(--input);border:1px solid var(--border);border-radius:12px;padding:10px 48px 10px 14px;transition:border-color .15s,box-shadow .15s}
+  .chat-input-wrap:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15)}
   .chat-input-wrap textarea{width:100%;background:transparent;border:none;outline:none;resize:none;height:24px;max-height:180px;line-height:1.5;color:var(--text);font-size:14px;display:block}
   .chat-input-wrap textarea::placeholder{color:var(--text-dim)}
-  .send-btn{position:absolute;right:7px;bottom:7px;width:32px;height:32px;border:none;border-radius:9px;background:var(--accent);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center}
-  .send-btn:hover{background:#1d4ed8}
-  .send-btn:disabled{background:#cbd5e1;cursor:not-allowed}
+  .send-btn{position:absolute;right:7px;bottom:7px;width:32px;height:32px;border:none;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent-alt));color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:opacity .15s,filter .15s}
+  .send-btn:hover{filter:brightness(1.1)}
+  .send-btn:disabled{opacity:.45;cursor:not-allowed}
   .send-btn.stop{background:var(--red)}
   .chat-hint{margin-top:8px;font-size:11px;color:var(--text-dim)}
-  .chat-hint kbd{background:#F0EEE6;border:1px solid var(--border);padding:1px 5px;border-radius:3px;font-size:10.5px;color:var(--text-soft)}
+  .chat-hint kbd{background:var(--input);border:1px solid var(--border);padding:1px 5px;border-radius:3px;font-size:10.5px;color:var(--text-soft)}
+
+  /* ─ right panel ─ */
+  .panel{background:var(--panel);border-left:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden;min-width:0}
+  .panel-inner{width:300px;display:flex;flex-direction:column;min-width:0;height:100%}
+  .panel-tabs{display:flex;border-bottom:1px solid var(--border-soft);flex-shrink:0}
+  .tab-btn{flex:1;padding:12px 8px;background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:11.5px;font-weight:500;transition:color .12s,background .12s;position:relative}
+  .tab-btn:hover{color:var(--text-soft);background:rgba(255,255,255,.02)}
+  .tab-btn.active{color:var(--text)}
+  .tab-btn.active::after{content:'';position:absolute;bottom:0;left:12px;right:12px;height:2px;background:var(--accent);border-radius:2px}
+  .panel-body{flex:1;overflow-y:auto;padding:14px 16px}
+  .panel-body::-webkit-scrollbar{width:5px}
+  .panel-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:3px}
+  .panel-sec{margin-bottom:16px}
+  .panel-sec h4{font-size:10px;color:var(--text-dim);font-weight:700;margin:0 0 8px;text-transform:uppercase;letter-spacing:.5px}
+  .dept-row{display:grid;grid-template-columns:18px 1fr 54px;gap:8px;align-items:center;padding:7px 0;font-size:12px;border-bottom:1px solid var(--border-soft)}
+  .dept-row:last-child{border-bottom:none}
+  .dept-row .ddot{width:8px;height:8px;border-radius:50%;background:var(--dept-color,#374151)}
+  .dept-row .dname{color:var(--text-soft)}
+  .dept-row.working .dname{color:var(--text)}
+  .dept-row .dstate{font-size:10.5px;color:var(--text-dim);text-align:right;letter-spacing:.3px}
+  .dept-row.working .dstate{color:var(--accent)}
+  .dept-row.done .dstate{color:var(--green)}
+  .dept-row.err .dstate{color:var(--red)}
+  .kpi-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+  .kpi-tile{background:var(--surface);border:1px solid var(--border-soft);padding:9px 10px;border-radius:8px}
+  .kpi-tile .label{font-size:10px;color:var(--text-dim);margin-bottom:2px}
+  .kpi-tile .val{font-size:14px;font-weight:600;color:var(--text)}
+  .panel-empty{color:var(--text-dim);font-size:11.5px;font-style:italic;padding:40px 8px;text-align:center}
+
+  /* ─ toggle buttons (floating, always visible) ─ */
+  .toggle-btn{position:fixed;z-index:50;width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:rgba(15,19,32,.9);color:var(--text-soft);cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);transition:background .12s,color .12s,transform .2s}
+  .toggle-btn:hover{background:var(--surface);color:var(--text)}
+  .toggle-sidebar{top:10px;left:8px;transition:left .25s ease}
+  .app[data-sidebar="open"] .toggle-sidebar{left:184px}
+  .toggle-panel{top:50%;right:8px;transform:translateY(-50%);transition:right .25s ease}
+  .app[data-panel="open"] .toggle-panel{right:264px}
 </style>
 </head>
 <body>
-<div class="app">
+<div class="app" id="app" data-sidebar="open" data-panel="open">
 
-  <!-- ─ sidebar ────────────────────────────────────────────────────── -->
-  <nav class="sidebar">
-    <div class="logo"><span class="mark"></span>CORVUS X</div>
-    <button class="nav-btn active" id="navNewChat">
-      <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
-      새 대화
-    </button>
-    <div class="sidebar-scroll" id="sidebarScroll">
-      <div class="nav-divider">프로젝트</div>
-      <div id="projectList"><!-- rendered --></div>
-      <div class="project-new" id="projectNew">+ 새 프로젝트</div>
-      <div class="nav-divider">운영</div>
-      <a href="/?view=dashboard" class="nav-btn">
-        <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="5" height="5"/><rect x="9" y="3" width="5" height="5"/><rect x="2" y="10" width="5" height="3"/><rect x="9" y="10" width="5" height="3"/></svg>
-        매출 대시보드
-      </a>
-      <a href="/?view=store-ops" class="nav-btn">
-        <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5l1.5-3h9L14 5M2 5v8h12V5M2 5h12M6 8h4"/></svg>
-        매장 운영
-      </a>
-      <a href="/?view=pos" class="nav-btn">
-        <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="8" rx="1"/><path d="M5 13h6M8 11v2"/></svg>
-        POS 관리
-      </a>
+  <button class="toggle-btn toggle-sidebar" id="toggleSidebar" title="사이드바">☰</button>
+  <button class="toggle-btn toggle-panel" id="togglePanel" title="우측 패널">◀</button>
+
+  <!-- ─ sidebar ───────────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+      <div class="logo"><span class="mark"></span>CORVUS X</div>
+      <button class="nav-btn active" id="navNewChat">
+        <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
+        새 채팅
+      </button>
+      <div class="sidebar-scroll" id="sidebarScroll">
+        <div class="nav-divider">채팅</div>
+        <div id="generalThreads"></div>
+        <div class="nav-divider">프로젝트</div>
+        <div class="sub-new" id="newProject">+ 새 프로젝트</div>
+        <div id="projectList"></div>
+        <div class="nav-divider">도구</div>
+        <a href="/?view=images" class="nav-btn">
+          <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1"/><circle cx="6" cy="7" r="1.5"/><path d="M2 11l4-4 3 3 5-5"/></svg>
+          이미지 생성
+        </a>
+        <a href="/?view=dashboard" class="nav-btn">
+          <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="5" height="5"/><rect x="9" y="3" width="5" height="5"/><rect x="2" y="10" width="5" height="3"/><rect x="9" y="10" width="5" height="3"/></svg>
+          대시보드
+        </a>
+      </div>
     </div>
-  </nav>
+  </aside>
 
-  <!-- ─ right: office top + chat bottom ─────────────────────────────── -->
+  <!-- ─ main: office top + chat bottom ─────────────────────────────── -->
   <div class="main-col">
     <div class="office-wrap">
-      <div class="office-title">OFFICE</div>
+      <div class="office-title">CORVUS X OFFICE</div>
       <div class="office-status">
         <span class="dot" id="officeStatusDot"></span>
         <span id="officeStatusText">대기 중</span>
@@ -186,6 +237,19 @@
       </div>
     </section>
   </div>
+
+  <!-- ─ right panel ────────────────────────────────────────────────── -->
+  <aside class="panel">
+    <div class="panel-inner">
+      <div class="panel-tabs">
+        <button class="tab-btn active" data-tab="depts">부서현황</button>
+        <button class="tab-btn" data-tab="sales">매출</button>
+        <button class="tab-btn" data-tab="pos">POS</button>
+        <button class="tab-btn" data-tab="report">보고</button>
+      </div>
+      <div class="panel-body" id="panelBody"></div>
+    </div>
+  </aside>
 </div>
 
 <script>
@@ -206,104 +270,123 @@
   ];
   const DEPT_BY_ID = Object.fromEntries(DEPTS.map(d => [d.id, d]));
 
-  // ─── LocalStorage keys ─────────────────────────────────────────────
-  const LS_PROJECTS = 'corvus-x-office.projects.v2';
-  const LS_CURRENT_PROJECT = 'corvus-x-office.currentProject.v2';
-  const LS_CURRENT_THREAD = 'corvus-x-office.currentThread.v2';
-  const LS_THREADS = 'corvus-x-office.threads.v2';  // { [projectName]: [{id,title,messages:[],updatedAt}] }
+  const GENERAL = '__general__';
+  const LS = {
+    SIDEBAR: 'corvus-x-office.sidebar',
+    PANEL: 'corvus-x-office.panel',
+    TAB: 'corvus-x-office.tab',
+    PROJECTS: 'corvus-x-office.projects.v3',
+    THREADS: 'corvus-x-office.threads.v3',
+    ACTIVE_THREAD: 'corvus-x-office.activeThread.v3',
+    COLLAPSED: 'corvus-x-office.collapsedProjects.v3',
+  };
 
-  // ─── 상태 ──────────────────────────────────────────────────────────
+  // ─── state ──────────────────────────────────────────────────────
   const state = {
     es: null,
     running: false,
     scene: null,
-    currentProject: localStorage.getItem(LS_CURRENT_PROJECT) || '신규 프로젝트',
-    currentThreadId: localStorage.getItem(LS_CURRENT_THREAD) || null,
-    projects: loadJson(LS_PROJECTS, []),
-    threads: loadJson(LS_THREADS, {}),
-    collapsedProjects: new Set(),
-    deptBubbleCache: {},
-    missionDeptCount: 0,
+    projects: loadLS(LS.PROJECTS, []),         // [{id, title, updatedAt}]
+    threads: loadLS(LS.THREADS, {}),           // { [projectIdOrGeneral]: [{id, projectId, title, messages[], updatedAt}] }
+    activeThreadId: localStorage.getItem(LS.ACTIVE_THREAD) || null,
+    activeProjectId: GENERAL,                  // derived
+    collapsedProjects: new Set(loadLS(LS.COLLAPSED, [])),
+    currentTab: localStorage.getItem(LS.TAB) || 'depts',
+    deptStates: {},                             // { [deptId]: 'idle|working|done|err' }
+    missionDeptCount: 9,
     deptCompletedCount: 0,
     executiveActive: false,
+    lastBriefing: null,
+    lastCritic: null,
   };
+  function loadLS(key, fb) { try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : fb; } catch { return fb; } }
+  function saveLS(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} }
 
-  function loadJson(key, fb) {
-    try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fb; }
-    catch { return fb; }
-  }
-  function saveJson(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} }
+  // 기본 상태 초기화
+  DEPTS.forEach(d => { state.deptStates[d.id] = 'idle'; });
 
-  // ─── DOM ──────────────────────────────────────────────────────────
+  // ─── DOM ────────────────────────────────────────────────────────
   const $ = (id) => document.getElementById(id);
   const dom = {
-    projectList: $('projectList'),
-    projectNew: $('projectNew'),
+    app: $('app'),
+    toggleSidebar: $('toggleSidebar'),
+    togglePanel: $('togglePanel'),
     navNewChat: $('navNewChat'),
+    newProject: $('newProject'),
+    generalThreads: $('generalThreads'),
+    projectList: $('projectList'),
     chatTitle: $('chatTitle'),
     chatLog: $('chatLog'),
     directive: $('directive'),
     sendBtn: $('sendBtn'),
     officeStatusDot: $('officeStatusDot'),
     officeStatusText: $('officeStatusText'),
+    panelBody: $('panelBody'),
   };
 
-  // ─── Phaser constants ─────────────────────────────────────────────
-  const W = 1280, H = 420;
-  const TILE_W = 58, TILE_H = 29;
+  // ─── toggle state ────────────────────────────────────────────────
+  function applyToggles() {
+    dom.app.dataset.sidebar = localStorage.getItem(LS.SIDEBAR) === 'closed' ? 'closed' : 'open';
+    dom.app.dataset.panel   = localStorage.getItem(LS.PANEL)   === 'closed' ? 'closed' : 'open';
+    dom.togglePanel.textContent = dom.app.dataset.panel === 'open' ? '◀' : '▶';
+  }
+  dom.toggleSidebar.addEventListener('click', () => {
+    const cur = dom.app.dataset.sidebar;
+    const next = cur === 'open' ? 'closed' : 'open';
+    dom.app.dataset.sidebar = next;
+    localStorage.setItem(LS.SIDEBAR, next);
+  });
+  dom.togglePanel.addEventListener('click', () => {
+    const cur = dom.app.dataset.panel;
+    const next = cur === 'open' ? 'closed' : 'open';
+    dom.app.dataset.panel = next;
+    localStorage.setItem(LS.PANEL, next);
+    dom.togglePanel.textContent = next === 'open' ? '◀' : '▶';
+  });
+
+  // ─── Phaser Scene (dark, isometric) ─────────────────────────────
+  const W = 1280, H = 340;
+  const TILE_W = 56, TILE_H = 28;
   const ORIGIN_X = W / 2;
-  const ORIGIN_Y = 80;
+  const ORIGIN_Y = 72;
   function isoX(tx, ty) { return ORIGIN_X + (tx - ty) * (TILE_W / 2); }
   function isoY(tx, ty) { return ORIGIN_Y + (tx + ty) * (TILE_H / 2); }
 
-  // 그리드 (8x6). 상단 좌: 회의실(0-2,0-1) / 중: 복도 / 상단 우: 상무실(3-4,0-1) / 우: CEO(5-7,0-1)
-  // 가운데 큐비클 3x3(2-6,2-4). 하단 복도(7,0-7).
-  // 9 큐비클 배치 (한 줄 3칸)
   const CUBICLES = DEPTS.map((d, i) => {
-    const col = i % 3;
-    const row = Math.floor(i / 3);
+    const col = i % 3, row = Math.floor(i / 3);
     return { deptId: d.id, tx: 2.0 + col * 1.6, ty: 2.3 + row * 1.0 };
   });
-  // 회의실 자리 배치 (부서별 고유 좌석)
   const MEETING_SEATS = DEPTS.map((d, i) => ({
     tx: 0.5 + (i % 3) * 0.6,
     ty: 0.3 + Math.floor(i / 3) * 0.5,
   }));
   DEPTS.forEach((d, i) => { d._meetingSeat = MEETING_SEATS[i]; });
 
-  // ─── Color palette (bright beige/cream) ────────────────────────────
   const C = {
-    floorA: 0xF2EFE6,       // 체크 바닥 A
-    floorB: 0xEEE9DC,       // 체크 바닥 B
-    floorEdge: 0xD6D3C9,
-    wallTop: 0xE8DFCE,
-    wallSide: 0xC8B995,
-    wallDark: 0xA68B6C,
-    deskTop: 0xD9C8A8,      // 책상 윗면 (원목)
-    deskSide: 0x9B7F59,
-    deskFront: 0xB69468,
-    chairBody: 0x6B5842,
-    chairSeat: 0x4A3C2E,
-    monitorBezel: 0x1F2937,
-    monitorScreen: 0x3b82f6,
-    keyboard: 0xF5F5F0,
-    plantPot: 0x8B4513,
-    plantLeaf: 0x4CAF50,
-    plantLeafLight: 0x66BB6A,
-    sofaPurple: 0x9F7AEA,
-    sofaDark: 0x7C5FC2,
-    bookshelf: 0x654321,
-    tableWood: 0xAD895F,
-    doorWood: 0x8B6F47,
-    executiveGlow: 0xFBBF24,
-    ceoGlow: 0xF59E0B,
-    hallwayFloor: 0xEFE8D7,
+    floorA: 0x151b2d,
+    floorB: 0x1b2238,
+    floorEdge: 0x0a0d14,
+    deskTop: 0x2d3752,
+    deskSide: 0x1b223a,
+    deskFront: 0x242c47,
+    chairBody: 0x374151,
+    chairSeat: 0x1f2937,
+    monitorBezel: 0x0b1020,
+    monitorOn: 0x3b82f6,
+    keyboard: 0xcbd5e1,
+    plantPot: 0x5c3f22,
+    plantLeaf: 0x16a34a,
+    plantLeafLt: 0x22c55e,
+    sofaPurple: 0x6d28d9,
+    sofaDark: 0x4c1d95,
+    bookshelf: 0x422712,
+    tableWood: 0x78543a,
+    executiveGlow: 0xfbbf24,
+    ceoGlow: 0xf59e0b,
   };
 
-  // ─── Phaser Scene ──────────────────────────────────────────────────
   class OfficeScene extends Phaser.Scene {
     constructor() { super('office'); }
-
     create() {
       state.scene = this;
       this.bg = this.add.container(0, 0);
@@ -312,250 +395,178 @@
       this.dynamicFurn = this.add.container(0, 0);
       this.charLayer = this.add.container(0, 0);
       this.lightLayer = this.add.container(0, 0);
-
       this.drawFloor();
-      this.drawWalls();
       this.drawRooms();
+      this.drawWalls();
       this.drawFurniture();
       this.createCharacters();
       this.addRoomLabels();
       this.initLights();
       this.initMonitorFlicker();
     }
-
     addRoomLabels() {
-      const mk = (x, y, txt, color) => this.add.text(x, y, txt, {
-        fontFamily: 'system-ui,-apple-system,sans-serif',
-        fontSize: '10px', fontStyle: 'bold',
-        color,
+      const mk = (x, y, txt, c) => this.add.text(x, y, txt, {
+        fontFamily:'Inter,system-ui,sans-serif', fontSize:'10px', fontStyle:'bold', color:c,
       }).setOrigin(0.5, 0.5);
-      this.bg.add(mk(isoX(1, 0.5), isoY(1, 0.5) - 45, '회의실',     '#78543a'));
-      this.bg.add(mk(isoX(3.5, 0.5), isoY(3.5, 0.5) - 45, '상무실',   '#b45309'));
-      this.bg.add(mk(isoX(6.5, 0.5), isoY(6.5, 0.5) - 45,'CEO 사장실', '#92400e'));
-      this.bg.add(mk(isoX(3.5, 3.0), isoY(3.5, 3.0) - 62, '업무공간',  '#6f6457'));
-      this.bg.add(mk(isoX(3.5, 5.0), isoY(3.5, 5.0) - 25, '휴게실',    '#6f6457'));
+      this.bg.add(mk(isoX(1, 0.5),   isoY(1, 0.5)   - 42, '회의실',     '#94a3b8'));
+      this.bg.add(mk(isoX(3.5, 0.5), isoY(3.5, 0.5) - 42, '상무실',     '#fbbf24'));
+      this.bg.add(mk(isoX(6.5, 0.5), isoY(6.5, 0.5) - 42, 'CEO 사장실', '#f59e0b'));
+      this.bg.add(mk(isoX(3.5, 3.0), isoY(3.5, 3.0) - 62, '업무공간',   '#64748b'));
+      this.bg.add(mk(isoX(3.5, 5.0), isoY(3.5, 5.0) - 18, '휴게실',     '#64748b'));
     }
-
     drawFloor() {
       const g = this.add.graphics();
       this.floorLayer.add(g);
-      const cols = 8, rows = 6;
-      for (let tx = 0; tx < cols; tx++) {
-        for (let ty = 0; ty < rows; ty++) {
+      for (let tx = 0; tx < 8; tx++) {
+        for (let ty = 0; ty < 6; ty++) {
           const cx = isoX(tx, ty), cy = isoY(tx, ty);
           const tint = (tx + ty) % 2 === 0 ? C.floorA : C.floorB;
           g.fillStyle(tint, 1);
           g.beginPath();
           g.moveTo(cx, cy - TILE_H / 2);
-          g.lineTo(cx + TILE_W / 2, cy);
+          g.lineTo(cx + TILE_W/2, cy);
           g.lineTo(cx, cy + TILE_H / 2);
-          g.lineTo(cx - TILE_W / 2, cy);
+          g.lineTo(cx - TILE_W/2, cy);
           g.closePath();
           g.fillPath();
-          g.lineStyle(1, C.floorEdge, 0.4);
+          g.lineStyle(1, C.floorEdge, 0.5);
           g.strokePath();
         }
       }
     }
-
+    drawRooms() {
+      const g = this.add.graphics();
+      this.floorLayer.add(g);
+      // 회의실 (tx 0-2, ty 0-1)
+      this.fillRoomFloor(g, 0, 2, 0, 2, 0x1e293b, 0.55);
+      // 상무실 (tx 3-5, ty 0-1)
+      this.fillRoomFloor(g, 3, 5, 0, 2, 0x1f1a10, 0.45);
+      // CEO (tx 5-8, ty 0-1)
+      this.fillRoomFloor(g, 5, 8, 0, 2, 0x2a1f0a, 0.55);
+      // 휴게실 (tx 2-5, ty 5-6)
+      this.fillRoomFloor(g, 2, 5, 5, 6, 0x1e1b4b, 0.45);
+    }
+    fillRoomFloor(g, x1, x2, y1, y2, color, alpha) {
+      const pts = [[x1,y1],[x2,y1],[x2,y2],[x1,y2]];
+      g.fillStyle(color, alpha);
+      g.beginPath();
+      g.moveTo(isoX(pts[0][0], pts[0][1]), isoY(pts[0][0], pts[0][1]));
+      for (let i = 1; i < pts.length; i++) g.lineTo(isoX(pts[i][0], pts[i][1]), isoY(pts[i][0], pts[i][1]));
+      g.closePath();
+      g.fillPath();
+    }
     drawWalls() {
-      // 룸 구분용 얇은 벽선 (베이지 톤)
       const g = this.add.graphics();
       this.floorLayer.add(g);
       const segs = [
-        // 회의실 외곽 (tx 0-2, ty 0-1)
-        { a:{tx:0,ty:2}, b:{tx:2,ty:2}, c: C.wallDark },
-        { a:{tx:2,ty:0}, b:{tx:2,ty:2}, c: C.wallDark },
-        // 상무실 (tx 3-4, ty 0-1)
-        { a:{tx:3,ty:0}, b:{tx:3,ty:2}, c: 0xA68B6C },
-        { a:{tx:3,ty:2}, b:{tx:5,ty:2}, c: 0xA68B6C },
-        { a:{tx:5,ty:0}, b:{tx:5,ty:2}, c: 0xA68B6C },
-        // CEO 사장실 (tx 5-7, ty 0-1) — 공유벽은 위에서 처리, 우측/하단만
-        { a:{tx:5,ty:2}, b:{tx:8,ty:2}, c: C.wallDark },
-        // 휴게실 (tx 2-5, ty 5)
-        { a:{tx:2,ty:5}, b:{tx:5,ty:5}, c: 0xB09873 },
+        { a:{tx:0,ty:2}, b:{tx:2,ty:2}, c:0x334155 },
+        { a:{tx:2,ty:0}, b:{tx:2,ty:2}, c:0x334155 },
+        { a:{tx:3,ty:0}, b:{tx:3,ty:2}, c:0x4a3820 },
+        { a:{tx:3,ty:2}, b:{tx:5,ty:2}, c:0x4a3820 },
+        { a:{tx:5,ty:0}, b:{tx:5,ty:2}, c:0x4a3820 },
+        { a:{tx:5,ty:2}, b:{tx:8,ty:2}, c:0x5a3f1f },
+        { a:{tx:2,ty:5}, b:{tx:5,ty:5}, c:0x312e81 },
       ];
       for (const s of segs) {
-        g.lineStyle(3, s.c, 0.85);
+        g.lineStyle(2.5, s.c, 0.9);
         g.beginPath();
         g.moveTo(isoX(s.a.tx, s.a.ty), isoY(s.a.tx, s.a.ty));
         g.lineTo(isoX(s.b.tx, s.b.ty), isoY(s.b.tx, s.b.ty));
         g.strokePath();
       }
     }
-
-    drawRooms() {
-      // 룸 바닥 색 오버레이 (회의실/상무실/CEO/휴게실 tint)
-      const g = this.add.graphics();
-      this.floorLayer.add(g);
-      this.fillRoomFloor(g, 0, 2, 0, 2, 0xE8DCC2, 0.45); // 회의실
-      this.fillRoomFloor(g, 3, 5, 0, 2, 0xF0E4CC, 0.45); // 상무실
-      this.fillRoomFloor(g, 5, 8, 0, 2, 0xEDDCB8, 0.55); // CEO
-      this.fillRoomFloor(g, 2, 5, 5, 6, 0xE5E0D0, 0.55); // 휴게실
-    }
-    fillRoomFloor(g, x1, x2, y1, y2, color, alpha = 0.5) {
-      const points = [
-        [x1, y1], [x2, y1], [x2, y2], [x1, y2],
-      ];
-      g.fillStyle(color, alpha);
-      g.beginPath();
-      const start = points[0];
-      g.moveTo(isoX(start[0], start[1]), isoY(start[0], start[1]));
-      for (let i = 1; i < points.length; i++) {
-        g.lineTo(isoX(points[i][0], points[i][1]), isoY(points[i][0], points[i][1]));
-      }
-      g.closePath();
-      g.fillPath();
-    }
-
-    // 간이 3면 박스
-    isoBox(g, tx, ty, wTiles, dTiles, hPx, topCol, sideLCol, sideRCol) {
+    isoBox(g, tx, ty, w, d, h, top, sL, sR) {
       const x1 = isoX(tx, ty), y1 = isoY(tx, ty);
-      const x2 = isoX(tx + wTiles, ty), y2 = isoY(tx + wTiles, ty);
-      const x3 = isoX(tx + wTiles, ty + dTiles), y3 = isoY(tx + wTiles, ty + dTiles);
-      const x4 = isoX(tx, ty + dTiles), y4 = isoY(tx, ty + dTiles);
-      g.fillStyle(sideRCol, 1);
-      g.beginPath();
-      g.moveTo(x2, y2); g.lineTo(x3, y3); g.lineTo(x3, y3 - hPx); g.lineTo(x2, y2 - hPx); g.closePath();
-      g.fillPath();
-      g.fillStyle(sideLCol, 1);
-      g.beginPath();
-      g.moveTo(x3, y3); g.lineTo(x4, y4); g.lineTo(x4, y4 - hPx); g.lineTo(x3, y3 - hPx); g.closePath();
-      g.fillPath();
-      g.fillStyle(topCol, 1);
-      g.beginPath();
-      g.moveTo(x1, y1 - hPx); g.lineTo(x2, y2 - hPx); g.lineTo(x3, y3 - hPx); g.lineTo(x4, y4 - hPx); g.closePath();
-      g.fillPath();
-      g.lineStyle(1, 0x3a2f1f, 0.5);
-      g.strokePath();
+      const x2 = isoX(tx + w, ty), y2 = isoY(tx + w, ty);
+      const x3 = isoX(tx + w, ty + d), y3 = isoY(tx + w, ty + d);
+      const x4 = isoX(tx, ty + d), y4 = isoY(tx, ty + d);
+      g.fillStyle(sR, 1); g.beginPath();
+      g.moveTo(x2, y2); g.lineTo(x3, y3); g.lineTo(x3, y3 - h); g.lineTo(x2, y2 - h); g.closePath(); g.fillPath();
+      g.fillStyle(sL, 1); g.beginPath();
+      g.moveTo(x3, y3); g.lineTo(x4, y4); g.lineTo(x4, y4 - h); g.lineTo(x3, y3 - h); g.closePath(); g.fillPath();
+      g.fillStyle(top, 1); g.beginPath();
+      g.moveTo(x1, y1 - h); g.lineTo(x2, y2 - h); g.lineTo(x3, y3 - h); g.lineTo(x4, y4 - h); g.closePath(); g.fillPath();
+      g.lineStyle(1, 0x050810, 0.5); g.strokePath();
     }
-
     drawMonitor(g, cx, cy) {
-      // bezel
-      g.fillStyle(C.monitorBezel, 1);
-      g.fillRect(cx - 9, cy - 13, 18, 12);
-      // screen (동적 레이어에서 flicker 처리)
-      g.fillStyle(0x0f172a, 1);
-      g.fillRect(cx - 7, cy - 11, 14, 8);
-      // stand
-      g.fillStyle(0x4b5563, 1);
-      g.fillRect(cx - 2, cy - 1, 4, 3);
-      g.fillRect(cx - 5, cy + 2, 10, 1);
+      g.fillStyle(C.monitorBezel, 1); g.fillRect(cx - 9, cy - 13, 18, 12);
+      g.fillStyle(0x0f172a, 1); g.fillRect(cx - 7, cy - 11, 14, 8);
+      g.fillStyle(0x374151, 1); g.fillRect(cx - 2, cy - 1, 4, 3); g.fillRect(cx - 5, cy + 2, 10, 1);
     }
     drawKeyboard(g, cx, cy) {
-      g.fillStyle(C.keyboard, 1);
-      g.fillRect(cx - 8, cy + 4, 16, 4);
-      g.lineStyle(0.5, 0xCCCCCC, 0.8);
-      g.strokeRect(cx - 8, cy + 4, 16, 4);
+      g.fillStyle(C.keyboard, 0.85); g.fillRect(cx - 8, cy + 4, 16, 4);
     }
     drawChair(g, tx, ty) {
-      // 의자 (책상 앞)
-      this.isoBox(g, tx - 0.15, ty + 0.05, 0.3, 0.3, 6, C.chairSeat, 0x2b2218, 0x3a2f22);
-      // 등받이
-      this.isoBox(g, tx - 0.15, ty + 0.05, 0.3, 0.08, 14, C.chairBody, 0x4a3c2e, 0x5a4a38);
+      this.isoBox(g, tx - 0.15, ty + 0.05, 0.3, 0.3, 6, C.chairSeat, 0x0b0f1a, 0x12182a);
+      this.isoBox(g, tx - 0.15, ty + 0.05, 0.3, 0.08, 14, C.chairBody, 0x1e2742, 0x2a3454);
     }
     drawPlant(g, cx, cy) {
-      g.fillStyle(C.plantPot, 1);
-      g.fillRect(cx - 5, cy - 2, 10, 8);
-      g.fillStyle(C.plantLeaf, 1);
-      g.fillCircle(cx - 2, cy - 6, 5);
-      g.fillCircle(cx + 3, cy - 7, 5);
-      g.fillStyle(C.plantLeafLight, 1);
-      g.fillCircle(cx, cy - 9, 4);
-      g.fillCircle(cx + 5, cy - 5, 3);
+      g.fillStyle(C.plantPot, 1); g.fillRect(cx - 5, cy - 2, 10, 8);
+      g.fillStyle(C.plantLeaf, 1);   g.fillCircle(cx - 2, cy - 6, 5); g.fillCircle(cx + 3, cy - 7, 5);
+      g.fillStyle(C.plantLeafLt, 1); g.fillCircle(cx, cy - 9, 4);     g.fillCircle(cx + 5, cy - 5, 3);
     }
-
     drawFurniture() {
       const g = this.add.graphics();
       this.staticFurn.add(g);
-
-      // 1. 회의실 — 원형 목재 테이블 + 의자 6개
+      // 회의실 원형 테이블
       const mcx = isoX(1.0, 0.9), mcy = isoY(1.0, 0.9);
-      g.fillStyle(C.tableWood, 1);
-      g.fillEllipse(mcx, mcy, 88, 44);
-      g.lineStyle(1.5, 0x5a3f1f, 0.8);
-      g.strokeEllipse(mcx, mcy, 88, 44);
-      g.fillStyle(0x8a6744, 1);
-      g.fillEllipse(mcx, mcy - 2, 70, 34);
-      // 의자 주변 점으로 표현
+      g.fillStyle(C.tableWood, 1); g.fillEllipse(mcx, mcy, 84, 42);
+      g.lineStyle(1, 0x3a2412, 0.8); g.strokeEllipse(mcx, mcy, 84, 42);
+      g.fillStyle(0x553a20, 1); g.fillEllipse(mcx, mcy - 2, 66, 32);
       for (let i = 0; i < 6; i++) {
         const a = (i / 6) * Math.PI * 2;
-        const cx = mcx + Math.cos(a) * 54;
-        const cy = mcy + Math.sin(a) * 26;
-        g.fillStyle(C.chairBody, 1);
-        g.fillEllipse(cx, cy + 2, 14, 9);
-        g.fillStyle(0x3a2f22, 1);
-        g.fillEllipse(cx, cy, 11, 6);
+        const cx = mcx + Math.cos(a) * 52, cy = mcy + Math.sin(a) * 24;
+        g.fillStyle(C.chairBody, 1); g.fillEllipse(cx, cy + 2, 13, 8);
+        g.fillStyle(0x0b0f1a, 1); g.fillEllipse(cx, cy, 10, 6);
       }
-      // 화분 2개
       this.drawPlant(g, isoX(0.2, 0.2), isoY(0.2, 0.2));
       this.drawPlant(g, isoX(1.9, 1.9), isoY(1.9, 1.9));
 
-      // 2. 상무실 — 중간 책상 + 의자 + 책장 작게
+      // 상무실
       this.isoBox(g, 3.3, 0.7, 1.2, 0.6, 13, C.deskTop, C.deskFront, C.deskSide);
       this.drawMonitor(g, isoX(3.9, 0.85), isoY(3.9, 0.85) - 8);
       this.drawKeyboard(g, isoX(3.9, 1.0), isoY(3.9, 1.0) - 8);
       this.drawChair(g, 3.9, 1.55);
-      // 작은 책장
-      this.isoBox(g, 3.1, 0.1, 0.25, 0.8, 26, C.bookshelf, 0x3a2412, 0x4d3320);
-      // 책들 (가로 선 4줄)
+      this.isoBox(g, 3.1, 0.1, 0.25, 0.8, 26, C.bookshelf, 0x2a1810, 0x35201b);
       const bx = isoX(3.15, 0.5), by = isoY(3.15, 0.5);
       for (let i = 0; i < 4; i++) {
-        const bookY = by - 24 + i * 5;
-        g.fillStyle(i === 0 ? 0xDC2626 : i === 1 ? 0x2563EB : i === 2 ? 0x059669 : 0xD97706, 1);
-        g.fillRect(bx - 4, bookY, 8, 4);
+        g.fillStyle([0xDC2626, 0x2563EB, 0x059669, 0xD97706][i], 1);
+        g.fillRect(bx - 4, by - 24 + i * 5, 8, 4);
       }
-      // 화분
       this.drawPlant(g, isoX(4.7, 0.3), isoY(4.7, 0.3));
 
-      // 3. CEO 사장실 — 큰 책상 + 큰 의자 + 소파 + 책장
-      // 큰 책상
+      // CEO 사장실
       this.isoBox(g, 5.5, 0.4, 1.8, 0.9, 14, C.deskTop, C.deskFront, C.deskSide);
       this.drawMonitor(g, isoX(6.4, 0.65), isoY(6.4, 0.65) - 9);
       this.drawKeyboard(g, isoX(6.4, 0.85), isoY(6.4, 0.85) - 9);
-      // CEO 의자 (큰, 뒤)
-      this.isoBox(g, 6.3, 1.35, 0.5, 0.5, 22, 0x2c2418, 0x1a1610, 0x221c14);
-      // 소파 (옆쪽)
-      this.isoBox(g, 7.2, 0.5, 0.5, 1.3, 8, C.sofaPurple, C.sofaDark, 0x5A44A0);
-      this.isoBox(g, 7.2, 0.5, 0.5, 0.2, 14, 0xB597E5, C.sofaPurple, 0x8B6FCE);
-      // 책장
-      this.isoBox(g, 5.1, 0.1, 0.25, 1.0, 26, C.bookshelf, 0x3a2412, 0x4d3320);
+      this.isoBox(g, 6.3, 1.35, 0.5, 0.5, 22, 0x0b0f1a, 0x05080f, 0x08101c);
+      this.isoBox(g, 7.2, 0.5, 0.5, 1.3, 8, C.sofaPurple, C.sofaDark, 0x3730a3);
+      this.isoBox(g, 7.2, 0.5, 0.5, 0.2, 14, 0x8B5CF6, C.sofaPurple, 0x5B21B6);
+      this.isoBox(g, 5.1, 0.1, 0.25, 1.0, 26, C.bookshelf, 0x2a1810, 0x35201b);
       const cbx = isoX(5.15, 0.6), cby = isoY(5.15, 0.6);
       for (let i = 0; i < 5; i++) {
-        const bookY = cby - 24 + i * 5;
-        const c = [0xDC2626, 0x2563EB, 0x059669, 0xD97706, 0x7C3AED][i];
-        g.fillStyle(c, 1);
-        g.fillRect(cbx - 4, bookY, 8, 4);
+        g.fillStyle([0xDC2626, 0x2563EB, 0x059669, 0xD97706, 0x7C3AED][i], 1);
+        g.fillRect(cbx - 4, cby - 24 + i * 5, 8, 4);
       }
-      // 화분
       this.drawPlant(g, isoX(5.4, 1.8), isoY(5.4, 1.8));
 
-      // 4. 업무공간 — 9 큐비클 책상 + 모니터 + 키보드 + 의자 + 화분
+      // 큐비클 9개
       for (const c of CUBICLES) {
-        // 책상
         this.isoBox(g, c.tx - 0.45, c.ty - 0.35, 0.9, 0.65, 10, C.deskTop, C.deskFront, C.deskSide);
-        // 모니터
         this.drawMonitor(g, isoX(c.tx, c.ty - 0.12), isoY(c.tx, c.ty - 0.12) - 8);
-        // 키보드
         this.drawKeyboard(g, isoX(c.tx, c.ty + 0.05), isoY(c.tx, c.ty + 0.05) - 8);
-        // 의자 (책상 앞)
         this.drawChair(g, c.tx, c.ty + 0.35);
       }
-      // 업무공간 화분 몇 개
       this.drawPlant(g, isoX(0.3, 3.5), isoY(0.3, 3.5));
       this.drawPlant(g, isoX(7.3, 3.0), isoY(7.3, 3.0));
       this.drawPlant(g, isoX(0.4, 2.0), isoY(0.4, 2.0));
 
-      // 5. 휴게실 — 소파 + 커피 테이블
-      this.isoBox(g, 2.8, 5.3, 2.0, 0.4, 10, 0x7A6B55, 0x4A3F30, 0x5A4C3A);
-      this.isoBox(g, 2.8, 5.15, 2.0, 0.15, 14, 0x9F8F76, 0x7A6B55, 0x88785E);
-      // 커피 테이블 중앙
-      this.isoBox(g, 3.4, 5.7, 0.8, 0.3, 6, C.tableWood, 0x5a3f1f, 0x7a5a30);
-      // 화분
+      // 휴게실
+      this.isoBox(g, 2.8, 5.3, 2.0, 0.4, 10, 0x334155, 0x1e293b, 0x263448);
+      this.isoBox(g, 2.8, 5.15, 2.0, 0.15, 14, 0x475569, 0x334155, 0x3b4b66);
+      this.isoBox(g, 3.4, 5.7, 0.8, 0.3, 6, C.tableWood, 0x3a2412, 0x513020);
       this.drawPlant(g, isoX(5.2, 5.8), isoY(5.2, 5.8));
     }
-
-    // 상무/CEO 룸 조명 오버레이 (초기 off)
     initLights() {
       this.executiveLight = this.add.graphics();
       this.ceoLight = this.add.graphics();
@@ -569,15 +580,12 @@
       g.clear();
       if (!on) { g.setVisible(false); return; }
       g.setVisible(true);
-      // 상무실 (tx 3-5, ty 0-2) 위에 노란 글로우
-      const points = [[3, 0], [5, 0], [5, 2], [3, 2]];
-      g.fillStyle(C.executiveGlow, 0.22);
+      const pts = [[3,0],[5,0],[5,2],[3,2]];
+      g.fillStyle(C.executiveGlow, 0.25);
       g.beginPath();
-      g.moveTo(isoX(points[0][0], points[0][1]), isoY(points[0][0], points[0][1]));
-      for (let i = 1; i < points.length; i++) g.lineTo(isoX(points[i][0], points[i][1]), isoY(points[i][0], points[i][1]));
-      g.closePath();
-      g.fillPath();
-      // 깜빡이는 효과
+      g.moveTo(isoX(pts[0][0], pts[0][1]), isoY(pts[0][0], pts[0][1]));
+      for (let i = 1; i < pts.length; i++) g.lineTo(isoX(pts[i][0], pts[i][1]), isoY(pts[i][0], pts[i][1]));
+      g.closePath(); g.fillPath();
       this.tweens.add({ targets: g, alpha: { from: 0.6, to: 1 }, duration: 900, yoyo: true, repeat: -1 });
     }
     lightCeo(on) {
@@ -585,16 +593,14 @@
       g.clear();
       if (!on) { g.setVisible(false); return; }
       g.setVisible(true);
-      const points = [[5, 0], [8, 0], [8, 2], [5, 2]];
-      g.fillStyle(C.ceoGlow, 0.22);
+      const pts = [[5,0],[8,0],[8,2],[5,2]];
+      g.fillStyle(C.ceoGlow, 0.25);
       g.beginPath();
-      g.moveTo(isoX(points[0][0], points[0][1]), isoY(points[0][0], points[0][1]));
-      for (let i = 1; i < points.length; i++) g.lineTo(isoX(points[i][0], points[i][1]), isoY(points[i][0], points[i][1]));
-      g.closePath();
-      g.fillPath();
+      g.moveTo(isoX(pts[0][0], pts[0][1]), isoY(pts[0][0], pts[0][1]));
+      for (let i = 1; i < pts.length; i++) g.lineTo(isoX(pts[i][0], pts[i][1]), isoY(pts[i][0], pts[i][1]));
+      g.closePath(); g.fillPath();
       this.tweens.add({ targets: g, alpha: { from: 0.6, to: 1 }, duration: 1100, yoyo: true, repeat: -1 });
     }
-
     initMonitorFlicker() {
       this.monitorG = this.add.graphics();
       this.dynamicFurn.add(this.monitorG);
@@ -603,42 +609,31 @@
         callback: () => {
           this.monitorG.clear();
           for (const c of CUBICLES) {
-            const mx = isoX(c.tx, c.ty - 0.12);
-            const my = isoY(c.tx, c.ty - 0.12) - 8;
-            const isOn = Math.random() > 0.35;
-            const col = isOn ? (Math.random() > 0.5 ? 0x3b82f6 : 0x10b981) : 0x0f172a;
-            this.monitorG.fillStyle(col, 0.85);
+            const mx = isoX(c.tx, c.ty - 0.12), my = isoY(c.tx, c.ty - 0.12) - 8;
+            const on = Math.random() > 0.35;
+            const col = on ? (Math.random() > 0.5 ? 0x3b82f6 : 0x10b981) : 0x0f172a;
+            this.monitorG.fillStyle(col, 0.88);
             this.monitorG.fillRect(mx - 7, my - 11, 14, 8);
           }
-          // 상무실 / CEO 모니터도 깜빡
-          const eMX = isoX(3.9, 0.85), eMY = isoY(3.9, 0.85) - 8;
-          const cMX = isoX(6.4, 0.65), cMY = isoY(6.4, 0.65) - 9;
-          this.monitorG.fillStyle(Math.random() > 0.3 ? 0x3b82f6 : 0x0f172a, 0.85);
-          this.monitorG.fillRect(eMX - 7, eMY - 11, 14, 8);
-          this.monitorG.fillStyle(Math.random() > 0.3 ? 0x10b981 : 0x0f172a, 0.85);
-          this.monitorG.fillRect(cMX - 7, cMY - 11, 14, 8);
         },
       });
     }
-
-    // ─── 캐릭터 ────────────────────────────────────────────────────
     createCharacters() {
       this.characters = {};
       DEPTS.forEach((d) => {
         const cub = CUBICLES.find(c => c.deptId === d.id);
-        const sx = isoX(cub.tx, cub.ty + 0.3);
-        const sy = isoY(cub.tx, cub.ty + 0.3) - 4;
+        const sx = isoX(cub.tx, cub.ty + 0.3), sy = isoY(cub.tx, cub.ty + 0.3) - 4;
         const container = this.add.container(sx, sy);
         container.setDepth(Math.floor(sy));
-        const hair = this.add.rectangle(0, -22, 10, 3, 0x1f2937).setOrigin(0.5, 0.5);
+        const hair = this.add.rectangle(0, -22, 10, 3, 0x0a0d14).setOrigin(0.5, 0.5);
         const head = this.add.rectangle(0, -18, 10, 10, 0xf6d5ad).setOrigin(0.5, 0.5);
         const eyeL = this.add.rectangle(-2, -18, 1, 1, 0x000).setOrigin(0.5, 0.5);
         const eyeR = this.add.rectangle(2, -18, 1, 1, 0x000).setOrigin(0.5, 0.5);
         const body = this.add.rectangle(0, -8, 10, 12, d.color).setOrigin(0.5, 0.5);
         const armL = this.add.rectangle(-6, -8, 2, 8, d.color).setOrigin(0.5, 0.5);
         const armR = this.add.rectangle(6, -8, 2, 8, d.color).setOrigin(0.5, 0.5);
-        const legL = this.add.rectangle(-2, 1, 3, 6, 0x1f2937).setOrigin(0.5, 0.5);
-        const legR = this.add.rectangle(2, 1, 3, 6, 0x1f2937).setOrigin(0.5, 0.5);
+        const legL = this.add.rectangle(-2, 1, 3, 6, 0x0a0d14).setOrigin(0.5, 0.5);
+        const legR = this.add.rectangle(2, 1, 3, 6, 0x0a0d14).setOrigin(0.5, 0.5);
         container.add([hair, head, eyeL, eyeR, body, armL, armR, legL, legR]);
         const data = {
           deptId: d.id, color: d.color, hex: d.hex, container,
@@ -652,7 +647,6 @@
         this.startIdleBob(data);
       });
     }
-
     startIdleBob(c) {
       this.stopTweens(c);
       c.bobTween = this.tweens.add({
@@ -664,51 +658,39 @@
       [c.bobTween, c.armTweenL, c.armTweenR, c.walkTween].forEach(t => t && t.stop());
       c.bobTween = c.armTweenL = c.armTweenR = c.walkTween = null;
     }
-
     walkCharTo(c, tx, ty, done) {
       this.stopTweens(c);
       const destX = isoX(tx, ty), destY = isoY(tx, ty) - 4;
       c.walkTween = this.tweens.chain({
         targets: c.container,
         tweens: [
-          { x: destX, duration: 520, ease: 'Linear' },
-          { y: destY, duration: 520, ease: 'Linear' },
+          { x: destX, duration: 500, ease: 'Linear' },
+          { y: destY, duration: 500, ease: 'Linear' },
         ],
         onComplete: () => {
           c.container.setDepth(Math.floor(destY));
           if (done) done();
         },
       });
-      this.tweens.add({
-        targets: [c.legL, c.legR], y: { from: 1, to: -1 },
-        duration: 120, yoyo: true, repeat: 8, ease: 'Linear',
-      });
+      this.tweens.add({ targets: [c.legL, c.legR], y: { from: 1, to: -1 }, duration: 120, yoyo: true, repeat: 8 });
     }
-
     startTyping(c) {
       this.stopTweens(c);
-      c.armTweenL = this.tweens.add({
-        targets: c.armL, y: { from: -8, to: -5 },
-        duration: 170, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-      });
-      c.armTweenR = this.tweens.add({
-        targets: c.armR, y: { from: -5, to: -8 },
-        duration: 170, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-      });
+      c.armTweenL = this.tweens.add({ targets: c.armL, y: { from: -8, to: -5 }, duration: 170, yoyo: true, repeat: -1 });
+      c.armTweenR = this.tweens.add({ targets: c.armR, y: { from: -5, to: -8 }, duration: 170, yoyo: true, repeat: -1 });
     }
-
     setBubble(c, text, colorHex = '#ffffff', autoHideMs = 3000) {
       this.clearBubble(c);
       const bg = this.add.graphics();
       const t = this.add.text(0, 0, String(text).slice(0, 24), {
-        fontFamily: 'system-ui,sans-serif', fontSize: '10px', color: '#1f2937',
+        fontFamily:'Inter,sans-serif', fontSize:'10px', color:'#1f2937',
       }).setOrigin(0.5, 0.5);
       const w = t.width + 10, h = 14;
       bg.fillStyle(Phaser.Display.Color.HexStringToColor(colorHex).color, 1);
       bg.fillRoundedRect(-w / 2, -h / 2, w, h, 3);
       bg.lineStyle(1, 0x1f2937, 1);
       bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 3);
-      bg.fillTriangle(-3, h / 2 - 1, 3, h / 2 - 1, 0, h / 2 + 3);
+      bg.fillTriangle(-3, h/2 - 1, 3, h/2 - 1, 0, h/2 + 3);
       const bubble = this.add.container(0, -32, [bg, t]);
       c.container.add(bubble);
       c.bubble = bubble;
@@ -722,7 +704,7 @@
     emitStars(c) {
       for (let i = 0; i < 3; i++) {
         const s = this.add.text(0, -28, '★', {
-          fontFamily: 'system-ui', fontSize: '13px', color: '#f59e0b',
+          fontFamily:'Inter,system-ui', fontSize:'13px', color:'#fbbf24',
         }).setOrigin(0.5, 0.5);
         c.container.add(s);
         this.tweens.add({
@@ -732,17 +714,16 @@
         });
       }
     }
-
-    // 공개 API
     goWork(deptId, objective) {
       const c = this.characters[deptId]; if (!c) return;
-      c.state = 'walking';
+      c.state = 'walking'; state.deptStates[deptId] = 'working';
       const seat = c.meetingSeat;
       this.walkCharTo(c, seat.tx, seat.ty, () => {
         c.state = 'working';
         this.startTyping(c);
         if (objective) this.setBubble(c, objective, '#dbeafe', 0);
       });
+      renderPanel();
     }
     progressMsg(deptId, msg) {
       const c = this.characters[deptId]; if (!c) return;
@@ -750,20 +731,20 @@
     }
     goDone(deptId) {
       const c = this.characters[deptId]; if (!c) return;
-      this.stopTweens(c);
-      this.clearBubble(c);
-      c.state = 'returning';
+      this.stopTweens(c); this.clearBubble(c);
+      c.state = 'returning'; state.deptStates[deptId] = 'done';
       this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty + 0.3, () => {
         c.state = 'idle';
         this.setBubble(c, '✓ 완료', '#d1fae5', 1800);
         this.emitStars(c);
         this.startIdleBob(c);
       });
+      renderPanel();
     }
     goError(deptId) {
       const c = this.characters[deptId]; if (!c) return;
-      this.stopTweens(c);
-      this.clearBubble(c);
+      this.stopTweens(c); this.clearBubble(c);
+      state.deptStates[deptId] = 'err';
       const homeX = isoX(c.cubicle.tx, c.cubicle.ty + 0.3);
       if (Math.abs(c.container.x - homeX) > 3) {
         c.state = 'returning';
@@ -777,24 +758,25 @@
         this.setBubble(c, '! 오류', '#fecaca', 3000);
         this.startIdleBob(c);
       }
+      renderPanel();
     }
     resetAll() {
-      this.lightExecutive(false);
-      this.lightCeo(false);
+      this.lightExecutive(false); this.lightCeo(false);
       for (const c of Object.values(this.characters)) {
-        this.stopTweens(c);
-        this.clearBubble(c);
+        this.stopTweens(c); this.clearBubble(c);
         const home = c.cubicle;
         c.container.setPosition(isoX(home.tx, home.ty + 0.3), isoY(home.tx, home.ty + 0.3) - 4);
         c.state = 'idle';
         this.startIdleBob(c);
       }
+      DEPTS.forEach(d => { state.deptStates[d.id] = 'idle'; });
+      state.lastBriefing = null; state.lastCritic = null;
+      renderPanel();
     }
     settleAll() {
       for (const c of Object.values(this.characters)) {
         if (c.state !== 'working' && c.state !== 'walking') continue;
-        this.stopTweens(c);
-        this.clearBubble(c);
+        this.stopTweens(c); this.clearBubble(c);
         c.state = 'returning';
         this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty + 0.3, () => {
           c.state = 'idle';
@@ -802,7 +784,6 @@
         });
       }
     }
-    // 상무 보완 요청 — 특정 부서 회의실로 복귀
     recallToMeeting(deptId, reason) {
       const c = this.characters[deptId]; if (!c) return;
       c.state = 'walking';
@@ -815,15 +796,13 @@
     }
   }
 
-  // ─── Phaser init ───────────────────────────────────────────────────
   new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'phaser-container',
-    backgroundColor: '#F5F4EF',
+    backgroundColor: '#0F1117',
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, width: W, height: H },
     scene: OfficeScene,
     pixelArt: false,
-    roundPixels: false,
   });
 
   // ─── Chat rendering ────────────────────────────────────────────────
@@ -842,15 +821,13 @@
     else if (who) whoEl.textContent = who;
     const bodyEl = document.createElement('div');
     bodyEl.className = 'body';
-    if (html) bodyEl.innerHTML = body;
-    else bodyEl.textContent = body;
+    if (html) bodyEl.innerHTML = body; else bodyEl.textContent = body;
     if (kind !== 'user' || who) msg.appendChild(whoEl);
     msg.appendChild(bodyEl);
     dom.chatLog.appendChild(msg);
     dom.chatLog.scrollTop = dom.chatLog.scrollHeight;
-    // 영속화
-    if (persist && state.currentThreadId) {
-      appendMessageToThread(state.currentThreadId, { who, body, kind, deptId, html, ts: Date.now() });
+    if (persist && state.activeThreadId) {
+      appendMessageToThread(state.activeThreadId, { who, body, kind, deptId, html, ts: Date.now() });
     }
     return msg;
   }
@@ -860,18 +837,10 @@
     const st = report?.structured;
     let html = '';
     if (st?.summary) html += escapeHtml(st.summary);
-    if (st?.keyFindings?.length) {
-      html += '<div class="sec">핵심</div><ul>' + st.keyFindings.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    }
-    if (st?.risks?.length) {
-      html += '<div class="sec">리스크</div><ul>' + st.risks.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    }
-    if (st?.assumptions?.length) {
-      html += '<div class="sec">가정</div><ul>' + st.assumptions.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    }
-    if (st?.needsFollowup?.length) {
-      html += '<div class="sec">추가 확인</div><ul>' + st.needsFollowup.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    }
+    if (st?.keyFindings?.length) html += '<div class="sec">핵심</div><ul>' + st.keyFindings.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (st?.risks?.length) html += '<div class="sec">리스크</div><ul>' + st.risks.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (st?.assumptions?.length) html += '<div class="sec">가정</div><ul>' + st.assumptions.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (st?.needsFollowup?.length) html += '<div class="sec">추가 확인</div><ul>' + st.needsFollowup.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     if (!html && report?.sections) {
       html = report.sections.map(s => `<div class="sec">${escapeHtml(s.heading)}</div><ul>` +
         (s.items || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>').join('');
@@ -880,6 +849,7 @@
     addMsg({ who: name, body: html, kind: 'dept', deptId, html: true });
   }
   function renderCeoBriefing(b) {
+    state.lastBriefing = b;
     let html = '';
     if (b?.summary) html += escapeHtml(b.summary);
     if (b?.opportunities?.length) html += '<div class="sec">기회</div><ul>' + b.opportunities.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
@@ -888,23 +858,24 @@
     if (b?.conflictingSignals?.length) html += '<div class="sec">상충 신호</div><ul>' + b.conflictingSignals.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     if (typeof b?.overallConfidence === 'number') html += `<div class="sec">통합 신뢰도 ${Math.round(b.overallConfidence * 100)}%</div>`;
     addMsg({ who: 'CEO 브리핑', body: html || '통합 브리핑', kind: 'ceo', html: true });
+    renderPanel();
   }
   function renderCriticReview(r) {
+    state.lastCritic = r;
     const verdict = r?.verdict === 'pass' ? '✓ PASS' : '⚠ 보강 필요';
     let html = `<b>${verdict}</b><br>${escapeHtml(r?.summary || '')}`;
     const issues = (r?.keyIssues || []).concat(r?.contradictions || []);
     if (issues.length) html += '<ul>' + issues.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     if (r?.verificationNeeded?.length) html += '<div class="sec">검증 필요</div><ul>' + r.verificationNeeded.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     addMsg({ who: '상무 검토', body: html, kind: 'critic', html: true });
+    renderPanel();
   }
 
   // ─── SSE ───────────────────────────────────────────────────────────
   function onEvent(ev) {
     let p; try { p = JSON.parse(ev.data); } catch { return; }
     const type = p.type || ev.type;
-    const scene = state.scene;
-    if (!scene) return;
-
+    const scene = state.scene; if (!scene) return;
     switch (type) {
       case 'mission_start':
         state.missionDeptCount = Number(p.deptCount || 9);
@@ -924,23 +895,16 @@
         break;
       case 'dept_error':
         scene.goError(p.deptId);
-        addMsg({
-          who: (DEPT_BY_ID[p.deptId]?.kr || p.deptId) + '팀',
-          body: `오류: ${p.error || '알 수 없는 오류'}`,
-          kind: 'err',
-        });
+        addMsg({ who: (DEPT_BY_ID[p.deptId]?.kr || p.deptId) + '팀', body: `오류: ${p.error || '알 수 없는 오류'}`, kind: 'err' });
         checkAllDeptsDone();
         break;
       case 'critic_review':
-        // 상무 검토 결과 도착
         scene.lightExecutive(true);
         renderCriticReview(p.review);
-        // needs_followup 이면 해당 부서를 회의실로 복귀시켜 보완 작업 연출
         if (p.review?.verdict === 'needs_followup' && (p.review?.targetDeptId || p.deptId)) {
           const tgt = p.review.targetDeptId || p.deptId;
           setTimeout(() => scene.recallToMeeting(tgt, '상무 보완 지시'), 800);
         }
-        // 2초 뒤 상무실 불 끔 (유지하고 싶으면 주석)
         setTimeout(() => scene.lightExecutive(false), 5000);
         break;
       case 'ceo_briefing':
@@ -960,7 +924,6 @@
         break;
     }
   }
-
   function checkAllDeptsDone() {
     state.deptCompletedCount++;
     if (!state.executiveActive && state.deptCompletedCount >= state.missionDeptCount) {
@@ -974,35 +937,30 @@
   function startRun() {
     const directive = dom.directive.value.trim();
     if (!directive || state.running) return;
-
-    ensureThread(); // 현재 스레드 없으면 새로 생성
+    ensureThread();
     addMsg({ who: '', body: directive, kind: 'user' });
     state.scene?.resetAll();
     state.running = true;
-    state.deptBubbleCache = {};
     state.missionDeptCount = 9;
     state.deptCompletedCount = 0;
     state.executiveActive = false;
-
     dom.officeStatusDot.className = 'dot live';
     dom.officeStatusText.textContent = '실행 중...';
     dom.sendBtn.classList.add('stop');
     dom.sendBtn.title = '중단';
     dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="10" height="10"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>';
-
-    // 첫 메시지라면 thread 제목 = directive 앞 30자
-    const cur = getCurrentThread();
+    // 첫 메시지로 스레드 제목 자동 설정
+    const cur = getActiveThread();
     if (cur && (!cur.title || cur.title === '신규 대화')) {
       cur.title = directive.slice(0, 30);
       saveThreads();
-      renderThreadList();
+      renderSidebar();
       dom.chatTitle.textContent = cur.title;
     }
-
+    renderPanel();
     const url = new URL(API_BASE + '/api/director/stream', location.href);
     url.searchParams.set('directive', directive);
-    url.searchParams.set('projectName', state.currentProject);
-
+    url.searchParams.set('projectName', getProjectTitleOrGeneral());
     try {
       const es = new EventSource(url.toString(), { withCredentials: true });
       state.es = es;
@@ -1018,11 +976,9 @@
       addMsg({ who: '', body: '연결 실패: ' + e.message, kind: 'err' });
       finishRun(true);
     }
-
     dom.directive.value = '';
     autoSize();
   }
-
   function finishRun(isErr = false) {
     state.running = false;
     if (state.es) { try { state.es.close(); } catch {} state.es = null; }
@@ -1032,139 +988,328 @@
     dom.sendBtn.title = '전송';
     dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M3 8h10M9 4l4 4-4 4"/></svg>';
     state.scene?.settleAll();
+    renderPanel();
   }
 
-  // ─── 스레드 / 프로젝트 ─────────────────────────────────────────────
-  function saveThreads() { saveJson(LS_THREADS, state.threads); }
-
-  function projectThreads(name) {
-    if (!state.threads[name]) state.threads[name] = [];
-    return state.threads[name];
+  // ─── 프로젝트/스레드 ────────────────────────────────────────────────
+  function saveThreads() { saveLS(LS.THREADS, state.threads); }
+  function saveProjects() { saveLS(LS.PROJECTS, state.projects); }
+  function saveCollapsed() { saveLS(LS.COLLAPSED, [...state.collapsedProjects]); }
+  function projectThreads(pid) {
+    if (!state.threads[pid]) state.threads[pid] = [];
+    return state.threads[pid];
   }
-  function getCurrentThread() {
-    const list = projectThreads(state.currentProject);
-    return list.find(t => t.id === state.currentThreadId) || null;
+  function getProjectTitleOrGeneral() {
+    if (state.activeProjectId === GENERAL) return '신규 프로젝트';
+    const p = state.projects.find(x => x.id === state.activeProjectId);
+    return p?.title || '신규 프로젝트';
+  }
+  function getActiveThread() {
+    if (!state.activeThreadId) return null;
+    for (const pid of Object.keys(state.threads)) {
+      const t = state.threads[pid].find(x => x.id === state.activeThreadId);
+      if (t) return t;
+    }
+    return null;
   }
   function ensureThread() {
-    if (!state.currentThreadId || !getCurrentThread()) {
-      createNewThread();
-    }
+    if (!state.activeThreadId || !getActiveThread()) createNewThread(state.activeProjectId || GENERAL);
   }
-  function createNewThread() {
+  function createNewThread(projectId = GENERAL) {
     const id = 'th_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const t = { id, title: '신규 대화', messages: [], updatedAt: Date.now() };
-    projectThreads(state.currentProject).unshift(t);
-    state.currentThreadId = id;
-    localStorage.setItem(LS_CURRENT_THREAD, id);
+    const t = { id, projectId, title: '신규 대화', messages: [], updatedAt: Date.now() };
+    projectThreads(projectId).unshift(t);
+    state.activeThreadId = id;
+    state.activeProjectId = projectId;
+    localStorage.setItem(LS.ACTIVE_THREAD, id);
     saveThreads();
+    // 서버 best-effort sync (실패 무시)
+    apiSaveThread(t).catch(() => {});
     return t;
   }
   function appendMessageToThread(threadId, msg) {
-    const list = projectThreads(state.currentProject);
-    const t = list.find(x => x.id === threadId);
-    if (!t) return;
-    t.messages.push(msg);
-    t.updatedAt = Date.now();
-    saveThreads();
-    renderThreadList();
+    for (const pid of Object.keys(state.threads)) {
+      const list = state.threads[pid];
+      const t = list.find(x => x.id === threadId);
+      if (t) {
+        t.messages.push(msg);
+        t.updatedAt = Date.now();
+        saveThreads();
+        renderSidebar();
+        // 서버 저장 debounced
+        debouncedSaveMessages(threadId);
+        return;
+      }
+    }
+  }
+  const saveMessageTimers = {};
+  function debouncedSaveMessages(threadId) {
+    if (saveMessageTimers[threadId]) clearTimeout(saveMessageTimers[threadId]);
+    saveMessageTimers[threadId] = setTimeout(() => {
+      for (const pid of Object.keys(state.threads)) {
+        const t = state.threads[pid].find(x => x.id === threadId);
+        if (t) apiSaveMessages(t.id, t.messages).catch(() => {});
+      }
+    }, 1200);
   }
   function loadThread(threadId) {
     if (state.running) return;
-    const list = projectThreads(state.currentProject);
-    const t = list.find(x => x.id === threadId);
+    let t = null, pid = null;
+    for (const k of Object.keys(state.threads)) {
+      const match = state.threads[k].find(x => x.id === threadId);
+      if (match) { t = match; pid = k; break; }
+    }
     if (!t) return;
-    state.currentThreadId = threadId;
-    localStorage.setItem(LS_CURRENT_THREAD, threadId);
+    state.activeThreadId = threadId;
+    state.activeProjectId = pid;
+    localStorage.setItem(LS.ACTIVE_THREAD, threadId);
     state.scene?.resetAll();
     dom.chatLog.innerHTML = '';
-    for (const m of t.messages) {
-      addMsg(m, false);
-    }
+    for (const m of t.messages) addMsg(m, false);
     if (t.messages.length === 0) {
       dom.chatLog.innerHTML = `<div class="chat-empty"><h3>무엇을 도와드릴까요?</h3><p>지시를 입력하면 필요한 부서 직원이 움직입니다.</p></div>`;
     }
     dom.chatTitle.textContent = t.title;
-    renderThreadList();
+    renderSidebar();
   }
   function newChat() {
     if (state.running) return;
-    createNewThread();
+    const pid = state.activeProjectId || GENERAL;
+    createNewThread(pid);
     dom.chatLog.innerHTML = `<div class="chat-empty"><h3>무엇을 도와드릴까요?</h3><p>지시를 입력하면 필요한 부서 직원이 움직입니다.</p></div>`;
     state.scene?.resetAll();
     dom.directive.value = '';
     dom.directive.focus();
     dom.chatTitle.textContent = '신규 대화';
-    renderThreadList();
+    renderSidebar();
   }
-
-  // ─── 렌더: 프로젝트+스레드 사이드바 ────────────────────────────────
-  function renderThreadList() {
-    const el = dom.projectList;
-    el.innerHTML = '';
-    // 현재 프로젝트가 없으면 추가
-    if (!state.projects.includes(state.currentProject)) {
-      state.projects.unshift(state.currentProject);
-      saveJson(LS_PROJECTS, state.projects);
-    }
-    for (const proj of state.projects) {
-      const block = document.createElement('div');
-      block.className = 'project-block';
-      const head = document.createElement('div');
-      head.className = 'project-head' + (state.collapsedProjects.has(proj) ? ' collapsed' : '');
-      const threads = projectThreads(proj);
-      head.innerHTML = `<span class="caret">▼</span><span class="name">${escapeHtml(proj)}</span><span class="count">${threads.length}</span>`;
-      head.onclick = () => {
-        if (state.collapsedProjects.has(proj)) state.collapsedProjects.delete(proj);
-        else state.collapsedProjects.add(proj);
-        state.currentProject = proj;
-        localStorage.setItem(LS_CURRENT_PROJECT, proj);
-        renderThreadList();
-      };
-      block.appendChild(head);
-      if (!state.collapsedProjects.has(proj)) {
-        const list = document.createElement('div');
-        list.className = 'thread-list';
-        if (threads.length === 0) {
-          const empty = document.createElement('div');
-          empty.className = 'thread-empty';
-          empty.textContent = '대화 없음';
-          list.appendChild(empty);
-        } else {
-          const sorted = [...threads].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-          for (const t of sorted) {
-            const item = document.createElement('div');
-            item.className = 'thread-item' + (t.id === state.currentThreadId && proj === state.currentProject ? ' active' : '');
-            const time = new Date(t.updatedAt || Date.now()).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-            item.innerHTML = `<div class="title">${escapeHtml(t.title || '새 대화')}</div><div class="time">${escapeHtml(time)}</div>`;
-            item.onclick = () => {
-              if (state.currentProject !== proj) {
-                state.currentProject = proj;
-                localStorage.setItem(LS_CURRENT_PROJECT, proj);
-              }
-              loadThread(t.id);
-            };
-            list.appendChild(item);
-          }
-        }
-        block.appendChild(list);
-      }
-      el.appendChild(block);
-    }
-  }
-
   function newProject() {
     const name = prompt('새 프로젝트 이름');
-    if (!name) return;
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    if (!state.projects.includes(trimmed)) {
-      state.projects.unshift(trimmed);
-      saveJson(LS_PROJECTS, state.projects);
-    }
-    state.currentProject = trimmed;
-    localStorage.setItem(LS_CURRENT_PROJECT, trimmed);
-    createNewThread();
+    if (!name || !name.trim()) return;
+    const p = { id: 'proj_' + Date.now().toString(36), title: name.trim(), updatedAt: Date.now() };
+    state.projects.unshift(p);
+    saveProjects();
+    apiSaveProject(p).catch(() => {});
+    state.activeProjectId = p.id;
+    createNewThread(p.id);
     newChat();
+  }
+
+  // ─── 사이드바 렌더 ─────────────────────────────────────────────────
+  function renderSidebar() {
+    // 일반 채팅 (프로젝트 없이)
+    const gen = projectThreads(GENERAL).slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    dom.generalThreads.innerHTML = '';
+    if (gen.length === 0) {
+      const e = document.createElement('div');
+      e.className = 'thread-item'; e.style.color = 'var(--text-dim)'; e.style.fontStyle = 'italic';
+      e.textContent = '대화 없음';
+      dom.generalThreads.appendChild(e);
+    } else {
+      for (const t of gen) dom.generalThreads.appendChild(threadItem(t));
+    }
+    // 프로젝트 목록
+    dom.projectList.innerHTML = '';
+    for (const p of state.projects) {
+      const ts = projectThreads(p.id);
+      const row = document.createElement('div');
+      row.className = 'project-row' + (state.collapsedProjects.has(p.id) ? ' collapsed' : '');
+      row.innerHTML = `<span class="caret">▼</span><span class="name">${escapeHtml(p.title)}</span><span class="count">${ts.length}</span><span class="project-menu" title="삭제">✕</span>`;
+      row.onclick = (e) => {
+        const target = e.target;
+        if (target && target.classList && target.classList.contains('project-menu')) {
+          e.stopPropagation();
+          if (confirm(`"${p.title}" 프로젝트를 삭제할까요? (스레드도 함께 삭제)`)) {
+            state.projects = state.projects.filter(x => x.id !== p.id);
+            delete state.threads[p.id];
+            saveProjects(); saveThreads();
+            apiDeleteProject(p.id).catch(() => {});
+            if (state.activeProjectId === p.id) { state.activeProjectId = GENERAL; newChat(); }
+            renderSidebar();
+          }
+          return;
+        }
+        state.activeProjectId = p.id;
+        if (state.collapsedProjects.has(p.id)) state.collapsedProjects.delete(p.id);
+        else state.collapsedProjects.add(p.id);
+        saveCollapsed();
+        renderSidebar();
+      };
+      dom.projectList.appendChild(row);
+      if (!state.collapsedProjects.has(p.id)) {
+        const sorted = ts.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        for (const t of sorted) dom.projectList.appendChild(threadItem(t));
+        const nw = document.createElement('div');
+        nw.className = 'project-new-thread';
+        nw.textContent = '+ 새 스레드';
+        nw.onclick = (e) => { e.stopPropagation(); state.activeProjectId = p.id; createNewThread(p.id); newChat(); };
+        dom.projectList.appendChild(nw);
+      }
+    }
+  }
+  function threadItem(t) {
+    const item = document.createElement('div');
+    item.className = 'thread-item' + (t.id === state.activeThreadId ? ' active' : '');
+    const time = new Date(t.updatedAt || Date.now()).toLocaleString('ko-KR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+    item.innerHTML = `<span class="t-title">${escapeHtml(t.title || '신규 대화')}</span><span class="t-meta">${escapeHtml(time)}</span>`;
+    item.onclick = () => loadThread(t.id);
+    return item;
+  }
+
+  // ─── 우측 패널 ────────────────────────────────────────────────────
+  function switchTab(tab) {
+    state.currentTab = tab;
+    localStorage.setItem(LS.TAB, tab);
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    renderPanel();
+  }
+  document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+
+  let posCache = null;
+  async function fetchPos() {
+    if (posCache && Date.now() - posCache.ts < 30_000) return posCache.data;
+    try {
+      const r = await fetch(API_BASE + '/api/pos', { credentials: 'include' });
+      if (!r.ok) throw new Error('pos failed');
+      const data = await r.json();
+      posCache = { data, ts: Date.now() };
+      return data;
+    } catch { return null; }
+  }
+
+  function renderPanel() {
+    const body = dom.panelBody;
+    body.innerHTML = '';
+    if (state.currentTab === 'depts') {
+      const head = document.createElement('div'); head.className = 'panel-sec';
+      const h4 = document.createElement('h4'); h4.textContent = '부서 진행상황';
+      head.appendChild(h4);
+      for (const d of DEPTS) {
+        const s = state.deptStates[d.id] || 'idle';
+        const label = s === 'working' ? '작업중' : s === 'done' ? '완료' : s === 'err' ? '오류' : '대기';
+        const row = document.createElement('div');
+        row.className = 'dept-row ' + (s !== 'idle' ? s : '');
+        row.style.setProperty('--dept-color', d.hex);
+        row.innerHTML = `<span class="ddot"></span><span class="dname">${escapeHtml(d.kr)}팀</span><span class="dstate">${label}</span>`;
+        head.appendChild(row);
+      }
+      body.appendChild(head);
+    } else if (state.currentTab === 'sales') {
+      body.innerHTML = '<div class="panel-empty">매출 데이터 로딩중...</div>';
+      fetchPos().then((d) => {
+        if (state.currentTab !== 'sales') return;
+        if (!d) { body.innerHTML = '<div class="panel-empty">매출 데이터 없음</div>'; return; }
+        body.innerHTML = '';
+        const sec1 = document.createElement('div'); sec1.className = 'panel-sec';
+        sec1.innerHTML = '<h4>매출 KPI</h4>';
+        const kpi = document.createElement('div'); kpi.className = 'kpi-row';
+        const today = d.periodKpi?.today?.total ?? 0;
+        const wtd = d.periodKpi?.weekToDate?.total ?? 0;
+        const mtd = d.periodKpi?.monthToDate?.total ?? 0;
+        const tx = d.periodKpi?.today?.transactions ?? 0;
+        kpi.innerHTML = `
+          <div class="kpi-tile"><div class="label">오늘</div><div class="val">${today.toLocaleString()}원</div></div>
+          <div class="kpi-tile"><div class="label">주간</div><div class="val">${wtd.toLocaleString()}원</div></div>
+          <div class="kpi-tile"><div class="label">월간</div><div class="val">${mtd.toLocaleString()}원</div></div>
+          <div class="kpi-tile"><div class="label">건수</div><div class="val">${tx}건</div></div>
+        `;
+        sec1.appendChild(kpi); body.appendChild(sec1);
+
+        const stores = d.stores || [];
+        const sum = d.summaryByStore || {};
+        if (stores.length) {
+          const s2 = document.createElement('div'); s2.className = 'panel-sec';
+          s2.innerHTML = '<h4>매장별 매출</h4>';
+          for (const st of stores) {
+            const v = sum[st.id]?.total ?? 0;
+            const row = document.createElement('div');
+            row.className = 'dept-row';
+            row.innerHTML = `<span></span><span class="dname">${escapeHtml(st.name)}</span><span class="dstate">${v.toLocaleString()}원</span>`;
+            s2.appendChild(row);
+          }
+          body.appendChild(s2);
+        }
+      });
+    } else if (state.currentTab === 'pos') {
+      body.innerHTML = '<div class="panel-empty">POS 데이터 로딩중...</div>';
+      fetchPos().then((d) => {
+        if (state.currentTab !== 'pos') return;
+        if (!d) { body.innerHTML = '<div class="panel-empty">POS 데이터 없음</div>'; return; }
+        body.innerHTML = '';
+        const sec = document.createElement('div'); sec.className = 'panel-sec';
+        sec.innerHTML = '<h4>최근 거래</h4>';
+        const list = (d.transactions || []).slice(0, 8);
+        if (!list.length) { sec.innerHTML += '<div class="panel-empty">거래 없음</div>'; }
+        for (const tx of list) {
+          const time = new Date(tx.createdAt).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
+          const row = document.createElement('div');
+          row.className = 'dept-row';
+          row.innerHTML = `<span></span><span class="dname">${escapeHtml(tx.storeName || '매장')} · ${escapeHtml(time)}</span><span class="dstate">${Number(tx.total || 0).toLocaleString()}원</span>`;
+          sec.appendChild(row);
+        }
+        body.appendChild(sec);
+      });
+    } else if (state.currentTab === 'report') {
+      if (state.lastBriefing || state.lastCritic) {
+        if (state.lastBriefing) {
+          const b = state.lastBriefing;
+          const sec = document.createElement('div'); sec.className = 'panel-sec';
+          sec.innerHTML = '<h4>CEO 브리핑</h4>';
+          const card = document.createElement('div');
+          card.style.cssText = 'background:var(--surface);border:1px solid var(--border-soft);border-left:3px solid var(--gold);padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.55';
+          let h = '';
+          if (b.summary) h += escapeHtml(b.summary);
+          if (b.recommendations?.length) h += '<div class="sec" style="font-size:10px;color:var(--text-dim);font-weight:700;margin-top:6px;text-transform:uppercase">권고</div><ul style="margin:4px 0;padding-left:18px">' + b.recommendations.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+          card.innerHTML = h || '(브리핑 내용 없음)';
+          sec.appendChild(card); body.appendChild(sec);
+        }
+        if (state.lastCritic) {
+          const r = state.lastCritic;
+          const sec = document.createElement('div'); sec.className = 'panel-sec';
+          sec.innerHTML = '<h4>상무 검토</h4>';
+          const card = document.createElement('div');
+          card.style.cssText = 'background:var(--surface);border:1px solid var(--border-soft);border-left:3px solid var(--magenta);padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.55';
+          const v = r.verdict === 'pass' ? '✓ PASS' : '⚠ 보강 필요';
+          let h = `<b>${v}</b><br>${escapeHtml(r.summary || '')}`;
+          if (r.keyIssues?.length) h += '<ul style="margin:6px 0;padding-left:18px">' + r.keyIssues.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+          card.innerHTML = h;
+          sec.appendChild(card); body.appendChild(sec);
+        }
+      } else {
+        body.innerHTML = '<div class="panel-empty">실행 완료 후 CEO 브리핑과 상무 검토가 여기에 표시됩니다.</div>';
+      }
+    }
+  }
+
+  // ─── 서버 API (best-effort, 실패 무시) ───────────────────────────
+  async function apiSaveProject(p) {
+    return fetch(API_BASE + '/api/workspace/projects', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: p.id, title: p.title, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), meta: {} }),
+    });
+  }
+  async function apiDeleteProject(id) {
+    return fetch(API_BASE + '/api/workspace/projects/' + encodeURIComponent(id), { method:'DELETE', credentials:'include' });
+  }
+  async function apiSaveThread(t) {
+    return fetch(API_BASE + '/api/workspace/threads', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: t.id, projectId: t.projectId || GENERAL, title: t.title || '신규 대화',
+        createdAt: new Date(t.updatedAt || Date.now()).toISOString(),
+        updatedAt: new Date(t.updatedAt || Date.now()).toISOString(),
+        meta: {},
+      }),
+    });
+  }
+  async function apiSaveMessages(threadId, messages) {
+    return fetch(API_BASE + '/api/workspace/messages', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadId, messages }),
+    });
   }
 
   // ─── 입력 자동 높이 ────────────────────────────────────────────────
@@ -1176,7 +1321,7 @@
 
   // ─── 바인딩 ───────────────────────────────────────────────────────
   dom.sendBtn.addEventListener('click', () => {
-    if (state.running) { finishRun(); addMsg({ who: '', body: '중단됨', kind: 'sys' }); }
+    if (state.running) { finishRun(); addMsg({ who:'', body:'중단됨', kind:'sys' }); }
     else startRun();
   });
   dom.directive.addEventListener('input', autoSize);
@@ -1187,7 +1332,7 @@
     }
   });
   dom.navNewChat.addEventListener('click', (e) => { e.preventDefault(); newChat(); });
-  dom.projectNew.addEventListener('click', newProject);
+  dom.newProject.addEventListener('click', newProject);
   dom.chatTitle.addEventListener('click', () => {
     dom.chatTitle.contentEditable = 'true';
     dom.chatTitle.focus();
@@ -1199,18 +1344,17 @@
   });
   dom.chatTitle.addEventListener('blur', () => {
     dom.chatTitle.contentEditable = 'false';
-    const t = getCurrentThread();
-    if (t) { t.title = dom.chatTitle.textContent.trim() || '신규 대화'; saveThreads(); renderThreadList(); }
+    const t = getActiveThread();
+    if (t) { t.title = dom.chatTitle.textContent.trim() || '신규 대화'; saveThreads(); renderSidebar(); apiSaveThread(t).catch(() => {}); }
   });
 
   // ─── 초기 로드 ─────────────────────────────────────────────────────
-  if (!state.projects.length) {
-    state.projects.push('신규 프로젝트');
-    saveJson(LS_PROJECTS, state.projects);
-  }
-  renderThreadList();
-  const cur = getCurrentThread();
+  applyToggles();
+  renderSidebar();
+  switchTab(state.currentTab);
+  const cur = getActiveThread();
   if (cur) {
+    state.activeProjectId = cur.projectId || GENERAL;
     dom.chatTitle.textContent = cur.title || '신규 대화';
     if (cur.messages.length > 0) {
       dom.chatLog.innerHTML = '';
