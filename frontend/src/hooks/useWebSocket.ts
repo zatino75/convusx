@@ -13,7 +13,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export type WsEventType = "provider:health" | "benchmark:done" | "scheduler:status" | "system:info";
+export type WsEventType =
+  | "provider:health"
+  | "benchmark:done"
+  | "scheduler:status"
+  | "system:info"
+  | "director:event"
+  | "dept:levelup";
 
 export interface WsMessage {
   type: WsEventType;

@@ -21,6 +21,7 @@ import { mkdirSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { logger } from '../observability/logger.js';
+import { broadcast } from '../http/websocket.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_DIR = resolve(__dirname, '../../../data');
@@ -100,6 +101,12 @@ export async function awardXp(
     const db = getDb();
     const xpGain = outcome === 'success' ? 10 : 3;
 
+    // 레벨업 감지를 위해 before 값 조회 (엔트리 없으면 level 0 으로 취급)
+    const before = db
+      .prepare(`SELECT xp, level FROM dept_xp WHERE dept_id = ?`)
+      .get(deptId) as { xp: number; level: number } | undefined;
+    const beforeLevel = before?.level ?? 0;
+
     // UPSERT + 원자적 갱신
     const upsert = db.prepare(`
       INSERT INTO dept_xp (dept_id, xp, level, tasks_completed, tasks_failed, total_cost_usd, last_updated)
@@ -128,6 +135,21 @@ export async function awardXp(
     if (current) {
       const nextLevel = calcLevel(current.xp);
       db.prepare(`UPDATE dept_xp SET level = ? WHERE dept_id = ?`).run(nextLevel, deptId);
+
+      // 레벨 상승 시 실시간 WS 이벤트 브로드캐스트 (FE 애니메이션 트리거)
+      if (nextLevel > beforeLevel) {
+        try {
+          broadcast('dept:levelup', {
+            dept_id: deptId,
+            previous_level: beforeLevel,
+            new_level: nextLevel,
+            xp: current.xp,
+            outcome,
+          });
+        } catch (wsErr) {
+          logger.warn({ err: wsErr, deptId }, '[deptXp] levelup broadcast failed');
+        }
+      }
     }
   } catch (err) {
     logger.warn({ err, deptId, outcome }, '[deptXp] awardXp failed — ignoring');
