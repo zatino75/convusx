@@ -53,6 +53,13 @@ export const THREAD_MEMORY_SIMILAR_THRESHOLD = 0.15
 export const REUSE_SIMILARITY_THRESHOLD = 999  // 비활성화 상태
 export const REUSE_PAST_WINNER_CONFIDENCE = 999  // 비활성화 상태
 
+// ── Gemini 모델 문자열 단일 출처 (single source of truth) ──
+// adapters/gemini.ts 도 여기서 re-export 한다. 이전엔 adapters/gemini.ts 가 소유했지만
+// defaults.ts ← adapters/gemini.ts 방향의 순환 import 위험이 있어 여기로 끌어올렸다.
+export const GEMINI_MODEL_ID = "gemini-2.5-pro"
+export const GEMINI_FLASH_MODEL_ID = "gemini-2.0-flash"
+export const GEMINI_DISPLAY_LABEL = "Gemini 3.1 Pro Ultra"
+
 // ── 비용 ──
 export const MODEL_PRICING_USD_PER_1K_TOKENS: Record<string, { input: number; output: number }> = {
   "gpt-5.2":               { input: 0.003,  output: 0.012 },
@@ -60,23 +67,21 @@ export const MODEL_PRICING_USD_PER_1K_TOKENS: Record<string, { input: number; ou
   "gpt-5.3-codex":         { input: 0.003,  output: 0.012 },
   "claude-sonnet-4-6":     { input: 0.003,  output: 0.015 },
   "claude-opus-4-6":       { input: 0.015,  output: 0.075 },
-  "gemini-2.5-pro":        { input: 0.00125,output: 0.01 },
-  "gemini-2.0-flash":      { input: 0.0001, output: 0.0004 },
+  [GEMINI_MODEL_ID]:       { input: 0.00125,output: 0.01 },
+  [GEMINI_FLASH_MODEL_ID]: { input: 0.0001, output: 0.0004 },
   "sonar-pro":             { input: 0.003,  output: 0.015 },
   "sonar-reasoning-pro":   { input: 0.002,  output: 0.008 },
   "sonar":                 { input: 0.001,  output: 0.001 },
 }
 
 // ── 모델 기본값 ──
-// 주의: gemini 값은 adapters/gemini.ts 의 GEMINI_MODEL_ID 와 반드시 일치해야 한다.
-// (circular import 방지를 위해 여기서는 import 하지 않고 리터럴 유지 — 동기화 수동.)
 export const DEFAULT_MODELS: Record<string, string> = {
-  openai:     "gpt-5.2",
-  openai_pro: "gpt-5.4-pro",
-  claude:     "claude-sonnet-4-6",
-  gemini:     "gemini-2.5-pro",
-  gemini_flash: "gemini-2.0-flash",
-  perplexity: "sonar-pro",
+  openai:       "gpt-5.2",
+  openai_pro:   "gpt-5.4-pro",
+  claude:       "claude-sonnet-4-6",
+  gemini:       GEMINI_MODEL_ID,
+  gemini_flash: GEMINI_FLASH_MODEL_ID,
+  perplexity:   "sonar-pro",
 }
 
 // ── Compression ──

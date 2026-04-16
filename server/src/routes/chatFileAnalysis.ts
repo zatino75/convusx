@@ -1,7 +1,7 @@
 // chatFileAnalysis.ts — 파일 분석 함수 모듈 (이미지, PDF, Office, 동영상)
 
 import { logger } from "../observability/logger.js"
-import { ROUTE_TIMEOUT_MS, OPENAI_BASE, ANTHROPIC_BASE, GEMINI_BASE, GEMINI_HOST } from "../config/defaults.js"
+import { ROUTE_TIMEOUT_MS, OPENAI_BASE, ANTHROPIC_BASE, GEMINI_BASE, GEMINI_HOST, GEMINI_MODEL_ID } from "../config/defaults.js"
 
 export async function analyzeImageWithVision(attached: any, userText: string): Promise<string> {
   const apiKey = String((globalThis as any)?.process?.env?.OPENAI_API_KEY ?? "").trim()
@@ -233,7 +233,7 @@ export async function analyzeOfficeFileWithGemini(attached: any, userText: strin
       ? userText + "\n\n[파일명: " + name + "]\n" + extractedText
       : userText + "\n\n[파일명: " + name + "]"
     const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 65536 } }
-    const resp = await fetch(`${GEMINI_BASE}/models/gemini-2.5-pro:generateContent?key=${apiKey}`, {
+    const resp = await fetch(`${GEMINI_BASE}/models/${GEMINI_MODEL_ID}:generateContent?key=${apiKey}`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body)
     })
     const d = await resp.json()
@@ -246,7 +246,7 @@ export async function analyzeDocumentWithGemini(docText: string, userText: strin
   if (!apiKey) return analyzeDocumentWithClaude(docText, userText)
   try {
     const body = { contents: [{ parts: [{ text: userText + "\n\n" + docText }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 65536 } }
-    const resp = await fetch(`${GEMINI_BASE}/models/gemini-2.5-pro:generateContent?key=${apiKey}`, {
+    const resp = await fetch(`${GEMINI_BASE}/models/${GEMINI_MODEL_ID}:generateContent?key=${apiKey}`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body)
     })
     const d = await resp.json()
@@ -294,7 +294,7 @@ export async function analyzeVideoWithGemini(attached: any, userText: string): P
         generationConfig: { temperature: 0.2, maxOutputTokens: 16384 }
       }
       const resp = await fetch(
-        `${GEMINI_BASE}/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
+        `${GEMINI_BASE}/models/${GEMINI_MODEL_ID}:generateContent?key=${apiKey}`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(ROUTE_TIMEOUT_MS) }
       )
       const data = await resp.json().catch(() => ({}))
@@ -342,7 +342,7 @@ export async function analyzeVideoWithGemini(attached: any, userText: string): P
       generationConfig: { temperature: 0.2, maxOutputTokens: 16384 }
     }
     const resp = await fetch(
-      `${GEMINI_BASE}/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
+      `${GEMINI_BASE}/models/${GEMINI_MODEL_ID}:generateContent?key=${apiKey}`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(ROUTE_TIMEOUT_MS) }
     )
     const data = await resp.json().catch(() => ({}))
@@ -494,7 +494,7 @@ export async function analyzeFileWithGeminiNative(attached: any, userText: strin
         generationConfig: { temperature: 0.1, maxOutputTokens: 65536 }
       }
       const resp = await fetch(
-        `${GEMINI_BASE}/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
+        `${GEMINI_BASE}/models/${GEMINI_MODEL_ID}:generateContent?key=${apiKey}`,
         { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(90000) }
       )
       const data = await resp.json().catch(() => ({}))
@@ -526,7 +526,7 @@ export async function analyzeFileWithGeminiNative(attached: any, userText: strin
       generationConfig: { temperature: 0.1, maxOutputTokens: 65536 }
     }
     const resp = await fetch(
-      `${GEMINI_BASE}/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
+      `${GEMINI_BASE}/models/${GEMINI_MODEL_ID}:generateContent?key=${apiKey}`,
       { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(ROUTE_TIMEOUT_MS) }
     )
     const data = await resp.json().catch(() => ({}))

@@ -1,13 +1,17 @@
 ﻿import type { ModelAdapter, ModelAttempt, ModelError, ModelRequest, ModelResponse } from "./types.js"
 import { env, sleep, now, normalizeContent, extractProviderError, recordProviderMetric } from "./shared.js"
-import { ADAPTER_TIMEOUT_GEMINI_MS, ADAPTER_TIMEOUT_STREAM_GEMINI_MS, IMAGE_GEN_TIMEOUT_MS, GEMINI_BASE } from "../config/defaults.js"
+import {
+  ADAPTER_TIMEOUT_GEMINI_MS,
+  ADAPTER_TIMEOUT_STREAM_GEMINI_MS,
+  IMAGE_GEN_TIMEOUT_MS,
+  GEMINI_BASE,
+  GEMINI_MODEL_ID,
+  GEMINI_DISPLAY_LABEL,
+} from "../config/defaults.js"
 
-// Gemini 모델 문자열 단일 출처 (single source of truth)
-// - GEMINI_MODEL_ID: 실제 Google GenAI API 호출에 사용하는 모델 ID
-// - GEMINI_DISPLAY_LABEL: UI/로그/이벤트 스트림에 표시하는 마케팅 레이블
-// CLAUDE.md 표기 "Gemini 3.1 Pro Ultra"는 표시용이며 API 호출 시에는 GEMINI_MODEL_ID 사용.
-export const GEMINI_MODEL_ID = "gemini-2.5-pro"
-export const GEMINI_DISPLAY_LABEL = "Gemini 3.1 Pro Ultra"
+// Gemini 모델 문자열의 단일 출처는 config/defaults.ts 로 승격되었다.
+// 기존 import 경로(adapters/gemini) 호환성을 위해 이 모듈에서도 re-export 한다.
+export { GEMINI_MODEL_ID, GEMINI_DISPLAY_LABEL }
 
 function splitSystemAndMessages(messages: ModelRequest["messages"]) {
   const system = messages
