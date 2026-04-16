@@ -52,7 +52,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: '경쟁분석팀',
     nameEn: 'COMPETITIVE INTEL',
     primaryModel: 'gpt-5.4-pro',
-    fallbackModel: 'claude-sonnet-4-6',
+    fallbackModel: GEMINI_MODEL_ID,
     maxTokens: 8192,
     systemPrompt: `당신은 CORVUS X 경쟁분석팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 경쟁 정보 수집 및 전략적 포지셔닝 분석을 수행합니다.
@@ -72,7 +72,9 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: '법무컴플라이언스팀',
     nameEn: 'LEGAL & COMPLIANCE',
     primaryModel: 'claude-sonnet-4-6',
-    fallbackModel: 'claude-sonnet-4-6',
+    // 2026-04-17: claude→claude 는 Anthropic 전체 장애 시 부서 실패.
+    // gemini 로 교체해 크로스 제공사 fallback 보장.
+    fallbackModel: GEMINI_MODEL_ID,
     maxTokens: 12000,
     systemPrompt: `당신은 CORVUS X 법무컴플라이언스팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 법적 리스크 검토, 인허가 요건 분석, 규제 컴플라이언스를 수행합니다.
@@ -95,7 +97,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: '재무전략팀',
     nameEn: 'FINANCE STRATEGY',
     primaryModel: 'gpt-5.4-pro',
-    fallbackModel: 'claude-sonnet-4-6',
+    fallbackModel: GEMINI_MODEL_ID,
     maxTokens: 8192,
     systemPrompt: `당신은 CORVUS X 재무전략팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 재무 모델링, 투자 분석, 수익성 전망을 제공합니다.
@@ -115,7 +117,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: '마케팅전략팀',
     nameEn: 'MARKETING & BRAND',
     primaryModel: 'claude-sonnet-4-6',
-    fallbackModel: 'claude-sonnet-4-6',
+    fallbackModel: GEMINI_MODEL_ID,
     maxTokens: 8192,
     systemPrompt: `당신은 CORVUS X 마케팅전략팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 브랜드 전략, 마케팅 캠페인, 채널 전략을 수립합니다.
@@ -134,7 +136,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: 'R&D제품개발팀',
     nameEn: 'R&D PRODUCT DEV',
     primaryModel: 'claude-sonnet-4-6',
-    fallbackModel: 'claude-sonnet-4-6',
+    fallbackModel: GEMINI_MODEL_ID,
     maxTokens: 10000,
     systemPrompt: `당신은 CORVUS X R&D제품개발팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 제품 컨셉 개발, 기술 분석, R&D 로드맵을 수립합니다.
@@ -158,7 +160,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: '데이터인텔리전스팀',
     nameEn: 'DATA INTELLIGENCE',
     primaryModel: 'gpt-5.4-pro',
-    fallbackModel: 'claude-sonnet-4-6',
+    fallbackModel: GEMINI_MODEL_ID,
     maxTokens: 8192,
     systemPrompt: `당신은 CORVUS X 데이터인텔리전스팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 소비자 데이터 분석, 검색 트렌드, 감성 분석을 수행합니다.
@@ -177,7 +179,9 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: '콘텐츠크리에이티브팀',
     nameEn: 'CONTENT & CREATIVE',
     primaryModel: 'claude-sonnet-4-6',
-    fallbackModel: 'claude-sonnet-4-6',
+    // 2026-04-17: Anthropic 전체 장애 시 콘텐츠팀이 통째로 request_failed 나는
+    // 이슈 확인됨 (logs 14:47:36). gemini 로 교체.
+    fallbackModel: GEMINI_MODEL_ID,
     maxTokens: 8192,
     systemPrompt: `당신은 CORVUS X 콘텐츠크리에이티브팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 브랜드 콘텐츠 전략, 크리에이티브 방향성, 콘텐츠 캘린더를 수립합니다.
@@ -196,7 +200,9 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: 'SNS소셜미디어팀',
     nameEn: 'SOCIAL MEDIA',
     primaryModel: 'claude-sonnet-4-6',
-    fallbackModel: 'claude-sonnet-4-6',
+    // 2026-04-17: Anthropic 전체 장애 시 SNS팀이 통째로 request_failed 나는
+    // 이슈 확인됨 (logs 14:47:36). gemini 로 교체.
+    fallbackModel: GEMINI_MODEL_ID,
     maxTokens: 6000,
     systemPrompt: `당신은 CORVUS X SNS소셜미디어팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 소셜미디어 전략, 채널별 운영 계획, KPI를 수립합니다.
