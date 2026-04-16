@@ -4,6 +4,7 @@ import { t } from "../../i18n";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import type { WsMessage } from "../../hooks/useWebSocket";
 import { OpsKpiCard, OpsPanel } from "../ops/OpsGamePrimitives";
+import DeptStatsCard from "./DeptStatsCard";
 
 type ProviderKey = "openai" | "claude" | "gemini" | "perplexity";
 
@@ -460,6 +461,15 @@ export function DashboardView() {
           </div>
         </OpsPanel>
       ) : null}
+
+      {/* Phase 5 — 부서 타이쿤 (레벨/XP/성공률/비용) */}
+      <OpsPanel
+        className="dashboard-panel"
+        title="부서 타이쿤 — 레벨 & 누적 성과"
+        right={<span style={{ opacity: 0.55, fontSize: 11 }}>30s polling</span>}
+      >
+        <DeptStatsCard />
+      </OpsPanel>
 
       {loading ? (
         <div className="dashboard-empty">{t("dashboard.loading")}</div>

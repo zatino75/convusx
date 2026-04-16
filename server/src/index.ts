@@ -197,6 +197,12 @@ router.get("/api/usage", async (_req: ParsedRequest, res: ExpressLikeResponse) =
 router.get("/api/scoreboard", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await scoreboardRoute.handler({}, res) })
 router.get("/api/dashboard", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await dashboardRoute.handler({}, res) })
 
+// ── Phase 5 — 부서 타이쿤 통계 ──
+router.get("/api/departments/stats", async (_req: ParsedRequest, res: ExpressLikeResponse) => {
+  const { getDepartmentsStatsRoute } = await import("./routes/departments.js")
+  await getDepartmentsStatsRoute({}, res)
+})
+
 // ── Sales Dashboard ──
 router.get("/api/sales", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await getSalesRoute({}, res) })
 router.post("/api/sales", addSalesRoute)

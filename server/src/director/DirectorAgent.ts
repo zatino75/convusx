@@ -30,6 +30,7 @@ import type { CriticReviewResult } from './CriticReview.js';
 import { runEnsemble, detectHighValue } from './EnsembleRunner.js';
 import type { EnsembleEvent } from './EnsembleRunner.js';
 import { logger } from '../observability/logger.js';
+import { awardXp } from '../departments/deptXp.js';
 
 // ─── WebSocket 이벤트 타입 ────────────────────────────────────────────────────
 export type WsEvent =
@@ -196,6 +197,9 @@ export async function runDirector(
         durationMs: result.durationMs,
       });
 
+      // Phase 5 — 부서 XP 누적 (fire-and-forget, 실패해도 실행 흐름 영향 없음)
+      awardXp(task.deptId, 'success', 0).catch(() => {});
+
       // SQLite 비동기 저장 (결과 차단 안 함)
       persistDeptReport(
         session.sessionId,
@@ -220,6 +224,8 @@ export async function runDirector(
       });
 
       send({ type: 'dept_error', deptId: task.deptId, error: errMsg });
+      // Phase 5 — 실패도 소량 XP (학습 인정)
+      awardXp(task.deptId, 'error', 0).catch(() => {});
       return { deptId: task.deptId, success: false, error: errMsg };
     }
   });
