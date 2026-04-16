@@ -10,6 +10,7 @@
 import { getProjectThreadMemories } from '../memory/threadMemory.js';
 import { searchReports } from '../memory/sqliteMemory.js';
 import { logger } from '../observability/logger.js';
+import { FUSION_TOTAL_CAP } from '../config/defaults.js';
 
 export type FusedThreadContext = {
   project_id: string;
@@ -74,19 +75,53 @@ function ngramScore(haystack: string, tokens: string[]): number {
   return score;
 }
 
+// 엔터티 정밀 매칭 보너스. structured.entities 에 등록된 고유명사 phrase 가
+// 쿼리 안에 통째로 나오면 강한 관련도를 부여한다.
+function entityHitBonus(entities: string[] | undefined, queryLower: string): number {
+  if (!entities || entities.length === 0) return 0;
+  let bonus = 0;
+  for (const raw of entities) {
+    const e = String(raw ?? '').trim().toLowerCase();
+    if (e.length < 2) continue;
+    if (queryLower.includes(e)) bonus += 4; // ngramScore 스케일과 조화
+  }
+  return bonus;
+}
+
+// 스레드별 관련도 점수에 비례해 총 예산(FUSION_TOTAL_CAP) 을 분배한다.
+// 높은 점수 item 은 더 긴 excerpt, 낮은 점수 item 은 짧은 excerpt.
+// 단, 최소 120자는 보장해 맥락이 끊어지지 않도록 한다.
+function allocateBudget(scores: number[], total: number, minPer = 120): number[] {
+  const sum = scores.reduce((a, b) => a + Math.max(0, b), 0);
+  if (sum <= 0 || scores.length === 0) return scores.map(() => minPer);
+  const reserved = minPer * scores.length;
+  const remaining = Math.max(0, total - reserved);
+  return scores.map((s) => minPer + Math.floor((Math.max(0, s) / sum) * remaining));
+}
+
+function truncate(text: string, max: number): string {
+  const t = text.replace(/\n+/g, ' ').trim();
+  if (t.length <= max) return t;
+  return t.slice(0, Math.max(1, max - 1)) + '…';
+}
+
 // ─── 메인 융합 함수 ───────────────────────────────────────────────────────────
 export function fuseThreadContext(opts: {
   project_id: string;
   query: string;
   max_threads?: number;
   max_reports?: number;
+  /** @deprecated 개별 excerpt 최대값. 새 할당 로직이 FUSION_TOTAL_CAP 내에서 동적으로 결정. */
   max_excerpt_len?: number;
+  /** 전체 fused_summary 글자 상한. 기본 FUSION_TOTAL_CAP (3000). */
+  total_cap?: number;
 }): FusedThreadContext {
   const { project_id, query } = opts;
   const maxThreads = Math.max(1, opts.max_threads ?? 5);
   const maxReports = Math.max(1, opts.max_reports ?? 3);
-  const maxExcerpt = Math.max(100, opts.max_excerpt_len ?? 500);
+  const totalCap = Math.max(600, opts.total_cap ?? FUSION_TOTAL_CAP);
   const tokens = koreanNgram(query);
+  const queryLower = query.toLowerCase();
 
   // ─ 1. 스레드 메모리 검색 ──────────────────────────────────────────────────
   const allThreads = getProjectThreadMemories(project_id);
@@ -97,25 +132,27 @@ export function fuseThreadContext(opts: {
     let excerpt = '';
     let matchedOn: MatchedThread['matched_on'] = 'message';
 
-    // 제목 검색 (가중치 x3)
+    const st = (mem as any).structured;
+    const entityBonus = entityHitBonus(st?.entities, queryLower);
+
+    // 제목 검색 (가중치 x3) + entityBonus
     if (mem.title) {
       const ts = ngramScore(mem.title, tokens);
       if (ts > 0) {
-        score = ts * 3;
+        score = ts * 3 + entityBonus;
         matchedOn = 'title';
-        excerpt = String(mem.title).slice(0, maxExcerpt);
+        excerpt = String(mem.title);
       }
     }
 
-    // 구조화 메모리 검색 (가중치 x2)
-    const st = (mem as any).structured;
+    // 구조화 메모리 검색 (가중치 x2) + entityBonus
     if (st) {
       const stText = [st.summary, ...(st.decisions ?? []), ...(st.facts ?? [])].filter(Boolean).join(' ');
-      const ss = ngramScore(stText, tokens) * 2;
+      const ss = ngramScore(stText, tokens) * 2 + entityBonus;
       if (ss > score) {
         score = ss;
         matchedOn = 'structured';
-        excerpt = stText.slice(0, maxExcerpt);
+        excerpt = stText;
       }
     }
 
@@ -124,11 +161,11 @@ export function fuseThreadContext(opts: {
       const content = typeof msg.content === 'string'
         ? msg.content
         : (Array.isArray(msg.content) ? msg.content.map((c: any) => c?.text ?? '').join(' ') : '');
-      const ms = ngramScore(content, tokens);
+      const ms = ngramScore(content, tokens) + entityBonus;
       if (ms > score) {
         score = ms;
         matchedOn = 'message';
-        excerpt = content.slice(0, maxExcerpt);
+        excerpt = content;
       }
     }
 
@@ -137,7 +174,7 @@ export function fuseThreadContext(opts: {
         thread_id: mem.thread_id,
         title: (mem as any).title ?? null,
         relevance_score: score,
-        excerpt,
+        excerpt, // truncation 은 렌더링 단계에서 예산 배분 후 실행
         matched_on: matchedOn,
         _score: score,
       });
@@ -155,12 +192,11 @@ export function fuseThreadContext(opts: {
       const sections = (r.report as any).sections ?? [];
       const excerpt = sections
         .flatMap((s: any) => [s.heading, ...(s.items ?? [])].slice(0, 3))
-        .join(' ')
-        .slice(0, maxExcerpt);
+        .join(' ');
       return {
         deptId: r.deptId,
         directive: r.directive,
-        excerpt,
+        excerpt, // truncation 은 렌더링에서
         confidence: r.confidence,
       };
     });
@@ -168,32 +204,52 @@ export function fuseThreadContext(opts: {
     // SQLite 없으면 스킵
   }
 
-  // ─ 3. 융합 요약 생성 ──────────────────────────────────────────────────────
+  // ─ 3. 융합 요약 생성 (FUSION_TOTAL_CAP 예산 내 점수비례 배분) ────────────
+  // 헤더/라벨 오버헤드를 제외하고 excerpt 본문에 쓸 예산 계산
+  const overhead = 200; // 스레드/보고서 헤더 + 블록 제목 여유
+  const itemCount = topThreads.length + matchedReports.length;
+  const bodyBudget = Math.max(300, totalCap - overhead);
+
+  const threadScores = topThreads.map((t) => t.relevance_score);
+  const reportScores = matchedReports.map((r) => r.confidence * 4); // confidence(0~1) → 스레드 score 스케일과 비슷하게
+  const allScores = [...threadScores, ...reportScores];
+  const budgets = itemCount > 0 ? allocateBudget(allScores, bodyBudget) : [];
+
   const parts: string[] = [];
 
   if (topThreads.length > 0) {
     const threadLines = topThreads.map((t, i) => {
       const titleStr = t.title ? `"${t.title}"` : `스레드:${t.thread_id.slice(0, 8)}`;
-      return `[스레드${i + 1}] ${titleStr} (관련도:${t.relevance_score})\n  ${t.excerpt.replace(/\n/g, ' ').slice(0, 300)}`;
+      const body = truncate(t.excerpt, budgets[i] ?? 160);
+      return `[스레드${i + 1}] ${titleStr} (관련도:${t.relevance_score})\n  ${body}`;
     });
     parts.push(`관련 대화 스레드 ${topThreads.length}건:\n${threadLines.join('\n')}`);
   }
 
   if (matchedReports.length > 0) {
-    const reportLines = matchedReports.map((r, i) =>
-      `[보고서${i + 1}] ${r.deptId.toUpperCase()}팀 — 지시: "${r.directive.slice(0, 40)}"\n  ${r.excerpt.replace(/\n/g, ' ').slice(0, 300)}`
-    );
+    const base = topThreads.length;
+    const reportLines = matchedReports.map((r, i) => {
+      const body = truncate(r.excerpt, budgets[base + i] ?? 160);
+      return `[보고서${i + 1}] ${r.deptId.toUpperCase()}팀 — 지시: "${r.directive.slice(0, 60)}"\n  ${body}`;
+    });
     parts.push(`관련 부서 보고서 ${matchedReports.length}건:\n${reportLines.join('\n')}`);
   }
 
-  const fused_summary = parts.length > 0
+  let fused_summary = parts.length > 0
     ? parts.join('\n\n')
     : `프로젝트 내 관련 컨텍스트가 발견되지 않았다. (query: "${query.slice(0, 80)}")`;
 
-  logger.debug('[threadFusion v2]', {
+  // 안전장치: totalCap 초과 시 마지막에 한번 더 자른다.
+  if (fused_summary.length > totalCap) {
+    fused_summary = fused_summary.slice(0, totalCap - 1) + '…';
+  }
+
+  logger.debug('[threadFusion v3]', {
     project_id, query: query.slice(0, 60),
     threads: topThreads.length, reports: matchedReports.length,
     total: allThreads.length,
+    fused_len: fused_summary.length,
+    cap: totalCap,
   });
 
   return {

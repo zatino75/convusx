@@ -147,6 +147,23 @@ function tfBonus(queryTokens: Set<string>, text: string): number {
   return (score / (queryTokens.size || 1)) * 0.15
 }
 
+// 엔터티는 주로 고유명사(제품/회사/인물/법규명). 전체 phrase 를 정규화해서 쿼리 안에
+// 나타나는지 확인하는 정밀 매칭을 따로 돌린다. overlapScore 는 바이그램 기반이라
+// "CORVUS" vs "Corvus Sciences" 의 구분이 흐릿해지는데, 이 함수는 대소문자 무시 +
+// 공백 정규화만 거친 substring 매칭으로 정밀도를 보완한다.
+function entityHitScore(entities: string[] | undefined, queryLower: string): number {
+  if (!entities || entities.length === 0) return 0
+  const normalizedQ = queryLower.replace(/\s+/g, " ").trim()
+  if (!normalizedQ) return 0
+  let hits = 0
+  for (const raw of entities) {
+    const e = normalizeText(raw).toLowerCase().replace(/\s+/g, " ")
+    if (e.length < 2) continue
+    if (normalizedQ.includes(e)) hits++
+  }
+  return hits > 0 ? Math.min(1, hits * 0.35) : 0
+}
+
 export function findSimilarQuery(
   query: string,
   projectId: string,
@@ -157,6 +174,7 @@ export function findSimilarQuery(
 
   const queryTokens = tokenize(query)
   if (queryTokens.size === 0) return []
+  const queryLower = query.toLowerCase()
 
   const projectEntries = Object.values(ThreadStore).filter(
     (entry) => entry.project_id === projectId
@@ -213,12 +231,16 @@ export function findSimilarQuery(
       ? overlapScore(queryTokens, tokenize(structuredText)) * 0.9
       : 0
 
+    // 엔터티 정밀 매칭 (가중치 1.2). query 에 엔터티명이 그대로 들어있으면
+    // overlap 매칭보다 정확도가 훨씬 높다.
+    const entityScore = entityHitScore(entry.structured?.entities, queryLower) * 1.2
+
     for (let i = 0; i < userMessages.length; i++) {
       const userMsg = userMessages[i]
       const msgScore = overlapScore(queryTokens, tokenize(userMsg.content))
       const tf = tfBonus(queryTokens, userMsg.content)
 
-      const score = Math.max(msgScore + tf, titleScore, summaryScore, structuredScore)
+      const score = Math.max(msgScore + tf, titleScore, summaryScore, structuredScore, entityScore)
 
       if (score < threshold) continue
 
