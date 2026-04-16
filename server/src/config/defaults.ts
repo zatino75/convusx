@@ -68,6 +68,8 @@ export const MODEL_PRICING_USD_PER_1K_TOKENS: Record<string, { input: number; ou
 }
 
 // ── 모델 기본값 ──
+// 주의: gemini 값은 adapters/gemini.ts 의 GEMINI_MODEL_ID 와 반드시 일치해야 한다.
+// (circular import 방지를 위해 여기서는 import 하지 않고 리터럴 유지 — 동기화 수동.)
 export const DEFAULT_MODELS: Record<string, string> = {
   openai:     "gpt-5.2",
   openai_pro: "gpt-5.4-pro",

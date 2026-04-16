@@ -1,6 +1,6 @@
 // NOTE (2026-04-11): orchestra/scoreboard + orchestra/runtime 폐기.
 // executeOrchestra → runAgentLoop 교체. recordProviderExecution 호출 제거.
-import { logBenchmark, normalizeBenchmarkCase } from "../orchestra/benchmark.js"
+import { logBenchmark, normalizeBenchmarkCase } from "../benchmark/benchmarkLogger.js"
 import { runAgentLoop } from "../agent/agentLoop.js"
 import { evaluateBenchmarkResult } from "../benchmark/evaluator.js"
 import { buildBenchmarkComparison, buildDefaultBenchmarkCases, toBenchmarkRunResult } from "../benchmark/scoreboard.js"

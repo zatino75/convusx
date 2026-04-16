@@ -7,13 +7,13 @@
 import { registerTool, type ToolResult } from "../toolRegistry.js"
 import { openaiAdapter } from "../../adapters/openai.js"
 import { claudeAdapter } from "../../adapters/claude.js"
-import { geminiAdapter } from "../../adapters/gemini.js"
+import { geminiAdapter, GEMINI_MODEL_ID } from "../../adapters/gemini.js"
 import { logger } from "../../observability/logger.js"
 
 const MODEL_BY_PROVIDER = {
   openai: "gpt-5.4",
   claude: "claude-opus-4-6",
-  gemini: "gemini-2.5-pro-preview-05-06",
+  gemini: GEMINI_MODEL_ID,
 } as const
 
 const DEFAULT_MAX_TOKENS = 3000

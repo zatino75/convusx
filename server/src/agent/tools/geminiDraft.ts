@@ -4,10 +4,12 @@
 // 선택지. parallelEnsemble 에서 "장문 관점" 으로 자동 편입.
 
 import { registerTool, type ToolResult } from "../toolRegistry.js"
-import { geminiAdapter } from "../../adapters/gemini.js"
+import { geminiAdapter, GEMINI_MODEL_ID } from "../../adapters/gemini.js"
 import { logger } from "../../observability/logger.js"
 
-const DEFAULT_MODEL = "gemini-3.1-pro-ultra"
+// 주의: 이전에는 "gemini-3.1-pro-ultra"(표시용 레이블) 을 API 모델 ID 로 쓰고 있어
+// 실제 호출이 실패했다. 실제 API 문자열은 GEMINI_MODEL_ID 단일 출처를 사용한다.
+const DEFAULT_MODEL = GEMINI_MODEL_ID
 const DEFAULT_MAX_TOKENS = 8000
 const DRAFT_TIMEOUT_MS = 150_000
 

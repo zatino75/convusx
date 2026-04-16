@@ -6,7 +6,7 @@
 
 import { claudeAdapter }     from './claude.js';
 import { openaiAdapter }     from './openai.js';
-import { geminiAdapter }     from './gemini.js';
+import { geminiAdapter, GEMINI_MODEL_ID } from './gemini.js';
 import { perplexityAdapter } from './perplexity.js';
 
 /** Claude Sonnet 4.6 호출 */
@@ -54,7 +54,7 @@ export async function callOpenAI(
   return resp.text ?? '';
 }
 
-/** Gemini 2.5 Pro 호출 */
+/** Gemini 호출 — 실제 API 모델 ID는 adapters/gemini.ts의 GEMINI_MODEL_ID (단일 출처) */
 export async function callGemini(
   systemPrompt: string,
   userPrompt: string,
@@ -62,7 +62,7 @@ export async function callGemini(
 ): Promise<string> {
   const resp = await geminiAdapter.generate({
     provider: 'gemini',
-    model: 'gemini-2.5-pro',
+    model: GEMINI_MODEL_ID,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: userPrompt },

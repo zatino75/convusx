@@ -1,6 +1,7 @@
 import fs from "fs"
 import { logger } from "../observability/logger.js"
-// scoreboard.ts 폐기(0 importer) — updateScoreboardFromBenchmark / updateModelScoreboard 호출 제거
+// orchestra/benchmark.ts 에서 이전 (2026-04-16)
+// logBenchmark / normalizeBenchmarkCase 를 benchmark/ 레이어로 통합
 
 const LOG_PATH = "server/data/benchmark.jsonl"
 

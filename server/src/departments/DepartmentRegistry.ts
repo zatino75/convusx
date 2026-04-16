@@ -4,6 +4,8 @@
  * 각 부서의 전담 AI 모델, 시스템 프롬프트, 커넥터 우선순위를 중앙 관리
  */
 
+import { GEMINI_MODEL_ID } from '../adapters/gemini.js';
+
 export interface DeptConfig {
   id: string;
   nameKo: string;
@@ -29,7 +31,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     id: 'market',
     nameKo: '시장조사팀',
     nameEn: 'MARKET RESEARCH',
-    primaryModel: 'gemini-2.5-pro',
+    primaryModel: GEMINI_MODEL_ID,
     fallbackModel: 'claude-sonnet-4-6',
     maxTokens: 8192,
     systemPrompt: `당신은 CORVUS X 시장조사팀 AI 분석가입니다.

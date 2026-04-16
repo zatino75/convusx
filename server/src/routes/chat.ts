@@ -2,7 +2,7 @@
 import { TITLE_GEN_TIMEOUT_MS, OPENAI_BASE } from "../config/defaults.js"
 import { logger } from "../observability/logger.js"
 import { runAgentLoopRuntimeResult } from "../agent/agentLoopBridge.js"
-import { logBenchmark } from "../orchestra/benchmark.js"
+import { logBenchmark } from "../benchmark/benchmarkLogger.js"
 import { appendProjectMemory, getLatestProjectContext, findPastWinner } from "../memory/projectMemory.js"
 import { upsertThreadMemory, findSimilarQuery, getThreadMemory } from "../memory/threadMemory.js"
 import { saveThreadAttachments, getThreadAttachments, looksLikeContinuation } from "../memory/attachmentCache.js"

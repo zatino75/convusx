@@ -2,6 +2,13 @@
 import { env, sleep, now, normalizeContent, extractProviderError, recordProviderMetric } from "./shared.js"
 import { ADAPTER_TIMEOUT_GEMINI_MS, ADAPTER_TIMEOUT_STREAM_GEMINI_MS, IMAGE_GEN_TIMEOUT_MS, GEMINI_BASE } from "../config/defaults.js"
 
+// Gemini 모델 문자열 단일 출처 (single source of truth)
+// - GEMINI_MODEL_ID: 실제 Google GenAI API 호출에 사용하는 모델 ID
+// - GEMINI_DISPLAY_LABEL: UI/로그/이벤트 스트림에 표시하는 마케팅 레이블
+// CLAUDE.md 표기 "Gemini 3.1 Pro Ultra"는 표시용이며 API 호출 시에는 GEMINI_MODEL_ID 사용.
+export const GEMINI_MODEL_ID = "gemini-2.5-pro"
+export const GEMINI_DISPLAY_LABEL = "Gemini 3.1 Pro Ultra"
+
 function splitSystemAndMessages(messages: ModelRequest["messages"]) {
   const system = messages
     .filter((m) => m.role === "system")
@@ -336,7 +343,7 @@ async function streamGemini(params: {
 export const geminiAdapter: ModelAdapter = {
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const apiKey = env("GEMINI_API_KEY")
-    const model = req.model?.trim() || "gemini-2.5-pro-preview-05-06"  // 최상위 버전 고정 (CLAUDE.md)
+    const model = req.model?.trim() || GEMINI_MODEL_ID
     const attempts: ModelAttempt[] = []
     const { system, conversation } = splitSystemAndMessages(req.messages)
 

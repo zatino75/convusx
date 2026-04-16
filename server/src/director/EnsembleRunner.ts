@@ -10,6 +10,7 @@
 
 import type { DeptId } from "./TaskDecomposer.js";
 import { logger } from "../observability/logger.js";
+import { GEMINI_DISPLAY_LABEL } from "../adapters/gemini.js";
 
 export interface EnsembleEvent {
   type: "ensemble_start" | "ensemble_voice" | "ensemble_done";
@@ -94,10 +95,12 @@ async function callOne(
   }
 }
 
+// UI/이벤트 스트림 표시용 레이블 — 실제 API 모델 ID와 분리 관리.
+// Gemini 레이블은 adapters/gemini.ts의 GEMINI_DISPLAY_LABEL 단일 출처에서 가져옴.
 const MODEL_LABEL: Record<string, string> = {
   claude: "claude-opus-4-6",
   gpt: "gpt-5.4-pro",
-  gemini: "gemini-3.1-pro-ultra",
+  gemini: GEMINI_DISPLAY_LABEL,
 };
 
 /**
