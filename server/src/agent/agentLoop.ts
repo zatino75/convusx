@@ -23,6 +23,7 @@ import {
 } from "./toolRegistry.js"
 import { buildFusionSystemBlock } from "../fusion/threadFusion.js"
 import { buildProjectFusionBlock } from "../fusion/projectFusion.js"
+import { buildUnifiedContextBlock } from "../fusion/unifiedRetrieval.js"
 import { getSnapshotsByCategory } from "../regulation/regulationCache.js"
 import type { RegulationCategory } from "../regulation/regulationSources.js"
 
@@ -124,19 +125,39 @@ function buildSystemPrompt(input: AgentLoopInput): string {
 
   const extra = safeString(input.extra_system)
 
-  // Phase 4-C — 스레드 융합 + 프로젝트 메모리 자동 주입 (query 가 있을 때만)
+  // Phase 7 — 통합 retrieval: 스레드 메모리 + 프로젝트 구조화 메모리 + 소스 자산 + 보고서를
+  // 한 블록으로 병합하고 FUSION_TOTAL_CAP 안에서 점수 기반 재순위·예산 배분.
+  // 통합 호출 실패 시 기존 2-블록 주입으로 graceful fallback.
   const fusionParts: string[] = []
   const query = safeString(input.message)
   const projectId = safeString(input.project_id) || "chat_project"
   if (query.length > 10 && projectId) {
     try {
-      const threadBlock = buildFusionSystemBlock({ project_id: projectId, query, max_threads: 4 })
-      if (threadBlock) fusionParts.push(threadBlock)
-    } catch { /* fusion 실패는 무시 — 메인 루프를 막으면 안 됨 */ }
-    try {
-      const projBlock = buildProjectFusionBlock({ project_id: projectId, query })
-      if (projBlock) fusionParts.push(projBlock)
-    } catch { /* ignore */ }
+      const unified = buildUnifiedContextBlock({ project_id: projectId, query, max_items: 8 })
+      if (unified) {
+        fusionParts.push(unified)
+      } else {
+        // 통합 결과가 비었을 때만 구(舊) 빌더도 시도 — 로깅·디버깅 목적.
+        try {
+          const threadBlock = buildFusionSystemBlock({ project_id: projectId, query, max_threads: 4 })
+          if (threadBlock) fusionParts.push(threadBlock)
+        } catch { /* ignore */ }
+        try {
+          const projBlock = buildProjectFusionBlock({ project_id: projectId, query })
+          if (projBlock) fusionParts.push(projBlock)
+        } catch { /* ignore */ }
+      }
+    } catch {
+      // 통합 호출 자체가 터지면 안전하게 구 경로로 fallback
+      try {
+        const threadBlock = buildFusionSystemBlock({ project_id: projectId, query, max_threads: 4 })
+        if (threadBlock) fusionParts.push(threadBlock)
+      } catch { /* ignore */ }
+      try {
+        const projBlock = buildProjectFusionBlock({ project_id: projectId, query })
+        if (projBlock) fusionParts.push(projBlock)
+      } catch { /* ignore */ }
+    }
   }
 
   // Phase 5 — domain_profile 기반 법규 캐시 현황 힌트 주입

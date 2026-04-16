@@ -1,40 +1,47 @@
-// recallProjectMemory.ts — Phase 4-C recall_project_memory tool
+// recallProjectMemory.ts — Phase 7 통합 retrieval 도구
 //
-// \ud504\ub85c\uc81d\ud2b8 \uc218\uc900 \uad6c\uc870\ud654 \uba54\ubaa8\ub9ac + \uc18c\uc2a4 \uc790\uc0b0 + \uc2a4\ub808\ub4dc \uc735\ud569\uc744 \ub2e8\uc77c \ub3c4\uad6c\ub85c \uc81c\uacf5.
-// agent loop \uac00 \uc2a4\uc2a4\ub85c \ud504\ub85c\uc81d\ud2b8 \uacfc\uac70 \uc2a4\ub808\ub4dc\ub97c \ud638\ucd9c\ud560 \ub54c \uc0ac\uc6a9.
+// 프로젝트의 스레드 융합 + 구조화 메모리 + 소스 자산 + 부서 보고서를
+// 단일 호출로 가져와 점수 기반 재순위·예산 배분된 컨텍스트 블록을 반환한다.
+// 에이전트가 "프로젝트 내용", "이전 논의", "알아서 찾아봐" 등을 만날 때 호출.
 
 import { registerTool, type ToolResult } from "../toolRegistry.js"
-import { buildFusionSystemBlock } from "../../fusion/threadFusion.js"
-import { buildProjectFusionBlock } from "../../fusion/projectFusion.js"
+import { retrieveUnifiedContext } from "../../fusion/unifiedRetrieval.js"
 
 function safeString(v: any): string { return String(v ?? "").trim() }
 
 registerTool({
   name: "recall_project_memory",
   description:
-    "\ud604\uc7ac \ud504\ub85c\uc81d\ud2b8\uc758 \uac00\uc7a5 \uad00\ub828\ub41c \uacfc\uac70 \uc2a4\ub808\ub4dc�\uad6c\uc870\ud654 \uba54\ubaa8\ub9ac�\uc18c\uc2a4 \uc790\uc0b0\uc744 \uc790\ub3d9 \uc5f0\uacb0\ud558\uc5ec \ud658\uacbd\uc3a8\ub85c \uc81c\uacf5\ud55c\ub2e4. " +
-    "\uc0ac\uc6a9\uc790\uac00 '\ud504\ub85c\uc81d\ud2b8 \ub0b4\uc6a9', '\uc774\uc804 \ud22c\ub819', '\uac00\uc7a5 \ucd5c\uadfc', '\uc54c\uc544\uc11c \ucc3e\uc544\ubd10' \ub4f1 \ud504\ub85c\uc81d\ud2b8 \uc218\uc900 \ucc38\uc870\ub97c " +
-    "\uc694\uccad\ud560 \ub54c \uc790\ub3d9 \ud638\ucd9c\ub41c\ub2e4. \uc2a4\ub808\ub4dc \uc735\ud569(\ud504\ub85c\uc81d\ud2b8 \ub0b4 \uc804\uccb4 \uc2a4\ub808\ub4dc \uad50\ucc28 \uac80\uc0c9) + \ud504\ub85c\uc81d\ud2b8 \uba54\ubaa8\ub9ac(\uad6c\uc870\ud654 \uc9c0\uc2dd) + \uc18c\uc2a4 \uc790\uc0b0 \uc218\uc900\uc744 \ud569\uc300\ud574 \ubc18\ud658\ud55c\ub2e4.",
+    "현재 프로젝트의 가장 관련된 과거 스레드·구조화 메모리·소스 자산·부서 보고서를 " +
+    "통합 retrieval 로 모아 단일 컨텍스트로 제공한다. 사용자가 '프로젝트 내용', '이전 논의', " +
+    "'가장 최근', '알아서 찾아봐' 등 프로젝트 수준 참조를 요청할 때 호출한다. " +
+    "스레드·프로젝트 메모리·소스 자산·보고서 각각을 개별 호출하지 말고 이 도구 하나로 끝낼 것.",
   input_schema: {
     type: "object",
     properties: {
-      query: { type: "string", description: "\uac80\uc0c9 \ud0a4\uc6cc\ub4dc \ub610\ub294 \uc9c8\ubb38" },
-      max_threads: { type: "number", description: "\uc2a4\ub808\ub4dc \uc735\ud569 \ucd5c\ub300 \ubc18\ud658 \uc218 (1\ue4002010, \uae30\ubcf8 5)" },
+      query: { type: "string", description: "검색 키워드 또는 질문" },
+      max_items: {
+        type: "number",
+        description: "통합 결과 최대 아이템 수 (1~12, 기본 8)",
+      },
     },
     required: ["query"],
   },
   cost_tier: "free",
   async handler(input: any, ctx: any): Promise<ToolResult> {
     const query = safeString(input?.query)
-    if (!query) return { ok: false, output_text: JSON.stringify({ ok: false, error: "query is required" }), error: "missing_query" }
+    if (!query) {
+      return {
+        ok: false,
+        output_text: JSON.stringify({ ok: false, error: "query is required" }),
+        error: "missing_query",
+      }
+    }
 
     const projectId = safeString(ctx?.project_id) || "chat_project"
-    const maxThreads = Math.max(1, Math.min(10, Number(input?.max_threads ?? 5) || 5))
+    const maxItems = Math.max(1, Math.min(12, Number(input?.max_items ?? 8) || 8))
 
-    const threadBlock = buildFusionSystemBlock({ project_id: projectId, query, max_threads: maxThreads })
-    const projectBlock = buildProjectFusionBlock({ project_id: projectId, query })
-
-    const combined = [threadBlock, projectBlock].filter(Boolean).join("\n\n")
+    const unified = retrieveUnifiedContext({ project_id: projectId, query, max_items: maxItems })
 
     return {
       ok: true,
@@ -42,11 +49,18 @@ registerTool({
         ok: true,
         project_id: projectId,
         query,
-        context: combined || "\uc774 \ud504\ub85c\uc81d\ud2b8\uc5d0 \uc800\uc7a5\ub41c \uad00\ub828 \uba54\ubaa8\ub9ac\uac00 \uc5c6\ub2e4.",
-        has_thread_fusion: threadBlock.length > 0,
-        has_project_memory: projectBlock.length > 0,
+        context: unified.block || "이 프로젝트에 저장된 관련 메모리가 없다.",
+        items: unified.items.map((it) => ({
+          kind: it.kind,
+          id: it.id,
+          title: it.title,
+          score: it.score,
+        })),
+        stats: unified.stats,
       }),
-      summary: `recall_project_memory project=${projectId} query="${query.slice(0, 40)}"`,
+      summary:
+        `recall_project_memory project=${projectId} items=${unified.items.length} ` +
+        `(threads_scanned=${unified.stats.threads_scanned}, sources=${unified.stats.sources_scanned})`,
     }
   },
 })
