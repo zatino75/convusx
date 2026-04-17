@@ -1738,6 +1738,30 @@
     const active = isActive(threadId);
     const scene = state.scene;
     switch (type) {
+      case 'executive_gate_start':
+        run.executiveStatus = 'reviewing';
+        if (active) scene?.lightExecutive(true);
+        addMsgForThread(threadId, { who:'상무', body:'지시를 분석하고 업무를 배분합니다...', kind:'sys' });
+        break;
+      case 'executive_gate_done': {
+        const action = p.action || 'single_agent';
+        const depts = Array.isArray(p.departments) ? p.departments : [];
+        run.executiveStatus = action === 'director' ? 'done' : 'done';
+        run.gateResult = { action, complexity: p.complexity, departments: depts, reason: p.reason };
+        if (action === 'director' && depts.length) {
+          const names = depts.map(d => (DEPT_BY_ID[d.id]?.kr || d.id) + '팀').join(', ');
+          addMsgForThread(threadId, { who:'상무', body:`배분 완료: ${names}`, kind:'sys' });
+        } else {
+          addMsgForThread(threadId, { who:'상무', body:'단순 요청 판단 → 단일 에이전트 처리', kind:'sys' });
+        }
+        if (active && action === 'director') setTimeout(() => scene?.lightExecutive(false), 2500);
+        break;
+      }
+      case 'executive_gate_redirect':
+        run.executiveStatus = 'done';
+        addMsgForThread(threadId, { who:'상무', body:`단일 에이전트로 전환 (${p.reason || 'simple'})`, kind:'sys' });
+        if (active) scene?.lightExecutive(false);
+        break;
       case 'mission_start':
         run.missionDeptCount = Number(p.deptCount || 9);
         run.deptCompletedCount = 0; run.executiveActive = false;
@@ -1891,6 +1915,7 @@
     run.missionDeptCount = 9; run.deptCompletedCount = 0; run.executiveActive = false;
     run.lastBriefing = null; run.lastCritic = null;
     run.executiveStatus = 'idle';
+    run.gateResult = null;
     run.reworkDepts = []; run.reworkReasons = {}; run._criticMsgShown = false;
     for (const d of DEPTS) run.deptStates[d.id] = 'idle';
     // reset scene only if this is the active thread
@@ -1921,7 +1946,8 @@
         const es = new EventSource(url.toString(), { withCredentials:true });
         run.es = es;
         const listener = (ev) => onRunEvent(threadId, ev);
-        ['mission_start','dept_start','dept_progress','dept_done','dept_error',
+        ['executive_gate_start','executive_gate_done','executive_gate_redirect',
+         'mission_start','dept_start','dept_progress','dept_done','dept_error',
          'critic_review','critic_start','critic_done','critic_rework',
          'dept_rework_start','dept_rework_done',
          'ceo_briefing','all_done','error','stream_end']
@@ -2021,21 +2047,31 @@
       }
       body.appendChild(head);
 
-      // ── 상무실 상태 표시 ──
+      // ── 상무실 상태 표시 (게이트 + 취합) ──
       const run = state.activeThreadId ? state.threadRuns?.[state.activeThreadId] : null;
       const execStatus = run?.executiveStatus || 'idle';
+      const gate = run?.gateResult;
       let execLabel = '대기', execColor = '#8a8a8a';
-      if (execStatus === 'reviewing') { execLabel = '검토중'; execColor = '#f5c842'; }
+      if (execStatus === 'reviewing') { execLabel = '판단중'; execColor = '#f5c842'; }
       else if (execStatus === 'rework') { execLabel = '보강요청'; execColor = '#ff9f3a'; }
-      else if (execStatus === 'done') { execLabel = '완료'; execColor = '#2ecf74'; }
+      else if (execStatus === 'done') {
+        if (gate && gate.action === 'director') { execLabel = '배분완료'; execColor = '#2ecf74'; }
+        else if (gate && gate.action === 'single_agent') { execLabel = '단일 에이전트'; execColor = '#7aa9ff'; }
+        else { execLabel = '완료'; execColor = '#2ecf74'; }
+      }
       const execSec = document.createElement('div'); execSec.className = 'panel-sec';
       execSec.style.marginTop = '12px';
+      let gateDeptsHtml = '';
+      if (gate && Array.isArray(gate.departments) && gate.departments.length) {
+        gateDeptsHtml = '<div style="margin-top:6px;font-size:12px;color:var(--text-dim)">배분: ' +
+          gate.departments.map(d => escapeHtml(DEPT_BY_ID[d.id]?.kr || d.id) + '팀').join(', ') + '</div>';
+      }
       execSec.innerHTML = `<h4>상무실</h4>
         <div class="dept-row" style="--dept-color:${execColor}">
           <span class="ddot"></span>
-          <span class="dname">상무 (Critic)</span>
+          <span class="dname">상무 (Gate + Critic)</span>
           <span class="dstate" style="color:${execColor};font-weight:600">${execLabel}</span>
-        </div>`;
+        </div>` + gateDeptsHtml;
       body.appendChild(execSec);
     } else if (state.currentTab === 'sales') {
       body.innerHTML = '<div class="panel-empty">매출 데이터 로딩중...</div>';

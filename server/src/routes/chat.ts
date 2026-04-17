@@ -10,6 +10,9 @@ import { broadcast } from "../http/websocket.js"
 import { executeHook } from "../plugins/pluginManager.js"
 import { normalizeChatMode, normalizeChatRuntimeInput } from "./chatRuntime.js"
 import { runDirector, runDirectorSync } from "../director/DirectorAgent.js"
+import { runExecutiveGate } from "../director/ExecutiveGate.js"
+import type { ExecutiveGateResult, GateDomain } from "../director/ExecutiveGate.js"
+import { detectMissionDomain } from "../director/TaskDecomposer.js"
 
 // ── 분리된 모듈 import ──
 import {
@@ -306,29 +309,43 @@ function writeSse(res: RouteResponse, payload: any) {
   res.write?.(`data: ${JSON.stringify(payload)}\n\n`)
 }
 
-const DIRECTOR_ROUTE_KEYWORDS = [
-  "대표이사", "상무", "부서", "프로젝트", "전략", "검토", "보고", "시장조사",
-  "리스크", "운영", "매출", "kpi", "런칭", "로드맵", "실행안", "재무", "법무"
-]
-const DIRECTOR_ROUTE_ACTIONS = [
-  "해줘", "수립", "분석", "정리", "검토", "보고", "계획", "우선순위", "평가", "작성"
-]
+// ─── 라우팅 결정 ──────────────────────────────────────────────────────────────
+// 2026-04-17: 키워드 매칭 전면 제거. ExecutiveGate(상무 LLM) 가 단일 판정자.
+// 규칙:
+//   - force_single_agent === true → 강제 single agent (gate 스킵)
+//   - force_director    === true → 강제 director (gate 여전히 호출해 departments 는 활용)
+//   - attached_file 있으면 파일 처리 경로 우선 → gate 스킵
+//   - 20자 미만 → gate 비용 회피, single agent 직행
+//   - 그 외 → ExecutiveGate 호출 후 gate.action 에 따라 분기
+type RouteDecision =
+  | { kind: 'single_agent'; gate?: ExecutiveGateResult }
+  | { kind: 'director'; gate: ExecutiveGateResult }
 
-function shouldRouteToDirector(input: any, query: string): boolean {
-  // 명시적 강제 플래그가 최우선: Phase 3 모드 토글과 연결된다.
-  //   force_single_agent === true  → 무조건 단일 에이전트 루프 (자동 감지 비활성)
-  //   force_director    === true   → 무조건 Director 멀티에이전트
-  if (input?.force_single_agent === true) return false
-  if (input?.force_director === true) return true
-  if (input?.attached_file) return false
+async function decideRoute(input: any, query: string): Promise<RouteDecision> {
+  if (input?.force_single_agent === true) return { kind: 'single_agent' }
+  if (input?.attached_file) return { kind: 'single_agent' }
+
   const q = safeString(query)
-  if (!q) return false
-  if (/^\/업무\b/i.test(q) || /^지시[:：]/i.test(q)) return true
-  if (q.length < 14) return false
-  const lower = q.toLowerCase()
-  const hasKeyword = DIRECTOR_ROUTE_KEYWORDS.some((word) => lower.includes(word.toLowerCase()))
-  const hasAction = DIRECTOR_ROUTE_ACTIONS.some((word) => lower.includes(word.toLowerCase()))
-  return hasKeyword && hasAction
+  if (!q) return { kind: 'single_agent' }
+
+  const isForceDirector = input?.force_director === true
+  const shouldInvokeGate = isForceDirector || q.length >= 20
+  if (!shouldInvokeGate) return { kind: 'single_agent' }
+
+  const domain = detectMissionDomain(q) as GateDomain
+  let gate: ExecutiveGateResult
+  try {
+    gate = await runExecutiveGate(q, domain)
+  } catch (err) {
+    logger.warn("[chat] ExecutiveGate 호출 실패 → single agent", { err: err instanceof Error ? err.message : String(err) })
+    return { kind: 'single_agent' }
+  }
+
+  if (isForceDirector) {
+    // force_director 는 gate 판정과 무관하게 director 로 실행 (departments 는 gate 결과 활용)
+    return { kind: 'director', gate }
+  }
+  return gate.action === 'director' ? { kind: 'director', gate } : { kind: 'single_agent', gate }
 }
 
 function directorStatusFromEvent(event: any): string {
@@ -699,32 +716,40 @@ export async function runChatRoute(req: RouteRequest, res: RouteResponse) {
     }
   }
 
-  // ── 요청 라우팅: CEO 워크플로 성격이면 Director 파이프라인으로 분기 ──
-  if (shouldRouteToDirector(effectiveInput, inboundQuery)) {
+  // ── 요청 라우팅: ExecutiveGate 가 단일 판정자 ──
+  const routeDecision = await decideRoute(effectiveInput, inboundQuery)
+  if (routeDecision.kind === 'director') {
     try {
       const routed = await runDirectorSync(inboundQuery, {
         projectName: "CONVUS X Autonomous Mission",
         userId: "chat-user",
+        preloadedGate: routeDecision.gate,
       })
-      const finalText = renderDirectorFinalText(
-        inboundQuery,
-        routed.round,
-        routed.briefing,
-        routed.critic,
-      )
-      let threadTitle: string | null = null
-      try { threadTitle = await generateThreadTitle(inboundQuery, finalText) } catch {}
-      return res.json?.({
-        ...makeDonePayload("director", finalText, true, "executive_workflow", "director", ["director", "claude"]),
-        thread_title: threadTitle,
-        director: {
-          session_id: routed.sessionId,
-          round_number: routed.roundNumber,
-          critic: routed.critic ?? null,
-          briefing: routed.briefing ?? null,
-          round: routed.round ?? null,
-        }
-      })
+      // gate 가 도중에 single_agent 로 뒤집혔을 가능성 (force_director 없는 경로)
+      if (routed.redirectedToSingleAgent) {
+        // agent loop 경로로 fallthrough — 아래 try 블록에서 처리
+      } else {
+        const finalText = renderDirectorFinalText(
+          inboundQuery,
+          routed.round,
+          routed.briefing,
+          routed.critic,
+        )
+        let threadTitle: string | null = null
+        try { threadTitle = await generateThreadTitle(inboundQuery, finalText) } catch {}
+        return res.json?.({
+          ...makeDonePayload("director", finalText, true, "executive_workflow", "director", ["director", "claude"]),
+          thread_title: threadTitle,
+          director: {
+            session_id: routed.sessionId,
+            round_number: routed.roundNumber,
+            critic: routed.critic ?? null,
+            briefing: routed.briefing ?? null,
+            round: routed.round ?? null,
+            gate: routed.gate ?? null,
+          }
+        })
+      }
     } catch (e: any) {
       return res.json?.({ ok: false, error: String(e?.message ?? "director_route_error") })
     }
@@ -909,19 +934,22 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       res.end?.(); return
     }
 
-    // ── 요청 라우팅: CEO 워크플로 성격이면 Director 스트림으로 분기 ──
-    if (shouldRouteToDirector(effectiveInput, inboundQuery)) {
-      writeSse(res, { type: "status", content: "CEO 워크플로로 라우팅했습니다..." })
+    // ── 요청 라우팅: ExecutiveGate 가 단일 판정자 ──
+    const streamRouteDecision = await decideRoute(effectiveInput, inboundQuery)
+    if (streamRouteDecision.kind === 'director') {
+      writeSse(res, { type: "status", content: "상무 배분으로 라우팅했습니다..." })
 
       let capturedSummary: any = null
       let capturedBriefing: any = null
       let capturedCritic: any = null
       let capturedSessionId = ""
       let capturedRoundNumber = 0
+      let redirected = false
 
-      await runDirector(inboundQuery, {
+      const runResult = await runDirector(inboundQuery, {
         projectName: "CONVUS X Autonomous Mission",
         userId: "chat-user",
+        preloadedGate: streamRouteDecision.gate,
         onEvent: (event: any) => {
           const status = directorStatusFromEvent(event)
           if (status) writeSse(res, { type: "status", content: status })
@@ -940,33 +968,43 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
           if (event?.type === "critic_review") {
             capturedCritic = event?.review ?? capturedCritic
           }
-        }
-      })
-
-      const finalText = renderDirectorFinalText(
-        inboundQuery,
-        capturedSummary,
-        capturedBriefing,
-        capturedCritic,
-      )
-      let threadTitle: string | null = null
-      try { threadTitle = await generateThreadTitle(inboundQuery, finalText) } catch {}
-
-      writeSse(res, {
-        type: "done",
-        payload: {
-          ...makeDonePayload("director", finalText, true, "executive_workflow", "director", ["director", "claude"]),
-          thread_title: threadTitle,
-          director: {
-            session_id: capturedSessionId || null,
-            round_number: capturedRoundNumber || null,
-            critic: capturedCritic ?? null,
-            briefing: capturedBriefing ?? null,
-            round: capturedSummary ?? null,
+          if (event?.type === "executive_gate_redirect") {
+            redirected = true
           }
         }
       })
-      res.end?.(); return
+
+      if (runResult.redirectedToSingleAgent || redirected) {
+        // gate 가 도중에 single_agent 로 뒤집혔으면 agent loop 경로로 fallthrough
+        writeSse(res, { type: "status", content: "단일 에이전트 루프로 전환합니다..." })
+        // 아래 agent loop 블록으로 내려감
+      } else {
+        const finalText = renderDirectorFinalText(
+          inboundQuery,
+          capturedSummary,
+          capturedBriefing,
+          capturedCritic,
+        )
+        let threadTitle: string | null = null
+        try { threadTitle = await generateThreadTitle(inboundQuery, finalText) } catch {}
+
+        writeSse(res, {
+          type: "done",
+          payload: {
+            ...makeDonePayload("director", finalText, true, "executive_workflow", "director", ["director", "claude"]),
+            thread_title: threadTitle,
+            director: {
+              session_id: capturedSessionId || null,
+              round_number: capturedRoundNumber || null,
+              critic: capturedCritic ?? null,
+              briefing: capturedBriefing ?? null,
+              round: capturedSummary ?? null,
+              gate: runResult.gate ?? null,
+            }
+          }
+        })
+        res.end?.(); return
+      }
     }
 
     // ── 첨부 파일 처리 (파일 있으면 REUSE 스킵) ──

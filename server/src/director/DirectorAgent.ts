@@ -9,8 +9,10 @@
  *  - CEO 브리핑 자동 생성 (all_done 후 generateCeoBriefing)
  */
 
-import { decomposeMission } from './TaskDecomposer.js';
-import type { DecomposedMission, DeptId } from './TaskDecomposer.js';
+import { decomposeMission, detectMissionDomain } from './TaskDecomposer.js';
+import type { DecomposedMission, DeptId, DeptTask } from './TaskDecomposer.js';
+import { runExecutiveGate } from './ExecutiveGate.js';
+import type { ExecutiveGateResult, GateDomain } from './ExecutiveGate.js';
 import {
   createSession,
   getSession,
@@ -34,6 +36,9 @@ import { awardXp } from '../departments/deptXp.js';
 
 // ─── WebSocket 이벤트 타입 ────────────────────────────────────────────────────
 export type WsEvent =
+  | { type: 'executive_gate_start'; directive: string; domain: GateDomain }
+  | { type: 'executive_gate_done'; action: ExecutiveGateResult['action']; complexity: ExecutiveGateResult['complexity']; departments: ExecutiveGateResult['departments']; reason: string }
+  | { type: 'executive_gate_redirect'; reason: string }
   | { type: 'mission_start'; missionId: string; topic: string; domain: string; deptCount: number }
   | { type: 'pmo_plan'; sessionId: string; roundNumber: number; plan: PmoPlan }
   | { type: 'dept_start'; deptId: DeptId; objective: string; model: string }
@@ -59,6 +64,17 @@ export interface DirectorOptions {
   projectName?: string;
   availableConnectors?: string[];
   onEvent?: (event: WsEvent) => void;
+  /** 상위 층에서 이미 ExecutiveGate 를 돌렸으면 결과를 주입해 게이트 중복 호출을 건너뛴다. */
+  preloadedGate?: ExecutiveGateResult;
+  /** ExecutiveGate 자체를 건너뛴다 (예: 테스트·레거시 경로). 기본 false. */
+  skipExecutiveGate?: boolean;
+}
+
+export interface DirectorRunResult {
+  sessionId: string;
+  roundNumber: number;
+  redirectedToSingleAgent?: boolean;
+  gate?: ExecutiveGateResult;
 }
 
 // ─── SQLite 저장 헬퍼 ─────────────────────────────────────────────────────────
@@ -91,7 +107,7 @@ async function persistSession(session: ProjectSession): Promise<void> {
 export async function runDirector(
   directive: string,
   options: DirectorOptions = {}
-): Promise<{ sessionId: string; roundNumber: number }> {
+): Promise<DirectorRunResult> {
   const { onEvent, availableConnectors = [] } = options;
   const connectorSet = new Set(availableConnectors);
   const send = (e: WsEvent) => { try { onEvent?.(e); } catch { /* ignore */ } };
@@ -109,13 +125,65 @@ export async function runDirector(
     );
   }
 
-  // ─ 미션 분해 ────────────────────────────────────────────────────────────────
+  // ─ 상무 게이트 ───────────────────────────────────────────────────────────────
+  let gate: ExecutiveGateResult | undefined = options.preloadedGate;
+  if (!gate && !options.skipExecutiveGate) {
+    const domain = detectMissionDomain(directive) as GateDomain;
+    send({ type: 'executive_gate_start', directive: directive.slice(0, 200), domain });
+    gate = await runExecutiveGate(directive, domain);
+    send({
+      type: 'executive_gate_done',
+      action: gate.action,
+      complexity: gate.complexity,
+      departments: gate.departments,
+      reason: gate.reason,
+    });
+  }
+
+  if (gate && gate.action === 'single_agent') {
+    send({
+      type: 'executive_gate_redirect',
+      reason: gate.reason || 'gate_chose_single_agent',
+    });
+    logger.info({ sessionId: session.sessionId, reason: gate.reason }, '[Director] gate → single_agent redirect');
+    // 상위 층이 단일 에이전트로 실제 응답을 생성하도록 즉시 반환.
+    return {
+      sessionId: session.sessionId,
+      roundNumber: session.currentRound,
+      redirectedToSingleAgent: true,
+      gate,
+    };
+  }
+
+  // ─ 미션 분해 (TaskDecomposer = gate 실패 시 fallback 경로) ───────────────────
   let mission: DecomposedMission;
   try {
     mission = await decomposeMission(directive, session.currentRound + 1);
   } catch (err) {
     send({ type: 'error', message: `미션 분해 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}` });
     throw err;
+  }
+
+  // ─ gate 결과가 있으면 tasks 를 gate 기준으로 재구성 ─────────────────────────
+  if (gate && gate.action === 'director' && gate.departments.length > 0) {
+    const ordered: DeptTask[] = [];
+    for (const gd of gate.departments) {
+      const existing = mission.tasks.find((t) => t.deptId === gd.id);
+      if (existing) {
+        ordered.push({ ...existing, instruction: gd.instruction });
+      } else {
+        ordered.push({
+          deptId: gd.id,
+          priority: 'high',
+          objective: gd.instruction,
+          context: `ExecutiveGate 추가 지정 부서 — domain: ${detectMissionDomain(directive)}`,
+          deliverable: '핵심 분석 결과',
+          estimatedMinutes: 8,
+          instruction: gd.instruction,
+        });
+      }
+    }
+    mission = { ...mission, tasks: ordered };
   }
 
   // ─ 라운드 시작 ──────────────────────────────────────────────────────────────
@@ -360,14 +428,14 @@ export async function runDirector(
     '[Director] 전체 완료'
   );
 
-  return { sessionId: session.sessionId, roundNumber: round.roundNumber };
+  return { sessionId: session.sessionId, roundNumber: round.roundNumber, gate };
 }
 
 // ─── HTTP 응답용 래퍼 (SSE 없이 전체 결과 반환) ──────────────────────────────
 export async function runDirectorSync(
   directive: string,
   options: DirectorOptions
-): Promise<{ sessionId: string; roundNumber: number; round: object; briefing?: CeoBriefingResult; critic?: CriticReviewResult }> {
+): Promise<{ sessionId: string; roundNumber: number; round: object | null; briefing?: CeoBriefingResult; critic?: CriticReviewResult; redirectedToSingleAgent?: boolean; gate?: ExecutiveGateResult }> {
   let capturedBriefing: CeoBriefingResult | undefined;
   let capturedCritic: CriticReviewResult | undefined;
   const originalOnEvent = options.onEvent;
@@ -381,6 +449,19 @@ export async function runDirectorSync(
     },
   });
 
+  // 상무 게이트가 single_agent 로 보냈으면 round 가 없음 → null 반환.
+  if (result.redirectedToSingleAgent) {
+    return {
+      sessionId: result.sessionId,
+      roundNumber: result.roundNumber,
+      round: null,
+      briefing: capturedBriefing,
+      critic: capturedCritic,
+      redirectedToSingleAgent: true,
+      gate: result.gate,
+    };
+  }
+
   const session = getSession(result.sessionId)!;
   const round = session.rounds[result.roundNumber - 1];
   return {
@@ -389,5 +470,6 @@ export async function runDirectorSync(
     round: serializeRound(round),
     briefing: capturedBriefing,
     critic: capturedCritic,
+    gate: result.gate,
   };
 }

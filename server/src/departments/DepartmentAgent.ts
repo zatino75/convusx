@@ -443,9 +443,15 @@ export async function runDepartmentAgent(
 
 // ─── 사용자 프롬프트 빌더 ─────────────────────────────────────────────────────
 function buildUserPrompt(task: DeptTask, preResearchData: string): string {
+  // ExecutiveGate 가 부서별 맞춤 지시를 생성했으면 우선 사용.
+  // 원문 directive 를 그대로 받지 않고 부서 관점으로 재가공된 instruction 이 더 정확함.
+  const primaryInstruction = (task.instruction && task.instruction.trim())
+    ? task.instruction.trim()
+    : task.objective;
+
   return `
 ## 부서 임무
-**목표**: ${task.objective}
+**지시**: ${primaryInstruction}
 **배경**: ${task.context}
 **기대 산출물**: ${task.deliverable}
 **우선순위**: ${task.priority}

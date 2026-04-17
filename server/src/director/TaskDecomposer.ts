@@ -169,7 +169,11 @@ export interface DeptTask {
   context: string;         // 배경 컨텍스트
   deliverable: string;     // 기대 산출물
   estimatedMinutes: number;
+  /** ExecutiveGate 가 부서별로 재가공한 맞춤 지시. 없으면 objective 를 사용. */
+  instruction?: string;
 }
+
+export { detectDomain as detectMissionDomain };
 
 export interface DecomposedMission {
   missionId: string;
