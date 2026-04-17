@@ -15,16 +15,16 @@
     --sidebar:#E8E6E0;
     --chat:#F0EEE8;
     --panel:#E8E6E0;
-    --input:#F5F4EF;
-    --surface:#FFFFFF;
+    --input:#FAFAF8;
+    --surface:#FAFAF8;
     --surface-hi:#F5F4EF;
     --border:#B8B4A8;
-    --border-soft:rgba(140,130,115,0.22);
+    --border-soft:rgba(140,130,115,0.25);
     --text:#1A1915;
     --text-soft:#6B6560;
     --text-dim:#9A938A;
     --accent:#C96442;
-    --accent-hover:#B55737;
+    --accent-hover:#A8533A;
     --accent-alt:#8b5cf6;
     --gold:#c08835;
     --magenta:#c44a8b;
@@ -86,8 +86,8 @@
   .thread-item .t-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .thread-item .t-meta{font-size:12px;color:var(--text-dim)}
   .thread-item .pin{color:var(--gold);font-size:12px}
-  .thread-item:hover{background:rgba(0,0,0,.05);color:var(--text)}
-  .thread-item.active{background:rgba(201,100,66,.12);color:var(--accent)}
+  .thread-item:hover{background:#D8D6D0;color:var(--text)}
+  .thread-item.active{background:rgba(201,100,66,.1);color:var(--accent)}
   .thread-item .row-menu{opacity:.35;padding:2px 6px;font-size:16px;color:var(--text-dim);cursor:pointer;border-radius:4px;line-height:1;border:none;background:transparent;flex-shrink:0}
   .thread-item:hover .row-menu,.thread-item .row-menu.is-open{opacity:1}
   .thread-item .row-menu:hover{background:rgba(0,0,0,.08);color:var(--text)}
@@ -95,8 +95,8 @@
   .thread-rename-input{background:var(--input);border:1px solid var(--accent);border-radius:4px;color:var(--text);font-size:14px;padding:2px 6px;outline:none;width:100%}
 
   .project-row{display:flex;align-items:center;gap:6px;padding:6px 14px;cursor:pointer;font-size:14px;color:var(--text);user-select:none;transition:background .12s}
-  .project-row:hover{background:rgba(0,0,0,.05)}
-  .project-row.active{background:rgba(201,100,66,.08)}
+  .project-row:hover{background:#D8D6D0}
+  .project-row.active{background:rgba(201,100,66,.1);color:var(--accent)}
   .project-row .caret{font-size:9px;transition:transform .15s;width:10px;display:inline-block;text-align:center}
   .project-row.collapsed .caret{transform:rotate(-90deg)}
   .project-row .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
@@ -141,17 +141,22 @@
   .chat-empty h3{margin:0 0 6px;font-size:18px;color:var(--text-soft);font-weight:600}
 
   /* Project Home (activeThreadId === null && activeProjectId !== __general__) */
-  .project-home{max-width:720px;margin:0 auto;padding:40px 24px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px}
+  .project-home{max-width:720px;margin:0 auto;padding:40px 24px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px;background:var(--chat)}
   .project-home__icon{font-size:48px;line-height:1;margin-bottom:2px}
-  .project-home__title{font-size:20px;font-weight:700;color:#1A1915;word-break:break-word}
-  .project-home__desc{font-size:14px;color:#6B6560;line-height:1.6}
-  .project-home__btn{background:#c96442;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;transition:filter .15s}
-  .project-home__btn:hover{filter:brightness(1.08)}
+  .project-home__title{font-size:20px;font-weight:700;color:var(--text);word-break:break-word}
+  .project-home__desc{font-size:14px;color:var(--text-soft);line-height:1.6}
+  .project-home__btn{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s}
+  .project-home__btn:hover{background:var(--accent-hover)}
   .project-home__threads{width:100%;margin-top:18px;display:flex;flex-direction:column;gap:8px}
-  .project-home__thread{background:#fff;border:1px solid #B8B4A8;border-radius:8px;padding:12px 14px;cursor:pointer;text-align:left;transition:background .12s,border-color .12s}
-  .project-home__thread:hover{background:#F5F4EF;border-color:#9a9486}
-  .project-home__thread-title{font-size:14.5px;font-weight:600;color:#1A1915;margin-bottom:2px}
-  .project-home__thread-meta{font-size:12px;color:#6B6560}
+  .project-thread-card{position:relative;display:flex;align-items:flex-start;gap:10px;background:var(--surface);border:1px solid var(--border-soft);border-radius:8px;padding:12px 14px;cursor:pointer;text-align:left;transition:background .12s,border-color .12s}
+  .project-thread-card:hover{background:#E8E6E0;border-color:rgba(140,130,115,0.4)}
+  .project-thread-card__info{flex:1;min-width:0}
+  .project-thread-card__title{font-size:14.5px;font-weight:600;color:var(--text);margin-bottom:2px;word-break:break-word}
+  .project-thread-card__meta{font-size:12px;color:var(--text-soft)}
+  .project-thread-card__menu{flex-shrink:0;opacity:0;transition:opacity .12s}
+  .project-thread-card:hover .project-thread-card__menu{opacity:1}
+  .project-thread-card__menu-btn{width:28px;height:28px;border:none;border-radius:6px;background:transparent;color:var(--text-soft);cursor:pointer;font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center;transition:background .12s,color .12s}
+  .project-thread-card__menu-btn:hover{background:rgba(140,130,115,0.18);color:var(--text)}
 
   .msg{display:flex;flex-direction:column;gap:3px;animation:msg-in .2s ease-out;max-width:100%;position:relative}
   @keyframes msg-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
@@ -255,9 +260,9 @@
   .panel-resize:hover{background:rgba(201,100,66,.25)}
   .panel-inner{width:100%;display:flex;flex-direction:column;min-width:0;height:100%}
   .panel-tabs{display:flex;border-bottom:1px solid var(--border-soft);flex-shrink:0}
-  .tab-btn{flex:1;padding:12px 8px;background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:13.5px;font-weight:500;transition:color .12s,background .12s;position:relative}
-  .tab-btn:hover{color:var(--text-soft);background:rgba(255,255,255,.02)}
-  .tab-btn.active{color:var(--text)}
+  .tab-btn{flex:1;padding:12px 8px;background:none;border:none;color:var(--text-soft);cursor:pointer;font-size:13.5px;font-weight:500;transition:color .12s,background .12s;position:relative}
+  .tab-btn:hover{color:var(--text);background:rgba(0,0,0,.04)}
+  .tab-btn.active{color:var(--accent)}
   .tab-btn.active::after{content:'';position:absolute;bottom:0;left:12px;right:12px;height:2px;background:var(--accent);border-radius:2px}
   .panel-body{flex:1;overflow-y:auto;padding:14px 16px}
   .panel-body::-webkit-scrollbar{width:5px}
@@ -1402,33 +1407,65 @@
       dom.chatTitle.textContent = '신규 대화';
     }
   }
+  function projectDisplayName(p){
+    const raw = String(p?.title ?? '').trim();
+    // 제목이 비었거나 숫자만 있으면 "새 프로젝트" 로 fallback
+    if (!raw || /^\d+$/.test(raw)) return '새 프로젝트';
+    return raw;
+  }
   function renderProjectHome(projectId){
     const p = (state.projects || []).find(x => x && x.id === projectId);
     if (!p) { renderSidebar(); return; }
-    dom.chatTitle.textContent = p.title;
+    const displayName = projectDisplayName(p);
+    dom.chatTitle.textContent = displayName;
     const threads = projectThreads(projectId).slice().sort(compareThreads);
     const cardsHtml = threads.map(t => {
       const when = new Date(t.updatedAt || Date.now()).toLocaleString('ko-KR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
-      return `<div class="project-home__thread" data-tid="${escapeAttr(t.id)}">
-        <div class="project-home__thread-title">${escapeHtml(t.title || '신규 대화')}</div>
-        <div class="project-home__thread-meta">${escapeHtml(when)} · 메시지 ${Array.isArray(t.messages) ? t.messages.length : 0}개</div>
+      return `<div class="project-thread-card" data-tid="${escapeAttr(t.id)}">
+        <div class="project-thread-card__info">
+          <div class="project-thread-card__title">${escapeHtml(t.title || '신규 대화')}</div>
+          <div class="project-thread-card__meta">${escapeHtml(when)} · 메시지 ${Array.isArray(t.messages) ? t.messages.length : 0}개</div>
+        </div>
+        <div class="project-thread-card__menu">
+          <button type="button" class="project-thread-card__menu-btn" data-menu-trigger aria-label="더보기">⋯</button>
+        </div>
       </div>`;
     }).join('');
     dom.chatLog.innerHTML = `
       <div class="project-home">
         <div class="project-home__icon">📁</div>
-        <div class="project-home__title">${escapeHtml(p.title)}</div>
+        <div class="project-home__title">${escapeHtml(displayName)}</div>
         <div class="project-home__desc">${threads.length ? '이 프로젝트의 대화를 이어가거나 새 스레드를 시작하세요.' : '이 프로젝트에 대화가 없습니다.<br>새 스레드를 시작하세요.'}</div>
         <button class="project-home__btn" type="button" data-act="new-thread">+ 새 스레드 시작하기</button>
         ${threads.length ? `<div class="project-home__threads">${cardsHtml}</div>` : ''}
       </div>`;
     const btn = dom.chatLog.querySelector('[data-act="new-thread"]');
     if (btn) btn.addEventListener('click', () => createThreadInProject(projectId));
-    dom.chatLog.querySelectorAll('.project-home__thread').forEach(el => {
-      el.addEventListener('click', () => selectThread(el.dataset.tid));
+    dom.chatLog.querySelectorAll('.project-thread-card').forEach(el => {
+      const tid = el.dataset.tid;
+      const t = threads.find(x => x.id === tid);
+      el.addEventListener('click', (e) => {
+        // ⋯ 버튼 클릭 시 카드 이동 방지
+        if (e.target && (e.target.closest('[data-menu-trigger]') || e.target.closest('.project-thread-card__menu'))) return;
+        selectThread(tid);
+      });
+      const trigger = el.querySelector('[data-menu-trigger]');
+      if (trigger && t) {
+        trigger.addEventListener('click', (e) => {
+          e.stopPropagation();
+          // 기존 사이드바 버블 메뉴와 동일 — 프로젝트 소속 스레드
+          openThreadMenu(trigger, t, true);
+        });
+      }
     });
   }
   function escapeAttr(s){ return String(s ?? '').replace(/["&<>]/g, ch => ({'"':'&quot;','&':'&amp;','<':'&lt;','>':'&gt;'}[ch])); }
+
+  function refreshHomeIfShown(){
+    if (state.activeProjectId && state.activeProjectId !== GENERAL && !state.activeThreadId) {
+      renderProjectHome(state.activeProjectId);
+    }
+  }
 
   // ─── SSE 텍스트 추출 (AI 응답 [object Object] 방지) ─────────────
   function extractText(data){
@@ -1469,7 +1506,7 @@
       const isCollapsed = state.collapsedProjects.has(p.id);
       row.className = 'project-row' + (isCollapsed ? ' collapsed' : '') + (state.activeProjectId === p.id ? ' active' : '');
       row.innerHTML = `<span class="caret">▼</span><span class="name"></span><span class="count">${ts.length}</span><button class="row-menu" type="button">⋯</button>`;
-      row.querySelector('.name').textContent = p.title;
+      row.querySelector('.name').textContent = projectDisplayName(p);
       // 이름/카렛 클릭: selectProject(p.id) — 스레드 자동 생성 없이 홈 화면 진입
       row.addEventListener('click', (e) => {
         if (e.target && e.target.classList.contains('row-menu')) return;
@@ -1562,11 +1599,11 @@
     const items = [];
     items.push({ label:'이름 바꾸기', onClick:() => renameThread(t.id) });
     if (!inProject) {
-      const projList = state.projects.map(p => ({ label:p.title, onClick:() => moveThread(t.id, p.id) }));
+      const projList = state.projects.filter(p => p.id !== GENERAL).map(p => ({ label:projectDisplayName(p), onClick:() => moveThread(t.id, p.id) }));
       items.push({ label:'프로젝트로 이동', submenu:projList.length ? projList : [{ label:'(프로젝트 없음)', onClick:() => {} }] });
     } else {
       items.push({ label:'프로젝트에서 제거', onClick:() => moveThread(t.id, GENERAL) });
-      const others = state.projects.filter(p => p.id !== t.projectId).map(p => ({ label:p.title, onClick:() => moveThread(t.id, p.id) }));
+      const others = state.projects.filter(p => p.id !== t.projectId && p.id !== GENERAL).map(p => ({ label:projectDisplayName(p), onClick:() => moveThread(t.id, p.id) }));
       if (others.length) items.push({ label:'다른 프로젝트로 이동', submenu:others });
     }
     items.push({ label:t.meta?.pinned ? '고정 해제' : '고정', onClick:() => togglePin(t.id) });
@@ -1585,7 +1622,7 @@
     const t = allThreads().find(x => x.id === id); if (!t) return;
     const v = prompt('스레드 이름', t.title || '신규 대화'); if (v === null) return;
     t.title = v.trim() || t.title; t.updatedAt = Date.now();
-    saveThreads(); renderSidebar(); apiSaveThread(t).catch(() => {});
+    saveThreads(); renderSidebar(); refreshHomeIfShown(); apiSaveThread(t).catch(() => {});
     if (id === state.activeThreadId) dom.chatTitle.textContent = t.title;
   }
   function moveThread(id, targetPid){
@@ -1598,13 +1635,13 @@
     state.threads[fromPid] = state.threads[fromPid].filter(x => x.id !== id);
     t.projectId = targetPid; t.updatedAt = Date.now();
     projectThreads(targetPid).unshift(t);
-    saveThreads(); renderSidebar(); apiSaveThread(t).catch(() => {});
+    saveThreads(); renderSidebar(); refreshHomeIfShown(); apiSaveThread(t).catch(() => {});
     toast(targetPid === GENERAL ? '일반 채팅으로 이동' : '프로젝트로 이동');
   }
   function togglePin(id){
     const t = allThreads().find(x => x.id === id); if (!t) return;
     t.meta = t.meta || {}; t.meta.pinned = !t.meta.pinned;
-    saveThreads(); renderSidebar(); apiSaveThread(t).catch(() => {});
+    saveThreads(); renderSidebar(); refreshHomeIfShown(); apiSaveThread(t).catch(() => {});
     toast(t.meta.pinned ? '📌 고정' : '고정 해제');
   }
   function deleteThread(id){
@@ -1615,15 +1652,17 @@
       state.activeThreadId = null; localStorage.removeItem(LS.ACTIVE_THREAD);
       // 활성 스레드가 프로젝트 소속이었다면 프로젝트 홈으로, 아니면 GENERAL 빈 채팅으로
       renderMainArea();
+    } else {
+      refreshHomeIfShown();
     }
     renderSidebar();
     toast('삭제됨');
   }
   function renameProject(id){
     const p = state.projects.find(x => x.id === id); if (!p) return;
-    const v = prompt('프로젝트 이름', p.title); if (v === null) return;
+    const v = prompt('프로젝트 이름', projectDisplayName(p)); if (v === null) return;
     p.title = v.trim() || p.title; p.updatedAt = Date.now();
-    saveProjects(); renderSidebar(); apiSaveProject(p).catch(() => {});
+    saveProjects(); renderSidebar(); refreshHomeIfShown(); apiSaveProject(p).catch(() => {});
   }
   function deleteProject(id){
     const p = state.projects.find(x => x.id === id); if (!p) return;
