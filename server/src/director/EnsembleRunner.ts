@@ -31,50 +31,34 @@ export interface EnsembleResult {
   summary: string;
 }
 
-/** 고가치 부서 식별 — 기본 활성 목록 */
+/** 고가치 부서 식별 — 2026-04-17: 앙상블 대상을 legal/finance 2개로 축소.
+ *  사유: 3-AI 병렬 호출 비용/지연 최소화. 타 부서는 단독 모델 + 상무 검토로 충분. */
 export const HIGH_VALUE_DEPTS: ReadonlySet<DeptId> = new Set<DeptId>([
-  "marketing",
-  "finance",
   "legal",
-  "rnd",
+  "finance",
 ] as DeptId[]);
 
-/** 키워드 기반 고가치 task 추가 감지 */
-export function detectHighValue(directive: string, deptId: DeptId): boolean {
-  if (HIGH_VALUE_DEPTS.has(deptId)) return true;
-  const d = directive.toLowerCase();
-  return /전략|사업계획|답변서|계약|리스크|상품 ?개발|규제|법규|launch|strategy|risk|contract|legal|product/.test(d);
+/** 고가치 task 감지 — 2026-04-17: HIGH_VALUE_DEPTS 에 속한 부서만 앙상블 발동. */
+export function detectHighValue(_directive: string, deptId: DeptId): boolean {
+  return HIGH_VALUE_DEPTS.has(deptId);
 }
 
-const ENSEMBLE_SYNTH_PROMPT = `당신은 CORVUS X 통합 디렉터입니다. 3개 AI(Claude / GPT / Gemini)가 같은 task를 독립 분석한 결과를 받았습니다.
+// Ensemble Synth(3-AI 통합 합성) 는 2026-04-17 구조에서 제거되었다.
+// 3개 모델의 원본 draft 를 상무(CriticReview) / CEO(CeoBriefing) 가 직접 판단한다.
 
-역할:
-- 공통 합의(consensus) 사항 추출
-- 상충하는 주장(contradictions) 표시
-- 각 모델만의 고유 통찰(unique insights) 보존
-- 최종 통합 권고(recommendation) 생성
-
-반드시 JSON만 출력:
-{
-  "verdict": "consensus" | "split" | "low_confidence",
-  "summary": "통합 결론 한 문장",
-  "consensus": ["합의 사항"],
-  "contradictions": ["상충 신호"],
-  "uniqueInsights": [{"model":"claude|gpt|gemini","insight":"고유 통찰"}],
-  "recommendation": "최종 권고"
-}`;
-
-function tryParseJson(text: string): Record<string, unknown> | null {
-  const codeBlock = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const raw = codeBlock?.[1] ?? text.match(/(\{[\s\S]*\})/)?.[1] ?? "";
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
+// Promise timeout helper (외부 AbortController 와 무관하게 강제 종료)
+function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label}_timeout_${ms}ms`)), ms);
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
 }
+
+const PER_MODEL_TIMEOUT_MS = 60000;
+const ENSEMBLE_TOTAL_TIMEOUT_MS = 90000;
 
 async function callOne(
   model: "claude" | "gpt" | "gemini",
@@ -84,10 +68,12 @@ async function callOne(
   const start = Date.now();
   try {
     const wrappers = await import("../adapters/wrappers.js");
-    let text = "";
-    if (model === "claude") text = await wrappers.callClaude(systemPrompt, userPrompt, 3000);
-    else if (model === "gpt") text = await wrappers.callOpenAI(systemPrompt, userPrompt, 3000);
-    else text = await wrappers.callGemini(systemPrompt, userPrompt, 3000);
+    const task = (async () => {
+      if (model === "claude") return wrappers.callClaude(systemPrompt, userPrompt, 3000);
+      if (model === "gpt")    return wrappers.callOpenAI(systemPrompt, userPrompt, 3000);
+      return wrappers.callGemini(systemPrompt, userPrompt, 3000);
+    })();
+    const text = await withDeadline(task, PER_MODEL_TIMEOUT_MS, `ensemble_${model}`);
     return { text, durationMs: Date.now() - start };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -125,8 +111,8 @@ export async function runEnsemble(opts: {
     reason: reason ?? `${deptId} — 고가치 3-AI 앙상블 (${objective.slice(0, 40)})`,
   });
 
-  // 3개 모델을 진짜 병렬로 호출
-  const [claudeRes, gptRes, geminiRes] = await Promise.all([
+  // 3개 모델을 진짜 병렬로 호출 — 전체 90s 상한
+  const all = Promise.all([
     callOne("claude", systemPrompt, userPrompt).then((r) => {
       send({
         type: "ensemble_voice",
@@ -162,21 +148,39 @@ export async function runEnsemble(opts: {
     }),
   ]);
 
+  let claudeRes: { text: string; durationMs: number; error?: string };
+  let gptRes: { text: string; durationMs: number; error?: string };
+  let geminiRes: { text: string; durationMs: number; error?: string };
+  try {
+    [claudeRes, gptRes, geminiRes] = await withDeadline(all, ENSEMBLE_TOTAL_TIMEOUT_MS, "ensemble_total");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn({ err: msg, deptId }, "[Ensemble] 전체 타임아웃 — low_confidence");
+    send({ type: "ensemble_done", deptId, verdict: "low_confidence", summary: `3-AI 앙상블 타임아웃 (${msg})` });
+    return {
+      drafts: [
+        { model: MODEL_LABEL.claude, text: "", durationMs: ENSEMBLE_TOTAL_TIMEOUT_MS, error: "total_timeout" },
+        { model: MODEL_LABEL.gpt,    text: "", durationMs: ENSEMBLE_TOTAL_TIMEOUT_MS, error: "total_timeout" },
+        { model: MODEL_LABEL.gemini, text: "", durationMs: ENSEMBLE_TOTAL_TIMEOUT_MS, error: "total_timeout" },
+      ],
+      synthesis: "",
+      verdict: "low_confidence",
+      summary: "3-AI 앙상블 전체 타임아웃",
+    };
+  }
+
   const drafts = [
     { model: MODEL_LABEL.claude, ...claudeRes },
     { model: MODEL_LABEL.gpt, ...gptRes },
     { model: MODEL_LABEL.gemini, ...geminiRes },
   ];
 
-  // 통합 (Claude로 합성)
-  let synthesis = "";
-  let verdict = "consensus";
-  let summary = `${deptId} 부서 3-AI 병렬 분석 완료`;
-
   const validDrafts = drafts.filter((d) => !d.error && d.text.trim().length > 0);
+  let verdict = "consensus";
+  let summary = `${deptId} 부서 3-AI 병렬 분석 완료 (${validDrafts.length}/3)`;
+  let synthesis = "";
+
   if (validDrafts.length === 0) {
-    // Phase 6 — 무음 fallback 방지. 3-AI 모두 실패 시 warn 레벨로 가시화.
-    // 모델별 실패 원인을 정리해서 로그에 남겨 다음 incident 때 추적 가능하게 함.
     const failureSummary = drafts.map((d) => ({
       model: d.model,
       durationMs: d.durationMs,
@@ -193,50 +197,22 @@ export async function runEnsemble(opts: {
     return { drafts, synthesis, verdict, summary };
   }
 
-  // 부분 실패(1-2개만 성공)도 상위에서 판단할 수 있도록 warn 로 기록. 흐름은 계속.
   if (validDrafts.length < drafts.length) {
     const partialFailures = drafts
       .filter((d) => d.error || d.text.trim().length === 0)
       .map((d) => ({ model: d.model, reason: d.error ?? "empty_response" }));
     logger.warn(
       { deptId, validCount: validDrafts.length, totalCount: drafts.length, partialFailures },
-      "[Ensemble] 일부 모델 draft 실패 — 나머지 모델로 통합 진행"
+      "[Ensemble] 일부 모델 draft 실패 — 나머지 모델로 그대로 전달"
     );
+    verdict = "split";
   }
 
-  try {
-    const synthPrompt = [
-      `Task 목표: ${objective}`,
-      "",
-      "─── Claude Opus 4.6 ───",
-      claudeRes.text.slice(0, 2000) || "(응답 없음)",
-      "",
-      "─── GPT-5.4-pro ───",
-      gptRes.text.slice(0, 2000) || "(응답 없음)",
-      "",
-      "─── Gemini 3.1 Pro Ultra ───",
-      geminiRes.text.slice(0, 2000) || "(응답 없음)",
-      "",
-      "위 3개 분석을 통합하세요.",
-    ].join("\n");
-
-    const wrappers = await import("../adapters/wrappers.js");
-    const synthText = await wrappers.callClaude(ENSEMBLE_SYNTH_PROMPT, synthPrompt, 2000);
-    const parsed = tryParseJson(synthText);
-
-    if (parsed) {
-      verdict = typeof parsed.verdict === "string" ? parsed.verdict : "consensus";
-      summary = typeof parsed.summary === "string" ? parsed.summary : summary;
-      synthesis = synthText;
-    } else {
-      synthesis = synthText || validDrafts.map((d) => d.text).join("\n\n");
-    }
-  } catch (err) {
-    logger.warn({ err, deptId }, "[Ensemble] 통합 실패 — 첫 draft fallback");
-    synthesis = validDrafts[0].text;
-    verdict = "consensus";
-    summary = `${deptId} 통합 — 통합 모델 호출 실패, ${validDrafts[0].model} draft 채택`;
-  }
+  // Ensemble Synth 제거 (2026-04-17) — 3-AI 결과를 그대로 합쳐 반환.
+  // 각 모델의 원본 draft 를 상무/CEO 층이 직접 판단하도록 한다.
+  synthesis = validDrafts
+    .map((d) => `─── ${d.model} ───\n${d.text}`)
+    .join("\n\n");
 
   send({ type: "ensemble_done", deptId, verdict, summary });
   return { drafts, synthesis, verdict, summary };

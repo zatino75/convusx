@@ -1,7 +1,10 @@
 /**
  * DepartmentRegistry.ts — CORVUS X 9개 부서 설정 레지스트리
  *
- * 각 부서의 전담 AI 모델, 시스템 프롬프트, 커넥터 우선순위를 중앙 관리
+ * 2026-04-17 최종 구성:
+ *   - primary/fallback 이 cross-provider 로 분산 (Anthropic 전면 장애 대응)
+ *   - connectors 리스트는 부서별 사전 조사에 실제로 쓰이는 순서
+ *   - max_tokens 전 부서 3000 고정 (상무/CEO 층이 요약하므로 부서는 간결하게)
  */
 
 import { GEMINI_MODEL_ID } from '../adapters/gemini.js';
@@ -25,15 +28,17 @@ export interface DeptConfig {
   analysisFramework: string;
 }
 
+const DEPT_MAX_TOKENS = 3000;
+
 const DEPT_REGISTRY: Record<string, DeptConfig> = {
 
   market: {
     id: 'market',
     nameKo: '시장조사팀',
     nameEn: 'MARKET RESEARCH',
-    primaryModel: GEMINI_MODEL_ID,
-    fallbackModel: 'claude-sonnet-4-6',
-    maxTokens: 8000,
+    primaryModel: 'claude-sonnet-4-6',
+    fallbackModel: GEMINI_MODEL_ID,
+    maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 시장조사팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 심층 시장 분석을 제공합니다.
 전문 역량:
@@ -43,7 +48,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 - 국내외 트렌드 및 성장 동인 분석
 도메인 특화: 식품, 액상전자담배, 화장품 산업 전문 지식 보유
 출력 형식: 수치 기반 구체적 분석, 시장 규모(금액), 성장률(%), 핵심 트렌드 포함`,
-    connectorPriority: ['tavily', 'perplexity'],
+    connectorPriority: ['serper', 'perplexity'],
     analysisFramework: 'TAM/SAM/SOM + Porter 5 Forces',
   },
 
@@ -52,8 +57,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: '경쟁분석팀',
     nameEn: 'COMPETITIVE INTEL',
     primaryModel: 'gpt-5.4-pro',
-    fallbackModel: GEMINI_MODEL_ID,
-    maxTokens: 8000,
+    fallbackModel: 'claude-sonnet-4-6',
+    maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 경쟁분석팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 경쟁 정보 수집 및 전략적 포지셔닝 분석을 수행합니다.
 전문 역량:
@@ -63,7 +68,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 - 진입 장벽 및 경쟁 우위 요소 파악
 - 블루오션 기회 발굴
 출력 형식: 경쟁사별 비교표, 시장점유율 순위, 포지셔닝 갭 분석 포함`,
-    connectorPriority: ['tavily', 'perplexity'],
+    connectorPriority: ['serper', 'perplexity'],
     analysisFramework: 'Porter 5 Forces + Competitive Benchmarking',
   },
 
@@ -71,11 +76,9 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     id: 'legal',
     nameKo: '법무컴플라이언스팀',
     nameEn: 'LEGAL & COMPLIANCE',
-    primaryModel: 'claude-sonnet-4-6',
-    // 2026-04-17: claude→claude 는 Anthropic 전체 장애 시 부서 실패.
-    // gemini 로 교체해 크로스 제공사 fallback 보장.
-    fallbackModel: GEMINI_MODEL_ID,
-    maxTokens: 8000,
+    primaryModel: 'claude-opus-4-6',
+    fallbackModel: 'gpt-5.4-pro',
+    maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 법무컴플라이언스팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 법적 리스크 검토, 인허가 요건 분석, 규제 컴플라이언스를 수행합니다.
 전문 역량:
@@ -88,7 +91,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 - 식품: 식품위생법, 식약처 고시, HACCP, 수입식품법
 - 화장품: 화장품법, 안전기준, 성분 사전
 출력 형식: 관련 법령 조항 명시, 리스크 등급(고/중/저), 즉시 조치 사항 포함`,
-    connectorPriority: ['perplexity', 'tavily'],
+    connectorPriority: ['perplexity', 'serper'],
     analysisFramework: 'Legal Risk Matrix + Regulatory Compliance',
   },
 
@@ -97,8 +100,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: '재무전략팀',
     nameEn: 'FINANCE STRATEGY',
     primaryModel: 'gpt-5.4-pro',
-    fallbackModel: GEMINI_MODEL_ID,
-    maxTokens: 8000,
+    fallbackModel: 'claude-sonnet-4-6',
+    maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 재무전략팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 재무 모델링, 투자 분석, 수익성 전망을 제공합니다.
 전문 역량:
@@ -108,7 +111,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 - 초기 투자 구조 및 자금 조달 방안 검토
 - 원가 구조 분석 및 마진 최적화
 출력 형식: 재무 요약표, 시나리오별 비교, 핵심 재무 KPI(억원 단위) 포함`,
-    connectorPriority: ['supabase', 'perplexity'],
+    connectorPriority: ['supabase', 'serper'],
     analysisFramework: '3-Scenario P&L + ROI/BEP Analysis',
   },
 
@@ -118,7 +121,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameEn: 'MARKETING & BRAND',
     primaryModel: 'claude-sonnet-4-6',
     fallbackModel: GEMINI_MODEL_ID,
-    maxTokens: 8000,
+    maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 마케팅전략팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 브랜드 전략, 마케팅 캠페인, 채널 전략을 수립합니다.
 전문 역량:
@@ -127,7 +130,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 - 통합 마케팅 캠페인(IMC) 기획
 - 디지털/오프라인 채널 믹스 최적화
 출력 형식: 브랜드 USP 명세, 90일 캠페인 로드맵, KPI 목표치 포함`,
-    connectorPriority: ['canva', 'figma', 'slack'],
+    connectorPriority: ['nano_banana', 'canva', 'figma', 'slack'],
     analysisFramework: 'IMC + Brand Positioning + Campaign Roadmap',
   },
 
@@ -136,8 +139,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: 'R&D제품개발팀',
     nameEn: 'R&D PRODUCT DEV',
     primaryModel: 'claude-sonnet-4-6',
-    fallbackModel: GEMINI_MODEL_ID,
-    maxTokens: 8000,
+    fallbackModel: 'gpt-5.4-pro',
+    maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X R&D제품개발팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 제품 컨셉 개발, 기술 분석, R&D 로드맵을 수립합니다.
 전문 역량:
@@ -151,7 +154,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 - 액상전자담배: 배합 설계, 기기 스펙
 - 화장품: 처방 설계, 원료 데이터베이스
 출력 형식: 제품 컨셉 요약, 개발 로드맵(월 단위), 핵심 기술 요건 포함`,
-    connectorPriority: ['pubmed', 'perplexity', 'tavily'],
+    connectorPriority: ['pubmed', 'serper', 'perplexity'],
     analysisFramework: 'Product Concept + R&D Roadmap + IP Analysis',
   },
 
@@ -159,9 +162,9 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     id: 'data',
     nameKo: '데이터인텔리전스팀',
     nameEn: 'DATA INTELLIGENCE',
-    primaryModel: 'gpt-5.4-pro',
-    fallbackModel: GEMINI_MODEL_ID,
-    maxTokens: 8000,
+    primaryModel: GEMINI_MODEL_ID,
+    fallbackModel: 'gpt-5.4-pro',
+    maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 데이터인텔리전스팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 소비자 데이터 분석, 검색 트렌드, 감성 분석을 수행합니다.
 전문 역량:
@@ -170,7 +173,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 - 구매 패턴 및 전환율 분석
 - 코호트 분석 및 LTV 예측
 출력 형식: 핵심 지표 요약, 트렌드 분석, 데이터 기반 권고사항 포함`,
-    connectorPriority: ['posthog', 'supabase', 'tavily'],
+    connectorPriority: ['posthog', 'supabase', 'serper'],
     analysisFramework: 'Consumer Behavior + Trend Analysis + Sentiment Mining',
   },
 
@@ -179,10 +182,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: '콘텐츠크리에이티브팀',
     nameEn: 'CONTENT & CREATIVE',
     primaryModel: 'claude-sonnet-4-6',
-    // 2026-04-17: Anthropic 전체 장애 시 콘텐츠팀이 통째로 request_failed 나는
-    // 이슈 확인됨 (logs 14:47:36). gemini 로 교체.
     fallbackModel: GEMINI_MODEL_ID,
-    maxTokens: 8000,
+    maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 콘텐츠크리에이티브팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 브랜드 콘텐츠 전략, 크리에이티브 방향성, 콘텐츠 캘린더를 수립합니다.
 전문 역량:
@@ -191,7 +192,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 - 90일 콘텐츠 캘린더 기획
 - SEO/SEM 콘텐츠 최적화
 출력 형식: 브랜드 톤 정의, 콘텐츠 캘린더, 크리에이티브 방향성 포함`,
-    connectorPriority: ['canva', 'cloudinary', 'gamma'],
+    connectorPriority: ['canva', 'nano_banana', 'cloudinary', 'gamma'],
     analysisFramework: 'Content Pillar + Editorial Calendar + Brand Voice',
   },
 
@@ -200,10 +201,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: 'SNS소셜미디어팀',
     nameEn: 'SOCIAL MEDIA',
     primaryModel: 'claude-sonnet-4-6',
-    // 2026-04-17: Anthropic 전체 장애 시 SNS팀이 통째로 request_failed 나는
-    // 이슈 확인됨 (logs 14:47:36). gemini 로 교체.
     fallbackModel: GEMINI_MODEL_ID,
-    maxTokens: 8000,
+    maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X SNS소셜미디어팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 소셜미디어 전략, 채널별 운영 계획, KPI를 수립합니다.
 전문 역량:
@@ -212,7 +211,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 - 콘텐츠 포맷별 최적 게시 전략 (릴스/숏폼/라이브)
 - 소셜 광고 운용 전략 (Meta Ads, TikTok Ads)
 출력 형식: 채널별 전략 요약, 주간 게시 계획, KPI 목표치(팔로워/인게이지먼트율) 포함`,
-    connectorPriority: ['canva', 'cloudinary', 'slack'],
+    connectorPriority: ['canva', 'nano_banana', 'slack'],
     analysisFramework: 'Channel Strategy + Content Mix + Growth KPI',
   },
 };
@@ -235,4 +234,3 @@ export function getAvailableConnectors(deptId: string, connectedConnectors: Set<
   if (!dept) return [];
   return dept.connectorPriority.filter(c => connectedConnectors.has(c));
 }
-

@@ -26,16 +26,9 @@ const DEPT_DESCRIPTIONS: Record<DeptId, string> = {
 
 const DEFAULT_DEPT_FALLBACK: DeptId[] = ['market', 'compete'];
 const DEPT_SELECT_TIMEOUT_MS = 15000;
+const DEPT_SELECT_FALLBACK_TIMEOUT_MS = 15000;
 
-// ─── Claude Haiku 로 부서 선별 ──────────────────────────────────────────────
-async function selectDepartmentsWithHaiku(directive: string): Promise<DeptId[]> {
-  const apiKey = String((globalThis as any)?.process?.env?.ANTHROPIC_API_KEY ?? "").trim();
-  if (!apiKey) {
-    logger.warn("[TaskDecomposer] ANTHROPIC_API_KEY 미설정 → fallback depts");
-    return DEFAULT_DEPT_FALLBACK;
-  }
-
-  const system = `사용자 지시를 분석해서 CORVUS X 조직에서 필요한 부서만 JSON 배열로 반환하세요.
+const DEPT_SELECT_SYSTEM = `사용자 지시를 분석해서 CORVUS X 조직에서 필요한 부서만 JSON 배열로 반환하세요.
 
 부서 목록:
 ${ALL_DEPT_IDS.map((id) => `- ${id}: ${DEPT_DESCRIPTIONS[id]}`).join('\n')}
@@ -51,6 +44,27 @@ ${ALL_DEPT_IDS.map((id) => `- ${id}: ${DEPT_DESCRIPTIONS[id]}`).join('\n')}
 - 최소 1개, 최대 9개
 - 불필요한 부서는 절대 포함하지 말 것`;
 
+function extractDeptsFromText(text: string): DeptId[] | null {
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return null;
+  try {
+    const parsed = JSON.parse(jsonMatch[0]);
+    const rawList: unknown[] = Array.isArray(parsed?.depts) ? parsed.depts : [];
+    const filtered: DeptId[] = rawList
+      .map((x) => String(x).trim().toLowerCase() as DeptId)
+      .filter((x): x is DeptId => ALL_DEPT_IDS.includes(x as DeptId));
+    const unique = Array.from(new Set(filtered));
+    return unique.length ? unique : null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Claude Haiku primary ───────────────────────────────────────────────────
+async function callHaikuForDeptSelect(directive: string): Promise<DeptId[] | null> {
+  const apiKey = String((globalThis as any)?.process?.env?.ANTHROPIC_API_KEY ?? "").trim();
+  if (!apiKey) return null;
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DEPT_SELECT_TIMEOUT_MS);
 
@@ -65,41 +79,87 @@ ${ALL_DEPT_IDS.map((id) => `- ${id}: ${DEPT_DESCRIPTIONS[id]}`).join('\n')}
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 256,
-        system,
+        system: DEPT_SELECT_SYSTEM,
         messages: [{ role: 'user', content: directive }],
       }),
       signal: controller.signal,
     });
 
     if (!res.ok) {
-      logger.warn({ status: res.status }, "[TaskDecomposer] Haiku 응답 실패 → fallback");
-      return DEFAULT_DEPT_FALLBACK;
+      logger.warn({ status: res.status }, "[TaskDecomposer] Haiku 응답 실패 → fallback 시도");
+      return null;
     }
 
     const data: any = await res.json();
     const text: string = Array.isArray(data?.content)
       ? data.content.map((p: any) => (typeof p?.text === 'string' ? p.text : '')).join('').trim()
       : '';
-
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      logger.warn({ text: text.slice(0, 200) }, "[TaskDecomposer] Haiku JSON 파싱 실패 → fallback");
-      return DEFAULT_DEPT_FALLBACK;
-    }
-    const parsed = JSON.parse(jsonMatch[0]);
-    const rawList: unknown[] = Array.isArray(parsed?.depts) ? parsed.depts : [];
-    const filtered: DeptId[] = rawList
-      .map((x) => String(x).trim().toLowerCase() as DeptId)
-      .filter((x): x is DeptId => ALL_DEPT_IDS.includes(x as DeptId));
-    const unique = Array.from(new Set(filtered));
-    if (!unique.length) return DEFAULT_DEPT_FALLBACK;
-    return unique;
+    return extractDeptsFromText(text);
   } catch (err) {
-    logger.warn({ err: err instanceof Error ? err.message : String(err) }, "[TaskDecomposer] Haiku 호출 오류 → fallback");
-    return DEFAULT_DEPT_FALLBACK;
+    logger.warn({ err: err instanceof Error ? err.message : String(err) }, "[TaskDecomposer] Haiku 호출 오류 → fallback 시도");
+    return null;
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ─── Gemini 2.5 Flash fallback ───────────────────────────────────────────────
+async function callGeminiFlashForDeptSelect(directive: string): Promise<DeptId[] | null> {
+  const apiKey = String((globalThis as any)?.process?.env?.GEMINI_API_KEY ?? "").trim();
+  if (!apiKey) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEPT_SELECT_FALLBACK_TIMEOUT_MS);
+
+  try {
+    const { GEMINI_FLASH_MODEL_ID, GEMINI_BASE } = await import('../config/defaults.js');
+    const res = await fetch(
+      `${GEMINI_BASE}/models/${GEMINI_FLASH_MODEL_ID}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: DEPT_SELECT_SYSTEM }] },
+          contents: [{ role: 'user', parts: [{ text: directive }] }],
+          generationConfig: { maxOutputTokens: 256, temperature: 0.2 },
+        }),
+        signal: controller.signal,
+      }
+    );
+
+    if (!res.ok) {
+      logger.warn({ status: res.status }, "[TaskDecomposer] Gemini Flash 응답 실패");
+      return null;
+    }
+
+    const data: any = await res.json();
+    const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
+    let text = '';
+    for (const c of candidates) {
+      const parts = c?.content?.parts;
+      if (Array.isArray(parts)) {
+        for (const p of parts) if (typeof p?.text === 'string') text += p.text;
+      }
+    }
+    return extractDeptsFromText(text);
+  } catch (err) {
+    logger.warn({ err: err instanceof Error ? err.message : String(err) }, "[TaskDecomposer] Gemini Flash 호출 오류");
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function selectDepartmentsWithHaiku(directive: string): Promise<DeptId[]> {
+  const primary = await callHaikuForDeptSelect(directive);
+  if (primary && primary.length) return primary;
+
+  logger.warn("[TaskDecomposer] Haiku 실패 → Gemini Flash fallback");
+  const fallback = await callGeminiFlashForDeptSelect(directive);
+  if (fallback && fallback.length) return fallback;
+
+  logger.warn("[TaskDecomposer] 양쪽 모두 실패 → DEFAULT_DEPT_FALLBACK");
+  return DEFAULT_DEPT_FALLBACK;
 }
 
 export interface DeptTask {

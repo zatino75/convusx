@@ -35,16 +35,39 @@ interface DeptReportEntry {
   report: DeptReport;
 }
 
-// ─── Claude Opus 4.6 호출 ─────────────────────────────────────────────────────
+// ─── 타임아웃 ────────────────────────────────────────────────────────────────
+const PRIMARY_TIMEOUT_MS = 40000;  // Claude primary
+const FALLBACK_TIMEOUT_MS = 60000; // Gemini 2.5 Pro fallback
+const BRIEFING_MAX_TOKENS = 3000;
+
+function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label}_timeout_${ms}ms`)), ms);
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
+// ─── Primary: Claude ─────────────────────────────────────────────────────────
 async function callClaudeForBriefing(systemPrompt: string, userPrompt: string): Promise<string> {
-  try {
-    const { callClaude } = await import('../adapters/wrappers.js');
-    // CEO 브리핑은 thinking 비활성 — 빠른 synthesis 우선. max_tokens 8000 으로 상향 (2026-04-17)
-    return await callClaude(systemPrompt, userPrompt, 8000);
-  } catch (err) {
-    logger.error({ err }, '[CeoBriefing] Claude 호출 실패');
-    throw err;
-  }
+  const { callClaude } = await import('../adapters/wrappers.js');
+  return withDeadline(
+    callClaude(systemPrompt, userPrompt, BRIEFING_MAX_TOKENS),
+    PRIMARY_TIMEOUT_MS,
+    'ceo_briefing_primary',
+  );
+}
+
+// ─── Fallback: Gemini 2.5 Pro ────────────────────────────────────────────────
+async function callGeminiForBriefing(systemPrompt: string, userPrompt: string): Promise<string> {
+  const { callGemini } = await import('../adapters/wrappers.js');
+  return withDeadline(
+    callGemini(systemPrompt, userPrompt, BRIEFING_MAX_TOKENS),
+    FALLBACK_TIMEOUT_MS,
+    'ceo_briefing_fallback',
+  );
 }
 
 // ─── 브리핑 시스템 프롬프트 ───────────────────────────────────────────────────
@@ -101,14 +124,19 @@ function buildBriefingPrompt(
     ? `\n## Critic 검증 결과\n- verdict: ${criticReview.verdict}\n- summary: ${criticReview.summary}\n- key issues:\n${criticReview.keyIssues.map((item) => `  - ${item}`).join('\n') || '  - 없음'}\n- verification needed:\n${criticReview.verificationNeeded.map((item) => `  - ${item}`).join('\n') || '  - 없음'}`
     : '';
 
+  const conflictsBlock = criticReview && criticReview.conflicts && criticReview.conflicts.length > 0
+    ? `\n## 부서간 상충 의견 (상무 지적)\n${criticReview.conflicts.map((c) => `- [${c.depts.join(' vs ')}] ${c.issue}`).join('\n')}`
+    : '';
+
   return `## CEO 지시사항
 ${directive}
 
-## 9개 부서 분석 결과
+## 부서 분석 결과 (상무 include 필터링 적용)
 ${reportBlocks}
-${criticBlock}
+${criticBlock}${conflictsBlock}
 
-위 부서 보고서들을 통합하여 CEO 브리핑을 JSON 형식으로 생성하십시오.`;
+위 부서 보고서들을 통합하여 CEO 브리핑을 JSON 형식으로 생성하십시오.
+상충 의견이 있다면 conflictingSignals 필드에 반드시 반영하십시오.`;
 }
 
 // ─── 브리핑 파싱 ─────────────────────────────────────────────────────────────
@@ -196,22 +224,42 @@ export async function generateCeoBriefing(
   criticReview?: CriticReviewResult,
 ): Promise<CeoBriefingResult> {
   const startTime = Date.now();
-  logger.info({ sessionId, roundNumber, deptCount: deptReports.length }, '[CeoBriefing] 브리핑 생성 시작');
+
+  // 상무 include 필터링 — include 지정 시 해당 부서만 CEO 에 전달
+  const includeSet = criticReview && criticReview.include && criticReview.include.length > 0
+    ? new Set(criticReview.include)
+    : null;
+  const filteredReports = includeSet
+    ? deptReports.filter((r) => includeSet.has(r.deptId))
+    : deptReports;
+  const effectiveReports = filteredReports.length > 0 ? filteredReports : deptReports;
+
+  logger.info({
+    sessionId, roundNumber,
+    deptCount: effectiveReports.length,
+    excludedCount: deptReports.length - effectiveReports.length,
+  }, '[CeoBriefing] 브리핑 생성 시작');
 
   const deptScores: Partial<Record<DeptId, number>> = {};
-  for (const { deptId, report } of deptReports) {
+  for (const { deptId, report } of effectiveReports) {
     deptScores[deptId] = report.confidence;
   }
 
   let briefingData: Omit<CeoBriefingResult, 'sessionId' | 'roundNumber' | 'directive' | 'deptScores' | 'generatedAt'>;
 
+  const userPrompt = buildBriefingPrompt(directive, effectiveReports, criticReview);
   try {
-    const userPrompt = buildBriefingPrompt(directive, deptReports, criticReview);
     const rawText = await callClaudeForBriefing(BRIEFING_SYSTEM_PROMPT, userPrompt);
-    briefingData = parseBriefingJson(rawText, deptReports);
-  } catch (err) {
-    logger.error({ err }, '[CeoBriefing] AI 호출 실패 — fallback 브리핑 사용');
-    briefingData = buildFallbackBriefing('', deptReports);
+    briefingData = parseBriefingJson(rawText, effectiveReports);
+  } catch (primaryErr) {
+    logger.warn({ err: primaryErr }, '[CeoBriefing] Claude primary 실패 → Gemini Pro fallback');
+    try {
+      const rawText = await callGeminiForBriefing(BRIEFING_SYSTEM_PROMPT, userPrompt);
+      briefingData = parseBriefingJson(rawText, effectiveReports);
+    } catch (fallbackErr) {
+      logger.error({ err: fallbackErr }, '[CeoBriefing] Gemini fallback 실패 — 휴리스틱 브리핑');
+      briefingData = buildFallbackBriefing('', effectiveReports);
+    }
   }
 
   const result: CeoBriefingResult = {

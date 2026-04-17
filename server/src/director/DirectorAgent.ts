@@ -43,7 +43,12 @@ export type WsEvent =
   | { type: 'ensemble_start'; deptId: DeptId; reason: string }
   | { type: 'ensemble_voice'; deptId: DeptId; model: string; message: string; durationMs?: number }
   | { type: 'ensemble_done'; deptId: DeptId; verdict: string; summary: string }
-  | { type: 'critic_review'; review: CriticReviewResult }
+  | { type: 'critic_start' }
+  | { type: 'critic_done'; review: CriticReviewResult }
+  | { type: 'critic_rework'; rework: DeptId[]; rework_reason: Partial<Record<DeptId, string>> }
+  | { type: 'dept_rework_start'; deptId: DeptId; reason: string }
+  | { type: 'dept_rework_done'; deptId: DeptId; report: object; model: string; connectors: string[]; durationMs: number }
+  | { type: 'critic_review'; review: CriticReviewResult }  // 하위호환
   | { type: 'ceo_briefing'; briefing: CeoBriefingResult }
   | { type: 'all_done'; sessionId: string; roundNumber: number; summary: object; briefing?: CeoBriefingResult; critic?: CriticReviewResult }
   | { type: 'error'; message: string };
@@ -134,6 +139,7 @@ export async function runDirector(
 
   // ─ 완료된 보고서 수집 (CEO 브리핑 생성용) ───────────────────────────────────
   const completedReports: Array<{ deptId: DeptId; report: DeptReport }> = [];
+  const taskByDept = new Map(mission.tasks.map((t) => [t.deptId, t] as const));
 
   // ─ 부서별 에이전트 병렬 실행 ─────────────────────────────────────────────────
   const agentPromises = mission.tasks.map(async (task) => {
@@ -236,13 +242,88 @@ export async function runDirector(
   // ─ 세션 SQLite 저장 (라운드 포함) ────────────────────────────────────────────
   persistSession(session).catch(() => {});
 
-  // ─ CEO 브리핑 생성 ────────────────────────────────────────────────────────────
+  // ─ 상무 3단계 검토 + 보강 루프 (1회 한정) ───────────────────────────────────
   let briefing: CeoBriefingResult | undefined;
   let criticReview: CriticReviewResult | undefined;
   if (completedReports.length > 0) {
     try {
+      send({ type: 'critic_start' });
       criticReview = await runCriticReview(directive, completedReports);
+      send({ type: 'critic_done', review: criticReview });
+      // 하위호환 이벤트 — 기존 프론트가 'critic_review' 를 듣고 있음
       send({ type: 'critic_review', review: criticReview });
+
+      // 보강 요청 있으면 해당 부서만 재실행 (1회 한정)
+      if (
+        criticReview.verdict === 'needs_rework' &&
+        criticReview.rework &&
+        criticReview.rework.length > 0
+      ) {
+        send({
+          type: 'critic_rework',
+          rework: criticReview.rework,
+          rework_reason: criticReview.rework_reason ?? {},
+        });
+
+        await Promise.allSettled(
+          criticReview.rework.map(async (deptId) => {
+            const originalTask = taskByDept.get(deptId);
+            if (!originalTask) return;
+            const reason = criticReview?.rework_reason?.[deptId] ?? '이전 분석의 근거가 부족하여 보강이 필요합니다.';
+
+            send({ type: 'dept_rework_start', deptId, reason });
+            updateDeptStatus(session, round.roundNumber, deptId, { status: 'working' });
+
+            // 기존 보고 + rework_reason 을 context 에 주입한 보강 task
+            const existingReportEntry = completedReports.find((r) => r.deptId === deptId);
+            const existingContext = existingReportEntry
+              ? `\n\n이전 분석 요약: ${existingReportEntry.report.structured?.summary ?? existingReportEntry.report.title}`
+              : '';
+            const reworkTask = {
+              ...originalTask,
+              objective: `[보강] ${originalTask.objective}`,
+              context: `${originalTask.context}${existingContext}\n\n[상무 보완 지시] ${reason}. 보완하세요.`,
+            };
+
+            const reworkOpts: AgentRunOptions = {
+              sessionId: session.sessionId,
+              roundNumber: round.roundNumber,
+              availableConnectors: connectorSet,
+              onProgress: (dId, message, percent) => {
+                send({ type: 'dept_progress', deptId: dId, message, percent });
+              },
+            };
+
+            try {
+              const result = await runDepartmentAgent(reworkTask, reworkOpts);
+              updateDeptStatus(session, round.roundNumber, deptId, {
+                status: 'done',
+                completedAt: new Date(),
+                report: result.report,
+                aiModel: result.modelUsed,
+                connectorsUsed: result.connectorsUsed,
+              });
+              send({
+                type: 'dept_rework_done',
+                deptId,
+                report: result.report,
+                model: result.modelUsed,
+                connectors: result.connectorsUsed,
+                durationMs: result.durationMs,
+              });
+              // 기존 보고 교체
+              const idx = completedReports.findIndex((r) => r.deptId === deptId);
+              if (idx >= 0) completedReports[idx] = { deptId, report: result.report };
+              else completedReports.push({ deptId, report: result.report });
+              awardXp(deptId, 'success', result.costUsd ?? 0).catch(() => {});
+            } catch (err) {
+              const errMsg = err instanceof Error ? err.message : '알 수 없는 오류';
+              logger.warn({ err, deptId }, '[Director] 보강 재실행 실패');
+              send({ type: 'dept_error', deptId, error: `보강 실패: ${errMsg}` });
+            }
+          })
+        );
+      }
     } catch (err) {
       logger.error({ err }, '[Director] Critic 검토 실패');
     }

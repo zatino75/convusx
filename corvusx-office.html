@@ -1761,14 +1761,43 @@
         addMsgForThread(threadId, { who:(DEPT_BY_ID[p.deptId]?.kr || p.deptId) + '팀', body:`오류: ${p.error || '알 수 없는 오류'}`, kind:'err' });
         checkRunAllDone(threadId);
         break;
-      case 'critic_review':
+      case 'critic_start':
+        run.executiveStatus = 'reviewing';
+        if (active) { scene?.lightExecutive(true); }
+        break;
+      case 'critic_done':
+        run.executiveStatus = p.review?.verdict === 'needs_rework' ? 'rework' : 'done';
         run.lastCritic = p.review;
         if (active) { scene?.lightExecutive(true); setTimeout(() => scene?.lightExecutive(false), 5000); }
         addThreadMsgByCritic(threadId, p.review);
-        if (p.review?.verdict === 'needs_followup' && (p.review?.targetDeptId || p.deptId)) {
+        break;
+      case 'critic_review':
+        run.lastCritic = p.review;
+        if (!run.executiveStatus || run.executiveStatus === 'idle') {
+          run.executiveStatus = p.review?.verdict === 'needs_rework' ? 'rework' : 'done';
+        }
+        if (active) { scene?.lightExecutive(true); setTimeout(() => scene?.lightExecutive(false), 5000); }
+        if (!run._criticMsgShown) { run._criticMsgShown = true; addThreadMsgByCritic(threadId, p.review); }
+        if ((p.review?.verdict === 'needs_followup' || p.review?.verdict === 'needs_rework') && (p.review?.targetDeptId || p.deptId)) {
           const tgt = p.review.targetDeptId || p.deptId;
           if (active) setTimeout(() => scene?.recallToMeeting(tgt, '상무 보완 지시'), 800);
         }
+        break;
+      case 'critic_rework':
+        run.reworkDepts = Array.isArray(p.rework) ? p.rework.slice() : [];
+        run.reworkReasons = p.rework_reason || {};
+        for (const d of run.reworkDepts) run.deptStates[d] = 'rework';
+        addMsgForThread(threadId, { who:'상무', body:`${run.reworkDepts.length}개 부서에 보강 지시`, kind:'sys' });
+        break;
+      case 'dept_rework_start':
+        run.deptStates[p.deptId] = 'rework';
+        if (active) { scene?.goWork(p.deptId, '[보강] ' + (p.reason || '')); }
+        addMsgForThread(threadId, { who:(DEPT_BY_ID[p.deptId]?.kr || p.deptId) + '팀', body:`보강중: ${p.reason || ''}`, kind:'sys' });
+        break;
+      case 'dept_rework_done':
+        run.deptStates[p.deptId] = 'rework_done';
+        if (active) scene?.goDone(p.deptId);
+        if (p.report) addThreadMsgByDeptReport(threadId, p.deptId, p.report);
         break;
       case 'ceo_briefing':
         run.lastBriefing = p.briefing;
@@ -1861,6 +1890,8 @@
     run.running = true;
     run.missionDeptCount = 9; run.deptCompletedCount = 0; run.executiveActive = false;
     run.lastBriefing = null; run.lastCritic = null;
+    run.executiveStatus = 'idle';
+    run.reworkDepts = []; run.reworkReasons = {}; run._criticMsgShown = false;
     for (const d of DEPTS) run.deptStates[d.id] = 'idle';
     // reset scene only if this is the active thread
     if (isActive(threadId)) state.scene?.resetAll();
@@ -1877,27 +1908,62 @@
     const url = new URL(API_BASE + '/api/director/stream', location.href);
     url.searchParams.set('directive', directive);
     url.searchParams.set('projectName', getProjectTitleOrGeneral());
-    try {
-      const es = new EventSource(url.toString(), { withCredentials:true });
-      run.es = es;
-      const listener = (ev) => onRunEvent(threadId, ev);
-      ['mission_start','dept_start','dept_progress','dept_done','dept_error','critic_review','ceo_briefing','all_done','error','stream_end']
-        .forEach(n => es.addEventListener(n, listener));
-      es.onerror = () => {
-        if (!run.running) return;
-        addMsgForThread(threadId, { who:'', body:'연결 오류.', kind:'err' });
+
+    // SSE 타임아웃 — 360s 총 상한, 180s 경고, 연결 오류시 5s 간격 재연결 (2회 한정)
+    const SSE_TOTAL_TIMEOUT_MS = 360000;
+    const SSE_WARNING_MS = 180000;
+    const RECONNECT_DELAY_MS = 5000;
+    const MAX_RECONNECTS = 2;
+    run.reconnects = 0;
+
+    const openSse = () => {
+      try {
+        const es = new EventSource(url.toString(), { withCredentials:true });
+        run.es = es;
+        const listener = (ev) => onRunEvent(threadId, ev);
+        ['mission_start','dept_start','dept_progress','dept_done','dept_error',
+         'critic_review','critic_start','critic_done','critic_rework',
+         'dept_rework_start','dept_rework_done',
+         'ceo_briefing','all_done','error','stream_end']
+          .forEach(n => es.addEventListener(n, listener));
+        es.onerror = () => {
+          if (!run.running) return;
+          if (run.reconnects < MAX_RECONNECTS) {
+            run.reconnects++;
+            try { es.close(); } catch {}
+            addMsgForThread(threadId, { who:'', body:`연결 끊김 — 5초 후 재연결 시도 (${run.reconnects}/${MAX_RECONNECTS})`, kind:'sys' });
+            setTimeout(() => { if (run.running) openSse(); }, RECONNECT_DELAY_MS);
+            return;
+          }
+          addMsgForThread(threadId, { who:'', body:'연결 오류 (재연결 한도 초과).', kind:'err' });
+          finishRun(threadId, true);
+        };
+      } catch (e) {
+        addMsgForThread(threadId, { who:'', body:'연결 실패: ' + e.message, kind:'err' });
         finishRun(threadId, true);
-      };
-    } catch (e) {
-      addMsgForThread(threadId, { who:'', body:'연결 실패: ' + e.message, kind:'err' });
-      finishRun(threadId, true);
-    }
+      }
+    };
+    openSse();
+
+    // 180s 경고
+    run.warnTimer = setTimeout(() => {
+      if (run.running) addMsgForThread(threadId, { who:'', body:'응답이 없습니다 (180초 경과)', kind:'sys' });
+    }, SSE_WARNING_MS);
+    // 360s 전체 타임아웃 — 강제 종료
+    run.totalTimer = setTimeout(() => {
+      if (run.running) {
+        addMsgForThread(threadId, { who:'', body:'응답 타임아웃 (6분) — 연결 종료', kind:'err' });
+        finishRun(threadId, true);
+      }
+    }, SSE_TOTAL_TIMEOUT_MS);
   }
   function finishRun(threadId, isErr = false){
     const run = ensureRun(threadId);
     if (!run.running && !run.es) return;
     run.running = false;
     if (run.es) { try { run.es.close(); } catch {} run.es = null; }
+    if (run.warnTimer) { clearTimeout(run.warnTimer); run.warnTimer = null; }
+    if (run.totalTimer) { clearTimeout(run.totalTimer); run.totalTimer = null; }
     if (isActive(threadId)) {
       dom.officeStatusDot.className = 'dot' + (isErr ? ' err' : '');
       dom.officeStatusText.textContent = isErr ? '오류' : '대기 중';
@@ -1940,14 +2006,37 @@
       head.innerHTML = '<h4>부서 진행상황</h4>';
       for (const d of DEPTS) {
         const s = state.deptStates[d.id] || 'idle';
-        const label = s === 'working' ? '작업중' : s === 'done' ? '완료' : s === 'err' ? '오류' : '대기';
+        let label = '대기', color = '';
+        if (s === 'working') { label = '작업중'; }
+        else if (s === 'done') { label = '완료'; }
+        else if (s === 'err') { label = '오류'; }
+        else if (s === 'rework') { label = '보강중'; color = '#ff9f3a'; }
+        else if (s === 'rework_done') { label = '보강완료'; color = '#2ecf74'; }
         const row = document.createElement('div');
         row.className = 'dept-row ' + (s !== 'idle' ? s : '');
         row.style.setProperty('--dept-color', d.hex);
-        row.innerHTML = `<span class="ddot"></span><span class="dname">${escapeHtml(d.kr)}팀</span><span class="dstate">${label}</span>`;
+        const stateStyle = color ? ` style="color:${color};font-weight:600"` : '';
+        row.innerHTML = `<span class="ddot"></span><span class="dname">${escapeHtml(d.kr)}팀</span><span class="dstate"${stateStyle}>${label}</span>`;
         head.appendChild(row);
       }
       body.appendChild(head);
+
+      // ── 상무실 상태 표시 ──
+      const run = state.activeThreadId ? state.threadRuns?.[state.activeThreadId] : null;
+      const execStatus = run?.executiveStatus || 'idle';
+      let execLabel = '대기', execColor = '#8a8a8a';
+      if (execStatus === 'reviewing') { execLabel = '검토중'; execColor = '#f5c842'; }
+      else if (execStatus === 'rework') { execLabel = '보강요청'; execColor = '#ff9f3a'; }
+      else if (execStatus === 'done') { execLabel = '완료'; execColor = '#2ecf74'; }
+      const execSec = document.createElement('div'); execSec.className = 'panel-sec';
+      execSec.style.marginTop = '12px';
+      execSec.innerHTML = `<h4>상무실</h4>
+        <div class="dept-row" style="--dept-color:${execColor}">
+          <span class="ddot"></span>
+          <span class="dname">상무 (Critic)</span>
+          <span class="dstate" style="color:${execColor};font-weight:600">${execLabel}</span>
+        </div>`;
+      body.appendChild(execSec);
     } else if (state.currentTab === 'sales') {
       body.innerHTML = '<div class="panel-empty">매출 데이터 로딩중...</div>';
       fetchPos().then((d) => {

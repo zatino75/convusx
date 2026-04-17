@@ -9,11 +9,10 @@ export const GEMINI_BASE      = `${GEMINI_HOST}/v1beta`
 export const PERPLEXITY_BASE  = "https://api.perplexity.ai"
 
 // ── 어댑터 타임아웃 ──
-// 2026-04-17: 180000 → 90000 감축. 사유: Ensemble Promise.all 이 가장 느린 모델을
-// 기다리므로 180s 까지 잡아두면 부서 하나당 최악 3분 + fallback 3분 = 6분.
-// 실제 정상 완성은 15-45s 사이. 90s 초과는 사실상 행(hang) 으로 봐도 무방.
-// 필요 시 request.timeout_ms 로 override 가능.
-export const ADAPTER_TIMEOUT_MS = 90000        // 텍스트 생성 (Claude/OpenAI/Perplexity)
+// 2026-04-17: 현실화. high-value 부서(claude-opus-4-6) 는 90s, 일반 60s, Gemini 45s 로
+// DepartmentAgent.callPrimaryModel 에서 prefix 매칭해 분기한다.
+// 여기서는 어댑터 네트워크 레벨 하드 상한만 관리.
+export const ADAPTER_TIMEOUT_MS = 120000       // 텍스트 생성 (Claude/OpenAI/Perplexity) 최상한
 export const ADAPTER_TIMEOUT_GEMINI_MS = 60000 // Gemini 비스트리밍
 export const ADAPTER_TIMEOUT_STREAM_GEMINI_MS = 120000 // Gemini 스트리밍
 export const IMAGE_GEN_TIMEOUT_MS = 120000     // 이미지/영상 생성

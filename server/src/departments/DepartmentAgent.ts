@@ -105,32 +105,53 @@ function parseStructuredOutput(rawText: string, task: DeptTask): DeptReport['str
   };
 }
 
-// ─── 커넥터 호출 헬퍼 ─────────────────────────────────────────────────────────
+// ─── Promise timeout 헬퍼 (네트워크 AbortController 와 별개로 작동) ───────────
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label}_timeout_${ms}ms`)), ms);
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
+// ─── 커넥터 호출 헬퍼 — 개별 15s 하드 상한 ───────────────────────────────────
+const CONNECTOR_TIMEOUT_MS = 15000;
+
 async function runConnector(connectorId: string, query: string): Promise<string> {
   try {
-    switch (connectorId) {
-      case 'tavily': {
-        const { callTavily } = await import('../connectors/tavily.js');
-        return await callTavily(query);
+    const exec: Promise<string> = (async () => {
+      switch (connectorId) {
+        case 'tavily': {
+          const { callTavily } = await import('../connectors/tavily.js');
+          return await callTavily(query);
+        }
+        case 'perplexity': {
+          const { callPerplexityConnector } = await import('../connectors/perplexity.js');
+          return await callPerplexityConnector(query, 1500);
+        }
+        case 'serper': {
+          const { callSerper } = await import('../connectors/serper.js');
+          return await callSerper(query);
+        }
+        case 'posthog': {
+          const { callPostHog } = await import('../connectors/posthog.js');
+          return await callPostHog(query);
+        }
+        case 'pubmed': {
+          const { callPubMed } = await import('../connectors/pubmed.js');
+          return await callPubMed(query);
+        }
+        case 'supabase': {
+          const { callSupabase } = await import('../connectors/supabase.js');
+          return await callSupabase(query);
+        }
+        default:
+          return `[${connectorId} 커넥터: 데이터 수집 완료]`;
       }
-      case 'perplexity': {
-        return await callPerplexity(query, 2000);
-      }
-      case 'posthog': {
-        const { callPostHog } = await import('../connectors/posthog.js');
-        return await callPostHog(query);
-      }
-      case 'pubmed': {
-        const { callPubMed } = await import('../connectors/pubmed.js');
-        return await callPubMed(query);
-      }
-      case 'supabase': {
-        const { callSupabase } = await import('../connectors/supabase.js');
-        return await callSupabase(query);
-      }
-      default:
-        return `[${connectorId} 커넥터: 데이터 수집 완료]`;
-    }
+    })();
+    return await withTimeout(exec, CONNECTOR_TIMEOUT_MS, connectorId);
   } catch (e) {
     return `[${connectorId} 커넥터 오류: ${e instanceof Error ? e.message : '알 수 없는 오류'}]`;
   }
@@ -160,22 +181,34 @@ async function runPreResearch(
   const optional = connectors.filter((c) => !c.required && available.has(c.id));
   const toRun = [...required, ...optional].slice(0, 3); // 최대 3개 커넥터 병렬
 
+  const PRE_RESEARCH_TOTAL_MAX_MS = 20000;
   if (toRun.length === 0) {
-    // 커넥터 없으면 Perplexity로 웹 조사
+    // 커넥터 없으면 Perplexity로 웹 조사 — 15s 하드 상한
     const query = `${task.objective} - ${task.context}`;
-    const result = await callPerplexity(query, 1500).catch(() => '');
-    if (result) {
-      parts.push(`[웹 조사 결과]\n${result}`);
-      connectorsUsed.push('perplexity');
-    }
+    try {
+      const { callPerplexityConnector } = await import('../connectors/perplexity.js');
+      const result = await withTimeout(callPerplexityConnector(query, 1500), 15000, 'perplexity_fallback').catch(() => '');
+      if (result) {
+        parts.push(`[웹 조사 결과]\n${result}`);
+        connectorsUsed.push('perplexity');
+      }
+    } catch { /* ignore */ }
   } else {
-    const results = await Promise.allSettled(
+    // 전체 병렬 상한 20s — 초과 시 이미 도착한 결과만 사용
+    const allPromise = Promise.allSettled(
       toRun.map(async c => {
         const query = `${task.objective} 관련 ${c.purpose}: ${task.context}`;
         const result = await runConnector(c.id, query);
         return { id: c.id, name: c.name, result };
       })
     );
+    let results: PromiseSettledResult<{ id: string; name: string; result: string }>[] = [];
+    try {
+      results = await withTimeout(allPromise, PRE_RESEARCH_TOTAL_MAX_MS, 'pre_research_total');
+    } catch {
+      // 전체 병렬이 20s 넘으면 도중 결과는 버리고 빈 배열로 진행
+      results = [];
+    }
 
     for (const r of results) {
       if (r.status === 'fulfilled') {
@@ -187,6 +220,22 @@ async function runPreResearch(
 
   return { data: parts.join('\n\n'), connectorsUsed };
 }
+
+// ─── 모델별 현실화 타임아웃 (prefix 매칭) ─────────────────────────────────────
+// claude-opus-4-6: 90초 (extended thinking 여유)
+// claude-sonnet-4-6: 60초
+// gpt-5.4-pro: 60초
+// gemini-2.5-pro: 45초
+// Fallback: 45초 전부 공통
+function primaryTimeoutMsFor(model: string): number {
+  const m = model.toLowerCase();
+  if (m.startsWith('claude-opus')) return 90000;
+  if (m.startsWith('claude-sonnet') || m.startsWith('claude-haiku') || m.startsWith('claude')) return 60000;
+  if (m.startsWith('gpt') || m.startsWith('o')) return 60000;
+  if (m.startsWith('gemini')) return 45000;
+  return 60000;
+}
+const FALLBACK_TIMEOUT_MS = 45000;
 
 // ─── AI 모델 선택 및 호출 ─────────────────────────────────────────────────────
 async function callPrimaryModel(
@@ -222,13 +271,21 @@ async function callPrimaryModel(
   };
 
   try {
-    const r = await route(model, dept.thinkingBudget);
+    const r = await withTimeout(
+      route(model, dept.thinkingBudget),
+      primaryTimeoutMsFor(model),
+      `primary_${model}`
+    );
     return { text: r.text, model, usage: r.usage, modelIdForPricing: r.modelIdForPricing };
   } catch (err) {
     if (dept.fallbackModel) {
       if (deptId) onProgress?.(deptId, `${dept.fallbackModel}로 재시도 중...`, 55);
       try {
-        const r = await route(dept.fallbackModel);
+        const r = await withTimeout(
+          route(dept.fallbackModel),
+          FALLBACK_TIMEOUT_MS,
+          `fallback_${dept.fallbackModel}`
+        );
         return {
           text: r.text,
           model: `${dept.fallbackModel} (fallback)`,

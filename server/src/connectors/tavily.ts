@@ -19,7 +19,7 @@ export async function callTavily(query: string, searchDepth: 'basic' | 'advanced
         include_raw_content: false,
         max_results: 8,
       }),
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!res.ok) return `[Tavily 오류: HTTP ${res.status}]`;
