@@ -86,8 +86,8 @@
   .thread-item .t-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .thread-item .t-meta{font-size:12px;color:var(--text-dim)}
   .thread-item .pin{color:var(--gold);font-size:12px}
-  .thread-item:hover{background:#D8D6D0;color:var(--text)}
-  .thread-item.active{background:rgba(201,100,66,.1);color:var(--accent)}
+  .thread-item:hover{background:rgba(0,0,0,.05);color:var(--text)}
+  .thread-item.active{background:rgba(201,100,66,.12);color:var(--accent)}
   .thread-item .row-menu{opacity:.35;padding:2px 6px;font-size:16px;color:var(--text-dim);cursor:pointer;border-radius:4px;line-height:1;border:none;background:transparent;flex-shrink:0}
   .thread-item:hover .row-menu,.thread-item .row-menu.is-open{opacity:1}
   .thread-item .row-menu:hover{background:rgba(0,0,0,.08);color:var(--text)}
@@ -95,8 +95,8 @@
   .thread-rename-input{background:var(--input);border:1px solid var(--accent);border-radius:4px;color:var(--text);font-size:14px;padding:2px 6px;outline:none;width:100%}
 
   .project-row{display:flex;align-items:center;gap:6px;padding:6px 14px;cursor:pointer;font-size:14px;color:var(--text);user-select:none;transition:background .12s}
-  .project-row:hover{background:#D8D6D0}
-  .project-row.active{background:rgba(201,100,66,.1);color:var(--accent)}
+  .project-row:hover{background:rgba(0,0,0,.05)}
+  .project-row.active{background:rgba(201,100,66,.08)}
   .project-row .caret{font-size:9px;transition:transform .15s;width:10px;display:inline-block;text-align:center}
   .project-row.collapsed .caret{transform:rotate(-90deg)}
   .project-row .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
@@ -260,9 +260,9 @@
   .panel-resize:hover{background:rgba(201,100,66,.25)}
   .panel-inner{width:100%;display:flex;flex-direction:column;min-width:0;height:100%}
   .panel-tabs{display:flex;border-bottom:1px solid var(--border-soft);flex-shrink:0}
-  .tab-btn{flex:1;padding:12px 8px;background:none;border:none;color:var(--text-soft);cursor:pointer;font-size:13.5px;font-weight:500;transition:color .12s,background .12s;position:relative}
-  .tab-btn:hover{color:var(--text);background:rgba(0,0,0,.04)}
-  .tab-btn.active{color:var(--accent)}
+  .tab-btn{flex:1;padding:12px 8px;background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:13.5px;font-weight:500;transition:color .12s,background .12s;position:relative}
+  .tab-btn:hover{color:var(--text-soft);background:rgba(255,255,255,.02)}
+  .tab-btn.active{color:var(--text)}
   .tab-btn.active::after{content:'';position:absolute;bottom:0;left:12px;right:12px;height:2px;background:var(--accent);border-radius:2px}
   .panel-body{flex:1;overflow-y:auto;padding:14px 16px}
   .panel-body::-webkit-scrollbar{width:5px}
@@ -610,6 +610,25 @@
     constructor(){ super('office'); }
     create(){
       state.scene = this;
+      window.phaserScene = this;
+      // CustomEvent 브리지 — SSE 핸들러에서 dispatch 하면 씬이 수신
+      this._officeEventHandler = (e) => {
+        const d = (e && e.detail) || {};
+        switch (d.type) {
+          case 'executive_gate_done': this.onGateDone(d.departments || []); break;
+          case 'dept_start':          this.onDeptStart(d.deptId, d.objective); break;
+          case 'dept_done':           this.onDeptDone(d.deptId); break;
+          case 'dept_error':          this.goError(d.deptId); break;
+          case 'critic_start':        this.onCriticStart(); break;
+          case 'critic_done':         this.onCriticDone(); break;
+          case 'all_done':            this.onAllDone(); break;
+        }
+      };
+      window.addEventListener('office-event', this._officeEventHandler);
+      this.events.once('shutdown', () => {
+        window.removeEventListener('office-event', this._officeEventHandler);
+        if (window.phaserScene === this) window.phaserScene = null;
+      });
       // map center is around (isoX(4,3), isoY(4,3)); compute and centerOn that
       const mapCX = isoX(3.5, 3.0), mapCY = isoY(3.5, 3.0);
       this.cameras.main.setZoom(2.2);
@@ -933,26 +952,79 @@
         this.tweens.add({ targets:s, x:(i - 1) * 10, y:-48 - Math.random() * 10, alpha:{from:1,to:0}, duration:900 + i * 120, ease:'Cubic.easeOut', onComplete:() => s.destroy() });
       }
     }
-    goWork(deptId, objective){
+    // 2026-04-17 전면 개편: 책상 고정 타이핑 방식. walk-to-meeting 은 rework 만 사용.
+    goWork(deptId, objective){ this.onDeptStart(deptId, objective); }
+    progressMsg(deptId, msg){ const c = this.characters[deptId]; if (c && c.state === 'working' && msg) this.setBubble(c, msg, '#dbeafe', 0); }
+    goDone(deptId){ this.onDeptDone(deptId); }
+
+    // ─── 새 애니메이션 훅 (CustomEvent bridge 에서 호출) ─────────────────
+    onGateDone(departments){
+      const ids = new Set((departments || []).map(d => (d && d.id) || d).filter(Boolean));
+      for (const deptId of Object.keys(this.characters)) {
+        if (!ids.has(deptId)) continue;
+        const c = this.characters[deptId];
+        // 선택된 부서만: 살짝 점프 (일어나기)  + 데스크 글로우 예열
+        this.stopTweens(c);
+        this.tweens.add({ targets:c.container, y:c.container.y - 3, duration:140, yoyo:true, ease:'Sine.easeOut' });
+        this.setDeskGlow(deptId, true, c.hex);
+        this.setBubble(c, '네!', '#fef3c7', 1400);
+        this.time.delayedCall(200, () => { if (c.state === 'idle') this.startIdleBob(c); });
+      }
+    }
+    onDeptStart(deptId, objective){
       const c = this.characters[deptId]; if (!c) return;
-      c.state = 'walking'; state.deptStates[deptId] = 'working';
+      // 책상 고정 — walk-to-meeting 없이 바로 타이핑
+      this.stopTweens(c);
+      const homeX = isoX(c.cubicle.tx, c.cubicle.ty + 0.3);
+      const homeY = isoY(c.cubicle.tx, c.cubicle.ty + 0.3) - 4;
+      c.container.setPosition(homeX, homeY);
+      c.shadow.setPosition(homeX, homeY + 4);
+      c.state = 'working'; state.deptStates[deptId] = 'working';
       this.setDeskGlow(deptId, true, c.hex);
-      this.walkCharTo(c, c.meetingSeat.tx, c.meetingSeat.ty, () => { c.state = 'working'; this.startTyping(c); if (objective) this.setBubble(c, objective, '#dbeafe', 0); });
+      this.startTyping(c);
+      this.setBubble(c, objective ? String(objective).slice(0, 20) : '분석 중...', '#dbeafe', 0);
       renderPanel();
     }
-    progressMsg(deptId, msg){ const c = this.characters[deptId]; if (c && c.state === 'working' && msg) this.setBubble(c, msg, '#dbeafe', 0); }
-    goDone(deptId){
+    onDeptDone(deptId){
       const c = this.characters[deptId]; if (!c) return;
       this.stopTweens(c); this.clearBubble(c);
-      c.state = 'returning'; state.deptStates[deptId] = 'done';
-      this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty + 0.3, () => {
-        c.state = 'idle';
-        this.setDeskGlow(deptId, false);
-        this.setBubble(c, '✓ 완료', '#d1fae5', 1800);
-        this.emitStars(c);
-        this.startIdleBob(c);
-      });
+      c.state = 'idle'; state.deptStates[deptId] = 'done';
+      // 뒤로 기대는 모션 — container 를 뒤로 살짝
+      this.tweens.add({ targets:c.container, y:c.container.y + 2, duration:200, yoyo:true, ease:'Sine.easeInOut' });
+      this.setBubble(c, '✓ 완료', '#d1fae5', 1800);
+      this.emitStars(c);
+      // 글로우 페이드
+      const dg = this.deskGlows[deptId];
+      if (dg) {
+        if (dg.tween) { dg.tween.stop(); dg.tween = null; }
+        this.tweens.add({
+          targets:dg.g, alpha:0, duration:900, ease:'Sine.easeOut',
+          onComplete:() => this.setDeskGlow(deptId, false),
+        });
+      }
+      this.time.delayedCall(220, () => this.startIdleBob(c));
       renderPanel();
+    }
+    onCriticStart(){
+      this.lightExecutive(true);
+    }
+    onCriticDone(){
+      // critic 끝난 직후는 굳이 바로 끄지 않음 — all_done 에서 일괄 처리
+    }
+    onAllDone(){
+      // CEO 잠깐 활성 (보고 받는 느낌)
+      this.lightCeo(true);
+      this.time.delayedCall(1200, () => {
+        this.lightCeo(false);
+        this.lightExecutive(false);
+        for (const deptId of Object.keys(this.characters)) {
+          const c = this.characters[deptId];
+          this.setDeskGlow(deptId, false);
+          if (c.state !== 'idle') { this.stopTweens(c); c.state = 'idle'; this.startIdleBob(c); }
+          state.deptStates[deptId] = 'idle';
+        }
+        renderPanel();
+      });
     }
     goError(deptId){
       const c = this.characters[deptId]; if (!c) return;
@@ -1918,6 +1990,8 @@
           // director 경로: 판단중 메시지 유지 가능하지만 라인 하나 더 추가
           const names = depts.map(d => (DEPT_BY_ID[d.id]?.kr || d.id) + '팀').join(', ');
           addMsgForThread(threadId, { who:'상무', body:`배분 완료: ${names}`, kind:'sys' });
+          // Phaser: 선택된 부서만 "일어나기" 반응
+          if (active) window.dispatchEvent(new CustomEvent('office-event', { detail:{ type:'executive_gate_done', departments:depts } }));
         }
         // single_agent 인 경우 별도 버블 추가 금지 (redirect 에서 "판단중" 제거 + 단일 에이전트 스트리밍)
         if (active && action === 'director') setTimeout(() => scene?.lightExecutive(false), 2500);
@@ -1944,26 +2018,26 @@
         break;
       case 'dept_start':
         run.deptStates[p.deptId] = 'working';
-        if (active) { scene?.goWork(p.deptId, p.objective); }
+        if (active) window.dispatchEvent(new CustomEvent('office-event', { detail:{ type:'dept_start', deptId:p.deptId, objective:p.objective } }));
         break;
       case 'dept_progress':
         if (active) scene?.progressMsg(p.deptId, p.message);
         break;
       case 'dept_done':
         run.deptStates[p.deptId] = 'done';
-        if (active) scene?.goDone(p.deptId);
+        if (active) window.dispatchEvent(new CustomEvent('office-event', { detail:{ type:'dept_done', deptId:p.deptId } }));
         if (p.report) addThreadMsgByDeptReport(threadId, p.deptId, p.report);
         checkRunAllDone(threadId);
         break;
       case 'dept_error':
         run.deptStates[p.deptId] = 'err';
-        if (active) scene?.goError(p.deptId);
+        if (active) window.dispatchEvent(new CustomEvent('office-event', { detail:{ type:'dept_error', deptId:p.deptId } }));
         addMsgForThread(threadId, { who:(DEPT_BY_ID[p.deptId]?.kr || p.deptId) + '팀', body:`오류: ${p.error || '알 수 없는 오류'}`, kind:'err' });
         checkRunAllDone(threadId);
         break;
       case 'critic_start':
         run.executiveStatus = 'reviewing';
-        if (active) { scene?.lightExecutive(true); }
+        if (active) window.dispatchEvent(new CustomEvent('office-event', { detail:{ type:'critic_start' } }));
         break;
       case 'critic_done':
         run.executiveStatus = p.review?.verdict === 'needs_rework' ? 'rework' : 'done';
@@ -2004,7 +2078,10 @@
         if (active) { scene?.lightCeo(true); setTimeout(() => scene?.lightCeo(false), 6000); }
         addThreadMsgByBriefing(threadId, p.briefing);
         break;
-      case 'all_done':   finishRun(threadId); break;
+      case 'all_done':
+        if (active) window.dispatchEvent(new CustomEvent('office-event', { detail:{ type:'all_done' } }));
+        finishRun(threadId);
+        break;
       case 'stream_end': if (run.running) finishRun(threadId, false); break;
       case 'error':
         addMsgForThread(threadId, { who:'오류', body:p.message, kind:'err' });
