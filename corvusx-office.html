@@ -204,9 +204,9 @@
   /* chat input */
   .chat-input{padding:10px 20px 16px;border-top:1px solid var(--border-soft);background:var(--chat);flex-shrink:0;position:relative}
   .chat-input.drag-over .chat-input-wrap{border-color:var(--accent);box-shadow:0 0 0 4px rgba(59,130,246,.2)}
-  .chat-input-wrap{position:relative;background:var(--input);border:1px solid var(--border);border-radius:14px;padding:10px 54px 10px 48px;transition:border-color .15s,box-shadow .15s}
+  .chat-input-wrap{position:relative;background:var(--input);border:1px solid var(--border);border-radius:16px;padding:12px 54px 12px 48px;transition:border-color .15s,box-shadow .15s}
   .chat-input-wrap:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(201,100,66,.16)}
-  .chat-input-wrap textarea{width:100%;background:transparent;border:none;outline:none;resize:none;min-height:24px;max-height:480px;line-height:1.55;color:var(--text);font-size:16px;display:block;overflow-y:auto}
+  .chat-input-wrap textarea{width:100%;height:auto;background:transparent;border:none;outline:none;resize:none;min-height:24px;max-height:160px;line-height:1.55;color:var(--text);font-size:16px;display:block;overflow-y:auto}
   .chat-input-wrap textarea::placeholder{color:var(--text-dim)}
 
   .attach-btn{position:absolute;left:8px;bottom:8px;width:32px;height:32px;border:none;border-radius:9px;background:transparent;color:var(--text-dim);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s,color .12s}
@@ -1614,11 +1614,11 @@
     if (slashActive >= 0 && items[slashActive]) items[slashActive].click();
   }
 
-  // ─── Auto-size textarea ─────────────────────────────────────────
+  // ─── Auto-size textarea (max 160px ≒ 6줄) ──────────────────────
   function autoSize(){
     const ta = dom.directive;
-    ta.style.height = '24px';
-    ta.style.height = Math.min(Math.max(ta.scrollHeight, 24), 480) + 'px';
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
     document.documentElement.style.setProperty('--input-h', (dom.chatInput.offsetHeight) + 'px');
   }
 
