@@ -428,7 +428,7 @@
     es:null,
     running:false,
     scene:null,
-    projects:loadLS(LS.PROJECTS, []),
+    projects:(loadLS(LS.PROJECTS, []) || []).filter(p => p && p.id && p.id !== '__general__'),
     threads:loadLS(LS.THREADS, {}),
     activeThreadId:localStorage.getItem(LS.ACTIVE_THREAD) || null,
     activeProjectId:GENERAL,
@@ -1356,7 +1356,9 @@
     } else for (const t of gen) dom.generalThreads.appendChild(threadItem(t, false));
 
     dom.projectList.innerHTML = '';
-    for (const p of state.projects) {
+    // "__general__" 는 프로젝트 그룹으로 렌더링하지 않는다 (상단 "최근" 섹션 전용)
+    const renderableProjects = (state.projects || []).filter(p => p && p.id && p.id !== GENERAL);
+    for (const p of renderableProjects) {
       const ts = projectThreads(p.id);
       const row = document.createElement('div');
       const isCollapsed = state.collapsedProjects.has(p.id);
@@ -1738,30 +1740,44 @@
     const active = isActive(threadId);
     const scene = state.scene;
     switch (type) {
-      case 'executive_gate_start':
+      case 'executive_gate_start': {
         run.executiveStatus = 'reviewing';
         if (active) scene?.lightExecutive(true);
-        addMsgForThread(threadId, { who:'상무', body:'지시를 분석하고 업무를 배분합니다...', kind:'sys' });
+        // "판단중..." 임시 메시지 — gate_redirect 시 제거하기 위해 ID 캡처
+        const gateMsgId = 'gate_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+        run.gateMsgId = gateMsgId;
+        addMsgForThread(threadId, { id: gateMsgId, who:'상무', body:'지시를 분석하고 업무를 배분합니다...', kind:'sys' });
         break;
+      }
       case 'executive_gate_done': {
         const action = p.action || 'single_agent';
         const depts = Array.isArray(p.departments) ? p.departments : [];
-        run.executiveStatus = action === 'director' ? 'done' : 'done';
+        run.executiveStatus = 'done';
         run.gateResult = { action, complexity: p.complexity, departments: depts, reason: p.reason };
         if (action === 'director' && depts.length) {
+          // director 경로: 판단중 메시지 유지 가능하지만 라인 하나 더 추가
           const names = depts.map(d => (DEPT_BY_ID[d.id]?.kr || d.id) + '팀').join(', ');
           addMsgForThread(threadId, { who:'상무', body:`배분 완료: ${names}`, kind:'sys' });
-        } else {
-          addMsgForThread(threadId, { who:'상무', body:'단순 요청 판단 → 단일 에이전트 처리', kind:'sys' });
         }
+        // single_agent 인 경우 별도 버블 추가 금지 (redirect 에서 "판단중" 제거 + 단일 에이전트 스트리밍)
         if (active && action === 'director') setTimeout(() => scene?.lightExecutive(false), 2500);
         break;
       }
-      case 'executive_gate_redirect':
+      case 'executive_gate_redirect': {
         run.executiveStatus = 'done';
-        addMsgForThread(threadId, { who:'상무', body:`단일 에이전트로 전환 (${p.reason || 'simple'})`, kind:'sys' });
         if (active) scene?.lightExecutive(false);
+        // "판단중..." 임시 메시지 제거
+        if (run.gateMsgId) {
+          removeMessageFromThread(threadId, run.gateMsgId);
+          run.gateMsgId = null;
+        }
+        // 단일 에이전트 SSE 스트림에 연결 — 새 버블에 스트리밍 누적
+        const directive = run.directive || '';
+        if (directive) {
+          startSingleAgentStreamInto(threadId, directive);
+        }
         break;
+      }
       case 'mission_start':
         run.missionDeptCount = Number(p.deptCount || 9);
         run.deptCompletedCount = 0; run.executiveActive = false;
@@ -1856,6 +1872,101 @@
     const stored = { id, kind:payload.kind || 'ai', who:payload.who, body:payload.body, deptId:payload.deptId || null, html:!!payload.html, attachments:payload.attachments || [], ts:Date.now() };
     appendMessageToThread(threadId, stored);
   }
+
+  // Remove a message from UI (if active) and from thread storage.
+  function removeMessageFromThread(threadId, messageId){
+    if (!messageId) return;
+    if (isActive(threadId)) {
+      const el = dom.chatLog.querySelector(`.msg[data-mid="${CSS.escape(messageId)}"]`);
+      if (el) el.remove();
+    }
+    for (const pid of Object.keys(state.threads)) {
+      const t = state.threads[pid].find(x => x.id === threadId);
+      if (t) {
+        const before = t.messages.length;
+        t.messages = t.messages.filter(m => m.id !== messageId);
+        if (t.messages.length !== before) { saveThreads(); debouncedSaveMessages(threadId); }
+        return;
+      }
+    }
+  }
+
+  // 단일 에이전트 SSE 스트림 연결 — 동일 버블에 누적.
+  // /api/chat/stream 은 POST-only SSE → fetch ReadableStream 으로 파싱.
+  async function startSingleAgentStreamInto(threadId, directive){
+    if (!directive) return;
+    const bubbleId = 'single_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    addMsgForThread(threadId, { id: bubbleId, who:'AI', body:'', kind:'ai' });
+    // body 엘리먼트 찾기 — addMsg 가 방금 DOM 에 넣었음
+    let bodyEl = null;
+    if (isActive(threadId)) {
+      const node = dom.chatLog.querySelector(`.msg[data-mid="${CSS.escape(bubbleId)}"] .body`);
+      if (node) bodyEl = node;
+    }
+    let accumulated = '';
+    const appendChunk = (text) => {
+      accumulated += text;
+      if (bodyEl) { bodyEl.textContent = accumulated; autoScrollIfNeeded(); }
+      // 저장소 동기화
+      for (const pid of Object.keys(state.threads)) {
+        const t = state.threads[pid].find(x => x.id === threadId);
+        if (t) {
+          const m = t.messages.find(x => x.id === bubbleId);
+          if (m) m.body = accumulated;
+          t.updatedAt = Date.now();
+        }
+      }
+    };
+
+    try {
+      const res = await fetch(API_BASE + '/api/chat/stream', {
+        method:'POST', credentials:'include',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ message: directive, force_single_agent: true, stream: true }),
+      });
+      if (!res.ok || !res.body) {
+        appendChunk(`\n[단일 에이전트 호출 실패: HTTP ${res.status}]`);
+        debouncedSaveMessages(threadId);
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        // 간단한 SSE 파서 — "data: {...}\n\n" 라인 단위
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) !== -1) {
+          const frame = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          const lines = frame.split('\n');
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data:')) continue;
+            const payload = trimmed.slice(5).trim();
+            if (!payload) continue;
+            try {
+              const ev = JSON.parse(payload);
+              if (ev.type === 'chunk' && typeof ev.content === 'string') {
+                appendChunk(ev.content);
+              } else if (ev.type === 'provider_chunk' && typeof ev.content === 'string') {
+                appendChunk(ev.content);
+              } else if (ev.type === 'done' && ev.payload) {
+                const finalText = ev.payload?.final_answer?.text || ev.payload?.answer;
+                if (finalText && !accumulated) appendChunk(String(finalText));
+              }
+            } catch {/* ignore non-JSON frames */}
+          }
+        }
+      }
+      debouncedSaveMessages(threadId);
+    } catch (err) {
+      appendChunk(`\n[오류: ${err && err.message || String(err)}]`);
+      debouncedSaveMessages(threadId);
+    }
+  }
   function addThreadMsgByDeptReport(threadId, deptId, report){
     const d = DEPT_BY_ID[deptId]; const name = d ? `${d.kr}팀` : deptId;
     const st = report?.structured;
@@ -1916,6 +2027,8 @@
     run.lastBriefing = null; run.lastCritic = null;
     run.executiveStatus = 'idle';
     run.gateResult = null;
+    run.gateMsgId = null;
+    run.directive = directive;  // gate_redirect 시 /api/chat/stream 재호출에 사용
     run.reworkDepts = []; run.reworkReasons = {}; run._criticMsgShown = false;
     for (const d of DEPTS) run.deptStates[d.id] = 'idle';
     // reset scene only if this is the active thread
@@ -2181,9 +2294,38 @@
   }
   async function apiDeleteThread(id){ return fetch(API_BASE + '/api/workspace/threads/' + encodeURIComponent(id), { method:'DELETE', credentials:'include' }); }
   async function apiSaveMessages(threadId, messages){
+    // 서버 messages 테이블은 role CHECK('user','assistant') 가 걸려 있다.
+    // 로컬 메시지 모델(kind/body/ts/attachments) → 서버 스키마(role/content/createdAt/attachedFiles) 로 정규화.
+    const normalized = (messages || []).map(m => {
+      if (!m || typeof m !== 'object') return null;
+      const kind = String(m.kind || '').toLowerCase();
+      const role = kind === 'user' ? 'user' : 'assistant';
+      const body = m.content ?? m.body ?? '';
+      const content = typeof body === 'string' ? body : String(body ?? '');
+      if (!m.id || !content) return null;
+      const createdAt = typeof m.createdAt === 'string'
+        ? m.createdAt
+        : new Date(typeof m.ts === 'number' ? m.ts : Date.now()).toISOString();
+      const requestMeta = {
+        kind: kind || undefined,
+        who: m.who ?? undefined,
+        deptId: m.deptId ?? undefined,
+        html: m.html ? true : undefined,
+      };
+      const attachedFiles = Array.isArray(m.attachments) && m.attachments.length ? m.attachments : undefined;
+      return {
+        id: m.id,
+        role,
+        content,
+        createdAt,
+        status: m.status || 'done',
+        requestMeta,
+        attachedFiles,
+      };
+    }).filter(Boolean);
     return fetch(API_BASE + '/api/workspace/messages', {
       method:'POST', credentials:'include', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ threadId, messages }),
+      body:JSON.stringify({ threadId, messages: normalized }),
     });
   }
   let syncStateTimer = null;
@@ -2203,7 +2345,10 @@
     // Pull server snapshot (auth required); falls back silently to localStorage
     const ws = await apiLoadWorkspace();
     if (ws?.projects && Array.isArray(ws.projects)) {
-      state.projects = ws.projects.map(p => ({ id:p.id, title:p.title, updatedAt:new Date(p.updatedAt || p.createdAt || Date.now()).getTime(), meta:p.meta || {} }));
+      // 서버 스냅샷에 __general__ 가 있어도 사이드바에는 절대 추가하지 않음
+      state.projects = ws.projects
+        .filter(p => p && p.id && p.id !== GENERAL)
+        .map(p => ({ id:p.id, title:p.title, updatedAt:new Date(p.updatedAt || p.createdAt || Date.now()).getTime(), meta:p.meta || {} }));
       saveProjects();
     }
     if (ws?.threads && Array.isArray(ws.threads)) {

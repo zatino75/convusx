@@ -229,7 +229,58 @@ function mapMessage(r: any) {
   }
 }
 
+// 안전 coercer: corvusx-office.html 의 메시지 모델(kind/body/ts) 을 DB 스키마로 변환.
+// messages 테이블은 role IN ('user','assistant') CHECK 제약이 있어 낯선 값이 들어오면 INSERT 실패.
+// 프론트가 누락/이름 차이로 잘못 보내도 500 이 나지 않도록 서버에서 한 번 더 정규화한다.
+function coerceMessageForInsert(msg: any): {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string | number;
+  status: string;
+  requestMeta: any;
+  attachedFiles: any;
+  versionGroupId: string | null;
+  versionIndex: number | null;
+  isHidden: 0 | 1;
+} {
+  const rawRole = String(msg?.role ?? "").trim().toLowerCase()
+  const kind = String(msg?.kind ?? "").trim().toLowerCase()
+  const role: 'user' | 'assistant' =
+    rawRole === 'user' ? 'user'
+    : rawRole === 'assistant' ? 'assistant'
+    : kind === 'user' ? 'user'
+    : 'assistant'
+
+  const rawContent = msg?.content ?? msg?.body ?? ""
+  const content = typeof rawContent === "string" ? rawContent : String(rawContent)
+
+  const createdAt = msg?.createdAt ?? (typeof msg?.ts === 'number' ? new Date(msg.ts).toISOString() : new Date().toISOString())
+
+  const requestMeta = msg?.requestMeta ?? (kind || msg?.who || msg?.deptId || msg?.html !== undefined
+    ? { kind: kind || undefined, who: msg?.who ?? undefined, deptId: msg?.deptId ?? undefined, html: msg?.html ?? undefined }
+    : null)
+
+  const attachedFiles = msg?.attachedFiles ?? (Array.isArray(msg?.attachments) && msg.attachments.length ? msg.attachments : null)
+
+  const id = String(msg?.id ?? "").trim() || `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
+
+  return {
+    id,
+    role,
+    content,
+    createdAt,
+    status: msg?.status ?? "done",
+    requestMeta: requestMeta ? jsonStr(requestMeta) : null,
+    attachedFiles: attachedFiles ? jsonStr(attachedFiles) : null,
+    versionGroupId: msg?.versionGroupId ?? null,
+    versionIndex: msg?.versionIndex ?? null,
+    isHidden: msg?.isHidden ? 1 : 0,
+  }
+}
+
 export function upsertMessage(threadId: string, msg: any, sortOrder: number) {
+  const normalized = coerceMessageForInsert(msg)
   db.prepare(`
     INSERT INTO messages (id, thread_id, role, content, created_at, status, request_meta, attached_files, version_group_id, version_index, is_hidden, sort_order)
     VALUES (@id, @threadId, @role, @content, @createdAt, @status, @requestMeta, @attachedFiles, @versionGroupId, @versionIndex, @isHidden, @sortOrder)
@@ -243,18 +294,9 @@ export function upsertMessage(threadId: string, msg: any, sortOrder: number) {
       is_hidden = @isHidden,
       sort_order = @sortOrder
   `).run({
-    id: msg.id,
+    ...normalized,
     threadId,
-    role: msg.role,
-    content: msg.content ?? "",
-    createdAt: msg.createdAt,
-    status: msg.status ?? "done",
-    requestMeta: msg.requestMeta ? jsonStr(msg.requestMeta) : null,
-    attachedFiles: msg.attachedFiles ? jsonStr(msg.attachedFiles) : null,
-    versionGroupId: msg.versionGroupId ?? null,
-    versionIndex: msg.versionIndex ?? null,
-    isHidden: msg.isHidden ? 1 : 0,
-    sortOrder: sortOrder
+    sortOrder,
   })
 }
 
