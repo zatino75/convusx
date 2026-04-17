@@ -5,26 +5,31 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>CORVUS X</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css" />
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
 <style>
   :root {
-    --bg:#0F1117;
-    --sidebar:#0a0d14;
-    --chat:#0f1320;
-    --panel:#0a0d14;
-    --input:#1a2035;
-    --surface:#141a2a;
-    --border:#1f2740;
-    --border-soft:#18203a;
-    --text:#e0e8f0;
-    --text-soft:#94a3b8;
-    --text-dim:#64748b;
+    --bg:#212121;
+    --sidebar:#1a1a1a;
+    --chat:#212121;
+    --panel:#1a1a1a;
+    --input:#2a2a2a;
+    --surface:#262626;
+    --surface-hi:#2f2f2f;
+    --border:#333333;
+    --border-soft:#2a2a2a;
+    --text:#ECECEC;
+    --text-soft:#B4B4B4;
+    --text-dim:#8a8a8a;
     --accent:#3b82f6;
     --accent-alt:#8b5cf6;
     --gold:#f59e0b;
     --magenta:#ec4899;
     --red:#ef4444;
     --green:#22c55e;
+    --user-bubble:linear-gradient(135deg,#2a3858,#2f3a66);
+    --user-bubble-border:#3a4a7a;
   }
   *{box-sizing:border-box}
   html,body{
@@ -36,52 +41,81 @@
   }
   button,input,textarea{font-family:inherit;font-size:inherit;color:inherit}
 
-  /* ─ layout: grid with toggleable columns ─ */
+  /* ─ layout: sidebar(resizable) / main / panel ───────────────────── */
   .app{
     display:grid;
-    grid-template-columns:220px 1fr 300px;
+    grid-template-columns:var(--sidebar-w,260px) 1fr 300px;
     height:100vh;
-    transition:grid-template-columns .25s ease;
+    transition:grid-template-columns .22s ease;
   }
+  .app.is-resizing{transition:none}
   .app[data-sidebar="closed"]{grid-template-columns:0 1fr 300px}
-  .app[data-panel="closed"]{grid-template-columns:220px 1fr 0}
+  .app[data-panel="closed"]{grid-template-columns:var(--sidebar-w,260px) 1fr 0}
   .app[data-sidebar="closed"][data-panel="closed"]{grid-template-columns:0 1fr 0}
 
-  /* ─ sidebar (left) ─ */
-  .sidebar{background:var(--sidebar);border-right:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden;min-width:0}
-  .sidebar-inner{width:220px;display:flex;flex-direction:column;min-width:0;height:100%;padding:12px 0 8px}
-  .logo{padding:4px 14px 12px;font-size:14px;font-weight:700;letter-spacing:.5px;color:var(--text);display:flex;align-items:center;gap:7px}
-  .logo .mark{display:inline-block;width:7px;height:7px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-alt))}
+  /* ─ sidebar ─────────────────────────────────────────────────────── */
+  .sidebar{background:var(--sidebar);border-right:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden;min-width:0;position:relative}
+  .sidebar-inner{width:100%;display:flex;flex-direction:column;min-width:0;height:100%;padding:8px 0 8px}
+  .sidebar-resize{position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:ew-resize;z-index:5;background:transparent}
+  .sidebar-resize:hover{background:rgba(59,130,246,.25)}
+
+  .sb-head{display:flex;align-items:center;gap:8px;padding:6px 12px 10px;position:relative}
+  .sb-head .logo{flex:1;font-size:13px;font-weight:700;letter-spacing:.4px;color:var(--text);display:flex;align-items:center;gap:7px}
+  .sb-head .logo .mark{display:inline-block;width:7px;height:7px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-alt))}
+  .sb-head button.icon-btn{width:26px;height:26px;border-radius:6px;border:none;background:transparent;color:var(--text-soft);cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .sb-head button.icon-btn:hover{background:rgba(255,255,255,.05);color:var(--text)}
+
   .nav-btn{display:flex;align-items:center;gap:9px;padding:8px 14px;color:var(--text-soft);cursor:pointer;font-size:13px;text-decoration:none;border:none;background:none;width:100%;text-align:left;transition:background .12s,color .12s;border-radius:0}
-  .nav-btn:hover{background:rgba(255,255,255,.03);color:var(--text)}
-  .nav-btn.active{background:rgba(59,130,246,.10);color:#93c5fd}
-  .nav-btn .ic{width:14px;height:14px;flex-shrink:0;opacity:.8}
-  .nav-divider{padding:14px 14px 4px;font-size:10px;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase;font-weight:700}
-  .sidebar-scroll{flex:1;overflow-y:auto;min-height:0}
+  .nav-btn:hover{background:rgba(255,255,255,.035);color:var(--text)}
+  .nav-btn.active{background:rgba(59,130,246,.12);color:#bcd4ff}
+  .nav-btn .ic{width:14px;height:14px;flex-shrink:0;opacity:.85}
+
+  .nav-divider{padding:14px 14px 4px;font-size:10px;color:var(--text-dim);letter-spacing:.5px;text-transform:uppercase;font-weight:700;display:flex;align-items:center;justify-content:space-between}
+  .nav-divider .add{color:var(--text-dim);cursor:pointer;font-size:13px;padding:2px 4px}
+  .nav-divider .add:hover{color:var(--accent)}
+
+  .sidebar-scroll{flex:1;overflow-y:auto;min-height:0;padding-bottom:8px}
   .sidebar-scroll::-webkit-scrollbar{width:5px}
   .sidebar-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:3px}
-  .thread-item{padding:6px 14px 6px 24px;color:var(--text-soft);cursor:pointer;font-size:12px;display:flex;flex-direction:column;gap:2px;transition:background .12s}
-  .thread-item:hover{background:rgba(255,255,255,.03);color:var(--text)}
-  .thread-item.active{background:rgba(59,130,246,.12);color:#93c5fd}
+
+  .thread-item{padding:6px 14px 6px 22px;color:var(--text-soft);cursor:pointer;font-size:12px;display:flex;align-items:center;gap:6px;transition:background .12s;position:relative}
+  .thread-item .t-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
   .thread-item .t-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .thread-item .t-meta{font-size:10px;color:var(--text-dim)}
+  .thread-item .pin{color:var(--gold);font-size:10px}
+  .thread-item:hover{background:rgba(255,255,255,.04);color:var(--text)}
+  .thread-item.active{background:rgba(59,130,246,.14);color:#bcd4ff}
+  .thread-item .row-menu{opacity:0;padding:2px 6px;font-size:14px;color:var(--text-dim);cursor:pointer;border-radius:4px;line-height:1}
+  .thread-item:hover .row-menu,.thread-item .row-menu.is-open{opacity:1}
+  .thread-item .row-menu:hover{background:rgba(255,255,255,.08);color:var(--text)}
+
+  .thread-rename-input{background:var(--input);border:1px solid var(--accent);border-radius:4px;color:var(--text);font-size:12px;padding:2px 6px;outline:none;width:100%}
+
   .project-row{display:flex;align-items:center;gap:6px;padding:6px 14px;cursor:pointer;font-size:12px;color:var(--text);user-select:none;transition:background .12s}
-  .project-row:hover{background:rgba(255,255,255,.03)}
+  .project-row:hover{background:rgba(255,255,255,.04)}
+  .project-row.active{background:rgba(59,130,246,.1)}
   .project-row .caret{font-size:9px;transition:transform .15s;width:10px;display:inline-block;text-align:center}
   .project-row.collapsed .caret{transform:rotate(-90deg)}
   .project-row .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
   .project-row .count{color:var(--text-dim);font-size:10px}
-  .project-row .project-menu{opacity:0;padding:2px 4px;font-size:11px}
-  .project-row:hover .project-menu{opacity:.7}
-  .project-menu:hover{color:var(--text);opacity:1!important}
-  .project-new-thread{padding:4px 14px 6px 36px;color:var(--text-dim);font-size:11px;cursor:pointer}
+  .project-row .row-menu{opacity:0;padding:2px 6px;font-size:14px;color:var(--text-dim);cursor:pointer;border-radius:4px;line-height:1}
+  .project-row:hover .row-menu,.project-row .row-menu.is-open{opacity:.85}
+  .project-row .row-menu:hover{background:rgba(255,255,255,.08);color:var(--text);opacity:1}
+  .project-new-thread{padding:4px 14px 6px 34px;color:var(--text-dim);font-size:11px;cursor:pointer}
   .project-new-thread:hover{color:var(--accent)}
-  .sub-new{padding:6px 14px 6px 26px;color:var(--text-dim);font-size:12px;cursor:pointer;font-style:italic}
-  .sub-new:hover{color:var(--accent)}
 
-  /* ─ main column (office + chat) ─ */
+  /* bubble menu */
+  .bubble-menu{position:fixed;z-index:200;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:4px;min-width:180px;box-shadow:0 10px 30px rgba(0,0,0,.45);font-size:12px}
+  .bubble-menu .mi{padding:7px 10px;cursor:pointer;border-radius:5px;color:var(--text-soft);display:flex;align-items:center;gap:8px}
+  .bubble-menu .mi:hover{background:rgba(255,255,255,.05);color:var(--text)}
+  .bubble-menu .mi.danger:hover{background:rgba(239,68,68,.12);color:#fca5a5}
+  .bubble-menu .mi .chev{margin-left:auto;color:var(--text-dim)}
+  .bubble-menu .divider{height:1px;background:var(--border-soft);margin:4px 2px}
+  .bubble-menu .sub{position:absolute;left:100%;top:0;margin-left:2px}
+
+  /* ─ main column ─ */
   .main-col{display:grid;grid-template-rows:35% 65%;min-height:0;min-width:0;background:var(--bg)}
-  .office-wrap{position:relative;background:var(--bg);overflow:hidden;border-bottom:1px solid var(--border-soft)}
+  .office-wrap{position:relative;background:#1a1f2e;overflow:hidden;border-bottom:1px solid var(--border-soft)}
   .office-title{position:absolute;top:8px;left:14px;color:var(--text-soft);font-size:11px;letter-spacing:2px;font-weight:600;z-index:3;pointer-events:none;opacity:.7}
   .office-status{position:absolute;top:8px;right:14px;color:var(--text-soft);font-size:11px;display:flex;align-items:center;gap:6px;z-index:3;pointer-events:none}
   .office-status .dot{width:7px;height:7px;border-radius:50%;background:#374151}
@@ -91,51 +125,115 @@
   #phaser-container{width:100%;height:100%}
   #phaser-container canvas{display:block}
 
-  .chat{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:var(--chat)}
+  .chat{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:var(--chat);position:relative}
   .chat-header{padding:10px 20px;border-bottom:1px solid var(--border-soft);display:flex;align-items:center;gap:10px;flex-shrink:0}
   .chat-title{font-size:13.5px;font-weight:600;color:var(--text);cursor:pointer;padding:3px 8px;border-radius:5px;border:1px solid transparent;outline:none;max-width:500px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .chat-title:hover{border-color:var(--border)}
   .chat-title[contenteditable="true"]{border-color:var(--accent);background:var(--input)}
 
-  .chat-log{flex:1;overflow-y:auto;padding:18px 28px 12px;display:flex;flex-direction:column;gap:12px;min-height:0}
+  .chat-log{flex:1;overflow-y:auto;padding:18px 28px 12px;display:flex;flex-direction:column;gap:14px;min-height:0;scroll-behavior:smooth}
   .chat-log::-webkit-scrollbar{width:6px}
-  .chat-log::-webkit-scrollbar-thumb{background:rgba(255,255,255,.06);border-radius:4px}
+  .chat-log::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:4px}
   .chat-empty{color:var(--text-dim);font-size:13px;text-align:center;padding:80px 20px}
   .chat-empty h3{margin:0 0 6px;font-size:16px;color:var(--text-soft);font-weight:600}
 
-  .msg{display:flex;flex-direction:column;gap:3px;animation:msg-in .2s ease-out;max-width:86%}
+  .msg{display:flex;flex-direction:column;gap:3px;animation:msg-in .2s ease-out;max-width:100%;position:relative}
   @keyframes msg-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
-  .msg.user{align-self:flex-end;align-items:flex-end}
-  .msg:not(.user){align-self:flex-start;align-items:flex-start}
+  .msg.user{align-self:flex-end;align-items:flex-end;max-width:min(80%,760px)}
+  .msg:not(.user){align-self:flex-start;align-items:flex-start;max-width:100%;width:100%}
   .msg .who{font-size:10.5px;color:var(--text-dim);margin-bottom:2px;padding:0 4px;display:flex;align-items:center;gap:5px}
-  .msg .body{padding:10px 14px;border-radius:12px;font-size:13px;line-height:1.6;word-break:break-word;white-space:pre-wrap;background:var(--surface);border:1px solid var(--border);color:var(--text)}
-  .msg.user .body{background:linear-gradient(135deg,rgba(59,130,246,.18),rgba(99,102,241,.18));border-color:rgba(59,130,246,.3);color:#dbeafe;border-bottom-right-radius:4px}
+  .msg .body{padding:10px 14px;border-radius:12px;font-size:13.5px;line-height:1.65;word-break:break-word;background:var(--surface);border:1px solid var(--border-soft);color:var(--text);max-width:100%}
+  .msg.user .body{background:var(--user-bubble);border-color:var(--user-bubble-border);color:#dbeafe;border-bottom-right-radius:4px;white-space:pre-wrap}
   .msg:not(.user) .body{border-bottom-left-radius:4px}
   .msg.dept .who .dot{width:7px;height:7px;border-radius:50%;background:var(--dept-color,#9ca3af)}
-  .msg.ceo .body{border-left:3px solid var(--gold);background:rgba(245,158,11,.05)}
+  .msg.ceo .body{border-left:3px solid var(--gold);background:rgba(245,158,11,.06)}
   .msg.ceo .who{color:var(--gold);font-weight:600}
-  .msg.critic .body{border-left:3px solid var(--magenta);background:rgba(236,72,153,.05)}
+  .msg.critic .body{border-left:3px solid var(--magenta);background:rgba(236,72,153,.06)}
   .msg.critic .who{color:var(--magenta);font-weight:600}
-  .msg.sys{max-width:100%;align-items:center}
+  .msg.sys{align-self:center;max-width:100%;align-items:center}
   .msg.sys .body{background:transparent;border:none;padding:2px 6px;color:var(--text-dim);font-size:11.5px;font-style:italic}
   .msg.err .body{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.3);color:#fca5a5}
-  .msg .body ul{margin:6px 0;padding-left:20px}
-  .msg .body li{font-size:12.5px;margin:3px 0}
-  .msg .body .sec{font-size:10.5px;color:var(--text-dim);font-weight:700;margin-top:8px;text-transform:uppercase;letter-spacing:.4px}
 
-  .chat-input{padding:12px 20px 18px;border-top:1px solid var(--border-soft);background:var(--chat);flex-shrink:0}
-  .chat-input-wrap{position:relative;background:var(--input);border:1px solid var(--border);border-radius:12px;padding:10px 48px 10px 14px;transition:border-color .15s,box-shadow .15s}
+  /* markdown body */
+  .md h1,.md h2,.md h3,.md h4{margin:12px 0 6px;font-weight:700;color:var(--text)}
+  .md h1{font-size:18px} .md h2{font-size:16px} .md h3{font-size:14.5px} .md h4{font-size:13px}
+  .md p{margin:6px 0}
+  .md ul,.md ol{margin:6px 0;padding-left:22px}
+  .md li{margin:2px 0}
+  .md code.inline{background:rgba(255,255,255,.08);border:1px solid var(--border-soft);padding:1px 5px;border-radius:4px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;color:#e5d5ff}
+  .md pre{position:relative;background:#0d1117;border:1px solid #1f2937;border-radius:8px;padding:12px 12px 12px 12px;margin:8px 0;overflow:auto;font-size:12.5px}
+  .md pre code{font-family:ui-monospace,Menlo,Consolas,monospace;display:block;white-space:pre}
+  .md pre .copy-code{position:absolute;top:6px;right:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);color:#cbd5e1;font-size:10.5px;padding:2px 7px;border-radius:5px;cursor:pointer;opacity:0;transition:opacity .15s}
+  .md pre:hover .copy-code{opacity:1}
+  .md pre .copy-code:hover{background:rgba(255,255,255,.1)}
+  .md a{color:#93c5fd;text-decoration:underline;text-underline-offset:2px}
+  .md table{border-collapse:collapse;margin:8px 0;font-size:12.5px}
+  .md th,.md td{border:1px solid var(--border);padding:5px 9px}
+  .md th{background:rgba(255,255,255,.05);font-weight:600}
+  .md strong{font-weight:700;color:var(--text)}
+  .md em{font-style:italic}
+  .md blockquote{margin:8px 0;padding:4px 12px;border-left:3px solid var(--border);color:var(--text-soft)}
+  .md .sec{font-size:10.5px;color:var(--text-dim);font-weight:700;margin-top:8px;text-transform:uppercase;letter-spacing:.4px}
+  .md hr{border:none;border-top:1px solid var(--border-soft);margin:12px 0}
+
+  .msg-actions{display:flex;gap:4px;opacity:0;transition:opacity .12s;margin-top:4px;padding:0 4px}
+  .msg:hover .msg-actions,.msg-actions.is-open{opacity:1}
+  .msg-actions button{background:transparent;border:1px solid transparent;color:var(--text-dim);font-size:11.5px;padding:3px 7px;border-radius:5px;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+  .msg-actions button:hover{background:rgba(255,255,255,.06);border-color:var(--border-soft);color:var(--text)}
+  .msg-actions button.thumb-up.on{color:var(--green)}
+  .msg-actions button.thumb-down.on{color:var(--red)}
+
+  .edit-area{display:flex;flex-direction:column;gap:6px;width:100%}
+  .edit-area textarea{background:var(--input);border:1px solid var(--accent);border-radius:8px;padding:8px 10px;color:var(--text);font:inherit;font-size:13px;min-height:64px;resize:vertical;outline:none}
+  .edit-area .row{display:flex;gap:6px;justify-content:flex-end;font-size:11px;color:var(--text-dim)}
+  .edit-area button{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 10px;color:var(--text-soft);cursor:pointer;font-size:12px}
+  .edit-area button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+
+  .ver-nav{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--text-dim);margin-left:6px}
+  .ver-nav button{background:transparent;border:1px solid transparent;color:var(--text-dim);padding:0 5px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1.3}
+  .ver-nav button:hover:not(:disabled){color:var(--text);border-color:var(--border-soft)}
+  .ver-nav button:disabled{opacity:.35;cursor:not-allowed}
+
+  .to-bottom{position:absolute;right:24px;bottom:calc(var(--input-h,96px) + 8px);width:34px;height:34px;border-radius:50%;background:var(--surface);border:1px solid var(--border);color:var(--text-soft);cursor:pointer;display:none;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(0,0,0,.4);z-index:8}
+  .to-bottom.visible{display:flex}
+  .to-bottom:hover{color:var(--text);background:var(--surface-hi)}
+
+  /* chat input */
+  .chat-input{padding:10px 20px 16px;border-top:1px solid var(--border-soft);background:var(--chat);flex-shrink:0;position:relative}
+  .chat-input.drag-over .chat-input-wrap{border-color:var(--accent);box-shadow:0 0 0 4px rgba(59,130,246,.2)}
+  .chat-input-wrap{position:relative;background:var(--input);border:1px solid var(--border);border-radius:14px;padding:10px 54px 10px 48px;transition:border-color .15s,box-shadow .15s}
   .chat-input-wrap:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15)}
-  .chat-input-wrap textarea{width:100%;background:transparent;border:none;outline:none;resize:none;height:24px;max-height:180px;line-height:1.5;color:var(--text);font-size:14px;display:block}
+  .chat-input-wrap textarea{width:100%;background:transparent;border:none;outline:none;resize:none;min-height:24px;max-height:480px;line-height:1.55;color:var(--text);font-size:14px;display:block;overflow-y:auto}
   .chat-input-wrap textarea::placeholder{color:var(--text-dim)}
-  .send-btn{position:absolute;right:7px;bottom:7px;width:32px;height:32px;border:none;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent-alt));color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:opacity .15s,filter .15s}
-  .send-btn:hover{filter:brightness(1.1)}
+
+  .attach-btn{position:absolute;left:8px;bottom:8px;width:32px;height:32px;border:none;border-radius:9px;background:transparent;color:var(--text-dim);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s,color .12s}
+  .attach-btn:hover{background:rgba(255,255,255,.06);color:var(--text)}
+
+  .send-btn{position:absolute;right:7px;bottom:7px;width:34px;height:34px;border:none;border-radius:10px;background:var(--accent);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:filter .15s,background .15s}
+  .send-btn:hover:not(:disabled){filter:brightness(1.1)}
   .send-btn:disabled{opacity:.45;cursor:not-allowed}
   .send-btn.stop{background:var(--red)}
-  .chat-hint{margin-top:8px;font-size:11px;color:var(--text-dim)}
-  .chat-hint kbd{background:var(--input);border:1px solid var(--border);padding:1px 5px;border-radius:3px;font-size:10.5px;color:var(--text-soft)}
 
-  /* ─ right panel ─ */
+  .chat-hint{margin-top:6px;font-size:10.5px;color:var(--text-dim)}
+  .chat-hint kbd{background:var(--input);border:1px solid var(--border);padding:1px 5px;border-radius:3px;font-size:10px;color:var(--text-soft)}
+
+  .attach-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+  .attach-chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:3px 8px 3px 10px;font-size:11.5px;color:var(--text-soft);max-width:240px}
+  .attach-chip .name{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .attach-chip .size{color:var(--text-dim);font-size:10px}
+  .attach-chip .rm{cursor:pointer;color:var(--text-dim);border:none;background:none;padding:2px 4px;border-radius:4px}
+  .attach-chip .rm:hover{color:var(--red);background:rgba(239,68,68,.1)}
+  .attach-chip img.thumb{width:18px;height:18px;border-radius:3px;object-fit:cover}
+
+  /* slash command dropdown */
+  .slash-menu{position:absolute;left:16px;right:16px;bottom:calc(100% + 6px);background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 16px 40px rgba(0,0,0,.5);overflow:hidden;z-index:20;max-height:280px;overflow-y:auto}
+  .slash-menu .item{padding:8px 12px;display:grid;grid-template-columns:56px 1fr;gap:10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border-soft)}
+  .slash-menu .item:last-child{border-bottom:none}
+  .slash-menu .item .cmd{color:var(--accent);font-family:ui-monospace,Consolas,monospace;font-size:12px;font-weight:600}
+  .slash-menu .item .desc{color:var(--text-soft);font-size:12px}
+  .slash-menu .item.active{background:rgba(59,130,246,.14)}
+
+  /* right panel */
   .panel{background:var(--panel);border-left:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden;min-width:0}
   .panel-inner{width:300px;display:flex;flex-direction:column;min-width:0;height:100%}
   .panel-tabs{display:flex;border-bottom:1px solid var(--border-soft);flex-shrink:0}
@@ -163,13 +261,17 @@
   .kpi-tile .val{font-size:14px;font-weight:600;color:var(--text)}
   .panel-empty{color:var(--text-dim);font-size:11.5px;font-style:italic;padding:40px 8px;text-align:center}
 
-  /* ─ toggle buttons (floating, always visible) ─ */
-  .toggle-btn{position:fixed;z-index:50;width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:rgba(15,19,32,.9);color:var(--text-soft);cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);transition:background .12s,color .12s,transform .2s}
+  /* toggle buttons */
+  .toggle-btn{position:fixed;z-index:50;width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:rgba(20,20,20,.9);color:var(--text-soft);cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);transition:background .12s,color .12s,transform .2s}
   .toggle-btn:hover{background:var(--surface);color:var(--text)}
   .toggle-sidebar{top:10px;left:8px;transition:left .25s ease}
-  .app[data-sidebar="open"] .toggle-sidebar{left:184px}
+  .app[data-sidebar="open"] .toggle-sidebar{left:calc(var(--sidebar-w,260px) - 38px)}
   .toggle-panel{top:50%;right:8px;transform:translateY(-50%);transition:right .25s ease}
   .app[data-panel="open"] .toggle-panel{right:264px}
+
+  /* toast */
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:8px;font-size:12.5px;z-index:300;box-shadow:0 10px 30px rgba(0,0,0,.5);opacity:0;transition:opacity .2s}
+  .toast.show{opacity:1}
 </style>
 </head>
 <body>
@@ -178,10 +280,15 @@
   <button class="toggle-btn toggle-sidebar" id="toggleSidebar" title="사이드바">☰</button>
   <button class="toggle-btn toggle-panel" id="togglePanel" title="우측 패널">◀</button>
 
-  <!-- ─ sidebar ───────────────────────────────────────────────────── -->
+  <!-- sidebar -->
   <aside class="sidebar">
     <div class="sidebar-inner">
-      <div class="logo"><span class="mark"></span>CORVUS X</div>
+      <div class="sb-head">
+        <span class="logo"><span class="mark"></span>CORVUS X</span>
+        <button class="icon-btn" id="sbToggleCollapse" title="사이드바 접기">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 4L6 8l4 4"/></svg>
+        </button>
+      </div>
       <button class="nav-btn active" id="navNewChat">
         <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
         새 채팅
@@ -189,8 +296,7 @@
       <div class="sidebar-scroll" id="sidebarScroll">
         <div class="nav-divider">채팅</div>
         <div id="generalThreads"></div>
-        <div class="nav-divider">프로젝트</div>
-        <div class="sub-new" id="newProject">+ 새 프로젝트</div>
+        <div class="nav-divider">프로젝트 <span class="add" id="newProject" title="새 프로젝트">+</span></div>
         <div id="projectList"></div>
         <div class="nav-divider">도구</div>
         <a href="/?view=images" class="nav-btn">
@@ -202,10 +308,11 @@
           대시보드
         </a>
       </div>
+      <div class="sidebar-resize" id="sidebarResize" title="드래그로 크기 조절"></div>
     </div>
   </aside>
 
-  <!-- ─ main: office top + chat bottom ─────────────────────────────── -->
+  <!-- main -->
   <div class="main-col">
     <div class="office-wrap">
       <div class="office-title">CORVUS X OFFICE</div>
@@ -226,19 +333,28 @@
           <p>지시를 입력하면 필요한 부서 직원이 움직입니다.</p>
         </div>
       </div>
-      <div class="chat-input">
-        <div class="chat-input-wrap">
-          <textarea id="directive" rows="1" placeholder="무엇이든 물어보세요..."></textarea>
+      <button class="to-bottom" id="toBottom" title="맨 아래로">
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 9l5 4 5-4"/></svg>
+      </button>
+      <div class="chat-input" id="chatInput">
+        <div id="attachRow" class="attach-row" style="display:none"></div>
+        <div class="chat-input-wrap" id="inputWrap">
+          <button class="attach-btn" id="attachBtn" title="파일 첨부">
+            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M13 7l-5.5 5.5a3 3 0 11-4.2-4.2L8.5 3a2 2 0 112.8 2.8L5.8 11.3a1 1 0 11-1.4-1.4L9.5 4.8"/></svg>
+          </button>
+          <input type="file" id="fileInput" multiple style="display:none" />
+          <textarea id="directive" rows="1" placeholder="무엇이든 물어보세요... ( / 로 명령 )"></textarea>
           <button class="send-btn" id="sendBtn" title="전송">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
           </button>
+          <div id="slashMenu" class="slash-menu" style="display:none"></div>
         </div>
-        <div class="chat-hint"><kbd>Enter</kbd> 전송 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 줄바꿈</div>
+        <div class="chat-hint"><kbd>Enter</kbd> 전송 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 줄바꿈 · <kbd>/</kbd> 명령 · 파일 드래그/붙여넣기 지원</div>
       </div>
     </section>
   </div>
 
-  <!-- ─ right panel ────────────────────────────────────────────────── -->
+  <!-- right panel -->
   <aside class="panel">
     <div class="panel-inner">
       <div class="panel-tabs">
@@ -252,11 +368,13 @@
   </aside>
 </div>
 
+<div class="toast" id="toast"></div>
+
 <script>
 (() => {
   const API_BASE = location.origin.includes('localhost') ? 'http://localhost:8000' : '';
 
-  // ─── 부서 정의 ─────────────────────────────────────────────────────
+  // departments
   const DEPTS = [
     { id:'market',    kr:'시장조사', color:0x3b82f6, hex:'#3b82f6' },
     { id:'marketing', kr:'마케팅',   color:0xec4899, hex:'#ec4899' },
@@ -270,125 +388,175 @@
   ];
   const DEPT_BY_ID = Object.fromEntries(DEPTS.map(d => [d.id, d]));
 
+  // slash commands
+  const SLASH_COMMANDS = [
+    { cmd:'/dalle',      desc:'OpenAI DALL-E 이미지 생성' },
+    { cmd:'/imagen',     desc:'Gemini Imagen 4 이미지 생성' },
+    { cmd:'/midjourney', desc:'Midjourney v6.1 이미지' },
+    { cmd:'/runway',     desc:'Runway Gen4 영상' },
+    { cmd:'/veo',        desc:'Gemini Veo 3.1 영상' },
+    { cmd:'/research',   desc:'심층 리서치 (Perplexity 분할)' },
+    { cmd:'/web',        desc:'웹 검색' },
+    { cmd:'/legal',      desc:'법무 검토 + 자동 법규 갱신' },
+    { cmd:'/finance',    desc:'재무 분석' },
+    { cmd:'/product',    desc:'제품 개발 (도메인 도구)' },
+    { cmd:'/data',       desc:'데이터 분석' },
+    { cmd:'/code',       desc:'코드 작성 / 리뷰' },
+    { cmd:'/slide',      desc:'슬라이드 (Slides Creator)' },
+  ];
+
   const GENERAL = '__general__';
   const LS = {
-    SIDEBAR: 'corvus-x-office.sidebar',
-    PANEL: 'corvus-x-office.panel',
-    TAB: 'corvus-x-office.tab',
-    PROJECTS: 'corvus-x-office.projects.v3',
-    THREADS: 'corvus-x-office.threads.v3',
-    ACTIVE_THREAD: 'corvus-x-office.activeThread.v3',
-    COLLAPSED: 'corvus-x-office.collapsedProjects.v3',
+    SIDEBAR:'cx-office.sidebar',
+    PANEL:'cx-office.panel',
+    SIDEBAR_W:'cx-office.sidebarWidth',
+    TAB:'cx-office.tab',
+    PROJECTS:'cx-office.projects.v4',
+    THREADS:'cx-office.threads.v4',
+    ACTIVE_THREAD:'cx-office.activeThread.v4',
+    COLLAPSED:'cx-office.collapsedProjects.v4',
+    FEEDBACK:'cx-office.feedback.v4',
   };
 
-  // ─── state ──────────────────────────────────────────────────────
   const state = {
-    es: null,
-    running: false,
-    scene: null,
-    projects: loadLS(LS.PROJECTS, []),         // [{id, title, updatedAt}]
-    threads: loadLS(LS.THREADS, {}),           // { [projectIdOrGeneral]: [{id, projectId, title, messages[], updatedAt}] }
-    activeThreadId: localStorage.getItem(LS.ACTIVE_THREAD) || null,
-    activeProjectId: GENERAL,                  // derived
-    collapsedProjects: new Set(loadLS(LS.COLLAPSED, [])),
-    currentTab: localStorage.getItem(LS.TAB) || 'depts',
-    deptStates: {},                             // { [deptId]: 'idle|working|done|err' }
-    missionDeptCount: 9,
-    deptCompletedCount: 0,
-    executiveActive: false,
-    lastBriefing: null,
-    lastCritic: null,
+    es:null,
+    running:false,
+    scene:null,
+    projects:loadLS(LS.PROJECTS, []),
+    threads:loadLS(LS.THREADS, {}),
+    activeThreadId:localStorage.getItem(LS.ACTIVE_THREAD) || null,
+    activeProjectId:GENERAL,
+    collapsedProjects:new Set(loadLS(LS.COLLAPSED, [])),
+    currentTab:localStorage.getItem(LS.TAB) || 'depts',
+    deptStates:{},
+    missionDeptCount:9,
+    deptCompletedCount:0,
+    executiveActive:false,
+    lastBriefing:null,
+    lastCritic:null,
+    attachments:[],      // [{id, name, size, type, dataUrl, text}]
+    feedback:loadLS(LS.FEEDBACK, {}),  // { [msgId]: 'up'|'down' }
+    userAtBottom:true,
+    editingMsgId:null,
   };
-  function loadLS(key, fb) { try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : fb; } catch { return fb; } }
-  function saveLS(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} }
 
-  // 기본 상태 초기화
+  function loadLS(key, fb){ try{const r=localStorage.getItem(key); return r?JSON.parse(r):fb;}catch{return fb;} }
+  function saveLS(key, v){ try{localStorage.setItem(key, JSON.stringify(v));}catch{} }
+
   DEPTS.forEach(d => { state.deptStates[d.id] = 'idle'; });
 
   // ─── DOM ────────────────────────────────────────────────────────
   const $ = (id) => document.getElementById(id);
   const dom = {
-    app: $('app'),
-    toggleSidebar: $('toggleSidebar'),
-    togglePanel: $('togglePanel'),
-    navNewChat: $('navNewChat'),
-    newProject: $('newProject'),
-    generalThreads: $('generalThreads'),
-    projectList: $('projectList'),
-    chatTitle: $('chatTitle'),
-    chatLog: $('chatLog'),
-    directive: $('directive'),
-    sendBtn: $('sendBtn'),
-    officeStatusDot: $('officeStatusDot'),
-    officeStatusText: $('officeStatusText'),
-    panelBody: $('panelBody'),
+    app:$('app'),
+    toggleSidebar:$('toggleSidebar'), togglePanel:$('togglePanel'),
+    sbToggleCollapse:$('sbToggleCollapse'),
+    navNewChat:$('navNewChat'), newProject:$('newProject'),
+    generalThreads:$('generalThreads'), projectList:$('projectList'),
+    chatTitle:$('chatTitle'), chatLog:$('chatLog'),
+    directive:$('directive'), sendBtn:$('sendBtn'),
+    attachBtn:$('attachBtn'), fileInput:$('fileInput'), attachRow:$('attachRow'),
+    chatInput:$('chatInput'), inputWrap:$('inputWrap'),
+    slashMenu:$('slashMenu'), toBottom:$('toBottom'),
+    sidebarResize:$('sidebarResize'),
+    officeStatusDot:$('officeStatusDot'), officeStatusText:$('officeStatusText'),
+    panelBody:$('panelBody'), toast:$('toast'),
   };
 
-  // ─── toggle state ────────────────────────────────────────────────
-  function applyToggles() {
+  // ─── Toast ──────────────────────────────────────────────────────
+  let toastTimer = null;
+  function toast(msg){
+    dom.toast.textContent = msg;
+    dom.toast.classList.add('show');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => dom.toast.classList.remove('show'), 1800);
+  }
+
+  // ─── Sidebar width + toggles ────────────────────────────────────
+  const sidebarWidth = Math.min(400, Math.max(200, Number(localStorage.getItem(LS.SIDEBAR_W) || 260)));
+  document.documentElement.style.setProperty('--sidebar-w', sidebarWidth + 'px');
+
+  function applyToggles(){
     dom.app.dataset.sidebar = localStorage.getItem(LS.SIDEBAR) === 'closed' ? 'closed' : 'open';
     dom.app.dataset.panel   = localStorage.getItem(LS.PANEL)   === 'closed' ? 'closed' : 'open';
     dom.togglePanel.textContent = dom.app.dataset.panel === 'open' ? '◀' : '▶';
   }
   dom.toggleSidebar.addEventListener('click', () => {
-    const cur = dom.app.dataset.sidebar;
-    const next = cur === 'open' ? 'closed' : 'open';
+    const next = dom.app.dataset.sidebar === 'open' ? 'closed' : 'open';
     dom.app.dataset.sidebar = next;
     localStorage.setItem(LS.SIDEBAR, next);
   });
+  dom.sbToggleCollapse.addEventListener('click', () => dom.toggleSidebar.click());
   dom.togglePanel.addEventListener('click', () => {
-    const cur = dom.app.dataset.panel;
-    const next = cur === 'open' ? 'closed' : 'open';
+    const next = dom.app.dataset.panel === 'open' ? 'closed' : 'open';
     dom.app.dataset.panel = next;
     localStorage.setItem(LS.PANEL, next);
     dom.togglePanel.textContent = next === 'open' ? '◀' : '▶';
   });
 
-  // ─── Phaser Scene (dark, isometric) ─────────────────────────────
+  // sidebar resize
+  (() => {
+    let startX = 0, startW = 260, dragging = false;
+    dom.sidebarResize.addEventListener('mousedown', (e) => {
+      if (dom.app.dataset.sidebar !== 'open') return;
+      dragging = true;
+      startX = e.clientX;
+      startW = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w')) || 260;
+      dom.app.classList.add('is-resizing');
+      document.body.style.cursor = 'ew-resize';
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      let w = startW + (e.clientX - startX);
+      w = Math.max(200, Math.min(400, w));
+      document.documentElement.style.setProperty('--sidebar-w', w + 'px');
+    });
+    window.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      dom.app.classList.remove('is-resizing');
+      document.body.style.cursor = '';
+      const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w')) || 260;
+      localStorage.setItem(LS.SIDEBAR_W, String(w));
+    });
+  })();
+
+  // ─── Phaser scene (isometric, 2x zoom) ──────────────────────────
   const W = 1280, H = 340;
   const TILE_W = 56, TILE_H = 28;
   const ORIGIN_X = W / 2;
   const ORIGIN_Y = 72;
-  function isoX(tx, ty) { return ORIGIN_X + (tx - ty) * (TILE_W / 2); }
-  function isoY(tx, ty) { return ORIGIN_Y + (tx + ty) * (TILE_H / 2); }
+  function isoX(tx, ty){ return ORIGIN_X + (tx - ty) * (TILE_W / 2); }
+  function isoY(tx, ty){ return ORIGIN_Y + (tx + ty) * (TILE_H / 2); }
 
   const CUBICLES = DEPTS.map((d, i) => {
     const col = i % 3, row = Math.floor(i / 3);
     return { deptId: d.id, tx: 2.0 + col * 1.6, ty: 2.3 + row * 1.0 };
   });
-  const MEETING_SEATS = DEPTS.map((d, i) => ({
+  const MEETING_SEATS = DEPTS.map((_d, i) => ({
     tx: 0.5 + (i % 3) * 0.6,
     ty: 0.3 + Math.floor(i / 3) * 0.5,
   }));
   DEPTS.forEach((d, i) => { d._meetingSeat = MEETING_SEATS[i]; });
 
   const C = {
-    floorA: 0x151b2d,
-    floorB: 0x1b2238,
-    floorEdge: 0x0a0d14,
-    deskTop: 0x2d3752,
-    deskSide: 0x1b223a,
-    deskFront: 0x242c47,
-    chairBody: 0x374151,
-    chairSeat: 0x1f2937,
-    monitorBezel: 0x0b1020,
-    monitorOn: 0x3b82f6,
-    keyboard: 0xcbd5e1,
-    plantPot: 0x5c3f22,
-    plantLeaf: 0x16a34a,
-    plantLeafLt: 0x22c55e,
-    sofaPurple: 0x6d28d9,
-    sofaDark: 0x4c1d95,
-    bookshelf: 0x422712,
-    tableWood: 0x78543a,
-    executiveGlow: 0xfbbf24,
-    ceoGlow: 0xf59e0b,
+    floorA:0x151b2d, floorB:0x1b2238, floorEdge:0x0a0d14,
+    deskTop:0x2d3752, deskSide:0x1b223a, deskFront:0x242c47,
+    chairBody:0x374151, chairSeat:0x1f2937,
+    monitorBezel:0x0b1020, monitorOn:0x3b82f6, keyboard:0xcbd5e1,
+    plantPot:0x5c3f22, plantLeaf:0x16a34a, plantLeafLt:0x22c55e,
+    sofaPurple:0x6d28d9, sofaDark:0x4c1d95,
+    bookshelf:0x422712, tableWood:0x78543a,
+    executiveGlow:0xfbbf24, ceoGlow:0xf59e0b,
   };
 
   class OfficeScene extends Phaser.Scene {
-    constructor() { super('office'); }
-    create() {
+    constructor(){ super('office'); }
+    create(){
       state.scene = this;
+      this.cameras.main.setZoom(2);
+      this.cameras.main.centerOn(W / 2, H / 2 + 10);
       this.bg = this.add.container(0, 0);
       this.floorLayer = this.add.container(0, 0);
       this.staticFurn = this.add.container(0, 0);
@@ -404,7 +572,7 @@
       this.initLights();
       this.initMonitorFlicker();
     }
-    addRoomLabels() {
+    addRoomLabels(){
       const mk = (x, y, txt, c) => this.add.text(x, y, txt, {
         fontFamily:'Inter,system-ui,sans-serif', fontSize:'10px', fontStyle:'bold', color:c,
       }).setOrigin(0.5, 0.5);
@@ -414,50 +582,33 @@
       this.bg.add(mk(isoX(3.5, 3.0), isoY(3.5, 3.0) - 62, '업무공간',   '#64748b'));
       this.bg.add(mk(isoX(3.5, 5.0), isoY(3.5, 5.0) - 18, '휴게실',     '#64748b'));
     }
-    drawFloor() {
+    drawFloor(){
       const g = this.add.graphics();
       this.floorLayer.add(g);
-      for (let tx = 0; tx < 8; tx++) {
-        for (let ty = 0; ty < 6; ty++) {
-          const cx = isoX(tx, ty), cy = isoY(tx, ty);
-          const tint = (tx + ty) % 2 === 0 ? C.floorA : C.floorB;
-          g.fillStyle(tint, 1);
-          g.beginPath();
-          g.moveTo(cx, cy - TILE_H / 2);
-          g.lineTo(cx + TILE_W/2, cy);
-          g.lineTo(cx, cy + TILE_H / 2);
-          g.lineTo(cx - TILE_W/2, cy);
-          g.closePath();
-          g.fillPath();
-          g.lineStyle(1, C.floorEdge, 0.5);
-          g.strokePath();
-        }
+      for (let tx = 0; tx < 8; tx++) for (let ty = 0; ty < 6; ty++) {
+        const cx = isoX(tx, ty), cy = isoY(tx, ty);
+        g.fillStyle((tx+ty)%2===0 ? C.floorA : C.floorB, 1);
+        g.beginPath(); g.moveTo(cx, cy - TILE_H/2); g.lineTo(cx + TILE_W/2, cy);
+        g.lineTo(cx, cy + TILE_H/2); g.lineTo(cx - TILE_W/2, cy); g.closePath(); g.fillPath();
+        g.lineStyle(1, C.floorEdge, 0.5); g.strokePath();
       }
     }
-    drawRooms() {
-      const g = this.add.graphics();
-      this.floorLayer.add(g);
-      // 회의실 (tx 0-2, ty 0-1)
+    drawRooms(){
+      const g = this.add.graphics(); this.floorLayer.add(g);
       this.fillRoomFloor(g, 0, 2, 0, 2, 0x1e293b, 0.55);
-      // 상무실 (tx 3-5, ty 0-1)
       this.fillRoomFloor(g, 3, 5, 0, 2, 0x1f1a10, 0.45);
-      // CEO (tx 5-8, ty 0-1)
       this.fillRoomFloor(g, 5, 8, 0, 2, 0x2a1f0a, 0.55);
-      // 휴게실 (tx 2-5, ty 5-6)
       this.fillRoomFloor(g, 2, 5, 5, 6, 0x1e1b4b, 0.45);
     }
-    fillRoomFloor(g, x1, x2, y1, y2, color, alpha) {
+    fillRoomFloor(g, x1, x2, y1, y2, color, alpha){
       const pts = [[x1,y1],[x2,y1],[x2,y2],[x1,y2]];
-      g.fillStyle(color, alpha);
-      g.beginPath();
+      g.fillStyle(color, alpha); g.beginPath();
       g.moveTo(isoX(pts[0][0], pts[0][1]), isoY(pts[0][0], pts[0][1]));
       for (let i = 1; i < pts.length; i++) g.lineTo(isoX(pts[i][0], pts[i][1]), isoY(pts[i][0], pts[i][1]));
-      g.closePath();
-      g.fillPath();
+      g.closePath(); g.fillPath();
     }
-    drawWalls() {
-      const g = this.add.graphics();
-      this.floorLayer.add(g);
+    drawWalls(){
+      const g = this.add.graphics(); this.floorLayer.add(g);
       const segs = [
         { a:{tx:0,ty:2}, b:{tx:2,ty:2}, c:0x334155 },
         { a:{tx:2,ty:0}, b:{tx:2,ty:2}, c:0x334155 },
@@ -468,14 +619,13 @@
         { a:{tx:2,ty:5}, b:{tx:5,ty:5}, c:0x312e81 },
       ];
       for (const s of segs) {
-        g.lineStyle(2.5, s.c, 0.9);
-        g.beginPath();
+        g.lineStyle(2.5, s.c, 0.9); g.beginPath();
         g.moveTo(isoX(s.a.tx, s.a.ty), isoY(s.a.tx, s.a.ty));
         g.lineTo(isoX(s.b.tx, s.b.ty), isoY(s.b.tx, s.b.ty));
         g.strokePath();
       }
     }
-    isoBox(g, tx, ty, w, d, h, top, sL, sR) {
+    isoBox(g, tx, ty, w, d, h, top, sL, sR){
       const x1 = isoX(tx, ty), y1 = isoY(tx, ty);
       const x2 = isoX(tx + w, ty), y2 = isoY(tx + w, ty);
       const x3 = isoX(tx + w, ty + d), y3 = isoY(tx + w, ty + d);
@@ -488,27 +638,23 @@
       g.moveTo(x1, y1 - h); g.lineTo(x2, y2 - h); g.lineTo(x3, y3 - h); g.lineTo(x4, y4 - h); g.closePath(); g.fillPath();
       g.lineStyle(1, 0x050810, 0.5); g.strokePath();
     }
-    drawMonitor(g, cx, cy) {
+    drawMonitor(g, cx, cy){
       g.fillStyle(C.monitorBezel, 1); g.fillRect(cx - 9, cy - 13, 18, 12);
       g.fillStyle(0x0f172a, 1); g.fillRect(cx - 7, cy - 11, 14, 8);
       g.fillStyle(0x374151, 1); g.fillRect(cx - 2, cy - 1, 4, 3); g.fillRect(cx - 5, cy + 2, 10, 1);
     }
-    drawKeyboard(g, cx, cy) {
-      g.fillStyle(C.keyboard, 0.85); g.fillRect(cx - 8, cy + 4, 16, 4);
-    }
-    drawChair(g, tx, ty) {
+    drawKeyboard(g, cx, cy){ g.fillStyle(C.keyboard, 0.85); g.fillRect(cx - 8, cy + 4, 16, 4); }
+    drawChair(g, tx, ty){
       this.isoBox(g, tx - 0.15, ty + 0.05, 0.3, 0.3, 6, C.chairSeat, 0x0b0f1a, 0x12182a);
       this.isoBox(g, tx - 0.15, ty + 0.05, 0.3, 0.08, 14, C.chairBody, 0x1e2742, 0x2a3454);
     }
-    drawPlant(g, cx, cy) {
+    drawPlant(g, cx, cy){
       g.fillStyle(C.plantPot, 1); g.fillRect(cx - 5, cy - 2, 10, 8);
       g.fillStyle(C.plantLeaf, 1);   g.fillCircle(cx - 2, cy - 6, 5); g.fillCircle(cx + 3, cy - 7, 5);
       g.fillStyle(C.plantLeafLt, 1); g.fillCircle(cx, cy - 9, 4);     g.fillCircle(cx + 5, cy - 5, 3);
     }
-    drawFurniture() {
-      const g = this.add.graphics();
-      this.staticFurn.add(g);
-      // 회의실 원형 테이블
+    drawFurniture(){
+      const g = this.add.graphics(); this.staticFurn.add(g);
       const mcx = isoX(1.0, 0.9), mcy = isoY(1.0, 0.9);
       g.fillStyle(C.tableWood, 1); g.fillEllipse(mcx, mcy, 84, 42);
       g.lineStyle(1, 0x3a2412, 0.8); g.strokeEllipse(mcx, mcy, 84, 42);
@@ -521,7 +667,6 @@
       }
       this.drawPlant(g, isoX(0.2, 0.2), isoY(0.2, 0.2));
       this.drawPlant(g, isoX(1.9, 1.9), isoY(1.9, 1.9));
-
       // 상무실
       this.isoBox(g, 3.3, 0.7, 1.2, 0.6, 13, C.deskTop, C.deskFront, C.deskSide);
       this.drawMonitor(g, isoX(3.9, 0.85), isoY(3.9, 0.85) - 8);
@@ -529,13 +674,9 @@
       this.drawChair(g, 3.9, 1.55);
       this.isoBox(g, 3.1, 0.1, 0.25, 0.8, 26, C.bookshelf, 0x2a1810, 0x35201b);
       const bx = isoX(3.15, 0.5), by = isoY(3.15, 0.5);
-      for (let i = 0; i < 4; i++) {
-        g.fillStyle([0xDC2626, 0x2563EB, 0x059669, 0xD97706][i], 1);
-        g.fillRect(bx - 4, by - 24 + i * 5, 8, 4);
-      }
+      for (let i = 0; i < 4; i++) { g.fillStyle([0xDC2626, 0x2563EB, 0x059669, 0xD97706][i], 1); g.fillRect(bx - 4, by - 24 + i * 5, 8, 4); }
       this.drawPlant(g, isoX(4.7, 0.3), isoY(4.7, 0.3));
-
-      // CEO 사장실
+      // CEO
       this.isoBox(g, 5.5, 0.4, 1.8, 0.9, 14, C.deskTop, C.deskFront, C.deskSide);
       this.drawMonitor(g, isoX(6.4, 0.65), isoY(6.4, 0.65) - 9);
       this.drawKeyboard(g, isoX(6.4, 0.85), isoY(6.4, 0.85) - 9);
@@ -544,13 +685,9 @@
       this.isoBox(g, 7.2, 0.5, 0.5, 0.2, 14, 0x8B5CF6, C.sofaPurple, 0x5B21B6);
       this.isoBox(g, 5.1, 0.1, 0.25, 1.0, 26, C.bookshelf, 0x2a1810, 0x35201b);
       const cbx = isoX(5.15, 0.6), cby = isoY(5.15, 0.6);
-      for (let i = 0; i < 5; i++) {
-        g.fillStyle([0xDC2626, 0x2563EB, 0x059669, 0xD97706, 0x7C3AED][i], 1);
-        g.fillRect(cbx - 4, cby - 24 + i * 5, 8, 4);
-      }
+      for (let i = 0; i < 5; i++) { g.fillStyle([0xDC2626, 0x2563EB, 0x059669, 0xD97706, 0x7C3AED][i], 1); g.fillRect(cbx - 4, cby - 24 + i * 5, 8, 4); }
       this.drawPlant(g, isoX(5.4, 1.8), isoY(5.4, 1.8));
-
-      // 큐비클 9개
+      // 큐비클
       for (const c of CUBICLES) {
         this.isoBox(g, c.tx - 0.45, c.ty - 0.35, 0.9, 0.65, 10, C.deskTop, C.deskFront, C.deskSide);
         this.drawMonitor(g, isoX(c.tx, c.ty - 0.12), isoY(c.tx, c.ty - 0.12) - 8);
@@ -560,71 +697,59 @@
       this.drawPlant(g, isoX(0.3, 3.5), isoY(0.3, 3.5));
       this.drawPlant(g, isoX(7.3, 3.0), isoY(7.3, 3.0));
       this.drawPlant(g, isoX(0.4, 2.0), isoY(0.4, 2.0));
-
       // 휴게실
       this.isoBox(g, 2.8, 5.3, 2.0, 0.4, 10, 0x334155, 0x1e293b, 0x263448);
       this.isoBox(g, 2.8, 5.15, 2.0, 0.15, 14, 0x475569, 0x334155, 0x3b4b66);
       this.isoBox(g, 3.4, 5.7, 0.8, 0.3, 6, C.tableWood, 0x3a2412, 0x513020);
       this.drawPlant(g, isoX(5.2, 5.8), isoY(5.2, 5.8));
     }
-    initLights() {
-      this.executiveLight = this.add.graphics();
-      this.ceoLight = this.add.graphics();
-      this.lightLayer.add(this.executiveLight);
-      this.lightLayer.add(this.ceoLight);
-      this.executiveLight.setVisible(false);
-      this.ceoLight.setVisible(false);
+    initLights(){
+      this.executiveLight = this.add.graphics(); this.ceoLight = this.add.graphics();
+      this.lightLayer.add(this.executiveLight); this.lightLayer.add(this.ceoLight);
+      this.executiveLight.setVisible(false); this.ceoLight.setVisible(false);
     }
-    lightExecutive(on) {
-      const g = this.executiveLight;
-      g.clear();
+    lightExecutive(on){
+      const g = this.executiveLight; g.clear();
       if (!on) { g.setVisible(false); return; }
       g.setVisible(true);
       const pts = [[3,0],[5,0],[5,2],[3,2]];
-      g.fillStyle(C.executiveGlow, 0.25);
-      g.beginPath();
+      g.fillStyle(C.executiveGlow, 0.25); g.beginPath();
       g.moveTo(isoX(pts[0][0], pts[0][1]), isoY(pts[0][0], pts[0][1]));
       for (let i = 1; i < pts.length; i++) g.lineTo(isoX(pts[i][0], pts[i][1]), isoY(pts[i][0], pts[i][1]));
       g.closePath(); g.fillPath();
-      this.tweens.add({ targets: g, alpha: { from: 0.6, to: 1 }, duration: 900, yoyo: true, repeat: -1 });
+      this.tweens.add({ targets:g, alpha:{from:0.6,to:1}, duration:900, yoyo:true, repeat:-1 });
     }
-    lightCeo(on) {
-      const g = this.ceoLight;
-      g.clear();
+    lightCeo(on){
+      const g = this.ceoLight; g.clear();
       if (!on) { g.setVisible(false); return; }
       g.setVisible(true);
       const pts = [[5,0],[8,0],[8,2],[5,2]];
-      g.fillStyle(C.ceoGlow, 0.25);
-      g.beginPath();
+      g.fillStyle(C.ceoGlow, 0.25); g.beginPath();
       g.moveTo(isoX(pts[0][0], pts[0][1]), isoY(pts[0][0], pts[0][1]));
       for (let i = 1; i < pts.length; i++) g.lineTo(isoX(pts[i][0], pts[i][1]), isoY(pts[i][0], pts[i][1]));
       g.closePath(); g.fillPath();
-      this.tweens.add({ targets: g, alpha: { from: 0.6, to: 1 }, duration: 1100, yoyo: true, repeat: -1 });
+      this.tweens.add({ targets:g, alpha:{from:0.6,to:1}, duration:1100, yoyo:true, repeat:-1 });
     }
-    initMonitorFlicker() {
-      this.monitorG = this.add.graphics();
-      this.dynamicFurn.add(this.monitorG);
+    initMonitorFlicker(){
+      this.monitorG = this.add.graphics(); this.dynamicFurn.add(this.monitorG);
       this.time.addEvent({
-        delay: 800, loop: true,
-        callback: () => {
+        delay:800, loop:true, callback:() => {
           this.monitorG.clear();
           for (const c of CUBICLES) {
             const mx = isoX(c.tx, c.ty - 0.12), my = isoY(c.tx, c.ty - 0.12) - 8;
             const on = Math.random() > 0.35;
             const col = on ? (Math.random() > 0.5 ? 0x3b82f6 : 0x10b981) : 0x0f172a;
-            this.monitorG.fillStyle(col, 0.88);
-            this.monitorG.fillRect(mx - 7, my - 11, 14, 8);
+            this.monitorG.fillStyle(col, 0.88); this.monitorG.fillRect(mx - 7, my - 11, 14, 8);
           }
         },
       });
     }
-    createCharacters() {
+    createCharacters(){
       this.characters = {};
       DEPTS.forEach((d) => {
         const cub = CUBICLES.find(c => c.deptId === d.id);
         const sx = isoX(cub.tx, cub.ty + 0.3), sy = isoY(cub.tx, cub.ty + 0.3) - 4;
-        const container = this.add.container(sx, sy);
-        container.setDepth(Math.floor(sy));
+        const container = this.add.container(sx, sy); container.setDepth(Math.floor(sy));
         const hair = this.add.rectangle(0, -22, 10, 3, 0x0a0d14).setOrigin(0.5, 0.5);
         const head = this.add.rectangle(0, -18, 10, 10, 0xf6d5ad).setOrigin(0.5, 0.5);
         const eyeL = this.add.rectangle(-2, -18, 1, 1, 0x000).setOrigin(0.5, 0.5);
@@ -636,375 +761,389 @@
         const legR = this.add.rectangle(2, 1, 3, 6, 0x0a0d14).setOrigin(0.5, 0.5);
         container.add([hair, head, eyeL, eyeR, body, armL, armR, legL, legR]);
         const data = {
-          deptId: d.id, color: d.color, hex: d.hex, container,
+          deptId:d.id, color:d.color, hex:d.hex, container,
           head, hair, body, armL, armR, legL, legR,
-          cubicle: cub, meetingSeat: d._meetingSeat,
-          state: 'idle', bubble: null, bubbleTimer: null,
-          bobTween: null, armTweenL: null, armTweenR: null, walkTween: null,
+          cubicle:cub, meetingSeat:d._meetingSeat,
+          state:'idle', bubble:null, bubbleTimer:null,
+          bobTween:null, armTweenL:null, armTweenR:null, walkTween:null,
         };
         this.characters[d.id] = data;
         this.charLayer.add(container);
         this.startIdleBob(data);
       });
     }
-    startIdleBob(c) {
+    startIdleBob(c){
       this.stopTweens(c);
-      c.bobTween = this.tweens.add({
-        targets: c.container, y: c.container.y - 1.5,
-        duration: 1200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-      });
+      c.bobTween = this.tweens.add({ targets:c.container, y:c.container.y - 1.5, duration:1200, yoyo:true, repeat:-1, ease:'Sine.easeInOut' });
     }
-    stopTweens(c) {
-      [c.bobTween, c.armTweenL, c.armTweenR, c.walkTween].forEach(t => t && t.stop());
-      c.bobTween = c.armTweenL = c.armTweenR = c.walkTween = null;
-    }
-    walkCharTo(c, tx, ty, done) {
+    stopTweens(c){ [c.bobTween, c.armTweenL, c.armTweenR, c.walkTween].forEach(t => t && t.stop()); c.bobTween = c.armTweenL = c.armTweenR = c.walkTween = null; }
+    walkCharTo(c, tx, ty, done){
       this.stopTweens(c);
       const destX = isoX(tx, ty), destY = isoY(tx, ty) - 4;
-      c.walkTween = this.tweens.chain({
-        targets: c.container,
-        tweens: [
-          { x: destX, duration: 500, ease: 'Linear' },
-          { y: destY, duration: 500, ease: 'Linear' },
-        ],
-        onComplete: () => {
-          c.container.setDepth(Math.floor(destY));
-          if (done) done();
-        },
-      });
-      this.tweens.add({ targets: [c.legL, c.legR], y: { from: 1, to: -1 }, duration: 120, yoyo: true, repeat: 8 });
+      c.walkTween = this.tweens.chain({ targets:c.container, tweens:[{x:destX,duration:500,ease:'Linear'},{y:destY,duration:500,ease:'Linear'}], onComplete:() => { c.container.setDepth(Math.floor(destY)); if (done) done(); } });
+      this.tweens.add({ targets:[c.legL, c.legR], y:{from:1,to:-1}, duration:120, yoyo:true, repeat:8 });
     }
-    startTyping(c) {
+    startTyping(c){
       this.stopTweens(c);
-      c.armTweenL = this.tweens.add({ targets: c.armL, y: { from: -8, to: -5 }, duration: 170, yoyo: true, repeat: -1 });
-      c.armTweenR = this.tweens.add({ targets: c.armR, y: { from: -5, to: -8 }, duration: 170, yoyo: true, repeat: -1 });
+      c.armTweenL = this.tweens.add({ targets:c.armL, y:{from:-8,to:-5}, duration:170, yoyo:true, repeat:-1 });
+      c.armTweenR = this.tweens.add({ targets:c.armR, y:{from:-5,to:-8}, duration:170, yoyo:true, repeat:-1 });
     }
-    setBubble(c, text, colorHex = '#ffffff', autoHideMs = 3000) {
+    setBubble(c, text, colorHex = '#ffffff', autoHideMs = 3000){
       this.clearBubble(c);
       const bg = this.add.graphics();
-      const t = this.add.text(0, 0, String(text).slice(0, 24), {
-        fontFamily:'Inter,sans-serif', fontSize:'10px', color:'#1f2937',
-      }).setOrigin(0.5, 0.5);
+      const t = this.add.text(0, 0, String(text).slice(0, 24), { fontFamily:'Inter,sans-serif', fontSize:'10px', color:'#1f2937' }).setOrigin(0.5, 0.5);
       const w = t.width + 10, h = 14;
       bg.fillStyle(Phaser.Display.Color.HexStringToColor(colorHex).color, 1);
       bg.fillRoundedRect(-w / 2, -h / 2, w, h, 3);
-      bg.lineStyle(1, 0x1f2937, 1);
-      bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 3);
-      bg.fillTriangle(-3, h/2 - 1, 3, h/2 - 1, 0, h/2 + 3);
-      const bubble = this.add.container(0, -32, [bg, t]);
-      c.container.add(bubble);
+      bg.lineStyle(1, 0x1f2937, 1); bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 3);
+      bg.fillTriangle(-3, h / 2 - 1, 3, h / 2 - 1, 0, h / 2 + 3);
+      const bubble = this.add.container(0, -32, [bg, t]); c.container.add(bubble);
       c.bubble = bubble;
       if (c.bubbleTimer) c.bubbleTimer.remove();
       if (autoHideMs > 0) c.bubbleTimer = this.time.delayedCall(autoHideMs, () => this.clearBubble(c));
     }
-    clearBubble(c) {
-      if (c.bubble) { c.bubble.destroy(); c.bubble = null; }
-      if (c.bubbleTimer) { c.bubbleTimer.remove(); c.bubbleTimer = null; }
-    }
-    emitStars(c) {
+    clearBubble(c){ if (c.bubble) { c.bubble.destroy(); c.bubble = null; } if (c.bubbleTimer) { c.bubbleTimer.remove(); c.bubbleTimer = null; } }
+    emitStars(c){
       for (let i = 0; i < 3; i++) {
-        const s = this.add.text(0, -28, '★', {
-          fontFamily:'Inter,system-ui', fontSize:'13px', color:'#fbbf24',
-        }).setOrigin(0.5, 0.5);
+        const s = this.add.text(0, -28, '★', { fontFamily:'Inter,system-ui', fontSize:'13px', color:'#fbbf24' }).setOrigin(0.5, 0.5);
         c.container.add(s);
-        this.tweens.add({
-          targets: s, x: (i - 1) * 10, y: -48 - Math.random() * 10,
-          alpha: { from: 1, to: 0 }, duration: 900 + i * 120, ease: 'Cubic.easeOut',
-          onComplete: () => s.destroy(),
-        });
+        this.tweens.add({ targets:s, x:(i - 1) * 10, y:-48 - Math.random() * 10, alpha:{from:1,to:0}, duration:900 + i * 120, ease:'Cubic.easeOut', onComplete:() => s.destroy() });
       }
     }
-    goWork(deptId, objective) {
+    goWork(deptId, objective){
       const c = this.characters[deptId]; if (!c) return;
       c.state = 'walking'; state.deptStates[deptId] = 'working';
-      const seat = c.meetingSeat;
-      this.walkCharTo(c, seat.tx, seat.ty, () => {
-        c.state = 'working';
-        this.startTyping(c);
-        if (objective) this.setBubble(c, objective, '#dbeafe', 0);
-      });
+      this.walkCharTo(c, c.meetingSeat.tx, c.meetingSeat.ty, () => { c.state = 'working'; this.startTyping(c); if (objective) this.setBubble(c, objective, '#dbeafe', 0); });
       renderPanel();
     }
-    progressMsg(deptId, msg) {
-      const c = this.characters[deptId]; if (!c) return;
-      if (c.state === 'working' && msg) this.setBubble(c, msg, '#dbeafe', 0);
-    }
-    goDone(deptId) {
+    progressMsg(deptId, msg){ const c = this.characters[deptId]; if (c && c.state === 'working' && msg) this.setBubble(c, msg, '#dbeafe', 0); }
+    goDone(deptId){
       const c = this.characters[deptId]; if (!c) return;
       this.stopTweens(c); this.clearBubble(c);
       c.state = 'returning'; state.deptStates[deptId] = 'done';
-      this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty + 0.3, () => {
-        c.state = 'idle';
-        this.setBubble(c, '✓ 완료', '#d1fae5', 1800);
-        this.emitStars(c);
-        this.startIdleBob(c);
-      });
+      this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty + 0.3, () => { c.state = 'idle'; this.setBubble(c, '✓ 완료', '#d1fae5', 1800); this.emitStars(c); this.startIdleBob(c); });
       renderPanel();
     }
-    goError(deptId) {
+    goError(deptId){
       const c = this.characters[deptId]; if (!c) return;
       this.stopTweens(c); this.clearBubble(c);
       state.deptStates[deptId] = 'err';
       const homeX = isoX(c.cubicle.tx, c.cubicle.ty + 0.3);
       if (Math.abs(c.container.x - homeX) > 3) {
         c.state = 'returning';
-        this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty + 0.3, () => {
-          c.state = 'idle';
-          this.setBubble(c, '! 오류', '#fecaca', 3000);
-          this.startIdleBob(c);
-        });
-      } else {
-        c.state = 'idle';
-        this.setBubble(c, '! 오류', '#fecaca', 3000);
-        this.startIdleBob(c);
-      }
+        this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty + 0.3, () => { c.state = 'idle'; this.setBubble(c, '! 오류', '#fecaca', 3000); this.startIdleBob(c); });
+      } else { c.state = 'idle'; this.setBubble(c, '! 오류', '#fecaca', 3000); this.startIdleBob(c); }
       renderPanel();
     }
-    resetAll() {
+    resetAll(){
       this.lightExecutive(false); this.lightCeo(false);
       for (const c of Object.values(this.characters)) {
         this.stopTweens(c); this.clearBubble(c);
-        const home = c.cubicle;
-        c.container.setPosition(isoX(home.tx, home.ty + 0.3), isoY(home.tx, home.ty + 0.3) - 4);
-        c.state = 'idle';
-        this.startIdleBob(c);
+        c.container.setPosition(isoX(c.cubicle.tx, c.cubicle.ty + 0.3), isoY(c.cubicle.tx, c.cubicle.ty + 0.3) - 4);
+        c.state = 'idle'; this.startIdleBob(c);
       }
       DEPTS.forEach(d => { state.deptStates[d.id] = 'idle'; });
       state.lastBriefing = null; state.lastCritic = null;
       renderPanel();
     }
-    settleAll() {
+    settleAll(){
       for (const c of Object.values(this.characters)) {
         if (c.state !== 'working' && c.state !== 'walking') continue;
         this.stopTweens(c); this.clearBubble(c);
         c.state = 'returning';
-        this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty + 0.3, () => {
-          c.state = 'idle';
-          this.startIdleBob(c);
-        });
+        this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty + 0.3, () => { c.state = 'idle'; this.startIdleBob(c); });
       }
     }
-    recallToMeeting(deptId, reason) {
+    recallToMeeting(deptId, reason){
       const c = this.characters[deptId]; if (!c) return;
-      c.state = 'walking';
-      this.stopTweens(c);
-      this.walkCharTo(c, c.meetingSeat.tx, c.meetingSeat.ty, () => {
-        c.state = 'working';
-        this.startTyping(c);
-        this.setBubble(c, reason || '보완 작업', '#ffe3a0', 4000);
-      });
+      c.state = 'walking'; this.stopTweens(c);
+      this.walkCharTo(c, c.meetingSeat.tx, c.meetingSeat.ty, () => { c.state = 'working'; this.startTyping(c); this.setBubble(c, reason || '보완 작업', '#ffe3a0', 4000); });
     }
   }
 
   new Phaser.Game({
-    type: Phaser.AUTO,
-    parent: 'phaser-container',
-    backgroundColor: '#0F1117',
-    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, width: W, height: H },
-    scene: OfficeScene,
-    pixelArt: false,
+    type:Phaser.AUTO, parent:'phaser-container',
+    backgroundColor:'#1a1f2e',
+    scale:{ mode:Phaser.Scale.FIT, autoCenter:Phaser.Scale.CENTER_BOTH, width:W, height:H },
+    scene:OfficeScene, pixelArt:false,
   });
 
-  // ─── Chat rendering ────────────────────────────────────────────────
-  function escapeHtml(s) {
-    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  // ─── Minimal markdown renderer ──────────────────────────────────
+  function escapeHtml(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function renderMarkdown(text){
+    if (!text) return '';
+    const fenceBlocks = [];
+    let work = String(text).replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, (_m, lang, code) => {
+      const safeLang = (lang || '').trim().toLowerCase();
+      const escaped = escapeHtml(code.replace(/\n$/, ''));
+      let highlighted = escaped;
+      try {
+        if (window.hljs && safeLang && window.hljs.getLanguage(safeLang)) {
+          highlighted = window.hljs.highlight(code.replace(/\n$/, ''), { language:safeLang, ignoreIllegals:true }).value;
+        } else if (window.hljs) {
+          highlighted = window.hljs.highlightAuto(code.replace(/\n$/, '')).value;
+        }
+      } catch { highlighted = escaped; }
+      fenceBlocks.push(`<pre><button class="copy-code" type="button">복사</button><code class="hljs language-${safeLang}">${highlighted}</code></pre>`);
+      return `\u0000FENCE${fenceBlocks.length - 1}\u0000`;
+    });
+    work = escapeHtml(work);
+
+    work = work.replace(/^### (.+)$/gm, '<h3>$1</h3>')
+               .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+               .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+               .replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+
+    work = work.replace(/^---$/gm, '<hr>');
+
+    // blockquote
+    work = work.replace(/^&gt; ?(.+)$/gm, '<blockquote>$1</blockquote>');
+
+    // table: | a | b |\n|---|---|\n| c | d |
+    work = work.replace(/(^\|.+\|$\n^\|(?:\s*:?-+:?\s*\|)+$\n(?:^\|.+\|$\n?)+)/gm, (block) => {
+      const lines = block.trim().split(/\n/);
+      if (lines.length < 2) return block;
+      const header = lines[0].slice(1, -1).split('|').map(x => x.trim());
+      const rows = lines.slice(2).map(r => r.slice(1, -1).split('|').map(x => x.trim()));
+      const th = header.map(h => `<th>${h}</th>`).join('');
+      const trs = rows.map(r => '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>').join('');
+      return `<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
+    });
+
+    // lists
+    work = work.replace(/(^(?:- |\* ).+(?:\n(?:- |\* ).+)*)/gm, (block) => {
+      const items = block.split(/\n/).map(l => l.replace(/^(?:- |\* )/, '').trim()).filter(Boolean);
+      return '<ul>' + items.map(i => `<li>${i}</li>`).join('') + '</ul>';
+    });
+    work = work.replace(/(^\d+\. .+(?:\n\d+\. .+)*)/gm, (block) => {
+      const items = block.split(/\n/).map(l => l.replace(/^\d+\. /, '').trim()).filter(Boolean);
+      return '<ol>' + items.map(i => `<li>${i}</li>`).join('') + '</ol>';
+    });
+
+    // bold / italic / inline code
+    work = work.replace(/`([^`\n]+?)`/g, '<code class="inline">$1</code>');
+    work = work.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
+    work = work.replace(/(^|[^*])\*([^*\n]+?)\*/g, '$1<em>$2</em>');
+
+    // links
+    work = work.replace(/\[([^\]]+)\]\((https?:[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    // bare urls (avoid double-wrap)
+    work = work.replace(/(^|\s)(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+
+    // paragraph wrap (skip block-level)
+    work = work.split(/\n{2,}/).map(p => {
+      if (/^\s*<(h\d|ul|ol|table|pre|blockquote|hr)/i.test(p.trim())) return p;
+      if (!p.trim()) return '';
+      return '<p>' + p.replace(/\n/g, '<br>') + '</p>';
+    }).join('\n');
+
+    // restore fences
+    work = work.replace(/\u0000FENCE(\d+)\u0000/g, (_m, i) => fenceBlocks[Number(i)] || '');
+    return work;
   }
-  function addMsg({ who, body, kind = 'ai', deptId = null, html = false }, persist = true) {
-    const empty = dom.chatLog.querySelector('.chat-empty');
-    if (empty) empty.remove();
+
+  function bindCopyButtons(root){
+    root.querySelectorAll('.copy-code').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const pre = btn.parentElement; const code = pre && pre.querySelector('code');
+        if (!code) return;
+        navigator.clipboard.writeText(code.innerText).then(() => toast('코드 복사됨')).catch(() => {});
+      });
+    });
+  }
+
+  // ─── Messages ───────────────────────────────────────────────────
+  function addMsg(payload, persist = true){
+    const empty = dom.chatLog.querySelector('.chat-empty'); if (empty) empty.remove();
+    const id = payload.id || ('m_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5));
+    const kind = payload.kind || 'ai';
     const msg = document.createElement('div');
     msg.className = 'msg ' + kind;
-    if (deptId && DEPT_BY_ID[deptId]) msg.style.setProperty('--dept-color', DEPT_BY_ID[deptId].hex);
-    const whoEl = document.createElement('div');
-    whoEl.className = 'who';
-    if (kind === 'dept') whoEl.innerHTML = `<span class="dot"></span>${escapeHtml(who)}`;
-    else if (who) whoEl.textContent = who;
-    const bodyEl = document.createElement('div');
-    bodyEl.className = 'body';
-    if (html) bodyEl.innerHTML = body; else bodyEl.textContent = body;
-    if (kind !== 'user' || who) msg.appendChild(whoEl);
+    msg.dataset.mid = id;
+    if (payload.deptId && DEPT_BY_ID[payload.deptId]) msg.style.setProperty('--dept-color', DEPT_BY_ID[payload.deptId].hex);
+
+    const whoEl = document.createElement('div'); whoEl.className = 'who';
+    if (kind === 'dept') whoEl.innerHTML = `<span class="dot"></span>${escapeHtml(payload.who || '')}`;
+    else if (payload.who) whoEl.textContent = payload.who;
+
+    const bodyEl = document.createElement('div'); bodyEl.className = 'body';
+
+    const rendersMd = kind === 'ai' || kind === 'ceo' || kind === 'critic' || kind === 'dept';
+    if (payload.html) {
+      bodyEl.classList.add('md');
+      bodyEl.innerHTML = payload.body || '';
+    } else if (kind === 'user') {
+      bodyEl.textContent = payload.body || '';
+    } else if (rendersMd) {
+      bodyEl.classList.add('md');
+      bodyEl.innerHTML = renderMarkdown(payload.body || '');
+      bindCopyButtons(bodyEl);
+    } else {
+      bodyEl.textContent = payload.body || '';
+    }
+
+    // attachments preview (user)
+    if (kind === 'user' && Array.isArray(payload.attachments) && payload.attachments.length) {
+      const ar = document.createElement('div');
+      ar.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-top:6px';
+      for (const a of payload.attachments) {
+        const chip = document.createElement('div');
+        chip.style.cssText = 'font-size:10.5px;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:2px 7px;display:inline-flex;align-items:center;gap:5px';
+        if (a.thumb) chip.innerHTML = `<img src="${a.thumb}" style="width:14px;height:14px;border-radius:2px;object-fit:cover"/>${escapeHtml(a.name)}`;
+        else chip.textContent = `📎 ${a.name}`;
+        ar.appendChild(chip);
+      }
+      bodyEl.appendChild(ar);
+    }
+
+    if (kind !== 'user' || payload.who) msg.appendChild(whoEl);
     msg.appendChild(bodyEl);
+
+    // actions
+    if (kind !== 'sys' && kind !== 'err') {
+      const actions = document.createElement('div'); actions.className = 'msg-actions';
+      if (kind === 'user') {
+        actions.appendChild(makeBtn('📋 복사', () => copyText(payload.body || '')));
+        actions.appendChild(makeBtn('✎ 편집', () => beginEdit(msg, id, payload)));
+        if (Array.isArray(payload.versions) && payload.versions.length > 1) {
+          const nav = document.createElement('div'); nav.className = 'ver-nav';
+          const cur = payload.versionIndex ?? payload.versions.length - 1;
+          const prev = document.createElement('button'); prev.textContent = '◀'; prev.disabled = cur <= 0;
+          const lbl = document.createElement('span'); lbl.textContent = `${cur + 1}/${payload.versions.length}`;
+          const next = document.createElement('button'); next.textContent = '▶'; next.disabled = cur >= payload.versions.length - 1;
+          prev.onclick = () => moveVersion(id, -1);
+          next.onclick = () => moveVersion(id, +1);
+          nav.appendChild(prev); nav.appendChild(lbl); nav.appendChild(next);
+          actions.appendChild(nav);
+        }
+      } else {
+        actions.appendChild(makeBtn('📋 복사', () => copyText(bodyEl.innerText)));
+        if (kind === 'ai') actions.appendChild(makeBtn('↻ 재생성', () => regenerate(id)));
+        const up = makeBtn('👍', () => toggleFeedback(id, 'up', up, down));
+        const down = makeBtn('👎', () => toggleFeedback(id, 'down', up, down));
+        up.classList.add('thumb-up'); down.classList.add('thumb-down');
+        if (state.feedback[id] === 'up') up.classList.add('on');
+        if (state.feedback[id] === 'down') down.classList.add('on');
+        actions.appendChild(up); actions.appendChild(down);
+        actions.appendChild(makeBtn('⬇ 내보내기', () => exportMsg(payload, bodyEl.innerText)));
+      }
+      msg.appendChild(actions);
+    }
+
     dom.chatLog.appendChild(msg);
-    dom.chatLog.scrollTop = dom.chatLog.scrollHeight;
+    autoScrollIfNeeded();
+
     if (persist && state.activeThreadId) {
-      appendMessageToThread(state.activeThreadId, { who, body, kind, deptId, html, ts: Date.now() });
+      const stored = { id, kind, who:payload.who, body:payload.body, deptId:payload.deptId || null, html:!!payload.html, attachments:payload.attachments || [], versions:payload.versions, versionIndex:payload.versionIndex, ts:Date.now() };
+      appendMessageToThread(state.activeThreadId, stored);
     }
     return msg;
   }
-  function renderDeptReport(deptId, report) {
-    const d = DEPT_BY_ID[deptId];
-    const name = d ? `${d.kr}팀` : deptId;
-    const st = report?.structured;
-    let html = '';
-    if (st?.summary) html += escapeHtml(st.summary);
-    if (st?.keyFindings?.length) html += '<div class="sec">핵심</div><ul>' + st.keyFindings.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    if (st?.risks?.length) html += '<div class="sec">리스크</div><ul>' + st.risks.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    if (st?.assumptions?.length) html += '<div class="sec">가정</div><ul>' + st.assumptions.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    if (st?.needsFollowup?.length) html += '<div class="sec">추가 확인</div><ul>' + st.needsFollowup.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    if (!html && report?.sections) {
-      html = report.sections.map(s => `<div class="sec">${escapeHtml(s.heading)}</div><ul>` +
-        (s.items || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>').join('');
-    }
-    if (!html) html = '(보고 내용 없음)';
-    addMsg({ who: name, body: html, kind: 'dept', deptId, html: true });
+  function makeBtn(txt, onClick){
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.onclick = onClick; return b;
   }
-  function renderCeoBriefing(b) {
-    state.lastBriefing = b;
-    let html = '';
-    if (b?.summary) html += escapeHtml(b.summary);
-    if (b?.opportunities?.length) html += '<div class="sec">기회</div><ul>' + b.opportunities.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    if (b?.risks?.length) html += '<div class="sec">리스크</div><ul>' + b.risks.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    if (b?.recommendations?.length) html += '<div class="sec">권고</div><ul>' + b.recommendations.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    if (b?.conflictingSignals?.length) html += '<div class="sec">상충 신호</div><ul>' + b.conflictingSignals.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    if (typeof b?.overallConfidence === 'number') html += `<div class="sec">통합 신뢰도 ${Math.round(b.overallConfidence * 100)}%</div>`;
-    addMsg({ who: 'CEO 브리핑', body: html || '통합 브리핑', kind: 'ceo', html: true });
-    renderPanel();
-  }
-  function renderCriticReview(r) {
-    state.lastCritic = r;
-    const verdict = r?.verdict === 'pass' ? '✓ PASS' : '⚠ 보강 필요';
-    let html = `<b>${verdict}</b><br>${escapeHtml(r?.summary || '')}`;
-    const issues = (r?.keyIssues || []).concat(r?.contradictions || []);
-    if (issues.length) html += '<ul>' + issues.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    if (r?.verificationNeeded?.length) html += '<div class="sec">검증 필요</div><ul>' + r.verificationNeeded.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
-    addMsg({ who: '상무 검토', body: html, kind: 'critic', html: true });
-    renderPanel();
+  function copyText(t){ navigator.clipboard.writeText(t || '').then(() => toast('복사됨')).catch(() => toast('복사 실패')); }
+  function autoScrollIfNeeded(){
+    if (state.userAtBottom) dom.chatLog.scrollTop = dom.chatLog.scrollHeight;
   }
 
-  // ─── SSE ───────────────────────────────────────────────────────────
-  function onEvent(ev) {
-    let p; try { p = JSON.parse(ev.data); } catch { return; }
-    const type = p.type || ev.type;
-    const scene = state.scene; if (!scene) return;
-    switch (type) {
-      case 'mission_start':
-        state.missionDeptCount = Number(p.deptCount || 9);
-        state.deptCompletedCount = 0;
-        state.executiveActive = false;
-        break;
-      case 'dept_start':
-        scene.goWork(p.deptId, p.objective);
-        break;
-      case 'dept_progress':
-        scene.progressMsg(p.deptId, p.message);
-        break;
-      case 'dept_done':
-        scene.goDone(p.deptId);
-        if (p.report) renderDeptReport(p.deptId, p.report);
-        checkAllDeptsDone();
-        break;
-      case 'dept_error':
-        scene.goError(p.deptId);
-        addMsg({ who: (DEPT_BY_ID[p.deptId]?.kr || p.deptId) + '팀', body: `오류: ${p.error || '알 수 없는 오류'}`, kind: 'err' });
-        checkAllDeptsDone();
-        break;
-      case 'critic_review':
-        scene.lightExecutive(true);
-        renderCriticReview(p.review);
-        if (p.review?.verdict === 'needs_followup' && (p.review?.targetDeptId || p.deptId)) {
-          const tgt = p.review.targetDeptId || p.deptId;
-          setTimeout(() => scene.recallToMeeting(tgt, '상무 보완 지시'), 800);
-        }
-        setTimeout(() => scene.lightExecutive(false), 5000);
-        break;
-      case 'ceo_briefing':
-        scene.lightCeo(true);
-        renderCeoBriefing(p.briefing);
-        setTimeout(() => scene.lightCeo(false), 6000);
-        break;
-      case 'all_done':
-        finishRun();
-        break;
-      case 'stream_end':
-        if (state.running) finishRun(false);
-        break;
-      case 'error':
-        addMsg({ who: '오류', body: p.message, kind: 'err' });
-        finishRun(true);
-        break;
-    }
-  }
-  function checkAllDeptsDone() {
-    state.deptCompletedCount++;
-    if (!state.executiveActive && state.deptCompletedCount >= state.missionDeptCount) {
-      state.executiveActive = true;
-      state.scene?.lightExecutive(true);
-      addMsg({ who: '', body: '상무 검토 중...', kind: 'sys' });
-    }
-  }
+  dom.chatLog.addEventListener('scroll', () => {
+    const nearBottom = dom.chatLog.scrollHeight - dom.chatLog.scrollTop - dom.chatLog.clientHeight < 60;
+    state.userAtBottom = nearBottom;
+    dom.toBottom.classList.toggle('visible', !nearBottom);
+  });
+  dom.toBottom.addEventListener('click', () => { state.userAtBottom = true; dom.chatLog.scrollTop = dom.chatLog.scrollHeight; dom.toBottom.classList.remove('visible'); });
 
-  // ─── 실행 ─────────────────────────────────────────────────────────
-  function startRun() {
-    const directive = dom.directive.value.trim();
-    if (!directive || state.running) return;
-    ensureThread();
-    addMsg({ who: '', body: directive, kind: 'user' });
-    state.scene?.resetAll();
-    state.running = true;
-    state.missionDeptCount = 9;
-    state.deptCompletedCount = 0;
-    state.executiveActive = false;
-    dom.officeStatusDot.className = 'dot live';
-    dom.officeStatusText.textContent = '실행 중...';
-    dom.sendBtn.classList.add('stop');
-    dom.sendBtn.title = '중단';
-    dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="10" height="10"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>';
-    // 첫 메시지로 스레드 제목 자동 설정
-    const cur = getActiveThread();
-    if (cur && (!cur.title || cur.title === '신규 대화')) {
-      cur.title = directive.slice(0, 30);
-      saveThreads();
-      renderSidebar();
-      dom.chatTitle.textContent = cur.title;
-    }
-    renderPanel();
-    const url = new URL(API_BASE + '/api/director/stream', location.href);
-    url.searchParams.set('directive', directive);
-    url.searchParams.set('projectName', getProjectTitleOrGeneral());
+  function exportMsg(payload, text){
+    const blob = new Blob([text || payload.body || ''], { type:'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `message-${Date.now()}.md`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('내보내기 완료');
+  }
+  function toggleFeedback(id, kind, upBtn, downBtn){
+    if (state.feedback[id] === kind) delete state.feedback[id];
+    else state.feedback[id] = kind;
+    saveLS(LS.FEEDBACK, state.feedback);
+    upBtn.classList.toggle('on', state.feedback[id] === 'up');
+    downBtn.classList.toggle('on', state.feedback[id] === 'down');
     try {
-      const es = new EventSource(url.toString(), { withCredentials: true });
-      state.es = es;
-      ['mission_start','dept_start','dept_progress','dept_done','dept_error','critic_review','ceo_briefing','all_done','error','stream_end']
-        .forEach(n => es.addEventListener(n, onEvent));
-      es.onerror = () => {
-        if (state.running) {
-          addMsg({ who: '', body: '연결 오류.', kind: 'err' });
-          finishRun(true);
-        }
-      };
-    } catch (e) {
-      addMsg({ who: '', body: '연결 실패: ' + e.message, kind: 'err' });
-      finishRun(true);
-    }
-    dom.directive.value = '';
-    autoSize();
+      fetch(API_BASE + '/api/feedback', {
+        method:'POST', credentials:'include',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ messageId:id, verdict:state.feedback[id] || null }),
+      }).catch(() => {});
+    } catch {}
+    toast(state.feedback[id] === 'up' ? '👍 피드백 전송' : state.feedback[id] === 'down' ? '👎 피드백 전송' : '피드백 취소');
   }
-  function finishRun(isErr = false) {
-    state.running = false;
-    if (state.es) { try { state.es.close(); } catch {} state.es = null; }
-    dom.officeStatusDot.className = 'dot' + (isErr ? ' err' : '');
-    dom.officeStatusText.textContent = isErr ? '오류' : '대기 중';
-    dom.sendBtn.classList.remove('stop');
-    dom.sendBtn.title = '전송';
-    dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M3 8h10M9 4l4 4-4 4"/></svg>';
-    state.scene?.settleAll();
-    renderPanel();
+  function regenerate(id){
+    // find original user prompt preceding this AI msg
+    const t = getActiveThread(); if (!t) return;
+    const idx = t.messages.findIndex(m => m.id === id);
+    if (idx <= 0) { toast('재생성할 사용자 메시지 없음'); return; }
+    let userMsg = null;
+    for (let i = idx - 1; i >= 0; i--) if (t.messages[i].kind === 'user') { userMsg = t.messages[i]; break; }
+    if (!userMsg) { toast('재생성할 사용자 메시지 없음'); return; }
+    // re-send same directive
+    dom.directive.value = userMsg.body; autoSize();
+    startRun();
+  }
+  function beginEdit(msgEl, id, payload){
+    if (state.editingMsgId) return;
+    state.editingMsgId = id;
+    const body = msgEl.querySelector('.body');
+    const originalHtml = body.innerHTML;
+    const area = document.createElement('div'); area.className = 'edit-area';
+    const ta = document.createElement('textarea'); ta.value = payload.body || '';
+    const row = document.createElement('div'); row.className = 'row';
+    const cancel = document.createElement('button'); cancel.textContent = '취소 (Esc)';
+    const save = document.createElement('button'); save.textContent = '저장 (Enter)'; save.classList.add('primary');
+    row.appendChild(cancel); row.appendChild(save);
+    area.appendChild(ta); area.appendChild(row);
+    body.innerHTML = ''; body.appendChild(area); ta.focus();
+    const finish = (commit) => {
+      state.editingMsgId = null;
+      if (!commit) { body.innerHTML = originalHtml; return; }
+      const next = ta.value;
+      // update thread versions
+      const t = getActiveThread(); if (!t) return;
+      const m = t.messages.find(x => x.id === id); if (!m) return;
+      m.versions = m.versions || [m.body];
+      m.versions.push(next);
+      m.versionIndex = m.versions.length - 1;
+      m.body = next;
+      saveThreads(); debouncedSaveMessages(t.id);
+      body.textContent = next;
+      toast('메시지 편집됨 (재전송 안 함, 재생성은 ↻ 버튼)');
+    };
+    cancel.onclick = () => finish(false);
+    save.onclick = () => finish(true);
+    ta.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); finish(true); }
+      if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+  }
+  function moveVersion(id, delta){
+    const t = getActiveThread(); if (!t) return;
+    const m = t.messages.find(x => x.id === id); if (!m || !Array.isArray(m.versions)) return;
+    const ni = Math.max(0, Math.min(m.versions.length - 1, (m.versionIndex ?? m.versions.length - 1) + delta));
+    if (ni === m.versionIndex) return;
+    m.versionIndex = ni; m.body = m.versions[ni];
+    saveThreads(); debouncedSaveMessages(t.id);
+    reloadActiveThread();
   }
 
-  // ─── 프로젝트/스레드 ────────────────────────────────────────────────
-  function saveThreads() { saveLS(LS.THREADS, state.threads); }
-  function saveProjects() { saveLS(LS.PROJECTS, state.projects); }
-  function saveCollapsed() { saveLS(LS.COLLAPSED, [...state.collapsedProjects]); }
-  function projectThreads(pid) {
-    if (!state.threads[pid]) state.threads[pid] = [];
-    return state.threads[pid];
-  }
-  function getProjectTitleOrGeneral() {
+  // ─── Thread / project utilities ─────────────────────────────────
+  function saveThreads(){ saveLS(LS.THREADS, state.threads); }
+  function saveProjects(){ saveLS(LS.PROJECTS, state.projects); }
+  function saveCollapsed(){ saveLS(LS.COLLAPSED, [...state.collapsedProjects]); }
+  function projectThreads(pid){ if (!state.threads[pid]) state.threads[pid] = []; return state.threads[pid]; }
+  function getProjectTitleOrGeneral(){
     if (state.activeProjectId === GENERAL) return '신규 프로젝트';
-    const p = state.projects.find(x => x.id === state.activeProjectId);
-    return p?.title || '신규 프로젝트';
+    return state.projects.find(x => x.id === state.activeProjectId)?.title || '신규 프로젝트';
   }
-  function getActiveThread() {
+  function getActiveThread(){
     if (!state.activeThreadId) return null;
     for (const pid of Object.keys(state.threads)) {
       const t = state.threads[pid].find(x => x.id === state.activeThreadId);
@@ -1012,38 +1151,25 @@
     }
     return null;
   }
-  function ensureThread() {
-    if (!state.activeThreadId || !getActiveThread()) createNewThread(state.activeProjectId || GENERAL);
-  }
-  function createNewThread(projectId = GENERAL) {
+  function ensureThread(){ if (!state.activeThreadId || !getActiveThread()) createNewThread(state.activeProjectId || GENERAL); }
+  function createNewThread(projectId = GENERAL){
     const id = 'th_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const t = { id, projectId, title: '신규 대화', messages: [], updatedAt: Date.now() };
+    const t = { id, projectId, title:'신규 대화', messages:[], meta:{ pinned:false }, updatedAt:Date.now() };
     projectThreads(projectId).unshift(t);
-    state.activeThreadId = id;
-    state.activeProjectId = projectId;
+    state.activeThreadId = id; state.activeProjectId = projectId;
     localStorage.setItem(LS.ACTIVE_THREAD, id);
-    saveThreads();
-    // 서버 best-effort sync (실패 무시)
-    apiSaveThread(t).catch(() => {});
+    saveThreads(); apiSaveThread(t).catch(() => {}); apiSyncState();
     return t;
   }
-  function appendMessageToThread(threadId, msg) {
+  function appendMessageToThread(threadId, msg){
     for (const pid of Object.keys(state.threads)) {
       const list = state.threads[pid];
       const t = list.find(x => x.id === threadId);
-      if (t) {
-        t.messages.push(msg);
-        t.updatedAt = Date.now();
-        saveThreads();
-        renderSidebar();
-        // 서버 저장 debounced
-        debouncedSaveMessages(threadId);
-        return;
-      }
+      if (t) { t.messages.push(msg); t.updatedAt = Date.now(); saveThreads(); renderSidebar(); debouncedSaveMessages(threadId); return; }
     }
   }
   const saveMessageTimers = {};
-  function debouncedSaveMessages(threadId) {
+  function debouncedSaveMessages(threadId){
     if (saveMessageTimers[threadId]) clearTimeout(saveMessageTimers[threadId]);
     saveMessageTimers[threadId] = setTimeout(() => {
       for (const pid of Object.keys(state.threads)) {
@@ -1052,93 +1178,77 @@
       }
     }, 1200);
   }
-  function loadThread(threadId) {
+  function loadThread(threadId){
     if (state.running) return;
     let t = null, pid = null;
     for (const k of Object.keys(state.threads)) {
-      const match = state.threads[k].find(x => x.id === threadId);
-      if (match) { t = match; pid = k; break; }
+      const m = state.threads[k].find(x => x.id === threadId);
+      if (m) { t = m; pid = k; break; }
     }
     if (!t) return;
-    state.activeThreadId = threadId;
-    state.activeProjectId = pid;
+    state.activeThreadId = threadId; state.activeProjectId = pid;
     localStorage.setItem(LS.ACTIVE_THREAD, threadId);
     state.scene?.resetAll();
+    reloadActiveThread();
+    apiSyncState();
+  }
+  function reloadActiveThread(){
+    const t = getActiveThread(); if (!t) return;
     dom.chatLog.innerHTML = '';
     for (const m of t.messages) addMsg(m, false);
-    if (t.messages.length === 0) {
-      dom.chatLog.innerHTML = `<div class="chat-empty"><h3>무엇을 도와드릴까요?</h3><p>지시를 입력하면 필요한 부서 직원이 움직입니다.</p></div>`;
-    }
+    if (!t.messages.length) dom.chatLog.innerHTML = `<div class="chat-empty"><h3>무엇을 도와드릴까요?</h3><p>지시를 입력하면 필요한 부서 직원이 움직입니다.</p></div>`;
     dom.chatTitle.textContent = t.title;
     renderSidebar();
   }
-  function newChat() {
+  function newChat(){
     if (state.running) return;
     const pid = state.activeProjectId || GENERAL;
     createNewThread(pid);
     dom.chatLog.innerHTML = `<div class="chat-empty"><h3>무엇을 도와드릴까요?</h3><p>지시를 입력하면 필요한 부서 직원이 움직입니다.</p></div>`;
     state.scene?.resetAll();
-    dom.directive.value = '';
+    dom.directive.value = ''; autoSize(); clearAttachments();
     dom.directive.focus();
     dom.chatTitle.textContent = '신규 대화';
     renderSidebar();
   }
-  function newProject() {
-    const name = prompt('새 프로젝트 이름');
-    if (!name || !name.trim()) return;
-    const p = { id: 'proj_' + Date.now().toString(36), title: name.trim(), updatedAt: Date.now() };
-    state.projects.unshift(p);
-    saveProjects();
-    apiSaveProject(p).catch(() => {});
+  function newProject(){
+    const name = prompt('새 프로젝트 이름'); if (!name || !name.trim()) return;
+    const p = { id:'proj_' + Date.now().toString(36), title:name.trim(), updatedAt:Date.now(), meta:{} };
+    state.projects.unshift(p); saveProjects(); apiSaveProject(p).catch(() => {});
     state.activeProjectId = p.id;
-    createNewThread(p.id);
-    newChat();
+    createNewThread(p.id); newChat();
   }
 
-  // ─── 사이드바 렌더 ─────────────────────────────────────────────────
-  function renderSidebar() {
-    // 일반 채팅 (프로젝트 없이)
-    const gen = projectThreads(GENERAL).slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  // ─── Sidebar render ─────────────────────────────────────────────
+  function renderSidebar(){
     dom.generalThreads.innerHTML = '';
-    if (gen.length === 0) {
+    const gen = projectThreads(GENERAL).slice().sort(compareThreads);
+    if (!gen.length) {
       const e = document.createElement('div');
       e.className = 'thread-item'; e.style.color = 'var(--text-dim)'; e.style.fontStyle = 'italic';
       e.textContent = '대화 없음';
       dom.generalThreads.appendChild(e);
-    } else {
-      for (const t of gen) dom.generalThreads.appendChild(threadItem(t));
-    }
-    // 프로젝트 목록
+    } else for (const t of gen) dom.generalThreads.appendChild(threadItem(t, false));
+
     dom.projectList.innerHTML = '';
     for (const p of state.projects) {
       const ts = projectThreads(p.id);
       const row = document.createElement('div');
-      row.className = 'project-row' + (state.collapsedProjects.has(p.id) ? ' collapsed' : '');
-      row.innerHTML = `<span class="caret">▼</span><span class="name">${escapeHtml(p.title)}</span><span class="count">${ts.length}</span><span class="project-menu" title="삭제">✕</span>`;
-      row.onclick = (e) => {
-        const target = e.target;
-        if (target && target.classList && target.classList.contains('project-menu')) {
-          e.stopPropagation();
-          if (confirm(`"${p.title}" 프로젝트를 삭제할까요? (스레드도 함께 삭제)`)) {
-            state.projects = state.projects.filter(x => x.id !== p.id);
-            delete state.threads[p.id];
-            saveProjects(); saveThreads();
-            apiDeleteProject(p.id).catch(() => {});
-            if (state.activeProjectId === p.id) { state.activeProjectId = GENERAL; newChat(); }
-            renderSidebar();
-          }
-          return;
-        }
+      const isCollapsed = state.collapsedProjects.has(p.id);
+      row.className = 'project-row' + (isCollapsed ? ' collapsed' : '') + (state.activeProjectId === p.id ? ' active' : '');
+      row.innerHTML = `<span class="caret">▼</span><span class="name"></span><span class="count">${ts.length}</span><button class="row-menu" type="button">⋯</button>`;
+      row.querySelector('.name').textContent = p.title;
+      row.addEventListener('click', (e) => {
+        if (e.target && e.target.classList.contains('row-menu')) return;
         state.activeProjectId = p.id;
-        if (state.collapsedProjects.has(p.id)) state.collapsedProjects.delete(p.id);
-        else state.collapsedProjects.add(p.id);
-        saveCollapsed();
-        renderSidebar();
-      };
+        if (isCollapsed) state.collapsedProjects.delete(p.id); else state.collapsedProjects.add(p.id);
+        saveCollapsed(); renderSidebar(); apiSyncState();
+      });
+      row.querySelector('.row-menu').addEventListener('click', (e) => { e.stopPropagation(); openProjectMenu(e.currentTarget, p); });
       dom.projectList.appendChild(row);
-      if (!state.collapsedProjects.has(p.id)) {
-        const sorted = ts.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-        for (const t of sorted) dom.projectList.appendChild(threadItem(t));
+      if (!isCollapsed) {
+        const sorted = ts.slice().sort(compareThreads);
+        for (const t of sorted) dom.projectList.appendChild(threadItem(t, true));
         const nw = document.createElement('div');
         nw.className = 'project-new-thread';
         nw.textContent = '+ 새 스레드';
@@ -1147,17 +1257,406 @@
       }
     }
   }
-  function threadItem(t) {
+  function compareThreads(a, b){
+    const pa = a.meta?.pinned ? 1 : 0, pb = b.meta?.pinned ? 1 : 0;
+    if (pa !== pb) return pb - pa;
+    return (b.updatedAt || 0) - (a.updatedAt || 0);
+  }
+  function threadItem(t, inProject){
     const item = document.createElement('div');
     item.className = 'thread-item' + (t.id === state.activeThreadId ? ' active' : '');
     const time = new Date(t.updatedAt || Date.now()).toLocaleString('ko-KR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
-    item.innerHTML = `<span class="t-title">${escapeHtml(t.title || '신규 대화')}</span><span class="t-meta">${escapeHtml(time)}</span>`;
-    item.onclick = () => loadThread(t.id);
+    item.innerHTML = `<span class="t-main"><span class="t-title"></span><span class="t-meta"></span></span>${t.meta?.pinned ? '<span class="pin">📌</span>' : ''}<button class="row-menu" type="button">⋯</button>`;
+    item.querySelector('.t-title').textContent = t.title || '신규 대화';
+    item.querySelector('.t-meta').textContent = time;
+    item.addEventListener('click', (e) => {
+      if (e.target && e.target.classList.contains('row-menu')) return;
+      loadThread(t.id);
+    });
+    item.querySelector('.row-menu').addEventListener('click', (e) => { e.stopPropagation(); openThreadMenu(e.currentTarget, t, inProject); });
     return item;
   }
 
-  // ─── 우측 패널 ────────────────────────────────────────────────────
-  function switchTab(tab) {
+  // ─── Bubble menu ────────────────────────────────────────────────
+  let currentMenu = null;
+  function closeMenu(){ if (currentMenu) { currentMenu.remove(); currentMenu = null; } }
+  document.addEventListener('click', (e) => {
+    if (!currentMenu) return;
+    if (currentMenu.contains(e.target)) return;
+    closeMenu();
+  });
+  function openMenu(anchor, items){
+    closeMenu();
+    const m = document.createElement('div'); m.className = 'bubble-menu';
+    for (const it of items) {
+      if (it.divider) { const d = document.createElement('div'); d.className = 'divider'; m.appendChild(d); continue; }
+      const mi = document.createElement('div'); mi.className = 'mi' + (it.danger ? ' danger' : '');
+      mi.innerHTML = `<span>${escapeHtml(it.label)}</span>${it.submenu ? '<span class="chev">▸</span>' : ''}`;
+      if (it.submenu) {
+        mi.addEventListener('mouseenter', () => {
+          // render submenu
+          const existing = mi.querySelector('.bubble-menu.sub'); if (existing) return;
+          const sub = document.createElement('div'); sub.className = 'bubble-menu sub';
+          for (const s of it.submenu) {
+            const si = document.createElement('div'); si.className = 'mi'; si.textContent = s.label;
+            si.onclick = (e) => { e.stopPropagation(); s.onClick(); closeMenu(); };
+            sub.appendChild(si);
+          }
+          mi.style.position = 'relative'; mi.appendChild(sub);
+        });
+        mi.addEventListener('mouseleave', () => { const sub = mi.querySelector('.bubble-menu.sub'); if (sub) sub.remove(); });
+      } else if (it.onClick) {
+        mi.onclick = (e) => { e.stopPropagation(); it.onClick(); closeMenu(); };
+      }
+      m.appendChild(mi);
+    }
+    document.body.appendChild(m);
+    const r = anchor.getBoundingClientRect();
+    let left = r.right + 4, top = r.top;
+    if (left + 220 > window.innerWidth) left = r.left - 220;
+    if (top + m.offsetHeight > window.innerHeight) top = window.innerHeight - m.offsetHeight - 8;
+    m.style.left = left + 'px'; m.style.top = top + 'px';
+    currentMenu = m;
+  }
+
+  function openThreadMenu(anchor, t, inProject){
+    const items = [];
+    items.push({ label:'이름 바꾸기', onClick:() => renameThread(t.id) });
+    if (!inProject) {
+      const projList = state.projects.map(p => ({ label:p.title, onClick:() => moveThread(t.id, p.id) }));
+      items.push({ label:'프로젝트로 이동', submenu:projList.length ? projList : [{ label:'(프로젝트 없음)', onClick:() => {} }] });
+    } else {
+      items.push({ label:'프로젝트에서 제거', onClick:() => moveThread(t.id, GENERAL) });
+      const others = state.projects.filter(p => p.id !== t.projectId).map(p => ({ label:p.title, onClick:() => moveThread(t.id, p.id) }));
+      if (others.length) items.push({ label:'다른 프로젝트로 이동', submenu:others });
+    }
+    items.push({ label:t.meta?.pinned ? '고정 해제' : '고정', onClick:() => togglePin(t.id) });
+    items.push({ divider:true });
+    items.push({ label:'삭제', danger:true, onClick:() => deleteThread(t.id) });
+    openMenu(anchor, items);
+  }
+  function openProjectMenu(anchor, p){
+    openMenu(anchor, [
+      { label:'이름 바꾸기', onClick:() => renameProject(p.id) },
+      { divider:true },
+      { label:'삭제', danger:true, onClick:() => deleteProject(p.id) },
+    ]);
+  }
+  function renameThread(id){
+    const t = allThreads().find(x => x.id === id); if (!t) return;
+    const v = prompt('스레드 이름', t.title || '신규 대화'); if (v === null) return;
+    t.title = v.trim() || t.title; t.updatedAt = Date.now();
+    saveThreads(); renderSidebar(); apiSaveThread(t).catch(() => {});
+    if (id === state.activeThreadId) dom.chatTitle.textContent = t.title;
+  }
+  function moveThread(id, targetPid){
+    let t = null, fromPid = null;
+    for (const k of Object.keys(state.threads)) {
+      const m = state.threads[k].find(x => x.id === id);
+      if (m) { t = m; fromPid = k; break; }
+    }
+    if (!t) return;
+    state.threads[fromPid] = state.threads[fromPid].filter(x => x.id !== id);
+    t.projectId = targetPid; t.updatedAt = Date.now();
+    projectThreads(targetPid).unshift(t);
+    saveThreads(); renderSidebar(); apiSaveThread(t).catch(() => {});
+    toast(targetPid === GENERAL ? '일반 채팅으로 이동' : '프로젝트로 이동');
+  }
+  function togglePin(id){
+    const t = allThreads().find(x => x.id === id); if (!t) return;
+    t.meta = t.meta || {}; t.meta.pinned = !t.meta.pinned;
+    saveThreads(); renderSidebar(); apiSaveThread(t).catch(() => {});
+    toast(t.meta.pinned ? '📌 고정' : '고정 해제');
+  }
+  function deleteThread(id){
+    if (!confirm('이 스레드를 삭제할까요?')) return;
+    for (const k of Object.keys(state.threads)) state.threads[k] = state.threads[k].filter(x => x.id !== id);
+    saveThreads(); apiDeleteThread(id).catch(() => {});
+    if (state.activeThreadId === id) { state.activeThreadId = null; localStorage.removeItem(LS.ACTIVE_THREAD); newChat(); }
+    renderSidebar();
+    toast('삭제됨');
+  }
+  function renameProject(id){
+    const p = state.projects.find(x => x.id === id); if (!p) return;
+    const v = prompt('프로젝트 이름', p.title); if (v === null) return;
+    p.title = v.trim() || p.title; p.updatedAt = Date.now();
+    saveProjects(); renderSidebar(); apiSaveProject(p).catch(() => {});
+  }
+  function deleteProject(id){
+    const p = state.projects.find(x => x.id === id); if (!p) return;
+    if (!confirm(`"${p.title}" 프로젝트를 삭제할까요? (스레드도 함께 삭제)`)) return;
+    state.projects = state.projects.filter(x => x.id !== id);
+    delete state.threads[id];
+    saveProjects(); saveThreads(); apiDeleteProject(id).catch(() => {});
+    if (state.activeProjectId === id) { state.activeProjectId = GENERAL; newChat(); }
+    renderSidebar();
+    toast('프로젝트 삭제됨');
+  }
+  function allThreads(){ return Object.values(state.threads).flat(); }
+
+  // ─── Attachments ────────────────────────────────────────────────
+  const MAX_ATTACH = 10, MAX_BYTES = 20 * 1024 * 1024;
+  function addAttachments(files){
+    const list = [...files];
+    for (const f of list) {
+      if (state.attachments.length >= MAX_ATTACH) { toast('첨부 최대 10개'); break; }
+      if (f.size > MAX_BYTES) { toast(`${f.name} 너무 큼 (20MB 초과)`); continue; }
+      const reader = new FileReader();
+      const id = 'att_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+      const chip = { id, name:f.name, size:f.size, type:f.type, dataUrl:null, text:null, thumb:null };
+      state.attachments.push(chip);
+      reader.onload = () => {
+        chip.dataUrl = reader.result;
+        if (/^image\//.test(f.type)) chip.thumb = reader.result;
+        else if (/text\//.test(f.type) || /json|xml|csv|md|yml|yaml/i.test(f.name)) {
+          try { chip.text = typeof reader.result === 'string' ? reader.result : ''; } catch {}
+        }
+        renderAttachRow();
+      };
+      if (/^image\//.test(f.type)) reader.readAsDataURL(f);
+      else reader.readAsText(f);
+      renderAttachRow();
+    }
+  }
+  function renderAttachRow(){
+    if (!state.attachments.length) { dom.attachRow.style.display = 'none'; dom.attachRow.innerHTML = ''; return; }
+    dom.attachRow.style.display = 'flex';
+    dom.attachRow.innerHTML = '';
+    for (const a of state.attachments) {
+      const chip = document.createElement('div'); chip.className = 'attach-chip';
+      if (a.thumb) { const img = document.createElement('img'); img.className = 'thumb'; img.src = a.thumb; chip.appendChild(img); }
+      const nm = document.createElement('span'); nm.className = 'name'; nm.textContent = a.name; chip.appendChild(nm);
+      const sz = document.createElement('span'); sz.className = 'size'; sz.textContent = fmtSize(a.size); chip.appendChild(sz);
+      const rm = document.createElement('button'); rm.className = 'rm'; rm.textContent = '✕'; rm.type = 'button';
+      rm.onclick = () => { state.attachments = state.attachments.filter(x => x.id !== a.id); renderAttachRow(); };
+      chip.appendChild(rm); dom.attachRow.appendChild(chip);
+    }
+  }
+  function fmtSize(b){ if (b < 1024) return b + 'B'; if (b < 1024 * 1024) return (b / 1024).toFixed(0) + 'KB'; return (b / 1024 / 1024).toFixed(1) + 'MB'; }
+  function clearAttachments(){ state.attachments = []; renderAttachRow(); }
+
+  dom.attachBtn.addEventListener('click', () => dom.fileInput.click());
+  dom.fileInput.addEventListener('change', (e) => { addAttachments(e.target.files); dom.fileInput.value = ''; });
+  dom.chatInput.addEventListener('dragover', (e) => { e.preventDefault(); dom.chatInput.classList.add('drag-over'); });
+  dom.chatInput.addEventListener('dragleave', () => dom.chatInput.classList.remove('drag-over'));
+  dom.chatInput.addEventListener('drop', (e) => {
+    e.preventDefault(); dom.chatInput.classList.remove('drag-over');
+    if (e.dataTransfer?.files?.length) addAttachments(e.dataTransfer.files);
+  });
+  dom.directive.addEventListener('paste', (e) => {
+    const items = e.clipboardData?.items || [];
+    const files = [];
+    for (const it of items) if (it.kind === 'file') { const f = it.getAsFile(); if (f) files.push(f); }
+    if (files.length) { e.preventDefault(); addAttachments(files); }
+  });
+
+  // ─── Slash commands ─────────────────────────────────────────────
+  let slashActive = -1;
+  function updateSlashMenu(){
+    const v = dom.directive.value;
+    const m = v.match(/^\/(\S*)$/);
+    if (!m) { dom.slashMenu.style.display = 'none'; slashActive = -1; return; }
+    const q = m[1].toLowerCase();
+    const items = SLASH_COMMANDS.filter(c => c.cmd.slice(1).toLowerCase().startsWith(q));
+    if (!items.length) { dom.slashMenu.style.display = 'none'; slashActive = -1; return; }
+    dom.slashMenu.innerHTML = '';
+    items.forEach((it, i) => {
+      const el = document.createElement('div'); el.className = 'item' + (i === 0 ? ' active' : '');
+      el.innerHTML = `<span class="cmd">${it.cmd}</span><span class="desc">${escapeHtml(it.desc)}</span>`;
+      el.onclick = () => { applySlash(it.cmd); };
+      dom.slashMenu.appendChild(el);
+    });
+    dom.slashMenu.style.display = 'block';
+    slashActive = 0;
+  }
+  function applySlash(cmd){
+    dom.directive.value = cmd + ' ';
+    dom.slashMenu.style.display = 'none';
+    slashActive = -1;
+    dom.directive.focus();
+    autoSize();
+  }
+  function moveSlash(delta){
+    const items = [...dom.slashMenu.querySelectorAll('.item')];
+    if (!items.length) return;
+    slashActive = (slashActive + delta + items.length) % items.length;
+    items.forEach((el, i) => el.classList.toggle('active', i === slashActive));
+  }
+  function selectSlash(){
+    const items = [...dom.slashMenu.querySelectorAll('.item')];
+    if (slashActive >= 0 && items[slashActive]) items[slashActive].click();
+  }
+
+  // ─── Auto-size textarea ─────────────────────────────────────────
+  function autoSize(){
+    const ta = dom.directive;
+    ta.style.height = '24px';
+    ta.style.height = Math.min(Math.max(ta.scrollHeight, 24), 480) + 'px';
+    document.documentElement.style.setProperty('--input-h', (dom.chatInput.offsetHeight) + 'px');
+  }
+
+  // ─── Input binding ──────────────────────────────────────────────
+  dom.directive.addEventListener('input', () => { autoSize(); updateSlashMenu(); });
+  dom.directive.addEventListener('keydown', (e) => {
+    if (dom.slashMenu.style.display === 'block') {
+      if (e.key === 'ArrowDown') { e.preventDefault(); moveSlash(1); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); moveSlash(-1); return; }
+      if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); selectSlash(); return; }
+      if (e.key === 'Escape')    { e.preventDefault(); dom.slashMenu.style.display = 'none'; slashActive = -1; return; }
+    }
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); startRun(); }
+  });
+  dom.sendBtn.addEventListener('click', () => { if (state.running) { finishRun(); addMsg({ who:'', body:'중단됨', kind:'sys' }); } else startRun(); });
+
+  // ─── Chat title inline edit ─────────────────────────────────────
+  dom.chatTitle.addEventListener('click', () => { dom.chatTitle.contentEditable = 'true'; dom.chatTitle.focus(); document.execCommand('selectAll', false, null); });
+  dom.chatTitle.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); dom.chatTitle.blur(); } if (e.key === 'Escape') dom.chatTitle.blur(); });
+  dom.chatTitle.addEventListener('blur', () => {
+    dom.chatTitle.contentEditable = 'false';
+    const t = getActiveThread();
+    if (t) { t.title = dom.chatTitle.textContent.trim() || '신규 대화'; saveThreads(); renderSidebar(); apiSaveThread(t).catch(() => {}); }
+  });
+
+  // ─── Dept / briefing / critic reports ───────────────────────────
+  function renderDeptReport(deptId, report){
+    const d = DEPT_BY_ID[deptId]; const name = d ? `${d.kr}팀` : deptId;
+    const st = report?.structured;
+    let html = '';
+    if (st?.summary) html += `<p>${escapeHtml(st.summary)}</p>`;
+    if (st?.keyFindings?.length) html += '<div class="sec">핵심</div><ul>' + st.keyFindings.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (st?.risks?.length) html += '<div class="sec">리스크</div><ul>' + st.risks.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (st?.assumptions?.length) html += '<div class="sec">가정</div><ul>' + st.assumptions.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (st?.needsFollowup?.length) html += '<div class="sec">추가 확인</div><ul>' + st.needsFollowup.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (!html && report?.sections) {
+      html = report.sections.map(s => `<div class="sec">${escapeHtml(s.heading)}</div><ul>` + (s.items || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>').join('');
+    }
+    if (!html) html = '(보고 내용 없음)';
+    addMsg({ who:name, body:html, kind:'dept', deptId, html:true });
+  }
+  function renderCeoBriefing(b){
+    state.lastBriefing = b; let html = '';
+    if (b?.summary) html += `<p>${escapeHtml(b.summary)}</p>`;
+    if (b?.opportunities?.length) html += '<div class="sec">기회</div><ul>' + b.opportunities.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (b?.risks?.length) html += '<div class="sec">리스크</div><ul>' + b.risks.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (b?.recommendations?.length) html += '<div class="sec">권고</div><ul>' + b.recommendations.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (b?.conflictingSignals?.length) html += '<div class="sec">상충 신호</div><ul>' + b.conflictingSignals.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (typeof b?.overallConfidence === 'number') html += `<div class="sec">통합 신뢰도 ${Math.round(b.overallConfidence * 100)}%</div>`;
+    addMsg({ who:'CEO 브리핑', body:html || '통합 브리핑', kind:'ceo', html:true });
+    renderPanel();
+  }
+  function renderCriticReview(r){
+    state.lastCritic = r;
+    const verdict = r?.verdict === 'pass' ? '✓ PASS' : '⚠ 보강 필요';
+    let html = `<b>${verdict}</b><br>${escapeHtml(r?.summary || '')}`;
+    const issues = (r?.keyIssues || []).concat(r?.contradictions || []);
+    if (issues.length) html += '<ul>' + issues.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (r?.verificationNeeded?.length) html += '<div class="sec">검증 필요</div><ul>' + r.verificationNeeded.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    addMsg({ who:'상무 검토', body:html, kind:'critic', html:true });
+    renderPanel();
+  }
+
+  // ─── SSE ─────────────────────────────────────────────────────────
+  function onEvent(ev){
+    let p; try { p = JSON.parse(ev.data); } catch { return; }
+    const type = p.type || ev.type;
+    const scene = state.scene; if (!scene) return;
+    switch (type) {
+      case 'mission_start':
+        state.missionDeptCount = Number(p.deptCount || 9);
+        state.deptCompletedCount = 0; state.executiveActive = false; break;
+      case 'dept_start': scene.goWork(p.deptId, p.objective); break;
+      case 'dept_progress': scene.progressMsg(p.deptId, p.message); break;
+      case 'dept_done':
+        scene.goDone(p.deptId);
+        if (p.report) renderDeptReport(p.deptId, p.report);
+        checkAllDeptsDone();
+        break;
+      case 'dept_error':
+        scene.goError(p.deptId);
+        addMsg({ who:(DEPT_BY_ID[p.deptId]?.kr || p.deptId) + '팀', body:`오류: ${p.error || '알 수 없는 오류'}`, kind:'err' });
+        checkAllDeptsDone();
+        break;
+      case 'critic_review':
+        scene.lightExecutive(true); renderCriticReview(p.review);
+        if (p.review?.verdict === 'needs_followup' && (p.review?.targetDeptId || p.deptId)) {
+          const tgt = p.review.targetDeptId || p.deptId;
+          setTimeout(() => scene.recallToMeeting(tgt, '상무 보완 지시'), 800);
+        }
+        setTimeout(() => scene.lightExecutive(false), 5000); break;
+      case 'ceo_briefing':
+        scene.lightCeo(true); renderCeoBriefing(p.briefing);
+        setTimeout(() => scene.lightCeo(false), 6000); break;
+      case 'all_done': finishRun(); break;
+      case 'stream_end': if (state.running) finishRun(false); break;
+      case 'error': addMsg({ who:'오류', body:p.message, kind:'err' }); finishRun(true); break;
+    }
+  }
+  function checkAllDeptsDone(){
+    state.deptCompletedCount++;
+    if (!state.executiveActive && state.deptCompletedCount >= state.missionDeptCount) {
+      state.executiveActive = true;
+      state.scene?.lightExecutive(true);
+      addMsg({ who:'', body:'상무 검토 중...', kind:'sys' });
+    }
+  }
+
+  // ─── startRun ───────────────────────────────────────────────────
+  async function startRun(){
+    const rawText = dom.directive.value.trim();
+    if (!rawText && !state.attachments.length) return;
+    if (state.running) return;
+    ensureThread();
+
+    const atts = state.attachments.map(a => ({ id:a.id, name:a.name, size:a.size, type:a.type, thumb:a.thumb || null, text:a.text || null }));
+    addMsg({ who:'', body:rawText, kind:'user', attachments:atts });
+
+    let directive = rawText;
+    for (const a of state.attachments) {
+      if (a.text) directive += `\n\n[첨부: ${a.name}]\n${a.text.slice(0, 6000)}`;
+      else directive += `\n\n[첨부: ${a.name} (${fmtSize(a.size)})]`;
+    }
+
+    state.scene?.resetAll();
+    state.running = true;
+    state.missionDeptCount = 9; state.deptCompletedCount = 0; state.executiveActive = false;
+    dom.officeStatusDot.className = 'dot live'; dom.officeStatusText.textContent = '실행 중...';
+    dom.sendBtn.classList.add('stop'); dom.sendBtn.title = '중단';
+    dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="10" height="10"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>';
+
+    const cur = getActiveThread();
+    if (cur && (!cur.title || cur.title === '신규 대화')) {
+      cur.title = directive.slice(0, 30); saveThreads(); renderSidebar();
+      dom.chatTitle.textContent = cur.title;
+    }
+    renderPanel();
+    dom.directive.value = ''; autoSize(); clearAttachments();
+
+    const url = new URL(API_BASE + '/api/director/stream', location.href);
+    url.searchParams.set('directive', directive);
+    url.searchParams.set('projectName', getProjectTitleOrGeneral());
+    try {
+      const es = new EventSource(url.toString(), { withCredentials:true });
+      state.es = es;
+      ['mission_start','dept_start','dept_progress','dept_done','dept_error','critic_review','ceo_briefing','all_done','error','stream_end'].forEach(n => es.addEventListener(n, onEvent));
+      es.onerror = () => { if (state.running) { addMsg({ who:'', body:'연결 오류.', kind:'err' }); finishRun(true); } };
+    } catch (e) {
+      addMsg({ who:'', body:'연결 실패: ' + e.message, kind:'err' });
+      finishRun(true);
+    }
+  }
+  function finishRun(isErr = false){
+    state.running = false;
+    if (state.es) { try { state.es.close(); } catch {} state.es = null; }
+    dom.officeStatusDot.className = 'dot' + (isErr ? ' err' : '');
+    dom.officeStatusText.textContent = isErr ? '오류' : '대기 중';
+    dom.sendBtn.classList.remove('stop'); dom.sendBtn.title = '전송';
+    dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M3 8h10M9 4l4 4-4 4"/></svg>';
+    state.scene?.settleAll();
+    renderPanel();
+  }
+
+  // ─── Panel ──────────────────────────────────────────────────────
+  function switchTab(tab){
     state.currentTab = tab;
     localStorage.setItem(LS.TAB, tab);
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
@@ -1166,24 +1665,20 @@
   document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 
   let posCache = null;
-  async function fetchPos() {
+  async function fetchPos(){
     if (posCache && Date.now() - posCache.ts < 30_000) return posCache.data;
     try {
-      const r = await fetch(API_BASE + '/api/pos', { credentials: 'include' });
+      const r = await fetch(API_BASE + '/api/pos', { credentials:'include' });
       if (!r.ok) throw new Error('pos failed');
       const data = await r.json();
-      posCache = { data, ts: Date.now() };
-      return data;
+      posCache = { data, ts:Date.now() }; return data;
     } catch { return null; }
   }
-
-  function renderPanel() {
-    const body = dom.panelBody;
-    body.innerHTML = '';
+  function renderPanel(){
+    const body = dom.panelBody; body.innerHTML = '';
     if (state.currentTab === 'depts') {
       const head = document.createElement('div'); head.className = 'panel-sec';
-      const h4 = document.createElement('h4'); h4.textContent = '부서 진행상황';
-      head.appendChild(h4);
+      head.innerHTML = '<h4>부서 진행상황</h4>';
       for (const d of DEPTS) {
         const s = state.deptStates[d.id] || 'idle';
         const label = s === 'working' ? '작업중' : s === 'done' ? '완료' : s === 'err' ? '오류' : '대기';
@@ -1211,15 +1706,12 @@
           <div class="kpi-tile"><div class="label">오늘</div><div class="val">${today.toLocaleString()}원</div></div>
           <div class="kpi-tile"><div class="label">주간</div><div class="val">${wtd.toLocaleString()}원</div></div>
           <div class="kpi-tile"><div class="label">월간</div><div class="val">${mtd.toLocaleString()}원</div></div>
-          <div class="kpi-tile"><div class="label">건수</div><div class="val">${tx}건</div></div>
-        `;
+          <div class="kpi-tile"><div class="label">건수</div><div class="val">${tx}건</div></div>`;
         sec1.appendChild(kpi); body.appendChild(sec1);
-
+        const sum = d.storeSalesSum || {};
         const stores = d.stores || [];
-        const sum = d.summaryByStore || {};
         if (stores.length) {
-          const s2 = document.createElement('div'); s2.className = 'panel-sec';
-          s2.innerHTML = '<h4>매장별 매출</h4>';
+          const s2 = document.createElement('div'); s2.className = 'panel-sec'; s2.innerHTML = '<h4>매장별 매출</h4>';
           for (const st of stores) {
             const v = sum[st.id]?.total ?? 0;
             const row = document.createElement('div');
@@ -1236,10 +1728,9 @@
         if (state.currentTab !== 'pos') return;
         if (!d) { body.innerHTML = '<div class="panel-empty">POS 데이터 없음</div>'; return; }
         body.innerHTML = '';
-        const sec = document.createElement('div'); sec.className = 'panel-sec';
-        sec.innerHTML = '<h4>최근 거래</h4>';
+        const sec = document.createElement('div'); sec.className = 'panel-sec'; sec.innerHTML = '<h4>최근 거래</h4>';
         const list = (d.transactions || []).slice(0, 8);
-        if (!list.length) { sec.innerHTML += '<div class="panel-empty">거래 없음</div>'; }
+        if (!list.length) sec.innerHTML += '<div class="panel-empty">거래 없음</div>';
         for (const tx of list) {
           const time = new Date(tx.createdAt).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
           const row = document.createElement('div');
@@ -1253,8 +1744,7 @@
       if (state.lastBriefing || state.lastCritic) {
         if (state.lastBriefing) {
           const b = state.lastBriefing;
-          const sec = document.createElement('div'); sec.className = 'panel-sec';
-          sec.innerHTML = '<h4>CEO 브리핑</h4>';
+          const sec = document.createElement('div'); sec.className = 'panel-sec'; sec.innerHTML = '<h4>CEO 브리핑</h4>';
           const card = document.createElement('div');
           card.style.cssText = 'background:var(--surface);border:1px solid var(--border-soft);border-left:3px solid var(--gold);padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.55';
           let h = '';
@@ -1265,8 +1755,7 @@
         }
         if (state.lastCritic) {
           const r = state.lastCritic;
-          const sec = document.createElement('div'); sec.className = 'panel-sec';
-          sec.innerHTML = '<h4>상무 검토</h4>';
+          const sec = document.createElement('div'); sec.className = 'panel-sec'; sec.innerHTML = '<h4>상무 검토</h4>';
           const card = document.createElement('div');
           card.style.cssText = 'background:var(--surface);border:1px solid var(--border-soft);border-left:3px solid var(--magenta);padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.55';
           const v = r.verdict === 'pass' ? '✓ PASS' : '⚠ 보강 필요';
@@ -1275,93 +1764,101 @@
           card.innerHTML = h;
           sec.appendChild(card); body.appendChild(sec);
         }
-      } else {
-        body.innerHTML = '<div class="panel-empty">실행 완료 후 CEO 브리핑과 상무 검토가 여기에 표시됩니다.</div>';
-      }
+      } else body.innerHTML = '<div class="panel-empty">실행 완료 후 CEO 브리핑과 상무 검토가 여기에 표시됩니다.</div>';
     }
   }
 
-  // ─── 서버 API (best-effort, 실패 무시) ───────────────────────────
-  async function apiSaveProject(p) {
+  // ─── API ─────────────────────────────────────────────────────────
+  async function apiLoadWorkspace(){
+    try {
+      const r = await fetch(API_BASE + '/api/workspace', { credentials:'include' });
+      if (!r.ok) return null;
+      const j = await r.json();
+      return j?.data || null;
+    } catch { return null; }
+  }
+  async function apiSaveProject(p){
     return fetch(API_BASE + '/api/workspace/projects', {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: p.id, title: p.title, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), meta: {} }),
+      method:'POST', credentials:'include', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ id:p.id, title:p.title, createdAt:new Date().toISOString(), updatedAt:new Date().toISOString(), meta:p.meta || {} }),
     });
   }
-  async function apiDeleteProject(id) {
-    return fetch(API_BASE + '/api/workspace/projects/' + encodeURIComponent(id), { method:'DELETE', credentials:'include' });
-  }
-  async function apiSaveThread(t) {
+  async function apiDeleteProject(id){ return fetch(API_BASE + '/api/workspace/projects/' + encodeURIComponent(id), { method:'DELETE', credentials:'include' }); }
+  async function apiSaveThread(t){
     return fetch(API_BASE + '/api/workspace/threads', {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: t.id, projectId: t.projectId || GENERAL, title: t.title || '신규 대화',
-        createdAt: new Date(t.updatedAt || Date.now()).toISOString(),
-        updatedAt: new Date(t.updatedAt || Date.now()).toISOString(),
-        meta: {},
+      method:'POST', credentials:'include', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        id:t.id, projectId:t.projectId || GENERAL, title:t.title || '신규 대화',
+        createdAt:new Date(t.updatedAt || Date.now()).toISOString(),
+        updatedAt:new Date(t.updatedAt || Date.now()).toISOString(),
+        meta:t.meta || {},
       }),
     });
   }
-  async function apiSaveMessages(threadId, messages) {
+  async function apiDeleteThread(id){ return fetch(API_BASE + '/api/workspace/threads/' + encodeURIComponent(id), { method:'DELETE', credentials:'include' }); }
+  async function apiSaveMessages(threadId, messages){
     return fetch(API_BASE + '/api/workspace/messages', {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threadId, messages }),
+      method:'POST', credentials:'include', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ threadId, messages }),
     });
   }
-
-  // ─── 입력 자동 높이 ────────────────────────────────────────────────
-  function autoSize() {
-    const ta = dom.directive;
-    ta.style.height = '24px';
-    ta.style.height = Math.min(ta.scrollHeight, 180) + 'px';
+  let syncStateTimer = null;
+  function apiSyncState(){
+    if (syncStateTimer) clearTimeout(syncStateTimer);
+    syncStateTimer = setTimeout(() => {
+      fetch(API_BASE + '/api/workspace/sync-state', {
+        method:'POST', credentials:'include', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ activeProjectId:state.activeProjectId || GENERAL, activeThreadId:state.activeThreadId }),
+      }).catch(() => {});
+    }, 500);
   }
 
-  // ─── 바인딩 ───────────────────────────────────────────────────────
-  dom.sendBtn.addEventListener('click', () => {
-    if (state.running) { finishRun(); addMsg({ who:'', body:'중단됨', kind:'sys' }); }
-    else startRun();
-  });
-  dom.directive.addEventListener('input', autoSize);
-  dom.directive.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-      e.preventDefault();
-      startRun();
+  // ─── Initial ────────────────────────────────────────────────────
+  async function init(){
+    applyToggles();
+    // Pull server snapshot (auth required); falls back silently to localStorage
+    const ws = await apiLoadWorkspace();
+    if (ws?.projects && Array.isArray(ws.projects)) {
+      state.projects = ws.projects.map(p => ({ id:p.id, title:p.title, updatedAt:new Date(p.updatedAt || p.createdAt || Date.now()).getTime(), meta:p.meta || {} }));
+      saveProjects();
     }
-  });
-  dom.navNewChat.addEventListener('click', (e) => { e.preventDefault(); newChat(); });
-  dom.newProject.addEventListener('click', newProject);
-  dom.chatTitle.addEventListener('click', () => {
-    dom.chatTitle.contentEditable = 'true';
-    dom.chatTitle.focus();
-    document.execCommand('selectAll', false, null);
-  });
-  dom.chatTitle.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); dom.chatTitle.blur(); }
-    if (e.key === 'Escape') { dom.chatTitle.blur(); }
-  });
-  dom.chatTitle.addEventListener('blur', () => {
-    dom.chatTitle.contentEditable = 'false';
-    const t = getActiveThread();
-    if (t) { t.title = dom.chatTitle.textContent.trim() || '신규 대화'; saveThreads(); renderSidebar(); apiSaveThread(t).catch(() => {}); }
-  });
+    if (ws?.threads && Array.isArray(ws.threads)) {
+      const map = {};
+      for (const t of ws.threads) {
+        const pid = t.projectId || GENERAL;
+        if (!map[pid]) map[pid] = [];
+        map[pid].push({
+          id:t.id, projectId:pid, title:t.title || '신규 대화',
+          messages:Array.isArray(t.messages) ? t.messages : [],
+          meta:t.meta || {}, updatedAt:new Date(t.updatedAt || Date.now()).getTime(),
+        });
+      }
+      state.threads = map; saveThreads();
+    }
+    if (ws?.activeThreadId) { state.activeThreadId = ws.activeThreadId; localStorage.setItem(LS.ACTIVE_THREAD, ws.activeThreadId); }
+    if (ws?.activeProjectId) state.activeProjectId = ws.activeProjectId;
 
-  // ─── 초기 로드 ─────────────────────────────────────────────────────
-  applyToggles();
-  renderSidebar();
-  switchTab(state.currentTab);
-  const cur = getActiveThread();
-  if (cur) {
-    state.activeProjectId = cur.projectId || GENERAL;
-    dom.chatTitle.textContent = cur.title || '신규 대화';
-    if (cur.messages.length > 0) {
-      dom.chatLog.innerHTML = '';
-      for (const m of cur.messages) addMsg(m, false);
+    renderSidebar();
+    switchTab(state.currentTab);
+
+    const cur = getActiveThread();
+    if (cur) {
+      state.activeProjectId = cur.projectId || GENERAL;
+      dom.chatTitle.textContent = cur.title || '신규 대화';
+      if (cur.messages.length > 0) {
+        dom.chatLog.innerHTML = '';
+        for (const m of cur.messages) addMsg(m, false);
+      }
+    } else {
+      ensureThread(); reloadActiveThread();
     }
+
+    dom.navNewChat.addEventListener('click', (e) => { e.preventDefault(); newChat(); });
+    dom.newProject.addEventListener('click', (e) => { e.stopPropagation(); newProject(); });
+
+    setTimeout(() => { dom.directive.focus(); autoSize(); }, 200);
   }
-  setTimeout(() => dom.directive.focus(), 300);
+  init();
 })();
 </script>
 </body>
