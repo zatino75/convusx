@@ -47,12 +47,12 @@
   /* ─ layout: sidebar(resizable) / main / panel ───────────────────── */
   .app{
     display:grid;
-    grid-template-columns:var(--sidebar-w,260px) 1fr 300px;
+    grid-template-columns:var(--sidebar-w,260px) 1fr var(--panel-w,300px);
     height:100vh;
     transition:grid-template-columns .22s ease;
   }
   .app.is-resizing{transition:none}
-  .app[data-sidebar="closed"]{grid-template-columns:0 1fr 300px}
+  .app[data-sidebar="closed"]{grid-template-columns:0 1fr var(--panel-w,300px)}
   .app[data-panel="closed"]{grid-template-columns:var(--sidebar-w,260px) 1fr 0}
   .app[data-sidebar="closed"][data-panel="closed"]{grid-template-columns:0 1fr 0}
 
@@ -117,7 +117,7 @@
   .bubble-menu .sub{position:absolute;left:100%;top:0;margin-left:2px}
 
   /* ─ main column ─ */
-  .main-col{display:grid;grid-template-rows:40% 60%;min-height:0;min-width:0;background:var(--bg)}
+  .main-col{display:grid;grid-template-rows:30% 70%;min-height:0;min-width:0;background:var(--bg)}
   .office-wrap{position:relative;background:#2A2D3A;overflow:hidden;border-bottom:1px solid var(--border-soft)}
   .office-title{position:absolute;top:8px;left:14px;color:var(--text-soft);font-size:13px;letter-spacing:2px;font-weight:600;z-index:3;pointer-events:none;opacity:.7}
   .office-status{position:absolute;top:8px;right:14px;color:var(--text-soft);font-size:13px;display:flex;align-items:center;gap:6px;z-index:3;pointer-events:none}
@@ -237,8 +237,10 @@
   .slash-menu .item.active{background:rgba(201,100,66,.12)}
 
   /* right panel */
-  .panel{background:var(--panel);border-left:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden;min-width:0}
-  .panel-inner{width:300px;display:flex;flex-direction:column;min-width:0;height:100%}
+  .panel{background:var(--panel);border-left:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden;min-width:0;position:relative}
+  .panel-resize{position:absolute;top:0;left:-3px;width:6px;height:100%;cursor:ew-resize;z-index:5;background:transparent}
+  .panel-resize:hover{background:rgba(201,100,66,.25)}
+  .panel-inner{width:100%;display:flex;flex-direction:column;min-width:0;height:100%}
   .panel-tabs{display:flex;border-bottom:1px solid var(--border-soft);flex-shrink:0}
   .tab-btn{flex:1;padding:12px 8px;background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:13.5px;font-weight:500;transition:color .12s,background .12s;position:relative}
   .tab-btn:hover{color:var(--text-soft);background:rgba(255,255,255,.02)}
@@ -358,6 +360,7 @@
 
   <!-- right panel -->
   <aside class="panel">
+    <div class="panel-resize" id="panelResize" title="드래그로 크기 조절"></div>
     <div class="panel-inner">
       <div class="panel-tabs">
         <button class="tab-btn active" data-tab="depts">부서현황</button>
@@ -412,6 +415,7 @@
     SIDEBAR:'cx-office.sidebar',
     PANEL:'cx-office.panel',
     SIDEBAR_W:'cx-office.sidebarWidth',
+    PANEL_W:'cx-office.panelWidth',
     TAB:'cx-office.tab',
     PROJECTS:'cx-office.projects.v4',
     THREADS:'cx-office.threads.v4',
@@ -461,6 +465,7 @@
     chatInput:$('chatInput'), inputWrap:$('inputWrap'),
     slashMenu:$('slashMenu'), toBottom:$('toBottom'),
     sidebarResize:$('sidebarResize'),
+    panelResize:$('panelResize'),
     officeStatusDot:$('officeStatusDot'), officeStatusText:$('officeStatusText'),
     panelBody:$('panelBody'), toast:$('toast'),
   };
@@ -477,6 +482,8 @@
   // ─── Sidebar width + toggles ────────────────────────────────────
   const sidebarWidth = Math.min(400, Math.max(200, Number(localStorage.getItem(LS.SIDEBAR_W) || 260)));
   document.documentElement.style.setProperty('--sidebar-w', sidebarWidth + 'px');
+  const panelWidth = Math.min(500, Math.max(250, Number(localStorage.getItem(LS.PANEL_W) || 300)));
+  document.documentElement.style.setProperty('--panel-w', panelWidth + 'px');
 
   function applyToggles(){
     dom.app.dataset.sidebar = localStorage.getItem(LS.SIDEBAR) === 'closed' ? 'closed' : 'open';
@@ -524,6 +531,34 @@
     });
   })();
 
+  // panel resize (left-edge drag)
+  (() => {
+    let startX = 0, startW = 300, dragging = false;
+    dom.panelResize.addEventListener('mousedown', (e) => {
+      if (dom.app.dataset.panel !== 'open') return;
+      dragging = true;
+      startX = e.clientX;
+      startW = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--panel-w')) || 300;
+      dom.app.classList.add('is-resizing');
+      document.body.style.cursor = 'ew-resize';
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      let w = startW - (e.clientX - startX);  // left-edge drag: inverse direction
+      w = Math.max(250, Math.min(500, w));
+      document.documentElement.style.setProperty('--panel-w', w + 'px');
+    });
+    window.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      dom.app.classList.remove('is-resizing');
+      document.body.style.cursor = '';
+      const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--panel-w')) || 300;
+      localStorage.setItem(LS.PANEL_W, String(w));
+    });
+  })();
+
   // ─── Phaser scene (isometric, zoom 1.8) ─────────────────────────
   const W = 1600, H = 520;
   const TILE_W = 56, TILE_H = 28;
@@ -559,7 +594,7 @@
       state.scene = this;
       // map center is around (isoX(4,3), isoY(4,3)); compute and centerOn that
       const mapCX = isoX(3.5, 3.0), mapCY = isoY(3.5, 3.0);
-      this.cameras.main.setZoom(1.8);
+      this.cameras.main.setZoom(2.2);
       this.cameras.main.centerOn(mapCX, mapCY);
       this.bg = this.add.container(0, 0);
       this.floorLayer = this.add.container(0, 0);
@@ -1261,7 +1296,6 @@
     }, 1200);
   }
   function loadThread(threadId){
-    if (state.running) return;
     let t = null, pid = null;
     for (const k of Object.keys(state.threads)) {
       const m = state.threads[k].find(x => x.id === threadId);
@@ -1270,7 +1304,14 @@
     if (!t) return;
     state.activeThreadId = threadId; state.activeProjectId = pid;
     localStorage.setItem(LS.ACTIVE_THREAD, threadId);
+    // Reset scene then replay the new thread's current run state (if any)
     state.scene?.resetAll();
+    const run = ensureRun(threadId);
+    applyRunToUI(run);
+    // Replay working depts so characters are at meeting seats with glow
+    if (state.scene) {
+      for (const d of DEPTS) if (run.deptStates[d.id] === 'working') state.scene.goWork(d.id);
+    }
     reloadActiveThread();
     apiSyncState();
   }
@@ -1283,7 +1324,7 @@
     renderSidebar();
   }
   function newChat(){
-    if (state.running) return;
+    // Multi-thread safe: creating a new thread doesn't cancel existing runs.
     const pid = state.activeProjectId || GENERAL;
     createNewThread(pid);
     dom.chatLog.innerHTML = `<div class="chat-empty"><h3>무엇을 도와드릴까요?</h3><p>지시를 입력하면 필요한 부서 직원이 움직입니다.</p></div>`;
@@ -1291,6 +1332,8 @@
     dom.directive.value = ''; autoSize(); clearAttachments();
     dom.directive.focus();
     dom.chatTitle.textContent = '신규 대화';
+    // New thread has a fresh run state (idle)
+    applyRunToUI(ensureRun(state.activeThreadId));
     renderSidebar();
   }
   function newProject(){
@@ -1588,7 +1631,10 @@
     }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); startRun(); }
   });
-  dom.sendBtn.addEventListener('click', () => { if (state.running) { finishRun(); addMsg({ who:'', body:'중단됨', kind:'sys' }); } else startRun(); });
+  dom.sendBtn.addEventListener('click', () => {
+    const run = state.threadRuns?.[state.activeThreadId];
+    if (run?.running) stopActiveRun(); else startRun();
+  });
 
   // ─── Chat title inline edit ─────────────────────────────────────
   dom.chatTitle.addEventListener('click', () => { dom.chatTitle.contentEditable = 'true'; dom.chatTitle.focus(); document.execCommand('selectAll', false, null); });
@@ -1638,56 +1684,169 @@
   }
 
   // ─── SSE ─────────────────────────────────────────────────────────
-  function onEvent(ev){
+  // ─── Per-thread run state ───────────────────────────────────────
+  // Each thread has its own EventSource + dept status, runs independently.
+  // The Phaser scene + chat log reflect the currently active thread only.
+  function ensureRun(threadId){
+    if (!state.threadRuns) state.threadRuns = {};
+    if (!state.threadRuns[threadId]) {
+      state.threadRuns[threadId] = {
+        es:null, running:false,
+        deptStates:Object.fromEntries(DEPTS.map(d => [d.id, 'idle'])),
+        missionDeptCount:9, deptCompletedCount:0, executiveActive:false,
+        lastBriefing:null, lastCritic:null,
+      };
+    }
+    return state.threadRuns[threadId];
+  }
+  function isActive(threadId){ return state.activeThreadId === threadId; }
+  function applyRunToUI(run){
+    // Reflect current run state on shared office + panel + button
+    Object.assign(state.deptStates, run.deptStates);
+    state.missionDeptCount = run.missionDeptCount;
+    state.deptCompletedCount = run.deptCompletedCount;
+    state.executiveActive = run.executiveActive;
+    state.lastBriefing = run.lastBriefing;
+    state.lastCritic = run.lastCritic;
+    state.running = run.running;
+    dom.officeStatusDot.className = 'dot' + (run.running ? ' live' : '');
+    dom.officeStatusText.textContent = run.running ? '실행 중...' : '대기 중';
+    // Phaser scene — replay current dept glows/positions
+    const scene = state.scene;
+    if (scene) {
+      for (const d of DEPTS) {
+        const s = run.deptStates[d.id] || 'idle';
+        scene.setDeskGlow(d.id, s === 'working', d.hex);
+      }
+      scene.lightExecutive(run.executiveActive);
+    }
+    // Send button toggles to stop if running
+    if (run.running) {
+      dom.sendBtn.classList.add('stop'); dom.sendBtn.title = '중단';
+      dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="10" height="10"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>';
+    } else {
+      dom.sendBtn.classList.remove('stop'); dom.sendBtn.title = '전송';
+      dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M3 8h10M9 4l4 4-4 4"/></svg>';
+    }
+    renderPanel();
+  }
+
+  function onRunEvent(threadId, ev){
     let p; try { p = JSON.parse(ev.data); } catch { return; }
     const type = p.type || ev.type;
-    const scene = state.scene; if (!scene) return;
+    const run = ensureRun(threadId);
+    const active = isActive(threadId);
+    const scene = state.scene;
     switch (type) {
       case 'mission_start':
-        state.missionDeptCount = Number(p.deptCount || 9);
-        state.deptCompletedCount = 0; state.executiveActive = false; break;
-      case 'dept_start': scene.goWork(p.deptId, p.objective); break;
-      case 'dept_progress': scene.progressMsg(p.deptId, p.message); break;
+        run.missionDeptCount = Number(p.deptCount || 9);
+        run.deptCompletedCount = 0; run.executiveActive = false;
+        break;
+      case 'dept_start':
+        run.deptStates[p.deptId] = 'working';
+        if (active) { scene?.goWork(p.deptId, p.objective); }
+        break;
+      case 'dept_progress':
+        if (active) scene?.progressMsg(p.deptId, p.message);
+        break;
       case 'dept_done':
-        scene.goDone(p.deptId);
-        if (p.report) renderDeptReport(p.deptId, p.report);
-        checkAllDeptsDone();
+        run.deptStates[p.deptId] = 'done';
+        if (active) scene?.goDone(p.deptId);
+        if (p.report) addThreadMsgByDeptReport(threadId, p.deptId, p.report);
+        checkRunAllDone(threadId);
         break;
       case 'dept_error':
-        scene.goError(p.deptId);
-        addMsg({ who:(DEPT_BY_ID[p.deptId]?.kr || p.deptId) + '팀', body:`오류: ${p.error || '알 수 없는 오류'}`, kind:'err' });
-        checkAllDeptsDone();
+        run.deptStates[p.deptId] = 'err';
+        if (active) scene?.goError(p.deptId);
+        addMsgForThread(threadId, { who:(DEPT_BY_ID[p.deptId]?.kr || p.deptId) + '팀', body:`오류: ${p.error || '알 수 없는 오류'}`, kind:'err' });
+        checkRunAllDone(threadId);
         break;
       case 'critic_review':
-        scene.lightExecutive(true); renderCriticReview(p.review);
+        run.lastCritic = p.review;
+        if (active) { scene?.lightExecutive(true); setTimeout(() => scene?.lightExecutive(false), 5000); }
+        addThreadMsgByCritic(threadId, p.review);
         if (p.review?.verdict === 'needs_followup' && (p.review?.targetDeptId || p.deptId)) {
           const tgt = p.review.targetDeptId || p.deptId;
-          setTimeout(() => scene.recallToMeeting(tgt, '상무 보완 지시'), 800);
+          if (active) setTimeout(() => scene?.recallToMeeting(tgt, '상무 보완 지시'), 800);
         }
-        setTimeout(() => scene.lightExecutive(false), 5000); break;
+        break;
       case 'ceo_briefing':
-        scene.lightCeo(true); renderCeoBriefing(p.briefing);
-        setTimeout(() => scene.lightCeo(false), 6000); break;
-      case 'all_done': finishRun(); break;
-      case 'stream_end': if (state.running) finishRun(false); break;
-      case 'error': addMsg({ who:'오류', body:p.message, kind:'err' }); finishRun(true); break;
+        run.lastBriefing = p.briefing;
+        if (active) { scene?.lightCeo(true); setTimeout(() => scene?.lightCeo(false), 6000); }
+        addThreadMsgByBriefing(threadId, p.briefing);
+        break;
+      case 'all_done':   finishRun(threadId); break;
+      case 'stream_end': if (run.running) finishRun(threadId, false); break;
+      case 'error':
+        addMsgForThread(threadId, { who:'오류', body:p.message, kind:'err' });
+        finishRun(threadId, true);
+        break;
     }
+    if (active) applyRunToUI(run);
+    else if (type === 'dept_done' || type === 'dept_error' || type === 'all_done') renderSidebar();
   }
-  function checkAllDeptsDone(){
-    state.deptCompletedCount++;
-    if (!state.executiveActive && state.deptCompletedCount >= state.missionDeptCount) {
-      state.executiveActive = true;
-      state.scene?.lightExecutive(true);
-      addMsg({ who:'', body:'상무 검토 중...', kind:'sys' });
+  function checkRunAllDone(threadId){
+    const run = ensureRun(threadId);
+    run.deptCompletedCount++;
+    if (!run.executiveActive && run.deptCompletedCount >= run.missionDeptCount) {
+      run.executiveActive = true;
+      if (isActive(threadId)) state.scene?.lightExecutive(true);
+      addMsgForThread(threadId, { who:'', body:'상무 검토 중...', kind:'sys' });
     }
   }
 
-  // ─── startRun ───────────────────────────────────────────────────
+  // Wrappers to addMsg into a specific thread even when not active
+  function addMsgForThread(threadId, payload){
+    if (isActive(threadId)) { addMsg(payload); return; }
+    // persist-only path: append to that thread's messages
+    const id = payload.id || ('m_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5));
+    const stored = { id, kind:payload.kind || 'ai', who:payload.who, body:payload.body, deptId:payload.deptId || null, html:!!payload.html, attachments:payload.attachments || [], ts:Date.now() };
+    appendMessageToThread(threadId, stored);
+  }
+  function addThreadMsgByDeptReport(threadId, deptId, report){
+    const d = DEPT_BY_ID[deptId]; const name = d ? `${d.kr}팀` : deptId;
+    const st = report?.structured;
+    let html = '';
+    if (st?.summary) html += `<p>${escapeHtml(st.summary)}</p>`;
+    if (st?.keyFindings?.length) html += '<div class="sec">핵심</div><ul>' + st.keyFindings.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (st?.risks?.length) html += '<div class="sec">리스크</div><ul>' + st.risks.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (st?.assumptions?.length) html += '<div class="sec">가정</div><ul>' + st.assumptions.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (st?.needsFollowup?.length) html += '<div class="sec">추가 확인</div><ul>' + st.needsFollowup.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (!html && report?.sections) {
+      html = report.sections.map(s => `<div class="sec">${escapeHtml(s.heading)}</div><ul>` + (s.items || []).map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>').join('');
+    }
+    if (!html) html = '(보고 내용 없음)';
+    addMsgForThread(threadId, { who:name, body:html, kind:'dept', deptId, html:true });
+  }
+  function addThreadMsgByBriefing(threadId, b){
+    let html = '';
+    if (b?.summary) html += `<p>${escapeHtml(b.summary)}</p>`;
+    if (b?.opportunities?.length) html += '<div class="sec">기회</div><ul>' + b.opportunities.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (b?.risks?.length) html += '<div class="sec">리스크</div><ul>' + b.risks.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (b?.recommendations?.length) html += '<div class="sec">권고</div><ul>' + b.recommendations.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (b?.conflictingSignals?.length) html += '<div class="sec">상충 신호</div><ul>' + b.conflictingSignals.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (typeof b?.overallConfidence === 'number') html += `<div class="sec">통합 신뢰도 ${Math.round(b.overallConfidence * 100)}%</div>`;
+    addMsgForThread(threadId, { who:'CEO 브리핑', body:html || '통합 브리핑', kind:'ceo', html:true });
+  }
+  function addThreadMsgByCritic(threadId, r){
+    const verdict = r?.verdict === 'pass' ? '✓ PASS' : '⚠ 보강 필요';
+    let html = `<b>${verdict}</b><br>${escapeHtml(r?.summary || '')}`;
+    const issues = (r?.keyIssues || []).concat(r?.contradictions || []);
+    if (issues.length) html += '<ul>' + issues.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    if (r?.verificationNeeded?.length) html += '<div class="sec">검증 필요</div><ul>' + r.verificationNeeded.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
+    addMsgForThread(threadId, { who:'상무 검토', body:html, kind:'critic', html:true });
+  }
+
+  // ─── startRun / finishRun (per-thread) ──────────────────────────
   async function startRun(){
     const rawText = dom.directive.value.trim();
     if (!rawText && !state.attachments.length) return;
-    if (state.running) return;
+    // ensure we have an active thread before proceeding
     ensureThread();
+    const threadId = state.activeThreadId;
+    if (!threadId) return;
+    const run = ensureRun(threadId);
+    if (run.running) return;
 
     const atts = state.attachments.map(a => ({ id:a.id, name:a.name, size:a.size, type:a.type, thumb:a.thumb || null, text:a.text || null }));
     addMsg({ who:'', body:rawText, kind:'user', attachments:atts });
@@ -1698,19 +1857,21 @@
       else directive += `\n\n[첨부: ${a.name} (${fmtSize(a.size)})]`;
     }
 
-    state.scene?.resetAll();
-    state.running = true;
-    state.missionDeptCount = 9; state.deptCompletedCount = 0; state.executiveActive = false;
-    dom.officeStatusDot.className = 'dot live'; dom.officeStatusText.textContent = '실행 중...';
-    dom.sendBtn.classList.add('stop'); dom.sendBtn.title = '중단';
-    dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="10" height="10"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>';
+    // reset this run's state
+    run.running = true;
+    run.missionDeptCount = 9; run.deptCompletedCount = 0; run.executiveActive = false;
+    run.lastBriefing = null; run.lastCritic = null;
+    for (const d of DEPTS) run.deptStates[d.id] = 'idle';
+    // reset scene only if this is the active thread
+    if (isActive(threadId)) state.scene?.resetAll();
 
     const cur = getActiveThread();
     if (cur && (!cur.title || cur.title === '신규 대화')) {
       cur.title = directive.slice(0, 30); saveThreads(); renderSidebar();
       dom.chatTitle.textContent = cur.title;
+      apiSaveThread(cur).catch(() => {});
     }
-    renderPanel();
+    applyRunToUI(run);
     dom.directive.value = ''; autoSize(); clearAttachments();
 
     const url = new URL(API_BASE + '/api/director/stream', location.href);
@@ -1718,23 +1879,39 @@
     url.searchParams.set('projectName', getProjectTitleOrGeneral());
     try {
       const es = new EventSource(url.toString(), { withCredentials:true });
-      state.es = es;
-      ['mission_start','dept_start','dept_progress','dept_done','dept_error','critic_review','ceo_briefing','all_done','error','stream_end'].forEach(n => es.addEventListener(n, onEvent));
-      es.onerror = () => { if (state.running) { addMsg({ who:'', body:'연결 오류.', kind:'err' }); finishRun(true); } };
+      run.es = es;
+      const listener = (ev) => onRunEvent(threadId, ev);
+      ['mission_start','dept_start','dept_progress','dept_done','dept_error','critic_review','ceo_briefing','all_done','error','stream_end']
+        .forEach(n => es.addEventListener(n, listener));
+      es.onerror = () => {
+        if (!run.running) return;
+        addMsgForThread(threadId, { who:'', body:'연결 오류.', kind:'err' });
+        finishRun(threadId, true);
+      };
     } catch (e) {
-      addMsg({ who:'', body:'연결 실패: ' + e.message, kind:'err' });
-      finishRun(true);
+      addMsgForThread(threadId, { who:'', body:'연결 실패: ' + e.message, kind:'err' });
+      finishRun(threadId, true);
     }
   }
-  function finishRun(isErr = false){
-    state.running = false;
-    if (state.es) { try { state.es.close(); } catch {} state.es = null; }
-    dom.officeStatusDot.className = 'dot' + (isErr ? ' err' : '');
-    dom.officeStatusText.textContent = isErr ? '오류' : '대기 중';
-    dom.sendBtn.classList.remove('stop'); dom.sendBtn.title = '전송';
-    dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M3 8h10M9 4l4 4-4 4"/></svg>';
-    state.scene?.settleAll();
-    renderPanel();
+  function finishRun(threadId, isErr = false){
+    const run = ensureRun(threadId);
+    if (!run.running && !run.es) return;
+    run.running = false;
+    if (run.es) { try { run.es.close(); } catch {} run.es = null; }
+    if (isActive(threadId)) {
+      dom.officeStatusDot.className = 'dot' + (isErr ? ' err' : '');
+      dom.officeStatusText.textContent = isErr ? '오류' : '대기 중';
+      state.scene?.settleAll();
+      applyRunToUI(run);
+    }
+    renderSidebar();
+  }
+  // Allow clicking the stop button on the active thread
+  function stopActiveRun(){
+    const tid = state.activeThreadId; if (!tid) return;
+    const run = state.threadRuns?.[tid]; if (!run) return;
+    finishRun(tid, false);
+    addMsg({ who:'', body:'중단됨', kind:'sys' });
   }
 
   // ─── Panel ──────────────────────────────────────────────────────

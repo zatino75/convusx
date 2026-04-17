@@ -107,7 +107,7 @@ export async function runDirector(
   // ─ 미션 분해 ────────────────────────────────────────────────────────────────
   let mission: DecomposedMission;
   try {
-    mission = decomposeMission(directive, session.currentRound + 1);
+    mission = await decomposeMission(directive, session.currentRound + 1);
   } catch (err) {
     send({ type: 'error', message: `미션 분해 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}` });
     throw err;
