@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectGroup, Thread, WorkspaceKind } from "../../types/workspace";
 import ProjectHomeView from "../project/ProjectHomeView";
+import OfficeWorld from "../layout/OfficeWorld";
 import { t } from "../../i18n";
 
 type Props = {
@@ -205,55 +206,39 @@ function GeneralHome({
   }
 
   return (
-    <div className="general-home general-home--simple">
-      <div className="general-home__center">
-        <section className="general-home__hero general-home__hero--simple">
-          <span className={`general-home__phase is-${sceneMode}`}>
-            {homePhaseLabel(sceneMode)}
-          </span>
-          <h1>오피스를 게임처럼 운영하세요.</h1>
-          <p>핵심만 남긴 HQ 화면입니다. 업무 생성 후 부서 실행과 상무 보고가 자동으로 이어집니다.</p>
-        </section>
-
-        <section className="general-home__status-card" aria-label="현재 상태">
-          <article>
-            <span>현재 단계</span>
-            <strong>{homePhaseLabel(sceneMode)}</strong>
-          </article>
-          <article>
-            <span>현재 지시</span>
-            <p>{clipHomeDirective(sceneDirective || missionDirective)}</p>
-          </article>
-        </section>
-
-        <div className="general-home__actions">
-          <button
-            type="button"
-            className="general-home__launch-btn"
-            onClick={() => setMissionModalOpen(true)}
-          >
-            업무 생성
-          </button>
+    <div className="general-home general-home--lobby">
+      <div className="hq-lobby">
+        <div className="hq-lobby__stage">
+          <OfficeWorld mode={sceneMode} directive={sceneDirective} />
         </div>
 
-        <section className="general-home__ops-board general-home__ops-board--simple" aria-label="운영 이동">
-          <button type="button" onClick={onOpenStoreOps}>
-            <span>STOREOPS</span>
-            <strong>매장 이슈 대응실</strong>
-          </button>
-          <button type="button" onClick={onOpenPos}>
-            <span>POS</span>
-            <strong>결제 현장 관제</strong>
-          </button>
-          <button type="button" onClick={onOpenSales}>
-            <span>SALES</span>
-            <strong>매출 집계 대시보드</strong>
-          </button>
-        </section>
-
-        <p className="general-home__ops-note">
-          지금 화면은 최소 조작 모드입니다. 상세 분석은 각 운영 화면으로 이동해 진행하세요.
-        </p>
+        <aside className="hq-lobby__hud" aria-label="HQ 상태">
+          <header className="hq-lobby__hud-head">
+            <span className={`general-home__phase is-${sceneMode}`}>{homePhaseLabel(sceneMode)}</span>
+            <strong>HQ LOBBY</strong>
+          </header>
+          <section className="hq-lobby__directive">
+            <span>현재 지시</span>
+            <p>{clipHomeDirective(sceneDirective || missionDirective)}</p>
+          </section>
+          <div className="hq-lobby__actions">
+            <button type="button" className="general-home__launch-btn" onClick={() => setMissionModalOpen(true)}>
+              업무 생성
+            </button>
+          </div>
+          <section className="hq-lobby__ops" aria-label="운영 이동">
+            <button type="button" onClick={onOpenStoreOps}>
+              <span>STOREOPS</span><strong>매장 이슈 대응실</strong>
+            </button>
+            <button type="button" onClick={onOpenPos}>
+              <span>POS</span><strong>결제 현장 관제</strong>
+            </button>
+            <button type="button" onClick={onOpenSales}>
+              <span>SALES</span><strong>매출 집계 대시보드</strong>
+            </button>
+          </section>
+          <p className="hq-lobby__note">HQ LOBBY 에서 업무를 생성하면 SSE 로 부서 아바타가 즉시 움직입니다.</p>
+        </aside>
       </div>
 
       {missionModalOpen ? (

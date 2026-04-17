@@ -1,10 +1,18 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   patchMissionRuntimeState,
   setMissionRuntimePhase,
   useMissionRuntimeState,
   type MissionRuntimeDepartment,
 } from "../../store/missionRuntimeStore";
+
+const DBG = "[OfficeWorld]";
+function dlog(...args: unknown[]) {
+  if (typeof console !== "undefined") console.log(DBG, ...args);
+}
+function dwarn(...args: unknown[]) {
+  if (typeof console !== "undefined") console.warn(DBG, ...args);
+}
 
 type SceneMode = "idle" | "dispatch" | "working" | "meeting";
 
@@ -41,21 +49,22 @@ let phaserLoadPromise: Promise<PhaserLike> | null = null;
 function loadPhaser(): Promise<PhaserLike> {
   if (typeof window === "undefined") return Promise.reject(new Error("no-window"));
   const globalAny = window as any;
-  if (globalAny.Phaser) return Promise.resolve(globalAny.Phaser);
+  if (globalAny.Phaser) { dlog("Phaser already present on window"); return Promise.resolve(globalAny.Phaser); }
   if (phaserLoadPromise) return phaserLoadPromise;
+  dlog("injecting Phaser CDN script:", PHASER_CDN);
   phaserLoadPromise = new Promise<PhaserLike>((resolve, reject) => {
     const existing = document.querySelector<HTMLScriptElement>(`script[data-phaser-cdn="1"]`);
     if (existing) {
-      existing.addEventListener("load", () => resolve((window as any).Phaser));
-      existing.addEventListener("error", () => reject(new Error("phaser-load-failed")));
+      existing.addEventListener("load", () => { dlog("Phaser CDN loaded (existing tag)"); resolve((window as any).Phaser); });
+      existing.addEventListener("error", () => { dwarn("Phaser CDN load failed (existing tag)"); reject(new Error("phaser-load-failed")); });
       return;
     }
     const s = document.createElement("script");
     s.src = PHASER_CDN;
     s.async = true;
     s.dataset.phaserCdn = "1";
-    s.onload = () => resolve((window as any).Phaser);
-    s.onerror = () => reject(new Error("phaser-load-failed"));
+    s.onload = () => { dlog("Phaser CDN script onload fired; window.Phaser =", !!(window as any).Phaser); resolve((window as any).Phaser); };
+    s.onerror = () => { dwarn("Phaser CDN script onerror"); reject(new Error("phaser-load-failed")); };
     document.head.appendChild(s);
   });
   return phaserLoadPromise;
@@ -574,14 +583,19 @@ export default function OfficeWorld({ mode = "idle", directive: _directive = "" 
   const esRef = useRef<EventSource | null>(null);
   const lastMissionIdRef = useRef<string | null>(null);
   const runtime = useMissionRuntimeState();
+  const [bootStatus, setBootStatus] = useState<"loading" | "ready" | "failed">("loading");
 
   // Boot Phaser game once on mount.
   useEffect(() => {
     let disposed = false;
+    dlog("mount — boot Phaser (container =", containerRef.current, ")");
     loadPhaser()
       .then((Phaser) => {
-        if (disposed || !containerRef.current) return;
+        if (disposed) { dlog("disposed before Phaser ready"); return; }
+        if (!containerRef.current) { dwarn("container ref missing"); return; }
+        if (!Phaser) { dwarn("Phaser resolved but undefined"); setBootStatus("failed"); return; }
         const { OfficeScene, W, H } = buildOfficeScene(Phaser);
+        dlog("creating Phaser.Game", { W, H });
         const game = new Phaser.Game({
           type: Phaser.AUTO,
           parent: containerRef.current,
@@ -594,11 +608,17 @@ export default function OfficeWorld({ mode = "idle", directive: _directive = "" 
         gameRef.current = game;
         game.events.once("scene:ready", () => {
           sceneRef.current = game.scene.getScene("office");
+          dlog("scene ready");
+          setBootStatus("ready");
         });
       })
-      .catch(() => { /* CDN blocked — graceful degrade */ });
+      .catch((err) => {
+        dwarn("Phaser load/init failed:", err);
+        setBootStatus("failed");
+      });
     return () => {
       disposed = true;
+      dlog("unmount");
       if (esRef.current) { try { esRef.current.close(); } catch { /* noop */ } esRef.current = null; }
       if (gameRef.current) { try { gameRef.current.destroy(true); } catch { /* noop */ } gameRef.current = null; }
       sceneRef.current = null;
@@ -730,8 +750,16 @@ export default function OfficeWorld({ mode = "idle", directive: _directive = "" 
   }, [runtime.missionId, runtime.directive, runtime.topic]);
 
   return (
-    <div className="sim-world sim-world--phaser" aria-hidden="true">
+    <div className="sim-world sim-world--phaser" aria-hidden="true" data-boot={bootStatus}>
       <div className="sim-world__phaser" ref={containerRef} />
+      {bootStatus === "loading" ? (
+        <div className="sim-world__boot">Phaser 오피스 로딩 중…</div>
+      ) : null}
+      {bootStatus === "failed" ? (
+        <div className="sim-world__boot sim-world__boot--err">
+          Phaser CDN 로딩 실패. 네트워크 또는 브라우저 확장 차단을 확인하세요.
+        </div>
+      ) : null}
     </div>
   );
 }
