@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { t } from "../../i18n";
+import OfficeWorld from "./OfficeWorld";
 
 type Props = {
   sidebar: ReactNode | ((options: { onCloseSidebar: () => void }) => ReactNode);
@@ -217,10 +218,9 @@ export default function AppShell({
     "--shell-left": isMobile ? "8px" : `${leftInsetDesktop}px`
   } as CSSProperties;
 
-  void sceneMode; void sceneDirective;
-
   return (
     <div className="game-shell" style={shellInsets}>
+      <OfficeWorld mode={sceneMode} directive={sceneDirective} />
       <div className="game-shell__overlay" />
 
       <div className="game-shell__topbar-wrap" role="banner">
