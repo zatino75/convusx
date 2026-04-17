@@ -2563,27 +2563,6 @@ select {
   pointer-events: none;
 }
 
-.sim-world--phaser {
-  z-index: 0;
-}
-.sim-world--phaser .sim-world__phaser {
-  position: absolute;
-  inset: var(--world-top) var(--world-right) var(--world-bottom) var(--world-left);
-  border-radius: 24px;
-  overflow: hidden;
-  border: 1px solid rgba(140, 130, 115, 0.18);
-  background:
-    radial-gradient(60% 48% at 50% 62%, rgba(210, 200, 180, 0.55), transparent 72%),
-    radial-gradient(36% 28% at 18% 16%, rgba(230, 220, 200, 0.55), transparent 70%),
-    var(--bg-main, #f0f0f0);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 2px 10px rgba(110, 100, 85, 0.06);
-}
-.sim-world--phaser .sim-world__phaser canvas {
-  width: 100% !important;
-  height: 100% !important;
-  display: block;
-}
-
 .sim-world__hud {
   position: absolute;
   top: 10px;
