@@ -140,6 +140,19 @@
   .chat-empty{color:var(--text-dim);font-size:15px;text-align:center;padding:80px 20px}
   .chat-empty h3{margin:0 0 6px;font-size:18px;color:var(--text-soft);font-weight:600}
 
+  /* Project Home (activeThreadId === null && activeProjectId !== __general__) */
+  .project-home{max-width:720px;margin:0 auto;padding:40px 24px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px}
+  .project-home__icon{font-size:48px;line-height:1;margin-bottom:2px}
+  .project-home__title{font-size:20px;font-weight:700;color:#1A1915;word-break:break-word}
+  .project-home__desc{font-size:14px;color:#6B6560;line-height:1.6}
+  .project-home__btn{background:#c96442;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;transition:filter .15s}
+  .project-home__btn:hover{filter:brightness(1.08)}
+  .project-home__threads{width:100%;margin-top:18px;display:flex;flex-direction:column;gap:8px}
+  .project-home__thread{background:#fff;border:1px solid #B8B4A8;border-radius:8px;padding:12px 14px;cursor:pointer;text-align:left;transition:background .12s,border-color .12s}
+  .project-home__thread:hover{background:#F5F4EF;border-color:#9a9486}
+  .project-home__thread-title{font-size:14.5px;font-weight:600;color:#1A1915;margin-bottom:2px}
+  .project-home__thread-meta{font-size:12px;color:#6B6560}
+
   .msg{display:flex;flex-direction:column;gap:3px;animation:msg-in .2s ease-out;max-width:100%;position:relative}
   @keyframes msg-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
   .msg.user{align-self:flex-end;align-items:flex-end;max-width:min(80%,760px)}
@@ -1324,7 +1337,7 @@
     renderSidebar();
   }
   function newChat(){
-    // Multi-thread safe: creating a new thread doesn't cancel existing runs.
+    // "+ 새 채팅" — activeProjectId 아래 스레드 생성 후 채팅창으로 이동
     const pid = state.activeProjectId || GENERAL;
     createNewThread(pid);
     dom.chatLog.innerHTML = `<div class="chat-empty"><h3>무엇을 도와드릴까요?</h3><p>지시를 입력하면 필요한 부서 직원이 움직입니다.</p></div>`;
@@ -1332,7 +1345,6 @@
     dom.directive.value = ''; autoSize(); clearAttachments();
     dom.directive.focus();
     dom.chatTitle.textContent = '신규 대화';
-    // New thread has a fresh run state (idle)
     applyRunToUI(ensureRun(state.activeThreadId));
     renderSidebar();
   }
@@ -1340,8 +1352,101 @@
     const name = prompt('새 프로젝트 이름'); if (!name || !name.trim()) return;
     const p = { id:'proj_' + Date.now().toString(36), title:name.trim(), updatedAt:Date.now(), meta:{} };
     state.projects.unshift(p); saveProjects(); apiSaveProject(p).catch(() => {});
-    state.activeProjectId = p.id;
-    createNewThread(p.id); newChat();
+    // 스레드 자동 생성 금지 — 프로젝트 홈 화면으로 진입
+    selectProject(p.id);
+  }
+
+  // ─── 프로젝트 / 스레드 선택 ─────────────────────────────────────
+  function selectProject(projectId){
+    if (!projectId || projectId === GENERAL) {
+      state.activeProjectId = GENERAL;
+    } else {
+      state.activeProjectId = projectId;
+    }
+    state.activeThreadId = null;
+    localStorage.removeItem(LS.ACTIVE_THREAD);
+    // 선택 시 자동 펼침 (사용자가 스레드 목록 바로 보게)
+    state.collapsedProjects.delete(state.activeProjectId);
+    saveCollapsed();
+    state.scene?.resetAll();
+    renderSidebar();
+    renderMainArea();
+    apiSyncState();
+  }
+  function selectThread(threadId){ loadThread(threadId); }
+  function createThreadInProject(projectId){
+    state.activeProjectId = projectId || GENERAL;
+    createNewThread(state.activeProjectId);
+    dom.chatLog.innerHTML = `<div class="chat-empty"><h3>무엇을 도와드릴까요?</h3><p>지시를 입력하면 필요한 부서 직원이 움직입니다.</p></div>`;
+    state.scene?.resetAll();
+    dom.directive.value = ''; autoSize(); clearAttachments();
+    dom.directive.focus();
+    dom.chatTitle.textContent = '신규 대화';
+    applyRunToUI(ensureRun(state.activeThreadId));
+    renderSidebar();
+  }
+
+  // ─── 메인 영역 렌더링: 프로젝트 홈 vs 채팅 ─────────────────────
+  function renderMainArea(){
+    const pid = state.activeProjectId;
+    const inRealProject = pid && pid !== GENERAL;
+    if (inRealProject && !state.activeThreadId) {
+      renderProjectHome(pid);
+      return;
+    }
+    const cur = getActiveThread();
+    if (cur) {
+      reloadActiveThread();
+    } else {
+      dom.chatLog.innerHTML = `<div class="chat-empty"><h3>무엇을 도와드릴까요?</h3><p>지시를 입력하면 필요한 부서 직원이 움직입니다.</p></div>`;
+      dom.chatTitle.textContent = '신규 대화';
+    }
+  }
+  function renderProjectHome(projectId){
+    const p = (state.projects || []).find(x => x && x.id === projectId);
+    if (!p) { renderSidebar(); return; }
+    dom.chatTitle.textContent = p.title;
+    const threads = projectThreads(projectId).slice().sort(compareThreads);
+    const cardsHtml = threads.map(t => {
+      const when = new Date(t.updatedAt || Date.now()).toLocaleString('ko-KR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+      return `<div class="project-home__thread" data-tid="${escapeAttr(t.id)}">
+        <div class="project-home__thread-title">${escapeHtml(t.title || '신규 대화')}</div>
+        <div class="project-home__thread-meta">${escapeHtml(when)} · 메시지 ${Array.isArray(t.messages) ? t.messages.length : 0}개</div>
+      </div>`;
+    }).join('');
+    dom.chatLog.innerHTML = `
+      <div class="project-home">
+        <div class="project-home__icon">📁</div>
+        <div class="project-home__title">${escapeHtml(p.title)}</div>
+        <div class="project-home__desc">${threads.length ? '이 프로젝트의 대화를 이어가거나 새 스레드를 시작하세요.' : '이 프로젝트에 대화가 없습니다.<br>새 스레드를 시작하세요.'}</div>
+        <button class="project-home__btn" type="button" data-act="new-thread">+ 새 스레드 시작하기</button>
+        ${threads.length ? `<div class="project-home__threads">${cardsHtml}</div>` : ''}
+      </div>`;
+    const btn = dom.chatLog.querySelector('[data-act="new-thread"]');
+    if (btn) btn.addEventListener('click', () => createThreadInProject(projectId));
+    dom.chatLog.querySelectorAll('.project-home__thread').forEach(el => {
+      el.addEventListener('click', () => selectThread(el.dataset.tid));
+    });
+  }
+  function escapeAttr(s){ return String(s ?? '').replace(/["&<>]/g, ch => ({'"':'&quot;','&':'&amp;','<':'&lt;','>':'&gt;'}[ch])); }
+
+  // ─── SSE 텍스트 추출 (AI 응답 [object Object] 방지) ─────────────
+  function extractText(data){
+    if (typeof data === 'string') return data;
+    if (data == null) return '';
+    if (typeof data === 'object') {
+      const candidates = [
+        data.text, data.content, data.answer,
+        data.final_answer?.text, data.final_answer?.content,
+        data.payload?.final_answer?.text, data.payload?.final_answer?.content,
+        data.delta?.text,
+      ];
+      for (const c of candidates) {
+        if (typeof c === 'string') return c;
+      }
+      try { return JSON.stringify(data); } catch { return String(data); }
+    }
+    return String(data);
   }
 
   // ─── Sidebar render ─────────────────────────────────────────────
@@ -1365,22 +1470,29 @@
       row.className = 'project-row' + (isCollapsed ? ' collapsed' : '') + (state.activeProjectId === p.id ? ' active' : '');
       row.innerHTML = `<span class="caret">▼</span><span class="name"></span><span class="count">${ts.length}</span><button class="row-menu" type="button">⋯</button>`;
       row.querySelector('.name').textContent = p.title;
+      // 이름/카렛 클릭: selectProject(p.id) — 스레드 자동 생성 없이 홈 화면 진입
       row.addEventListener('click', (e) => {
         if (e.target && e.target.classList.contains('row-menu')) return;
-        state.activeProjectId = p.id;
-        if (isCollapsed) state.collapsedProjects.delete(p.id); else state.collapsedProjects.add(p.id);
-        saveCollapsed(); renderSidebar(); apiSyncState();
+        const caret = e.target && e.target.classList.contains('caret');
+        if (caret) {
+          // 카렛 전용: 접힘 토글만 (선택은 바꾸지 않음)
+          if (isCollapsed) state.collapsedProjects.delete(p.id); else state.collapsedProjects.add(p.id);
+          saveCollapsed(); renderSidebar();
+          return;
+        }
+        selectProject(p.id);
       });
       row.querySelector('.row-menu').addEventListener('click', (e) => { e.stopPropagation(); openProjectMenu(e.currentTarget, p); });
       dom.projectList.appendChild(row);
       if (!isCollapsed) {
-        const sorted = ts.slice().sort(compareThreads);
-        for (const t of sorted) dom.projectList.appendChild(threadItem(t, true));
+        // "+ 새 스레드" 버튼을 최상단에 배치 (zip 레퍼런스와 동일)
         const nw = document.createElement('div');
         nw.className = 'project-new-thread';
         nw.textContent = '+ 새 스레드';
-        nw.onclick = (e) => { e.stopPropagation(); state.activeProjectId = p.id; createNewThread(p.id); newChat(); };
+        nw.onclick = (e) => { e.stopPropagation(); createThreadInProject(p.id); };
         dom.projectList.appendChild(nw);
+        const sorted = ts.slice().sort(compareThreads);
+        for (const t of sorted) dom.projectList.appendChild(threadItem(t, true));
       }
     }
   }
@@ -1499,7 +1611,11 @@
     if (!confirm('이 스레드를 삭제할까요?')) return;
     for (const k of Object.keys(state.threads)) state.threads[k] = state.threads[k].filter(x => x.id !== id);
     saveThreads(); apiDeleteThread(id).catch(() => {});
-    if (state.activeThreadId === id) { state.activeThreadId = null; localStorage.removeItem(LS.ACTIVE_THREAD); newChat(); }
+    if (state.activeThreadId === id) {
+      state.activeThreadId = null; localStorage.removeItem(LS.ACTIVE_THREAD);
+      // 활성 스레드가 프로젝트 소속이었다면 프로젝트 홈으로, 아니면 GENERAL 빈 채팅으로
+      renderMainArea();
+    }
     renderSidebar();
     toast('삭제됨');
   }
@@ -1515,7 +1631,12 @@
     state.projects = state.projects.filter(x => x.id !== id);
     delete state.threads[id];
     saveProjects(); saveThreads(); apiDeleteProject(id).catch(() => {});
-    if (state.activeProjectId === id) { state.activeProjectId = GENERAL; newChat(); }
+    if (state.activeProjectId === id) {
+      state.activeProjectId = GENERAL;
+      state.activeThreadId = null;
+      localStorage.removeItem(LS.ACTIVE_THREAD);
+      renderMainArea();
+    }
     renderSidebar();
     toast('프로젝트 삭제됨');
   }
@@ -1949,13 +2070,11 @@
             if (!payload) continue;
             try {
               const ev = JSON.parse(payload);
-              if (ev.type === 'chunk' && typeof ev.content === 'string') {
-                appendChunk(ev.content);
-              } else if (ev.type === 'provider_chunk' && typeof ev.content === 'string') {
-                appendChunk(ev.content);
-              } else if (ev.type === 'done' && ev.payload) {
-                const finalText = ev.payload?.final_answer?.text || ev.payload?.answer;
-                if (finalText && !accumulated) appendChunk(String(finalText));
+              if (ev.type === 'chunk' || ev.type === 'token' || ev.type === 'provider_chunk') {
+                appendChunk(extractText(ev.content ?? ev.delta ?? ev.text ?? ev));
+              } else if (ev.type === 'done') {
+                const finalText = extractText(ev.payload) || extractText(ev);
+                if (finalText && !accumulated) appendChunk(finalText);
               }
             } catch {/* ignore non-JSON frames */}
           }
@@ -2379,7 +2498,9 @@
         for (const m of cur.messages) addMsg(m, false);
       }
     } else {
-      ensureThread(); reloadActiveThread();
+      // 스레드 없음 — 프로젝트 홈 또는 빈 채팅 placeholder 표시 (자동 스레드 생성 금지)
+      state.activeThreadId = null;
+      renderMainArea();
     }
 
     dom.navNewChat.addEventListener('click', (e) => { e.preventDefault(); newChat(); });
