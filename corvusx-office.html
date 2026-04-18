@@ -627,7 +627,7 @@
           case 'critic_start':        this.onCriticStart(); break;
           case 'critic_done':         this.onCriticDone(); break;
           case 'ensemble_start':      this.onEnsembleStart(d.deptId, d.reason); break;
-          case 'ensemble_voice':      this.onEnsembleVoice(d.deptId, d.model, d.message); break;
+          case 'ensemble_voice':      this.onEnsembleVoice(d.deptId, d.model, d.message, d.confidence); break;
           case 'ensemble_done':       this.onEnsembleDone(d.deptId, d.verdict); break;
           case 'ceo_briefing':        this.onCeoBriefing(); break;
           case 'all_done':            this.onAllDone(); break;
@@ -1093,17 +1093,23 @@
       this.setDeskGlow(deptId, true, '#22d3ee');
       this.setBubble(c, '🧠 3-AI 앙상블', '#cffafe', 2400);
     }
-    onEnsembleVoice(deptId, model, message){
+    onEnsembleVoice(deptId, model, message, confidence){
       const c = this.characters[deptId]; if (!c) return;
       const label = (model || 'AI').replace(/^claude-opus.*/i, 'Claude')
                                    .replace(/^gpt.*/i, 'GPT')
                                    .replace(/^gemini.*/i, 'Gemini');
-      const preview = (message || '').slice(0, 32);
-      this.setBubble(c, `${label}: ${preview}`, '#e0f2fe', 3200);
-      // 좌석 글로우를 한 번 펄스
+      const conf = (typeof confidence === 'number') ? ` (${Math.round(confidence * 100)}%)` : '';
+      const preview = (message || '').slice(0, 28);
+      this.setBubble(c, `${label}${conf}: ${preview}`, '#e0f2fe', 3200);
+      // confidence 높음=초록, 보통=파랑, 낮음=주황
+      const hex = (typeof confidence === 'number')
+        ? (confidence >= 0.7 ? '#10b981' : confidence >= 0.45 ? '#22d3ee' : '#f59e0b')
+        : '#22d3ee';
       const dg = this.deskGlows[deptId];
       if (dg && dg.g && dg.g.visible) {
         this.tweens.add({ targets: dg.g, alpha: { from: 1, to: 0.5 }, duration: 180, yoyo: true });
+      } else {
+        this.setDeskGlow(deptId, true, hex);
       }
     }
     onEnsembleDone(deptId, verdict){
@@ -2189,10 +2195,22 @@
         if (active) window.dispatchEvent(new CustomEvent('office-event', { detail:{ type:'ensemble_start', deptId:p.deptId, reason:p.reason } }));
         break;
       case 'ensemble_voice':
-        if (active) window.dispatchEvent(new CustomEvent('office-event', { detail:{ type:'ensemble_voice', deptId:p.deptId, model:p.model, message:p.message } }));
+        if (active) window.dispatchEvent(new CustomEvent('office-event', { detail:{ type:'ensemble_voice', deptId:p.deptId, model:p.model, message:p.message, confidence:p.confidence } }));
         break;
       case 'ensemble_done':
         if (active) window.dispatchEvent(new CustomEvent('office-event', { detail:{ type:'ensemble_done', deptId:p.deptId, verdict:p.verdict } }));
+        // 통합 synthesis 가 있으면 부서 메시지로 추가 (마크다운 그대로 렌더)
+        if (p.synthesis && typeof p.synthesis === 'string' && p.synthesis.trim()) {
+          const d = DEPT_BY_ID[p.deptId];
+          const nm = d ? `${d.kr}팀 · 3-AI 앙상블` : `${p.deptId} · 3-AI 앙상블`;
+          const verdictBadge = p.verdict === 'consensus' ? '✓ 합의'
+                            : p.verdict === 'split' ? '△ 분기'
+                            : p.verdict === 'contradictory' ? '⚠ 충돌'
+                            : '? 불확실';
+          const simStr = typeof p.similarity === 'number' ? ` (유사도 ${p.similarity.toFixed(2)})` : '';
+          const headerLine = `**${verdictBadge}${simStr}**\n\n`;
+          addMsgForThread(threadId, { who:nm, body: headerLine + p.synthesis, kind:'dept', deptId:p.deptId });
+        }
         break;
       case 'ceo_briefing':
         run.lastBriefing = p.briefing;

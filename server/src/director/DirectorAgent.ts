@@ -46,8 +46,8 @@ export type WsEvent =
   | { type: 'dept_done'; deptId: DeptId; report: object; model: string; connectors: string[]; durationMs: number }
   | { type: 'dept_error'; deptId: DeptId; error: string }
   | { type: 'ensemble_start'; deptId: DeptId; reason: string }
-  | { type: 'ensemble_voice'; deptId: DeptId; model: string; message: string; durationMs?: number }
-  | { type: 'ensemble_done'; deptId: DeptId; verdict: string; summary: string }
+  | { type: 'ensemble_voice'; deptId: DeptId; model: string; message: string; durationMs?: number; confidence?: number }
+  | { type: 'ensemble_done'; deptId: DeptId; verdict: string; summary: string; synthesis?: string; similarity?: number }
   | { type: 'critic_start' }
   | { type: 'critic_done'; review: CriticReviewResult }
   | { type: 'critic_rework'; rework: DeptId[]; rework_reason: Partial<Record<DeptId, string>> }
@@ -235,17 +235,26 @@ export async function runDirector(
       // ─ 고가치 부서 → 3-AI 병렬 앙상블 사전 가시화 ─
       if (detectHighValue(directive, task.deptId)) {
         try {
-          await runEnsemble({
+          const ensembleResult = await runEnsemble({
             deptId: task.deptId,
             objective: task.objective,
             reason: `${task.deptId} — 고가치 3-AI 앙상블`,
             systemPrompt: `당신은 ${task.deptId} 부서 전문가입니다. CEO 지시: ${directive.slice(0,500)}`,
-            userPrompt: `목표: ${task.objective}\n\n3-5문장 핵심 분석을 작성하세요.`,
+            userPrompt: `목표: ${task.objective}\n\n구체적 수치/근거를 포함한 5-8문장 분석을 작성하세요.`,
             onEvent: (e: EnsembleEvent) => {
+              // ensemble_done 은 아래에서 synthesis 와 함께 한 번만 보낸다 (중복 방지)
               if (e.type === 'ensemble_start') send({ type: 'ensemble_start', deptId: task.deptId, reason: e.reason || '' });
-              else if (e.type === 'ensemble_voice') send({ type: 'ensemble_voice', deptId: task.deptId, model: e.model || '', message: e.message || '', durationMs: e.durationMs });
-              else if (e.type === 'ensemble_done') send({ type: 'ensemble_done', deptId: task.deptId, verdict: e.verdict || 'consensus', summary: e.summary || '' });
+              else if (e.type === 'ensemble_voice') send({ type: 'ensemble_voice', deptId: task.deptId, model: e.model || '', message: e.message || '', durationMs: e.durationMs, confidence: e.confidence });
             },
+          });
+          // 풀 synthesis + similarity 를 포함해 ensemble_done 한 번에 emit
+          send({
+            type: 'ensemble_done',
+            deptId: task.deptId,
+            verdict: ensembleResult.verdict,
+            summary: ensembleResult.summary,
+            synthesis: ensembleResult.synthesis,
+            similarity: ensembleResult.similarity,
           });
         } catch (ensembleErr) {
           logger.warn({ err: ensembleErr, deptId: task.deptId }, '[Director] 앙상블 실패, 단독 모델로 진행');
