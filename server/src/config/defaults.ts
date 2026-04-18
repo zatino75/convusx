@@ -61,7 +61,7 @@ export const REUSE_PAST_WINNER_CONFIDENCE = 999  // 비활성화 상태
 // defaults.ts ← adapters/gemini.ts 방향의 순환 import 위험이 있어 여기로 끌어올렸다.
 export const GEMINI_MODEL_ID = "gemini-2.5-pro"
 export const GEMINI_FLASH_MODEL_ID = "gemini-2.0-flash"
-export const GEMINI_DISPLAY_LABEL = "Gemini 3.1 Pro Ultra"
+export const GEMINI_DISPLAY_LABEL = "Gemini 2.5 Pro"
 
 // ── 비용 ──
 export const MODEL_PRICING_USD_PER_1K_TOKENS: Record<string, { input: number; output: number }> = {

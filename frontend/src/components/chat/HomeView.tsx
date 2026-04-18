@@ -15,6 +15,7 @@ type Props = {
   onMoveThread?: (threadId: string, nextProjectId: string) => void;
   onRemoveFromProject?: (threadId: string) => void;
   onDeleteThread?: (threadId: string) => void;
+  onToggleThreadPinned?: (threadId: string) => void;
   onLaunchWorkforceMission?: (directive: string) => void;
   onOpenStoreOps?: () => void;
   onOpenPos?: () => void;
@@ -300,6 +301,7 @@ export default function HomeView({
   onMoveThread,
   onRemoveFromProject,
   onDeleteThread,
+  onToggleThreadPinned,
   projectGroups,
   onLaunchWorkforceMission,
   onOpenStoreOps,
@@ -338,6 +340,7 @@ export default function HomeView({
         onMoveThread={onMoveThread ? (threadId: string) => onMoveThread(threadId, "__general__") : undefined}
         onDeleteThread={onDeleteThread}
         onRemoveFromProject={onRemoveFromProject}
+        onToggleThreadPinned={onToggleThreadPinned}
         isSending={isSending}
       />
     );

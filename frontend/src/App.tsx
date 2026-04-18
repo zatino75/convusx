@@ -717,6 +717,7 @@ export default function App() {
                   onMoveThread={(threadId, nextProjectId) => { if (!nextProjectId) return; workspace.moveThread(threadId, nextProjectId); }}
                   onRemoveFromProject={workspace.removeThreadFromProject}
                   onDeleteThread={openDeleteThread}
+                  onToggleThreadPinned={workspace.toggleThreadPinned}
                   projectGroups={workspace.projectGroups}
                   onLaunchWorkforceMission={handleLaunchWorkforceMission}
                   onOpenStoreOps={handleOpenStoreOps}

@@ -1,6 +1,6 @@
 /**
  * EnsembleRunner.ts
- * 3-AI 병렬 앙상블 — Claude Opus 4.6 / GPT-5.4-pro / Gemini 3.1 Pro Ultra
+ * 3-AI 병렬 앙상블 — Claude Opus 4.6 / GPT-5.4-pro / Gemini 2.5 Pro
  *
  * 고가치 task(marketing / finance / legal / product / strategy)에서
  * DirectorAgent가 부서 에이전트 호출 직전에 호출한다.

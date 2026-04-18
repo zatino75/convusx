@@ -23,6 +23,7 @@ type Props = {
   onMoveThread?: (threadId: string) => void;
   onRemoveFromProject?: (threadId: string) => void;
   onDeleteThread?: (threadId: string) => void;
+  onToggleThreadPinned?: (threadId: string) => void;
   isSending?: boolean;
 };
 
@@ -531,7 +532,7 @@ function SourcesTab({ project }: { project: ProjectGroup }) {
   );
 }
 
-export default function ProjectHomeView({ project, activeThreadId = null, onOpenThread, onRenameThread, onMoveThread, onRemoveFromProject, onDeleteThread, isSending = false }: Props) {
+export default function ProjectHomeView({ project, activeThreadId = null, onOpenThread, onRenameThread, onMoveThread, onRemoveFromProject, onDeleteThread, onToggleThreadPinned, isSending = false }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("스레드");
   if (!project) return null;
   return (
@@ -561,7 +562,7 @@ export default function ProjectHomeView({ project, activeThreadId = null, onOpen
             ))}
           </div>
           {activeTab === "스레드" && (
-            <ProjectThreadList project={project} activeThreadId={activeThreadId} onOpenThread={onOpenThread} onRenameThread={onRenameThread} onMoveThread={onMoveThread} onRemoveFromProject={onRemoveFromProject} onDeleteThread={onDeleteThread} />
+            <ProjectThreadList project={project} activeThreadId={activeThreadId} onOpenThread={onOpenThread} onRenameThread={onRenameThread} onMoveThread={onMoveThread} onRemoveFromProject={onRemoveFromProject} onDeleteThread={onDeleteThread} onToggleThreadPinned={onToggleThreadPinned} />
           )}
           {activeTab === "소스" && (
             <SourcesTab project={project} />

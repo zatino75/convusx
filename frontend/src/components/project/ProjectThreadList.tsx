@@ -11,6 +11,7 @@ type Props = {
   onMoveThread?: (threadId: string) => void;
   onRemoveFromProject?: (threadId: string) => void;
   onDeleteThread?: (threadId: string) => void;
+  onToggleThreadPinned?: (threadId: string) => void;
 };
 
 function MoreIcon() {
@@ -30,7 +31,8 @@ export default function ProjectThreadList({
   onRenameThread,
   onMoveThread,
   onRemoveFromProject,
-  onDeleteThread
+  onDeleteThread,
+  onToggleThreadPinned
 }: Props) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -49,9 +51,17 @@ export default function ProjectThreadList({
 
   if (!project) return null;
 
+  // pinned 우선, 그 다음 updatedAt 내림차순
+  const sortedThreads = [...project.threads].sort((a, b) => {
+    const ap = Boolean(a.meta?.pinned);
+    const bp = Boolean(b.meta?.pinned);
+    if (ap !== bp) return ap ? -1 : 1;
+    return new Date(b.updatedAt ?? 0).getTime() - new Date(a.updatedAt ?? 0).getTime();
+  });
+
   return (
     <div className="project-home__list" ref={containerRef}>
-      {project.threads.map((thread) => {
+      {sortedThreads.map((thread) => {
         const isActive = activeThreadId === thread.id;
 
         const rawPreview =
@@ -62,10 +72,11 @@ export default function ProjectThreadList({
         const preview = rawPreview ? stripMarkdown(rawPreview).slice(0, 96) || "아직 대화 없음" : "아직 대화 없음";
 
         const isMenuOpen = openMenuId === thread.id;
+        const isPinned = Boolean(thread.meta?.pinned);
 
         return (
           <div key={thread.id} className="project-thread-hover-row">
-            
+
             {/* ✅ ROW */}
             <button
               type="button"
@@ -74,7 +85,25 @@ export default function ProjectThreadList({
               style={isActive ? { background: "#f3f4f6" } : undefined}
             >
               <div className="project-thread-row__main">
-                <div className="project-thread-row__title">{thread.title}</div>
+                <div className="project-thread-row__title" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {isPinned && (
+                    <span
+                      title="고정됨"
+                      style={{
+                        flex: "0 0 auto",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: 16, height: 16,
+                        fontSize: 11,
+                        color: "#C9A84C"
+                      }}
+                    >📌</span>
+                  )}
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {thread.title}
+                  </span>
+                </div>
                 <div className="project-thread-row__preview">{preview}</div>
               </div>
 
@@ -117,6 +146,18 @@ export default function ProjectThreadList({
                   >
                     이름 바꾸기
                   </button>
+
+                  {onToggleThreadPinned && (
+                    <button
+                      className="menu-item-button"
+                      onClick={() => {
+                        onToggleThreadPinned(thread.id);
+                        setOpenMenuId(null);
+                      }}
+                    >
+                      {isPinned ? "고정 해제" : "고정"}
+                    </button>
+                  )}
 
                   <button
                     className="menu-item-button"

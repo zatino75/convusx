@@ -51,7 +51,8 @@
     height:100vh;
     transition:grid-template-columns .22s ease;
   }
-  .app.is-resizing{transition:none}
+  .app.is-resizing{transition:none;user-select:none;-webkit-user-select:none}
+  .app.is-resizing iframe{pointer-events:none}
   .app[data-sidebar="closed"]{grid-template-columns:0 1fr var(--panel-w,300px)}
   .app[data-panel="closed"]{grid-template-columns:var(--sidebar-w,260px) 1fr 0}
   .app[data-sidebar="closed"][data-panel="closed"]{grid-template-columns:0 1fr 0}
@@ -167,8 +168,9 @@
   .msg.user .body{background:var(--user-bubble);border-color:var(--user-bubble-border);color:var(--user-bubble-text);border-bottom-right-radius:4px;white-space:pre-wrap;box-shadow:0 2px 8px rgba(201,100,66,.18)}
   .msg:not(.user) .body{border-bottom-left-radius:4px}
   .msg.dept .who .dot{width:7px;height:7px;border-radius:50%;background:var(--dept-color,#9ca3af)}
-  .msg.ceo .body{border-left:3px solid var(--gold);background:#FDF8EC}
-  .msg.ceo .who{color:var(--gold);font-weight:600}
+  .msg.ceo .body{border:1px solid #C9A84C;border-left:4px solid #C9A84C;background:linear-gradient(135deg,#FDF8EC 0%,#FFF7DA 100%);box-shadow:0 0 14px rgba(201,168,76,.18),0 1px 3px rgba(100,90,70,.06)}
+  .msg.ceo .who{color:#C9A84C;font-weight:700}
+  .msg.ceo .who::before{content:'★ ';color:#C9A84C}
   .msg.critic .body{border-left:3px solid var(--magenta);background:#FBEFF3}
   .msg.critic .who{color:var(--magenta);font-weight:600}
   .msg.sys{align-self:center;max-width:100%;align-items:center}
@@ -193,7 +195,8 @@
   .md th{background:rgba(0,0,0,.04);font-weight:600}
   .md strong{font-weight:700;color:var(--text)}
   .md em{font-style:italic}
-  .md blockquote{margin:8px 0;padding:4px 12px;border-left:3px solid var(--border);color:var(--text-soft)}
+  .md blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid #C9A84C;background:rgba(201,168,76,.08);color:var(--text-soft);border-radius:0 4px 4px 0}
+  .md del{text-decoration:line-through;color:var(--text-dim);opacity:.7}
   .md .sec{font-size:12.5px;color:var(--text-dim);font-weight:700;margin-top:8px;text-transform:uppercase;letter-spacing:.4px}
   .md hr{border:none;border-top:1px solid var(--border-soft);margin:12px 0}
 
@@ -500,7 +503,7 @@
   // ─── Sidebar width + toggles ────────────────────────────────────
   const sidebarWidth = Math.min(400, Math.max(200, Number(localStorage.getItem(LS.SIDEBAR_W) || 260)));
   document.documentElement.style.setProperty('--sidebar-w', sidebarWidth + 'px');
-  const panelWidth = Math.min(500, Math.max(250, Number(localStorage.getItem(LS.PANEL_W) || 300)));
+  const panelWidth = Math.min(520, Math.max(240, Number(localStorage.getItem(LS.PANEL_W) || 300)));
   document.documentElement.style.setProperty('--panel-w', panelWidth + 'px');
 
   function applyToggles(){
@@ -564,7 +567,7 @@
     window.addEventListener('mousemove', (e) => {
       if (!dragging) return;
       let w = startW - (e.clientX - startX);  // left-edge drag: inverse direction
-      w = Math.max(250, Math.min(500, w));
+      w = Math.max(240, Math.min(520, w));
       document.documentElement.style.setProperty('--panel-w', w + 'px');
     });
     window.addEventListener('mouseup', () => {
@@ -619,8 +622,14 @@
           case 'dept_start':          this.onDeptStart(d.deptId, d.objective); break;
           case 'dept_done':           this.onDeptDone(d.deptId); break;
           case 'dept_error':          this.goError(d.deptId); break;
+          case 'dept_rework_start':   this.onDeptReworkStart(d.deptId, d.reason); break;
+          case 'dept_rework_done':    this.onDeptDone(d.deptId); break;
           case 'critic_start':        this.onCriticStart(); break;
           case 'critic_done':         this.onCriticDone(); break;
+          case 'ensemble_start':      this.onEnsembleStart(d.deptId, d.reason); break;
+          case 'ensemble_voice':      this.onEnsembleVoice(d.deptId, d.model, d.message); break;
+          case 'ensemble_done':       this.onEnsembleDone(d.deptId, d.verdict); break;
+          case 'ceo_briefing':        this.onCeoBriefing(); break;
           case 'all_done':            this.onAllDone(); break;
         }
       };
@@ -1030,12 +1039,23 @@
       const c = this.characters[deptId]; if (!c) return;
       this.stopTweens(c); this.clearBubble(c);
       state.deptStates[deptId] = 'err';
-      this.setDeskGlow(deptId, false);
+      // 빨간 글로우로 오류 표시
+      this.setDeskGlow(deptId, true, '#ef4444');
+      // shake 효과 — 좌우로 6번 진동
+      const baseX = c.container.x;
+      this.tweens.add({
+        targets: c.container,
+        x: { from: baseX - 3, to: baseX + 3 },
+        duration: 60, yoyo: true, repeat: 5, ease: 'Sine.easeInOut',
+        onComplete: () => { c.container.x = baseX; },
+      });
       const homeX = isoX(c.cubicle.tx, c.cubicle.ty + 0.3);
       if (Math.abs(c.container.x - homeX) > 3) {
         c.state = 'returning';
         this.walkCharTo(c, c.cubicle.tx, c.cubicle.ty + 0.3, () => { c.state = 'idle'; this.setBubble(c, '! 오류', '#fecaca', 3000); this.startIdleBob(c); });
       } else { c.state = 'idle'; this.setBubble(c, '! 오류', '#fecaca', 3000); this.startIdleBob(c); }
+      // 1.5s 후 오류 글로우 페이드
+      this.time.delayedCall(1500, () => this.setDeskGlow(deptId, false));
       renderPanel();
     }
     resetAll(){
@@ -1065,6 +1085,52 @@
       const c = this.characters[deptId]; if (!c) return;
       c.state = 'walking'; this.stopTweens(c);
       this.walkCharTo(c, c.meetingSeat.tx, c.meetingSeat.ty, () => { c.state = 'working'; this.startTyping(c); this.setBubble(c, reason || '보완 작업', '#ffe3a0', 4000); });
+    }
+    // ─── 앙상블 훅 — ensemble_start/voice/done ─────────────────────────
+    onEnsembleStart(deptId, reason){
+      const c = this.characters[deptId]; if (!c) return;
+      // cyan 글로우로 앙상블 중임을 구분
+      this.setDeskGlow(deptId, true, '#22d3ee');
+      this.setBubble(c, '🧠 3-AI 앙상블', '#cffafe', 2400);
+    }
+    onEnsembleVoice(deptId, model, message){
+      const c = this.characters[deptId]; if (!c) return;
+      const label = (model || 'AI').replace(/^claude-opus.*/i, 'Claude')
+                                   .replace(/^gpt.*/i, 'GPT')
+                                   .replace(/^gemini.*/i, 'Gemini');
+      const preview = (message || '').slice(0, 32);
+      this.setBubble(c, `${label}: ${preview}`, '#e0f2fe', 3200);
+      // 좌석 글로우를 한 번 펄스
+      const dg = this.deskGlows[deptId];
+      if (dg && dg.g && dg.g.visible) {
+        this.tweens.add({ targets: dg.g, alpha: { from: 1, to: 0.5 }, duration: 180, yoyo: true });
+      }
+    }
+    onEnsembleDone(deptId, verdict){
+      const c = this.characters[deptId]; if (!c) return;
+      const bg = verdict === 'consensus' ? '#d1fae5'
+              : verdict === 'split' ? '#fef3c7'
+              : '#fee2e2';
+      const label = verdict === 'consensus' ? '✓ 합의'
+                  : verdict === 'split' ? '△ 분기'
+                  : '? 불확실';
+      this.setBubble(c, label, bg, 2000);
+    }
+    onDeptReworkStart(deptId, reason){
+      const c = this.characters[deptId]; if (!c) return;
+      this.stopTweens(c);
+      c.state = 'working'; state.deptStates[deptId] = 'rework';
+      // orange 글로우로 재작업 표시
+      this.setDeskGlow(deptId, true, '#f59e0b');
+      this.startTyping(c);
+      this.setBubble(c, '🔁 ' + (reason ? String(reason).slice(0, 22) : '보강 중'), '#fed7aa', 0);
+      renderPanel();
+    }
+    onCeoBriefing(){
+      // 상무실 + CEO 동시 하이라이트 + 골드 펄스
+      this.lightExecutive(true);
+      this.lightCeo(true);
+      this.time.delayedCall(5000, () => { this.lightExecutive(false); this.lightCeo(false); });
     }
   }
 
@@ -1131,6 +1197,8 @@
     work = work.replace(/`([^`\n]+?)`/g, '<code class="inline">$1</code>');
     work = work.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
     work = work.replace(/(^|[^*])\*([^*\n]+?)\*/g, '$1<em>$2</em>');
+    // strikethrough ~~text~~
+    work = work.replace(/~~([^~\n]+?)~~/g, '<del>$1</del>');
 
     // links
     work = work.replace(/\[([^\]]+)\]\((https?:[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
@@ -1539,23 +1607,67 @@
     }
   }
 
-  // ─── SSE 텍스트 추출 (AI 응답 [object Object] 방지) ─────────────
+  // ─── SSE 텍스트 추출 (AI 응답 [object Object] / JSON 노출 방지) ─────────────
+  // Provider 별 응답 구조와 done payload 의 nested .answer.text 까지 파고들어
+  // 실제 본문 문자열만 찾아낸다. 모두 실패 시 "[응답 파싱 실패]" + 본문 미리보기.
   function extractText(data){
     if (typeof data === 'string') return data;
     if (data == null) return '';
-    if (typeof data === 'object') {
-      const candidates = [
-        data.text, data.content, data.answer,
-        data.final_answer?.text, data.final_answer?.content,
-        data.payload?.final_answer?.text, data.payload?.final_answer?.content,
-        data.delta?.text,
-      ];
-      for (const c of candidates) {
-        if (typeof c === 'string') return c;
-      }
-      try { return JSON.stringify(data); } catch { return String(data); }
+    if (typeof data !== 'object') return String(data);
+
+    // 1) 직속 string 키 (가장 빈번한 형태)
+    const directKeys = ['text', 'content', 'answer', 'result', 'summary', 'output_text', 'message', 'delta'];
+    for (const k of directKeys) {
+      const v = data[k];
+      if (typeof v === 'string' && v.trim()) return v;
     }
-    return String(data);
+
+    // 2) 한 단계 nested 추출 (예: makeDonePayload.answer.text, payload.answer.text)
+    const nestedRoots = ['payload', 'answer', 'final_answer', 'result', 'response', 'data'];
+    for (const root of nestedRoots) {
+      const node = data[root];
+      if (node && typeof node === 'object') {
+        for (const k of ['text', 'content', 'answer', 'result', 'summary', 'output_text', 'message']) {
+          const v = node[k];
+          if (typeof v === 'string' && v.trim()) return v;
+        }
+      }
+    }
+
+    // 3) Anthropic content[]  ({ type: 'text', text: '...' })
+    if (Array.isArray(data.content)) {
+      const t = data.content.map(p => (p && typeof p.text === 'string') ? p.text : '').filter(Boolean).join('\n').trim();
+      if (t) return t;
+    }
+
+    // 4) OpenAI choices[].message.content / delta.content
+    if (Array.isArray(data.choices)) {
+      for (const c of data.choices) {
+        const m = c?.message?.content ?? c?.delta?.content;
+        if (typeof m === 'string' && m.trim()) return m;
+      }
+    }
+
+    // 5) Gemini candidates[].content.parts[].text
+    if (Array.isArray(data.candidates)) {
+      for (const cand of data.candidates) {
+        const parts = cand?.content?.parts || [];
+        for (const part of parts) {
+          if (typeof part?.text === 'string' && part.text.trim()) return part.text;
+        }
+      }
+    }
+
+    // 6) delta 또는 chunk 형태
+    if (data.delta && typeof data.delta === 'object') {
+      const d = data.delta.text ?? data.delta.content;
+      if (typeof d === 'string' && d.trim()) return d;
+    }
+
+    // 7) 마지막 수단: JSON 미리보기 (200자 cap) — 사용자가 디버깅할 수 있게 표시
+    let preview = '';
+    try { preview = JSON.stringify(data).slice(0, 200); } catch { preview = String(data).slice(0, 200); }
+    return `[응답 파싱 실패] ${preview}`;
   }
 
   // ─── Sidebar render ─────────────────────────────────────────────
@@ -2073,9 +2185,21 @@
         if (active) scene?.goDone(p.deptId);
         if (p.report) addThreadMsgByDeptReport(threadId, p.deptId, p.report);
         break;
+      case 'ensemble_start':
+        if (active) window.dispatchEvent(new CustomEvent('office-event', { detail:{ type:'ensemble_start', deptId:p.deptId, reason:p.reason } }));
+        break;
+      case 'ensemble_voice':
+        if (active) window.dispatchEvent(new CustomEvent('office-event', { detail:{ type:'ensemble_voice', deptId:p.deptId, model:p.model, message:p.message } }));
+        break;
+      case 'ensemble_done':
+        if (active) window.dispatchEvent(new CustomEvent('office-event', { detail:{ type:'ensemble_done', deptId:p.deptId, verdict:p.verdict } }));
+        break;
       case 'ceo_briefing':
         run.lastBriefing = p.briefing;
-        if (active) { scene?.lightCeo(true); setTimeout(() => scene?.lightCeo(false), 6000); }
+        if (active) {
+          window.dispatchEvent(new CustomEvent('office-event', { detail:{ type:'ceo_briefing' } }));
+          scene?.lightCeo(true); setTimeout(() => scene?.lightCeo(false), 6000);
+        }
         addThreadMsgByBriefing(threadId, p.briefing);
         break;
       case 'all_done':
@@ -2298,6 +2422,7 @@
          'mission_start','dept_start','dept_progress','dept_done','dept_error',
          'critic_review','critic_start','critic_done','critic_rework',
          'dept_rework_start','dept_rework_done',
+         'ensemble_start','ensemble_voice','ensemble_done',
          'ceo_briefing','all_done','error','stream_end']
           .forEach(n => es.addEventListener(n, listener));
         es.onerror = () => {
