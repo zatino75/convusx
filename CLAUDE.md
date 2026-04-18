@@ -60,6 +60,10 @@ git add -A && git commit -m "feat: 내용" && git push origin main
 ```
 
 ## 아키텍처 — 상무 게이트키퍼
+유저 메시지 (20자 이상)
+  → ExecutiveGate (Claude Sonnet, 20초)
+    → single_agent: Opus 단독 처리
+    → director: 부서 선별 + 맞춤 지시 → 병렬 실행 → 취합 → CEO 브리핑
 
 ## Director 플로우
 1. ExecutiveGate (Sonnet) — 부서 선별 + 맞춤 지시 생성
@@ -114,6 +118,11 @@ git add -A && git commit -m "feat: 내용" && git push origin main
 | SSE 연결 | 360 |
 
 ## SSE 이벤트
+executive_gate_start / done / redirect
+dept_start / progress / done / error / rework_start / done
+critic_start / done / rework
+ensemble_start / ensemble_voice / ensemble_done
+ceo_briefing / all_done
 
 ## corvusx-office.html 현재 기능
 
