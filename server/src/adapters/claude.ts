@@ -79,7 +79,8 @@ async function callAnthropic(params: {
   const start = now()
 
   try {
-    const advisorTool = { type: "advisor_20260301", model: "claude-opus-4-6", max_uses: 5 }
+    // 2026-04-18: name 필드 누락 시 API 가 400 으로 거부함 — 모든 Claude 호출 차단되던 버그
+    const advisorTool = { type: "advisor_20260301", name: "advisor", model: "claude-opus-4-6", max_uses: 5 }
     const payloadWithAdvisor = {
       ...params.payload,
       tools: [advisorTool, ...(params.payload.tools ?? [])]
@@ -127,7 +128,8 @@ async function streamAnthropic(params: {
   const start = now()
 
   try {
-    const advisorTool = { type: "advisor_20260301", model: "claude-opus-4-6", max_uses: 5 }
+    // 2026-04-18: name 필드 누락 시 API 가 400 으로 거부함 — 모든 Claude 호출 차단되던 버그
+    const advisorTool = { type: "advisor_20260301", name: "advisor", model: "claude-opus-4-6", max_uses: 5 }
     const payloadWithAdvisor = {
       ...params.payload,
       tools: [advisorTool, ...(params.payload.tools ?? [])],

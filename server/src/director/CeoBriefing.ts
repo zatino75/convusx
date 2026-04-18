@@ -11,16 +11,39 @@ import type { DeptId } from './TaskDecomposer.js';
 import type { CriticReviewResult } from './CriticReview.js';
 import { logger } from '../observability/logger.js';
 
+/** 부서별 핵심 발견 — 신호등(red/yellow/green) 으로 위험도 표현 */
+export interface DeptFinding {
+  dept: DeptId;
+  finding: string;          // 한 줄 핵심 발견
+  signal: "red" | "yellow" | "green";
+}
+
+/** 즉시 실행 권고 — 담당 부서 명시 필수 */
+export interface PriorityAction {
+  rank: number;             // 1~3
+  action: string;           // 구체적 액션
+  owner: DeptId | "ceo";    // 담당 부서
+  deadline?: string;        // 권장 시한 (예: "이번주", "30일내")
+}
+
 export interface CeoBriefingResult {
   sessionId: string;
   roundNumber: number;
   directive: string;
+
+  // ── 새 필드 (2026-04-18) ─────────────────────────────────────────────
+  executiveSummary: string;        // 3줄 이내 — 가장 먼저 노출
+  deptFindings: DeptFinding[];     // 부서별 핵심 발견 + 신호등
+  priorityActions: PriorityAction[]; // Top-3 즉시 실행 권고 (담당 부서 명시)
+  followUpItems: string[];         // 후속 모니터링 항목 (최대 5개)
+
+  // ── 기존 필드 유지 (UI 하위호환) ──────────────────────────────────────
   opportunities: string[];        // 핵심 기회 (최대 5개)
   risks: string[];                // 핵심 리스크 (최대 5개)
-  recommendations: string[];      // 즉시 실행 권고 (최대 5개)
+  recommendations: string[];      // 즉시 실행 권고 (최대 5개) — priorityActions 의 action 추출
   conflictingSignals: string[];   // 부서간 상충 신호 (최대 3개)
   overallConfidence: number;      // 0~1 통합 신뢰도
-  summary: string;                // 2~3문장 핵심 요약
+  summary: string;                // 2~3문장 핵심 요약 — executiveSummary 와 동일
   deptScores: Partial<Record<DeptId, number>>;  // 부서별 confidence
   critic?: {
     verdict: CriticReviewResult["verdict"];
@@ -71,28 +94,45 @@ async function callGeminiForBriefing(systemPrompt: string, userPrompt: string): 
 }
 
 // ─── 브리핑 시스템 프롬프트 ───────────────────────────────────────────────────
-const BRIEFING_SYSTEM_PROMPT = `당신은 CORVUS X의 최고경영자(CEO) 전담 AI 브리핑 어시스턴트입니다.
+const BRIEFING_SYSTEM_PROMPT = `당신은 CORVUS X 의 CEO 전담 브리핑 어시스턴트입니다.
+9개 부서(시장/경쟁/법무/재무/마케팅/R&D/데이터/콘텐츠/SNS) 보고를 CEO 시각으로 통합합니다.
 
-역할:
-- 9개 전문 AI 부서(시장분석/경쟁정보/법무컴플라이언스/재무전략/마케팅/R&D/데이터인텔리전스/콘텐츠/SNS)의 분석 결과를 CEO 시각에서 통합합니다.
-- 부서간 상충되거나 일치하는 신호를 감지합니다.
-- CEO가 즉시 의사결정에 활용할 수 있는 핵심 통찰을 추출합니다.
-
-출력 형식 (반드시 아래 JSON 구조로만 응답):
+【출력 구조 — 반드시 아래 JSON 만 출력】
 {
-  "opportunities": ["기회1", "기회2", "기회3"],
-  "risks": ["리스크1", "리스크2", "리스크3"],
+  "executiveSummary": "3줄 이내. 가장 중요한 결정 포인트 + 추천 방향 + 핵심 리스크.",
+
+  "deptFindings": [
+    {"dept": "market", "finding": "한 줄 핵심 발견", "signal": "red|yellow|green"},
+    ...
+  ],
+
+  "priorityActions": [
+    {"rank": 1, "action": "구체적 액션", "owner": "marketing", "deadline": "이번주"},
+    {"rank": 2, "action": "...", "owner": "legal", "deadline": "30일내"},
+    {"rank": 3, "action": "...", "owner": "rnd"}
+  ],
+
+  "followUpItems": ["모니터링 항목1", "..."],
+
+  "opportunities": ["기회1", "기회2"],
+  "risks": ["리스크1", "리스크2"],
   "recommendations": ["권고1", "권고2", "권고3"],
-  "conflictingSignals": ["상충1", "상충2"],
-  "overallConfidence": 0.85,
-  "summary": "핵심 요약 2~3문장"
+  "conflictingSignals": ["상충1"],
+  "overallConfidence": 0.85
 }
 
-주의:
-- JSON 외 다른 텍스트는 절대 출력하지 마십시오.
-- 각 항목은 한국어로 작성하되 구체적이고 실행 가능해야 합니다.
-- overallConfidence는 0~1 사이 소수점 2자리 숫자입니다.
-- 기회/리스크/권고는 각 최소 2개, 최대 5개입니다.`;
+【규칙】
+- JSON 외 텍스트 금지
+- executiveSummary 는 3줄 이내, CEO 가 첫 줄만 읽어도 결정 가능해야 함
+- deptFindings 는 보고된 모든 부서를 포함. signal 기준:
+   red = 즉시 대응 필요한 리스크/충돌
+   yellow = 주의 / 추가 검증 필요
+   green = 양호 / 기회 신호
+- priorityActions 는 정확히 3개. owner 는 9개 부서 ID 중 하나 또는 "ceo"
+   (market/compete/legal/finance/marketing/rnd/data/content/sns/ceo)
+- followUpItems 는 최대 5개, 다음 라운드에서 추적할 지표/이벤트
+- opportunities/risks/recommendations 는 기존 UI 호환용 — deptFindings/priorityActions 의 핵심을 한 줄로 추출
+- 모든 값은 한국어`;
 
 // ─── 사용자 프롬프트 빌더 ─────────────────────────────────────────────────────
 function buildBriefingPrompt(
@@ -139,6 +179,85 @@ ${criticBlock}${conflictsBlock}
 상충 의견이 있다면 conflictingSignals 필드에 반드시 반영하십시오.`;
 }
 
+// ─── 신호등/owner 정규화 ──────────────────────────────────────────────────────
+const VALID_DEPT_IDS: ReadonlySet<string> = new Set([
+  'market', 'compete', 'legal', 'finance',
+  'marketing', 'rnd', 'data', 'content', 'sns',
+]);
+
+function normalizeSignal(v: unknown): "red" | "yellow" | "green" {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (s === 'red' || s === '🔴' || s === 'high' || s === '위험') return 'red';
+  if (s === 'green' || s === '🟢' || s === 'low' || s === '양호') return 'green';
+  return 'yellow';
+}
+
+function normalizeOwner(v: unknown): DeptId | "ceo" {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (s === 'ceo') return 'ceo';
+  if (VALID_DEPT_IDS.has(s)) return s as DeptId;
+  return 'ceo';
+}
+
+function pickDeptFindings(arr: unknown, reports: DeptReportEntry[]): DeptFinding[] {
+  if (!Array.isArray(arr)) return [];
+  const seen = new Set<DeptId>();
+  const out: DeptFinding[] = [];
+  for (const item of arr) {
+    if (!item || typeof item !== 'object') continue;
+    const dept = String((item as any).dept ?? '').trim().toLowerCase();
+    if (!VALID_DEPT_IDS.has(dept)) continue;
+    if (seen.has(dept as DeptId)) continue;
+    const finding = String((item as any).finding ?? '').trim();
+    if (!finding) continue;
+    out.push({
+      dept: dept as DeptId,
+      finding: finding.slice(0, 200),
+      signal: normalizeSignal((item as any).signal),
+    });
+    seen.add(dept as DeptId);
+    if (out.length >= 9) break;
+  }
+  // 누락 부서가 있으면 confidence 기반으로 자동 채움
+  if (out.length < reports.length) {
+    for (const r of reports) {
+      if (seen.has(r.deptId)) continue;
+      const conf = r.report.confidence ?? 0.5;
+      const signal: DeptFinding['signal'] = conf >= 0.75 ? 'green' : conf >= 0.5 ? 'yellow' : 'red';
+      const finding = r.report.structured?.summary?.slice(0, 200)
+                   ?? r.report.sections?.[0]?.items?.[0]?.slice(0, 200)
+                   ?? '(자동 추출 결과 없음)';
+      out.push({ dept: r.deptId, finding, signal });
+      if (out.length >= 9) break;
+    }
+  }
+  return out;
+}
+
+function pickPriorityActions(arr: unknown): PriorityAction[] {
+  if (!Array.isArray(arr)) return [];
+  const out: PriorityAction[] = [];
+  for (const item of arr) {
+    if (!item || typeof item !== 'object') continue;
+    const action = String((item as any).action ?? '').trim();
+    if (!action) continue;
+    const rank = Math.max(1, Math.min(3, Math.round(Number((item as any).rank) || (out.length + 1))));
+    const owner = normalizeOwner((item as any).owner);
+    const deadlineRaw = String((item as any).deadline ?? '').trim();
+    out.push({
+      rank,
+      action: action.slice(0, 280),
+      owner,
+      ...(deadlineRaw ? { deadline: deadlineRaw.slice(0, 60) } : {}),
+    });
+    if (out.length >= 3) break;
+  }
+  // rank 1, 2, 3 으로 재정규화
+  return out
+    .sort((a, b) => a.rank - b.rank)
+    .map((a, i) => ({ ...a, rank: i + 1 }));
+}
+
 // ─── 브리핑 파싱 ─────────────────────────────────────────────────────────────
 function parseBriefingJson(text: string, reports: DeptReportEntry[]): Omit<CeoBriefingResult, 'sessionId' | 'roundNumber' | 'directive' | 'deptScores' | 'generatedAt'> {
   // JSON 블록 추출 (```json ... ``` 또는 직접 { })
@@ -147,15 +266,33 @@ function parseBriefingJson(text: string, reports: DeptReportEntry[]): Omit<CeoBr
   if (jsonMatch) {
     try {
       const parsed = JSON.parse(jsonMatch[1].trim());
+
+      const executiveSummary = String(parsed.executiveSummary ?? parsed.summary ?? '').trim();
+      const deptFindings = pickDeptFindings(parsed.deptFindings, reports);
+      const priorityActions = pickPriorityActions(parsed.priorityActions);
+      const followUpItems = Array.isArray(parsed.followUpItems)
+        ? parsed.followUpItems.map((x: any) => String(x ?? '').trim()).filter(Boolean).slice(0, 5)
+        : [];
+
+      // recommendations 는 priorityActions 에서 추출 (UI 호환)
+      const recsFromPriority = priorityActions.map((a) => `[${a.owner.toUpperCase()}] ${a.action}${a.deadline ? ` (${a.deadline})` : ''}`);
+      const recommendations = recsFromPriority.length >= 3
+        ? recsFromPriority
+        : (Array.isArray(parsed.recommendations) ? parsed.recommendations.slice(0, 5) : recsFromPriority);
+
       return {
+        executiveSummary: executiveSummary || `${reports.length}개 부서 분석 완료.`,
+        deptFindings,
+        priorityActions,
+        followUpItems,
         opportunities: Array.isArray(parsed.opportunities) ? parsed.opportunities.slice(0, 5) : [],
         risks: Array.isArray(parsed.risks) ? parsed.risks.slice(0, 5) : [],
-        recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations.slice(0, 5) : [],
+        recommendations,
         conflictingSignals: Array.isArray(parsed.conflictingSignals) ? parsed.conflictingSignals.slice(0, 3) : [],
         overallConfidence: typeof parsed.overallConfidence === 'number'
           ? Math.max(0, Math.min(1, parsed.overallConfidence))
           : calcAverageConfidence(reports),
-        summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+        summary: executiveSummary || (typeof parsed.summary === 'string' ? parsed.summary : ''),
       };
     } catch {
       // JSON 파싱 실패 → fallback
@@ -187,13 +324,39 @@ function buildFallbackBriefing(text: string, reports: DeptReportEntry[]): Omit<C
   }
 
   const conf = calcAverageConfidence(reports);
+  // fallback deptFindings — confidence 기반 신호등
+  const deptFindings: DeptFinding[] = reports.map((r) => {
+    const c = r.report.confidence ?? 0.5;
+    const signal: DeptFinding['signal'] = c >= 0.75 ? 'green' : c >= 0.5 ? 'yellow' : 'red';
+    const finding = r.report.structured?.summary?.slice(0, 200)
+                 ?? r.report.sections?.[0]?.items?.[0]?.slice(0, 200)
+                 ?? '(자동 추출 실패)';
+    return { dept: r.deptId, finding, signal };
+  });
+  const priorityActions: PriorityAction[] = recommendations.slice(0, 3).map((rec, i) => ({
+    rank: i + 1,
+    action: rec,
+    owner: 'ceo',
+  }));
+  while (priorityActions.length < 3) {
+    priorityActions.push({
+      rank: priorityActions.length + 1,
+      action: '각 부서 보고서를 검토하고 실행 계획을 수립하십시오',
+      owner: 'ceo',
+    });
+  }
+  const summaryText = `${reports.length}개 부서 분석 완료. 평균 신뢰도 ${(conf * 100).toFixed(0)}%.`;
   return {
+    executiveSummary: summaryText,
+    deptFindings,
+    priorityActions,
+    followUpItems: [],
     opportunities: opportunities.length > 0 ? opportunities : ['부서 분석 결과를 확인하십시오'],
     risks: risks.length > 0 ? risks : ['상세 리스크는 각 부서 보고서 참조'],
     recommendations: recommendations.length > 0 ? recommendations : ['각 부서 보고서의 핵심 결론을 실행 계획에 반영하십시오'],
     conflictingSignals: [],
     overallConfidence: conf,
-    summary: `${reports.length}개 부서 분석 완료. 평균 신뢰도 ${(conf * 100).toFixed(0)}%.`,
+    summary: summaryText,
   };
 }
 

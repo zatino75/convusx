@@ -14,20 +14,31 @@ import type { DeptReport } from "./ProjectSession.js";
 import type { DeptId } from "./TaskDecomposer.js";
 import { logger } from "../observability/logger.js";
 
+/** 부서별 1~10 점 품질 점수 (구체성3 + 실행가능성3 + 데이터근거2 + 명확성2) */
+export interface DeptQualityScore {
+  total: number;          // 1~10 합산
+  specificity: number;    // 0~3
+  actionability: number;  // 0~3
+  evidence: number;       // 0~2
+  clarity: number;        // 0~2
+}
+
 export interface CriticReviewResult {
   verdict: "pass" | "needs_rework";
   /** 최종 보고에 포함할 부서 */
   include: DeptId[];
   /** 관련성 낮아 제외할 부서 */
   exclude: DeptId[];
-  /** 보강 요청 부서 */
+  /** 보강 요청 부서 (점수 < 6) */
   rework: DeptId[];
-  /** 보강 이유 — deptId → reason */
+  /** 보강 이유 — deptId → reason (구체적 액션 가이드) */
   rework_reason: Partial<Record<DeptId, string>>;
   /** 부서간 상충 */
   conflicts: Array<{ depts: DeptId[]; issue: string }>;
   /** 핵심 3줄 요약 */
   summary: string;
+  /** 부서별 1~10 점수 — 새 필드 (2026-04-18) */
+  scores: Partial<Record<DeptId, DeptQualityScore>>;
 
   /* ── 하위 호환 필드 (기존 호출부/UI 용) ─────────────────── */
   keyIssues: string[];
@@ -37,6 +48,9 @@ export interface CriticReviewResult {
   /** UI 워크 애니메이션 타깃 — rework[0] 자동 산출 */
   targetDeptId?: DeptId;
 }
+
+/** 점수 6점 미만 → rework gate */
+const REWORK_THRESHOLD = 6;
 
 interface DeptReportEntry {
   deptId: DeptId;
@@ -52,21 +66,35 @@ const PRIMARY_TIMEOUT_MS = 30000;
 const FALLBACK_TIMEOUT_MS = 25000;
 const PRIMARY_MAX_TOKENS = 1500;
 
-const CRITIC_SYSTEM_PROMPT = `당신은 CORVUS X의 상무입니다.
-부서 보고를 검토해 3단계로 판정하세요.
+const CRITIC_SYSTEM_PROMPT = `당신은 CORVUS X의 상무(Critic)입니다.
+부서 보고를 1~10 점으로 채점하고 3단계 판정하세요.
 
-판단 기준:
-1. 지시와 관련성 낮으면 exclude
-2. 내용 모호하거나 데이터 근거 없으면 rework
-3. 부서간 중복이면 하나만 include
-4. 수치/견해 불일치는 conflicts 에 기록
+【점수 항목 (총 10점)】
+- specificity (0~3점): 수치/근거/구체적 사례 포함 정도
+- actionability (0~3점): CEO가 즉시 의사결정/실행 가능한지
+- evidence (0~2점): 외부 데이터·법령·통계 인용 여부
+- clarity (0~2점): 구조와 표현의 명확성
+
+【판정 기준】
+- 점수 6점 미만 부서는 반드시 rework
+- 지시와 관련성 낮은 부서는 exclude
+- 부서간 중복 결론이면 더 강한 쪽만 include
+- 수치/견해 불일치는 conflicts 에 기록
+
+【rework_reason 작성 규칙】
+"다시 작성하세요" 같은 모호한 지시는 금지.
+어떤 항목이 부족한지 + 무엇을 추가해야 하는지 구체적으로 명시.
+예시: "구체적 수치 데이터가 부족합니다. 시장 규모(원), 경쟁사 점유율(%), CAGR을 포함해 재작성하세요."
 
 JSON만 반환 (다른 텍스트 금지):
 {
+  "scores": {
+    "deptId": {"specificity": 0-3, "actionability": 0-3, "evidence": 0-2, "clarity": 0-2}
+  },
   "include": ["deptId"],
   "exclude": ["deptId"],
   "rework": ["deptId"],
-  "rework_reason": {"deptId": "보강 이유"},
+  "rework_reason": {"deptId": "구체적 보강 가이드"},
   "conflicts": [{"depts": ["a","b"], "issue": "상충 내용"}],
   "summary": "핵심 3줄 요약",
   "verdict": "pass" 또는 "needs_rework"
@@ -131,6 +159,30 @@ function pickReworkReasons(obj: unknown): Partial<Record<DeptId, string>> {
     if (!ALL_DEPT_IDS.includes(id)) continue;
     const reason = String(v ?? '').trim();
     if (reason) out[id] = reason.slice(0, 400);
+  }
+  return out;
+}
+
+function clampInt(v: unknown, min: number, max: number, fallback: number): number {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function pickScores(obj: unknown): Partial<Record<DeptId, DeptQualityScore>> {
+  if (!obj || typeof obj !== 'object') return {};
+  const out: Partial<Record<DeptId, DeptQualityScore>> = {};
+  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+    const id = String(k).trim().toLowerCase() as DeptId;
+    if (!ALL_DEPT_IDS.includes(id)) continue;
+    if (!v || typeof v !== 'object') continue;
+    const score = v as Record<string, unknown>;
+    const specificity = clampInt(score.specificity, 0, 3, 1);
+    const actionability = clampInt(score.actionability, 0, 3, 1);
+    const evidence = clampInt(score.evidence, 0, 2, 1);
+    const clarity = clampInt(score.clarity, 0, 2, 1);
+    const total = specificity + actionability + evidence + clarity;
+    out[id] = { total, specificity, actionability, evidence, clarity };
   }
   return out;
 }
@@ -239,7 +291,18 @@ function buildFallbackReview(reports: DeptReportEntry[]): CriticReviewResult {
   const include = allIds.filter((id) => !low.includes(id));
   const verdict: CriticReviewResult['verdict'] = low.length > 0 ? 'needs_rework' : 'pass';
   const rework_reason: Partial<Record<DeptId, string>> = {};
-  for (const id of low) rework_reason[id] = '신뢰도 60% 미만 — 데이터 근거 보강 필요';
+  for (const id of low) rework_reason[id] = '신뢰도 60% 미만 — 데이터 근거(외부 인용/수치) 보강 필요';
+
+  // 휴리스틱 점수: confidence × 10 → 4.0~9.5 범위
+  const scores: Partial<Record<DeptId, DeptQualityScore>> = {};
+  for (const r of reports) {
+    const t = Math.max(1, Math.min(10, Math.round((r.report.confidence ?? 0.5) * 10)));
+    const evid = Math.min(2, Math.floor(t * 0.2));
+    const spec = Math.min(3, Math.floor(t * 0.3));
+    const act  = Math.min(3, Math.floor(t * 0.3));
+    const cl   = Math.min(2, t - evid - spec - act);
+    scores[r.deptId] = { total: spec + act + evid + Math.max(0, cl), specificity: spec, actionability: act, evidence: evid, clarity: Math.max(0, cl) };
+  }
 
   return {
     verdict,
@@ -251,6 +314,7 @@ function buildFallbackReview(reports: DeptReportEntry[]): CriticReviewResult {
     summary: low.length > 0
       ? `${low.length}개 부서 보고의 신뢰도가 낮아 보강이 필요합니다.`
       : '모든 부서 보고가 최소 신뢰도를 충족합니다.',
+    scores,
     keyIssues: low.map((id) => `${id} 부서 신뢰도 낮음`),
     contradictions: [],
     verificationNeeded: low.length > 0 ? ['핵심 수치의 외부 데이터 교차검증'] : [],
@@ -266,17 +330,43 @@ function parseCriticJson(text: string, reports: DeptReportEntry[]): CriticReview
   const allIds = reports.map((r) => r.deptId);
   const include = pickDeptIds(parsed.include);
   const exclude = pickDeptIds(parsed.exclude);
-  const rework = pickDeptIds(parsed.rework);
-  const rework_reason = pickReworkReasons(parsed.rework_reason);
+  const llmRework = pickDeptIds(parsed.rework);
+  let rework_reason = pickReworkReasons(parsed.rework_reason);
   const conflicts = pickConflicts(parsed.conflicts);
   const summary = String(parsed.summary ?? '').trim() || 'Critic 검토 완료';
-  const verdict: CriticReviewResult['verdict'] =
-    parsed.verdict === 'needs_rework' || parsed.verdict === 'needs_followup' ? 'needs_rework' : 'pass';
+  const scores = pickScores(parsed.scores);
+
+  // ─── 점수 < 6 부서를 강제 rework — LLM 의 rework 판정과 합집합 ────────────
+  const lowScoreDepts: DeptId[] = [];
+  for (const [id, s] of Object.entries(scores)) {
+    if (s && s.total < REWORK_THRESHOLD) lowScoreDepts.push(id as DeptId);
+  }
+  // 합집합 (중복 제거)
+  const reworkSet = new Set<DeptId>([...llmRework, ...lowScoreDepts]);
+  const rework = [...reworkSet];
+
+  // 점수 미달인데 LLM 이 rework_reason 안 줬으면 자동 생성
+  for (const id of lowScoreDepts) {
+    if (rework_reason[id]) continue;
+    const s = scores[id];
+    if (!s) continue;
+    const gaps: string[] = [];
+    if (s.specificity <= 1) gaps.push('수치/구체적 사례 부족');
+    if (s.actionability <= 1) gaps.push('실행 가능한 액션 부재');
+    if (s.evidence === 0) gaps.push('외부 데이터/근거 미인용');
+    if (s.clarity === 0) gaps.push('구조/표현 불명확');
+    rework_reason = { ...rework_reason, [id]: `점수 ${s.total}/10 (낮음). 보강 필요: ${gaps.join(', ')}.` };
+  }
+
+  // verdict — rework 가 있으면 needs_rework 강제
+  const verdict: CriticReviewResult['verdict'] = rework.length > 0
+    ? 'needs_rework'
+    : (parsed.verdict === 'needs_rework' || parsed.verdict === 'needs_followup' ? 'needs_rework' : 'pass');
 
   // include 가 비어 있으면 exclude/rework 에 안 들어간 부서를 기본 include
-  const exSet = new Set([...exclude]);
+  const exSet = new Set([...exclude, ...rework]);
   const effectiveInclude = include.length > 0
-    ? include
+    ? include.filter((id) => !exSet.has(id))
     : allIds.filter((id) => !exSet.has(id));
 
   const keyIssues: string[] = [];
@@ -284,6 +374,13 @@ function parseCriticJson(text: string, reports: DeptReportEntry[]): CriticReview
     if (reason) keyIssues.push(`${id}: ${reason}`);
   }
   const contradictions = conflicts.map((c) => `${c.depts.join(' vs ')}: ${c.issue}`);
+
+  // confidence 평균 점수 기반 (10점=1.0, 0점=0.3)
+  const totals = Object.values(scores).map((s) => s?.total ?? 0).filter((n) => n > 0);
+  const avgScore = totals.length > 0 ? totals.reduce((a, b) => a + b, 0) / totals.length : 0;
+  const confidence = totals.length > 0
+    ? Math.max(0.3, Math.min(1, 0.3 + (avgScore / 10) * 0.7))
+    : (verdict === 'pass' ? 0.8 : 0.62);
 
   return {
     verdict,
@@ -293,10 +390,11 @@ function parseCriticJson(text: string, reports: DeptReportEntry[]): CriticReview
     rework_reason,
     conflicts,
     summary,
+    scores,
     keyIssues: keyIssues.slice(0, 8),
     contradictions: contradictions.slice(0, 5),
     verificationNeeded: conflicts.slice(0, 5).map((c) => `${c.depts.join(',')} 상충 해소: ${c.issue}`),
-    confidence: verdict === 'pass' ? 0.8 : 0.62,
+    confidence: Math.round(confidence * 100) / 100,
     targetDeptId: rework[0],
   };
 }
@@ -314,6 +412,7 @@ export async function runCriticReview(
       rework_reason: {},
       conflicts: [],
       summary: '검토 가능한 부서 보고서가 없어 평가를 완료할 수 없습니다.',
+      scores: {},
       keyIssues: ['부서 보고 없음'],
       contradictions: [],
       verificationNeeded: ['최소 1개 이상의 부서 결과 확보 후 재평가'],

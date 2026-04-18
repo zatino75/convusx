@@ -77,7 +77,9 @@ function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 
 const PER_MODEL_TIMEOUT_MS = 60000;
 const ENSEMBLE_TOTAL_TIMEOUT_MS = 90000;
-const SYNTHESIS_TIMEOUT_MS = 30000;
+const SYNTHESIS_TIMEOUT_MS = 110000;         // Claude 통합 호출 — 분산 큰 응답시간 흡수
+const SYNTHESIS_DRAFT_TRUNCATE = 1200;       // synthesis 프롬프트 입력 시 모델당 최대 글자수
+const SYNTHESIS_MAX_TOKENS = 2500;           // synthesis 응답 토큰 — 4개 섹션 모두 출력 위해 여유
 
 // ─── 모델 호출 ──────────────────────────────────────────────────────────────
 async function callOne(
@@ -250,13 +252,18 @@ function buildSynthesisPrompt(
   const system = `당신은 CORVUS X Director 산하 ${deptId} 부서 통합 분석가입니다.
 3-AI(Claude / GPT / Gemini)가 동일 task에 대해 작성한 draft를 받아, 사용자에게 보여줄 통합 보고서를 한국어 마크다운으로 작성합니다.
 
-규칙:
-1. contradictions(서로 충돌하는 주장)이 있으면 반드시 "## ⚠️ 모델 간 의견 불일치" 섹션을 작성하고 어떤 모델이 어떤 주장을 했는지 명시
-2. uniqueInsights(한 모델만 제기한 관점)이 있으면 "## 💡 주목할 관점" 섹션으로 표시
-3. recommendation은 반드시 구체적인 액션 아이템 3개 이상 (## 🎯 핵심 권고)
-4. 모든 응답은 한국어. 표(|...|) 와 불릿(-) 을 적극 활용해 가독성을 높일 것
-5. 통합 결론(## 통합 결론)은 2~3문장으로 짧고 명확하게
-6. 빈 섹션 금지. 해당 항목이 없으면 그 섹션 자체를 출력하지 말 것 (단, "통합 결론"과 "핵심 권고"는 필수)`;
+【출력 섹션 순서 — 반드시 이 순서·이 헤더 그대로 사용】
+1. ## 통합 결론   ← 필수, 2~3문장
+2. ## ⚠️ 모델 간 의견 불일치   ← contradictions 있을 때만, 어떤 모델이 무엇을 주장했는지 표 형식
+3. ## 💡 주목할 관점   ← uniqueInsights 있을 때만, "{모델}: 인사이트" 형식 불릿
+4. ## 🎯 핵심 권고   ← 필수, 번호 매긴 액션 아이템 3개 이상
+
+【규칙】
+- 헤더 텍스트는 위 4개를 글자·이모지 그대로 사용 (변형 금지)
+- 모든 응답은 한국어. 표(|...|)와 불릿(-) 적극 활용
+- "통합 결론"은 짧게, 토큰을 아껴서 "🎯 핵심 권고"까지 반드시 도달할 것
+- 빈 섹션 금지. 해당 항목이 없으면 그 섹션 자체를 출력하지 말 것
+- 단 "## 통합 결론" 과 "## 🎯 핵심 권고" 두 섹션은 무조건 출력 (마지막에 권고 누락되지 않도록 토큰 배분 주의)`;
 
   const draftBlocks = drafts.map((d) => {
     const q = d.quality;
@@ -265,7 +272,11 @@ function buildSynthesisPrompt(
       ? `unique=[${q.uniqueInsights.join(", ")}]`
       : "";
     const errorLabel = d.error ? `(오류: ${d.error.slice(0, 60)})` : "";
-    return `### ${d.model} ${confLabel} ${insightsLabel} ${errorLabel}\n${d.text || "(빈 응답)"}`;
+    const text = d.text || "(빈 응답)";
+    const truncated = text.length > SYNTHESIS_DRAFT_TRUNCATE
+      ? text.slice(0, SYNTHESIS_DRAFT_TRUNCATE) + "\n...[잘림]"
+      : text;
+    return `### ${d.model} ${confLabel} ${insightsLabel} ${errorLabel}\n${truncated}`;
   }).join("\n\n");
 
   const user = `# 부서: ${deptId}
@@ -287,17 +298,27 @@ async function runSynthesis(
   similarity: number
 ): Promise<string> {
   const { system, user } = buildSynthesisPrompt(deptId, objective, drafts, similarity);
+  const wrappers = await import("../adapters/wrappers.js");
+  // 1차: Claude — 가장 좋은 통합 품질
   try {
-    const wrappers = await import("../adapters/wrappers.js");
-    const task = wrappers.callClaude(system, user, 2000);
+    const task = wrappers.callClaude(system, user, SYNTHESIS_MAX_TOKENS);
     const text = await withDeadline(task, SYNTHESIS_TIMEOUT_MS, "ensemble_synthesis");
-    return (text || "").trim();
+    if (text && text.trim()) return text.trim();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.warn({ err: msg, deptId }, "[Ensemble] synthesis 실패 — fallback");
-    // fallback: 원본 draft 단순 합치기
-    return drafts.map((d) => `### ${d.model}\n${d.text || "(빈 응답)"}`).join("\n\n");
+    logger.warn({ err: msg, deptId }, "[Ensemble] Claude synthesis 실패 — Gemini fallback");
   }
+  // 2차: Gemini — 빠른 fallback
+  try {
+    const task = wrappers.callGemini(system, user, SYNTHESIS_MAX_TOKENS);
+    const text = await withDeadline(task, 45000, "ensemble_synthesis_gemini");
+    if (text && text.trim()) return text.trim();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn({ err: msg, deptId }, "[Ensemble] Gemini synthesis 실패 — concat fallback");
+  }
+  // 3차: 단순 concat
+  return drafts.map((d) => `### ${d.model}\n${d.text || "(빈 응답)"}`).join("\n\n");
 }
 
 // ─── 메인: runEnsemble ──────────────────────────────────────────────────────
