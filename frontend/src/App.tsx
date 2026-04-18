@@ -10,7 +10,6 @@ import { useScrollBehavior } from "./hooks/useScrollBehavior";
 import ChatView from "./components/chat/ChatView";
 import HomeView from "./components/chat/HomeView";
 import AppShell from "./components/layout/AppShell";
-import OfficeView, { type OfficeProgressEvent } from "./components/office/OfficeView";
 import OfficeHudPanel from "./components/layout/OfficeHudPanel";
 import MissionStudioPanel from "./components/layout/MissionStudioPanel";
 import QuickJumpBar from "./components/layout/QuickJumpBar";
@@ -131,22 +130,6 @@ export default function App() {
   const [sidebarView, setSidebarView] = useState<"default" | "search" | "images" | "benchmark" | "dashboard" | "sales" | "workforce" | "storeops" | "pos">("default");
   const [showSettings, setShowSettings] = useState(false);
 
-  // ── 앱 모드 (chat ↔ office) — localStorage 영구 저장 ────────────────────
-  const [appMode, setAppModeState] = useState<"chat" | "office">(() => {
-    try { return (localStorage.getItem("corvus-x.appMode") as "chat" | "office") || "chat"; }
-    catch { return "chat"; }
-  });
-  const setAppMode = (m: "chat" | "office") => {
-    setAppModeState(m);
-    try { localStorage.setItem("corvus-x.appMode", m); } catch { /* ignore */ }
-  };
-  // office 모드의 부서 진행률 (Topbar 표시용)
-  const [officeProgress, setOfficeProgress] = useState<{ done: number; total: number } | null>(null);
-  const handleOfficeProgress = (e: OfficeProgressEvent) => {
-    if (e.type === "progress") setOfficeProgress({ done: e.done, total: e.total });
-    else if (e.type === "directorDone") setOfficeProgress({ done: e.total, total: e.total });
-    else if (e.type === "missionStart") setOfficeProgress({ done: 0, total: 9 });
-  };
   const [msgFontSize, setMsgFontSize] = useState(() =>
     normalizeFontSize(localStorage.getItem("corvus-x.msg-font-size"))
   );
@@ -666,19 +649,10 @@ export default function App() {
             projectMemoryEnabled={Boolean(workspace.activeProject?.meta?.memoryEnabled)}
             onBackToHome={backToHome}
             connectionStatus={connectionStatus}
-            appMode={appMode}
-            onAppModeChange={setAppMode}
-            officeProgress={appMode === "office" ? officeProgress : null}
           />
         }
         main={
           <div className="main-stage">
-            {appMode === "office" ? (
-              <ViewErrorBoundary name="Office">
-                <OfficeView onProgress={handleOfficeProgress} />
-              </ViewErrorBoundary>
-            ) : (
-            <>
             <Suspense fallback={<ViewLoadingFallback />}>
             {sidebarView === "search" ? (
               <ViewErrorBoundary name="Search">
@@ -789,8 +763,6 @@ export default function App() {
                 onOpenSearch={handleOpenSearch}
               />
             ) : null}
-            </>
-            )}
           </div>
         }
       />
