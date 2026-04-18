@@ -126,8 +126,256 @@
   .office-status .dot.live{background:#22c55e;animation:pulse 1.4s ease-in-out infinite}
   .office-status .dot.err{background:var(--red)}
   @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
-  #phaser-container{width:100%;height:100%}
+  #phaser-container{width:100%;height:100%;display:none}
   #phaser-container canvas{display:block}
+
+  /* ─── TPH (Two Point Hospital) 스타일 오피스 ─────────────────────── */
+  #tph-stage{
+    position:relative;width:100%;height:100%;
+    background:#1a1a2e;
+    background-image:
+      linear-gradient(rgba(30,45,74,0.35) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(30,45,74,0.35) 1px, transparent 1px);
+    background-size:24px 24px;
+    overflow:hidden;
+    image-rendering:pixelated;
+    -webkit-font-smoothing:auto;
+    color:#e2e8f0;
+  }
+  #tph-stage::before{
+    content:"";position:absolute;inset:0;
+    background:radial-gradient(circle at 50% 35%, rgba(255,255,255,0.04) 0%, transparent 60%);
+    pointer-events:none;
+  }
+
+  /* HUD 상단 바 */
+  .tph-hud{
+    position:absolute;top:0;left:0;right:0;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:8px 18px;height:42px;
+    background:linear-gradient(180deg, rgba(15,10,20,0.85), rgba(15,10,20,0.4));
+    border-bottom:1px solid rgba(201,168,76,0.25);
+    z-index:5;font-family:ui-monospace,Menlo,Consolas,monospace;
+  }
+  .tph-hud__logo{color:#C9A84C;font-weight:700;letter-spacing:1.5px;font-size:13px}
+  .tph-hud__mission{color:#94a3b8;font-size:12px;flex:1;text-align:center;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 16px}
+  .tph-hud__progress{
+    display:flex;align-items:center;gap:8px;color:#cbd5e1;font-size:12px;font-weight:600}
+  .tph-hud__progress strong{color:#22c55e}
+
+  /* 9개 부서 방 그리드 */
+  .tph-grid{
+    position:absolute;
+    top:60px;left:24px;right:300px;bottom:80px;
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    grid-template-rows:repeat(3,1fr);
+    gap:14px;
+  }
+  .tph-room{
+    position:relative;
+    border-radius:10px;
+    overflow:hidden;
+    border:2px solid rgba(255,255,255,0.06);
+    transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+  }
+  .tph-room::after{
+    content:"";position:absolute;inset:0;
+    background:linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.4));
+    pointer-events:none;
+  }
+  /* 부서별 바닥색 */
+  .tph-room[data-dept="market"]{background:#1e3a5f}
+  .tph-room[data-dept="compete"]{background:#3d1a1a}
+  .tph-room[data-dept="legal"]{background:#1a3d2b}
+  .tph-room[data-dept="finance"]{background:#2d2a1a}
+  .tph-room[data-dept="marketing"]{background:#2a1a3d}
+  .tph-room[data-dept="rnd"]{background:#1a2d3d}
+  .tph-room[data-dept="data"]{background:#1a1a1a}
+  .tph-room[data-dept="content"]{background:#3d2a1a}
+  .tph-room[data-dept="sns"]{background:#1a3d3d}
+
+  /* 방 상태별 효과 */
+  .tph-room[data-state="working"]{
+    border-color:#3b82f6;
+    box-shadow:0 0 18px rgba(59,130,246,0.45), inset 0 0 28px rgba(59,130,246,0.12);
+    animation:tph-working-pulse 1.4s ease-in-out infinite;
+  }
+  .tph-room[data-state="done"]{
+    border-color:#22c55e;
+    box-shadow:0 0 14px rgba(34,197,94,0.35);
+  }
+  .tph-room[data-state="error"]{
+    border-color:#ef4444;
+    box-shadow:0 0 18px rgba(239,68,68,0.45);
+    animation:tph-shake 0.5s ease-in-out;
+  }
+  .tph-room[data-state="rework"]{
+    border-color:#f97316;
+    box-shadow:0 0 16px rgba(249,115,22,0.45), inset 0 0 24px rgba(249,115,22,0.12);
+    animation:tph-working-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes tph-working-pulse{
+    0%,100%{filter:brightness(1)}
+    50%{filter:brightness(1.18)}
+  }
+  @keyframes tph-shake{
+    0%,100%{transform:translateX(0)}
+    20%{transform:translateX(-4px)}
+    40%{transform:translateX(4px)}
+    60%{transform:translateX(-3px)}
+    80%{transform:translateX(3px)}
+  }
+
+  /* 방 헤더 */
+  .tph-room__head{
+    position:relative;z-index:2;
+    display:flex;align-items:center;gap:6px;
+    padding:6px 10px;
+    background:rgba(0,0,0,0.32);
+    border-bottom:1px solid rgba(255,255,255,0.06);
+    font-size:11px;font-weight:700;letter-spacing:0.8px;
+    color:#e2e8f0;text-transform:uppercase;
+  }
+  .tph-room__icon{font-size:13px;line-height:1}
+  .tph-room__name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tph-room__badge{
+    padding:2px 6px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;
+    background:#555;color:#fff;
+  }
+  .tph-room[data-state="working"] .tph-room__badge{background:#3b82f6;animation:tph-blink 1s infinite}
+  .tph-room[data-state="done"] .tph-room__badge{background:#22c55e}
+  .tph-room[data-state="error"] .tph-room__badge{background:#ef4444}
+  .tph-room[data-state="rework"] .tph-room__badge{background:#f97316;animation:tph-blink 1s infinite}
+  @keyframes tph-blink{
+    0%,100%{opacity:1}
+    50%{opacity:0.55}
+  }
+
+  /* 방 내부 — 책상 + 캐릭터 */
+  .tph-room__floor{position:relative;z-index:1;flex:1;height:calc(100% - 24px);overflow:hidden}
+  .tph-character{
+    position:absolute;left:50%;bottom:38%;transform:translateX(-50%);
+    width:24px;height:32px;
+    image-rendering:pixelated;
+  }
+  .tph-room[data-state="working"] .tph-character{
+    animation:tph-typing 0.45s ease-in-out infinite alternate;
+  }
+  .tph-room[data-state="done"] .tph-character{
+    animation:tph-cheer 1.2s ease-in-out;
+  }
+  @keyframes tph-typing{
+    0%{transform:translateX(-50%) translateY(0)}
+    100%{transform:translateX(-50%) translateY(-2px)}
+  }
+  @keyframes tph-cheer{
+    0%,100%{transform:translateX(-50%) translateY(0) rotate(0deg)}
+    25%{transform:translateX(-50%) translateY(-6px) rotate(-3deg)}
+    75%{transform:translateX(-50%) translateY(-6px) rotate(3deg)}
+  }
+
+  /* 책상 (방 하단) */
+  .tph-desk{
+    position:absolute;left:50%;bottom:18%;transform:translateX(-50%);
+    width:70%;height:14px;
+    background:linear-gradient(180deg, #5c4528, #3d2e1a);
+    border-radius:2px;
+    box-shadow:0 2px 0 rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+  .tph-monitor{
+    position:absolute;left:50%;bottom:32%;transform:translateX(-50%);
+    width:30px;height:18px;
+    background:#0f172a;border:1px solid #475569;border-radius:2px;
+  }
+  .tph-monitor::after{
+    content:"";position:absolute;inset:2px;background:#1e3a5f;border-radius:1px;
+    transition:background 0.2s;
+  }
+  .tph-room[data-state="working"] .tph-monitor::after{background:#3b82f6;animation:tph-screen 0.8s infinite}
+  .tph-room[data-state="done"] .tph-monitor::after{background:#22c55e}
+  @keyframes tph-screen{
+    0%,100%{background:#3b82f6}
+    50%{background:#1e40af}
+  }
+
+  /* 진행바 (방 하단 1px) */
+  .tph-room__progress{
+    position:absolute;left:0;right:0;bottom:0;height:3px;
+    background:rgba(0,0,0,0.4);overflow:hidden;
+  }
+  .tph-room__progress-fill{
+    height:100%;width:0;
+    background:linear-gradient(90deg, #3b82f6, #60a5fa);
+    transition:width 0.4s ease-out;
+  }
+
+  /* 말풍선 */
+  .tph-bubble{
+    position:absolute;left:50%;top:8px;transform:translateX(-50%);
+    background:rgba(15,23,42,0.92);color:#e2e8f0;
+    padding:4px 8px;font-size:10px;border-radius:4px;
+    border:1px solid rgba(201,168,76,0.4);
+    white-space:nowrap;max-width:90%;overflow:hidden;text-overflow:ellipsis;
+    pointer-events:none;z-index:3;
+    opacity:0;transition:opacity 0.2s;
+  }
+  .tph-bubble.show{opacity:1}
+
+  /* CEO OFFICE — 별도 큰 방 우측 */
+  .tph-ceo-office{
+    position:absolute;right:24px;top:60px;width:260px;height:240px;
+    background:linear-gradient(135deg,#2d2000 0%,#3d2a08 100%);
+    border:2px solid #C9A84C;border-radius:10px;
+    box-shadow:0 0 24px rgba(201,168,76,0.25);
+    display:flex;flex-direction:column;
+    overflow:hidden;
+  }
+  .tph-ceo-office.active{
+    box-shadow:0 0 36px rgba(201,168,76,0.7);
+    animation:tph-gold-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes tph-gold-pulse{
+    0%,100%{box-shadow:0 0 24px rgba(201,168,76,0.4)}
+    50%{box-shadow:0 0 48px rgba(201,168,76,0.85)}
+  }
+  .tph-ceo-office__head{
+    padding:8px 12px;background:rgba(0,0,0,0.4);
+    color:#C9A84C;font-weight:700;font-size:12px;letter-spacing:1px;
+    border-bottom:1px solid rgba(201,168,76,0.3);
+  }
+  .tph-ceo-office__floor{flex:1;position:relative}
+  .tph-ceo-character{
+    position:absolute;left:50%;bottom:30%;transform:translateX(-50%);
+    width:28px;height:36px;image-rendering:pixelated;
+  }
+  .tph-ceo-office.active .tph-ceo-character{animation:tph-cheer 1.6s ease-in-out infinite}
+
+  /* CRITIC 캐릭터 (복도) */
+  .tph-critic{
+    position:absolute;
+    width:24px;height:32px;
+    transition:left 0.8s ease-in-out, top 0.8s ease-in-out;
+    z-index:4;image-rendering:pixelated;
+    pointer-events:none;
+  }
+  .tph-critic.show{opacity:1}
+  .tph-critic.hide{opacity:0}
+
+  /* 우하단 원형 게이지 */
+  .tph-gauge{
+    position:absolute;right:24px;bottom:24px;
+    width:80px;height:80px;
+    background:rgba(15,10,20,0.85);border:2px solid #C9A84C;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    flex-direction:column;
+    box-shadow:0 0 18px rgba(201,168,76,0.25);
+    z-index:5;
+  }
+  .tph-gauge svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+  .tph-gauge__text{font-family:ui-monospace,monospace;font-weight:700;color:#C9A84C;font-size:14px;line-height:1.1;text-align:center;z-index:1}
+  .tph-gauge__sub{font-size:9px;color:#94a3b8;letter-spacing:0.6px}
 
   .chat{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:var(--chat);position:relative}
   .chat-header{padding:10px 20px;border-bottom:1px solid var(--border-soft);display:flex;align-items:center;gap:10px;flex-shrink:0}
@@ -346,6 +594,55 @@
         <span id="officeStatusText">대기 중</span>
       </div>
       <div id="phaser-container"></div>
+      <div id="tph-stage">
+        <div class="tph-hud">
+          <div class="tph-hud__logo">CONVUS X</div>
+          <div class="tph-hud__mission" id="tphMission">— 대기 중 —</div>
+          <div class="tph-hud__progress">완료 <strong id="tphProgressText">0</strong>/9</div>
+        </div>
+
+        <div class="tph-grid" id="tphGrid">
+          <!-- 9개 부서 방 — JS 에서 동적 생성 -->
+        </div>
+
+        <div class="tph-ceo-office" id="tphCeoOffice">
+          <div class="tph-ceo-office__head">⭐ CEO OFFICE</div>
+          <div class="tph-ceo-office__floor">
+            <div class="tph-ceo-character" id="tphCeoChar">
+              <svg viewBox="0 0 24 32" width="100%" height="100%" shape-rendering="crispEdges">
+                <rect x="9" y="2" width="6" height="6" fill="#fbbf24"/>
+                <rect x="8" y="3" width="8" height="2" fill="#0F0A14"/>
+                <rect x="8" y="9" width="8" height="11" fill="#C9A84C"/>
+                <rect x="6" y="10" width="2" height="9" fill="#C9A84C"/>
+                <rect x="16" y="10" width="2" height="9" fill="#C9A84C"/>
+                <rect x="9" y="20" width="2" height="10" fill="#1a1a1a"/>
+                <rect x="13" y="20" width="2" height="10" fill="#1a1a1a"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        <div class="tph-critic hide" id="tphCritic">
+          <svg viewBox="0 0 24 32" width="100%" height="100%" shape-rendering="crispEdges">
+            <rect x="9" y="2" width="6" height="6" fill="#fbbf24"/>
+            <rect x="8" y="9" width="8" height="11" fill="#ec4899"/>
+            <rect x="6" y="10" width="2" height="9" fill="#ec4899"/>
+            <rect x="16" y="10" width="2" height="9" fill="#ec4899"/>
+            <rect x="9" y="20" width="2" height="10" fill="#1a1a1a"/>
+            <rect x="13" y="20" width="2" height="10" fill="#1a1a1a"/>
+          </svg>
+        </div>
+
+        <div class="tph-gauge">
+          <svg viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>
+            <circle id="tphGaugeArc" cx="40" cy="40" r="34" fill="none" stroke="#C9A84C" stroke-width="6"
+                    stroke-dasharray="213.6" stroke-dashoffset="213.6" stroke-linecap="round"/>
+          </svg>
+          <div class="tph-gauge__text" id="tphGaugeText">0/9</div>
+          <div class="tph-gauge__sub">완료</div>
+        </div>
+      </div>
     </div>
 
     <section class="chat">
@@ -413,6 +710,214 @@
     { id:'sns',       kr:'SNS',      color:0x14b8a6, hex:'#14b8a6' },
   ];
   const DEPT_BY_ID = Object.fromEntries(DEPTS.map(d => [d.id, d]));
+
+  // ─── TPH (Two Point Hospital) 스타일 오피스 — DOM 기반 렌더 ─────────────────
+  // CustomEvent('office-event') 를 구독해서 방/캐릭터/진행률 갱신.
+  // Phaser 씬은 비활성 (display:none) 상태이지만 기존 핸들러는 그대로 유지.
+  // 부모 React 앱과는 postMessage 로 진행 상태 동기화.
+  const TPH_DEPT_ICON = {
+    market: '📊', compete: '⚔️', legal: '⚖️', finance: '💰',
+    marketing: '📣', rnd: '🔬', data: '📈', content: '✍️', sns: '📱',
+  };
+  const TPH_DEPT_BODY = {
+    market: '#3b82f6', compete: '#ef4444', legal: '#22c55e', finance: '#fbbf24',
+    marketing: '#ec4899', rnd: '#06b6d4', data: '#94a3b8', content: '#f97316', sns: '#14b8a6',
+  };
+  const TPH_LAYOUT = [
+    'market', 'compete', 'legal',
+    'finance', 'marketing', 'rnd',
+    'data', 'content', 'sns',
+  ];
+
+  function tphBuildCharacterSvg(deptId) {
+    const body = TPH_DEPT_BODY[deptId] || '#3b82f6';
+    return `
+      <svg viewBox="0 0 24 32" width="100%" height="100%" shape-rendering="crispEdges">
+        <rect x="9" y="2" width="6" height="6" fill="#fbbf24"/>
+        <rect x="8" y="3" width="8" height="2" fill="#0F0A14"/>
+        <rect x="8" y="9" width="8" height="11" fill="${body}"/>
+        <rect x="6" y="10" width="2" height="9" fill="${body}"/>
+        <rect x="16" y="10" width="2" height="9" fill="${body}"/>
+        <rect x="9" y="20" width="2" height="10" fill="#1a1a1a"/>
+        <rect x="13" y="20" width="2" height="10" fill="#1a1a1a"/>
+      </svg>`;
+  }
+
+  function tphInitGrid() {
+    const grid = document.getElementById('tphGrid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    for (const deptId of TPH_LAYOUT) {
+      const d = DEPT_BY_ID[deptId];
+      const room = document.createElement('div');
+      room.className = 'tph-room';
+      room.dataset.dept = deptId;
+      room.dataset.state = 'idle';
+      room.innerHTML = `
+        <div class="tph-room__head">
+          <span class="tph-room__icon">${TPH_DEPT_ICON[deptId] || '📁'}</span>
+          <span class="tph-room__name">${d ? d.kr + '팀' : deptId.toUpperCase()}</span>
+          <span class="tph-room__badge">IDLE</span>
+        </div>
+        <div class="tph-room__floor">
+          <div class="tph-bubble"></div>
+          <div class="tph-monitor"></div>
+          <div class="tph-character">${tphBuildCharacterSvg(deptId)}</div>
+          <div class="tph-desk"></div>
+          <div class="tph-room__progress"><div class="tph-room__progress-fill"></div></div>
+        </div>`;
+      grid.appendChild(room);
+    }
+  }
+
+  const _tphState = { done: 0, total: 9, missionStartedAt: 0 };
+
+  function tphSetMission(text) {
+    const el = document.getElementById('tphMission');
+    if (el) el.textContent = text || '— 대기 중 —';
+  }
+
+  function tphSetRoomState(deptId, state) {
+    const room = document.querySelector(`.tph-room[data-dept="${deptId}"]`);
+    if (!room) return;
+    room.dataset.state = state;
+    const badge = room.querySelector('.tph-room__badge');
+    if (badge) {
+      const labels = { idle: 'IDLE', working: 'WORKING', done: 'DONE', error: 'ERROR', rework: 'REWORK' };
+      badge.textContent = labels[state] || state.toUpperCase();
+    }
+    const fill = room.querySelector('.tph-room__progress-fill');
+    if (fill) {
+      if (state === 'working' || state === 'rework') fill.style.width = '60%';
+      else if (state === 'done') fill.style.width = '100%';
+      else if (state === 'error') fill.style.width = '0%';
+      else fill.style.width = '0%';
+    }
+  }
+
+  function tphSetBubble(deptId, text, ttlMs = 2400) {
+    const room = document.querySelector(`.tph-room[data-dept="${deptId}"]`);
+    if (!room) return;
+    const bubble = room.querySelector('.tph-bubble');
+    if (!bubble) return;
+    bubble.textContent = text || '';
+    bubble.classList.add('show');
+    if (bubble._tphTimer) clearTimeout(bubble._tphTimer);
+    bubble._tphTimer = setTimeout(() => { bubble.classList.remove('show'); }, ttlMs);
+  }
+
+  function tphUpdateProgress() {
+    const text = document.getElementById('tphProgressText');
+    const gaugeText = document.getElementById('tphGaugeText');
+    const arc = document.getElementById('tphGaugeArc');
+    const total = _tphState.total || 9;
+    const done = Math.min(_tphState.done, total);
+    if (text) text.textContent = String(done);
+    if (gaugeText) gaugeText.textContent = `${done}/${total}`;
+    if (arc) {
+      const C = 213.6;  // 2*PI*34
+      arc.setAttribute('stroke-dashoffset', String(C * (1 - done / total)));
+    }
+    // postMessage to parent (React app)
+    try { window.parent.postMessage({ type: 'progress', done, total }, '*'); } catch {}
+  }
+
+  function tphResetAll() {
+    _tphState.done = 0;
+    for (const id of TPH_LAYOUT) tphSetRoomState(id, 'idle');
+    document.getElementById('tphCeoOffice')?.classList.remove('active');
+    const critic = document.getElementById('tphCritic');
+    if (critic) critic.classList.add('hide');
+    tphUpdateProgress();
+  }
+
+  function tphCriticWalkTo(deptId) {
+    const room = document.querySelector(`.tph-room[data-dept="${deptId}"]`);
+    const critic = document.getElementById('tphCritic');
+    const stage = document.getElementById('tph-stage');
+    if (!room || !critic || !stage) return;
+    const stageRect = stage.getBoundingClientRect();
+    const roomRect = room.getBoundingClientRect();
+    const left = roomRect.left - stageRect.left + roomRect.width / 2 - 12;
+    const top = roomRect.top - stageRect.top - 36;
+    critic.classList.remove('hide');
+    critic.classList.add('show');
+    critic.style.left = left + 'px';
+    critic.style.top = top + 'px';
+    setTimeout(() => critic.classList.add('hide'), 4000);
+  }
+
+  function tphHandleEvent(e) {
+    const d = (e && e.detail) || {};
+    switch (d.type) {
+      case 'executive_gate_done': {
+        const ids = (d.departments || []).map(x => (x && x.id) || x).filter(Boolean);
+        _tphState.total = Math.max(1, ids.length || 9);
+        _tphState.done = 0;
+        _tphState.missionStartedAt = Date.now();
+        for (const id of TPH_LAYOUT) tphSetRoomState(id, ids.includes(id) ? 'idle' : 'idle');
+        tphUpdateProgress();
+        try { window.parent.postMessage({ type: 'missionStart', topic: '' }, '*'); } catch {}
+        break;
+      }
+      case 'dept_start':
+        tphSetRoomState(d.deptId, 'working');
+        if (d.objective) tphSetBubble(d.deptId, String(d.objective).slice(0, 28), 3500);
+        break;
+      case 'dept_done':
+        tphSetRoomState(d.deptId, 'done');
+        tphSetBubble(d.deptId, '✓ 완료', 1800);
+        _tphState.done++;
+        tphUpdateProgress();
+        break;
+      case 'dept_error':
+        tphSetRoomState(d.deptId, 'error');
+        tphSetBubble(d.deptId, '✗ 오류', 2800);
+        _tphState.done++;
+        tphUpdateProgress();
+        break;
+      case 'dept_rework_start':
+        tphSetRoomState(d.deptId, 'rework');
+        tphSetBubble(d.deptId, '🔁 ' + (d.reason || '보강'), 3000);
+        break;
+      case 'ensemble_start':
+        tphSetBubble(d.deptId, '🧠 3-AI 앙상블', 2400);
+        break;
+      case 'ensemble_voice': {
+        const label = String(d.model || 'AI').replace(/^claude.*/i, 'Claude').replace(/^gpt.*/i, 'GPT').replace(/^gemini.*/i, 'Gemini');
+        const conf = (typeof d.confidence === 'number') ? ` ${Math.round(d.confidence * 100)}%` : '';
+        tphSetBubble(d.deptId, `${label}${conf}: ${(d.message || '').slice(0, 24)}`, 3000);
+        break;
+      }
+      case 'ensemble_done': {
+        const v = d.verdict === 'consensus' ? '✓ 합의' : d.verdict === 'split' ? '△ 분기' : d.verdict === 'contradictory' ? '⚠ 충돌' : '? 불확실';
+        tphSetBubble(d.deptId, v, 2200);
+        break;
+      }
+      case 'critic_start':
+        // critic 캐릭터 첫 부서로 이동
+        tphCriticWalkTo(TPH_LAYOUT[0]);
+        break;
+      case 'critic_done':
+        document.getElementById('tphCritic')?.classList.add('hide');
+        break;
+      case 'ceo_briefing':
+        document.getElementById('tphCeoOffice')?.classList.add('active');
+        setTimeout(() => document.getElementById('tphCeoOffice')?.classList.remove('active'), 6000);
+        break;
+      case 'all_done':
+        // 모두 완료
+        try { window.parent.postMessage({ type: 'directorDone', total: _tphState.total }, '*'); } catch {}
+        break;
+    }
+  }
+
+  // CustomEvent bridge — 기존 SSE 핸들러가 dispatch 하는 'office-event' 를 청취
+  window.addEventListener('office-event', tphHandleEvent);
+
+  // 초기 그리드 렌더
+  tphInitGrid();
+  tphUpdateProgress();
 
   // slash commands
   const SLASH_COMMANDS = [

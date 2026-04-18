@@ -75,8 +75,8 @@ function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
-const PER_MODEL_TIMEOUT_MS = 60000;
-const ENSEMBLE_TOTAL_TIMEOUT_MS = 90000;
+const PER_MODEL_TIMEOUT_MS = 120000;          // 2026-04-18: GPT-5.4-pro 분석 프롬프트가 60s 부족 — 상향
+const ENSEMBLE_TOTAL_TIMEOUT_MS = 150000;     // 위와 비례 상향 (병렬이라 max + buffer)
 const SYNTHESIS_TIMEOUT_MS = 110000;         // Claude 통합 호출 — 분산 큰 응답시간 흡수
 const SYNTHESIS_DRAFT_TRUNCATE = 1200;       // synthesis 프롬프트 입력 시 모델당 최대 글자수
 const SYNTHESIS_MAX_TOKENS = 2500;           // synthesis 응답 토큰 — 4개 섹션 모두 출력 위해 여유

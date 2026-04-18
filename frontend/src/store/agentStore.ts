@@ -72,6 +72,16 @@ const _turnSubscribers = new Set<() => void>();
 let _currentTurn: AgentTurnSession | null = null;
 let _regulationStatus: RegulationWatcherStatus = {};
 
+// 2026-04-18: 스레드별 turn 상태 — 멀티 채팅 지원
+// _currentTurn 은 하위호환용으로 유지 (가장 최근 시작된 turn 을 가리킴).
+const _threadTurns = new Map<string, AgentTurnSession>();
+const _streamingThreads = new Set<string>();
+const _threadTurnSubscribers = new Set<() => void>();
+
+function notifyThreadTurns() {
+  _threadTurnSubscribers.forEach((fn) => fn());
+}
+
 function notifySettings() {
   _settingsSubscribers.forEach((fn) => fn());
 }
@@ -143,6 +153,11 @@ export function startAgentTurn(turnId: string, threadId: string): AgentTurnSessi
     startedAt: Date.now(),
   };
   _currentTurn = session;
+  if (threadId) {
+    _threadTurns.set(threadId, session);
+    _streamingThreads.add(threadId);
+    notifyThreadTurns();
+  }
   notifyTurn();
   return session;
 }
@@ -184,13 +199,19 @@ export function setFusionInjection(fusion: FusionInjection) {
 export function finishAgentTurn(error?: string) {
   if (!_currentTurn) return;
   const now = Date.now();
-  _currentTurn = {
+  const finished: AgentTurnSession = {
     ..._currentTurn,
     state: error ? "error" : "done",
     endedAt: now,
     totalLatencyMs: now - _currentTurn.startedAt,
     error: error ?? null,
   };
+  _currentTurn = finished;
+  if (finished.thread_id) {
+    _threadTurns.set(finished.thread_id, finished);
+    _streamingThreads.delete(finished.thread_id);
+    notifyThreadTurns();
+  }
   notifyTurn();
 }
 
@@ -201,6 +222,23 @@ export function clearAgentTurn() {
 
 export function getCurrentTurn(): AgentTurnSession | null {
   return _currentTurn;
+}
+
+// ─── 멀티 채팅 — 스레드별 turn 조회 ────────────────────────────────────────
+export function getThreadTurn(threadId: string | null | undefined): AgentTurnSession | null {
+  if (!threadId) return null;
+  return _threadTurns.get(threadId) ?? null;
+}
+
+export function isThreadStreaming(threadId: string | null | undefined): boolean {
+  if (!threadId) return false;
+  return _streamingThreads.has(threadId);
+}
+
+export function clearThreadTurn(threadId: string) {
+  _threadTurns.delete(threadId);
+  _streamingThreads.delete(threadId);
+  notifyThreadTurns();
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -251,6 +289,39 @@ export function useAgentTurn(): AgentTurnSession | null {
   }, []);
 
   return _currentTurn;
+}
+
+/**
+ * useThreadTurn — 특정 스레드의 turn 세션 읽기 + 변경 감지
+ * 멀티 채팅에서 ChatView 가 active 스레드만 반응적으로 렌더링하기 위한 훅.
+ */
+export function useThreadTurn(threadId: string | null | undefined): AgentTurnSession | null {
+  const [, rerender] = useState(0);
+
+  useEffect(() => {
+    const fn = () => rerender((n) => n + 1);
+    _threadTurnSubscribers.add(fn);
+    return () => { _threadTurnSubscribers.delete(fn); };
+  }, []);
+
+  if (!threadId) return null;
+  return _threadTurns.get(threadId) ?? null;
+}
+
+/**
+ * useIsThreadStreaming — 특정 스레드가 현재 스트리밍 중인지
+ */
+export function useIsThreadStreaming(threadId: string | null | undefined): boolean {
+  const [, rerender] = useState(0);
+
+  useEffect(() => {
+    const fn = () => rerender((n) => n + 1);
+    _threadTurnSubscribers.add(fn);
+    return () => { _threadTurnSubscribers.delete(fn); };
+  }, []);
+
+  if (!threadId) return false;
+  return _streamingThreads.has(threadId);
 }
 
 /**

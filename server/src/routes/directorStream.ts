@@ -14,6 +14,7 @@ import { IncomingMessage, ServerResponse } from 'node:http';
 import { readJsonBody } from '../http/middleware.js';
 import { runDirector } from '../director/DirectorAgent.js';
 import { logger } from '../observability/logger.js';
+import { registerSseClient } from '../http/sseRegistry.js';
 
 // ─── SSE 헬퍼 ─────────────────────────────────────────────────────────────────
 
@@ -104,7 +105,12 @@ async function _handleStream(
     logger.info('[DirectorStream] 클라이언트 연결 종료');
   });
 
-  // ─ Heartbeat (30초마다 빈 코멘트 전송 → 연결 유지) ─
+  // ─ SSE 레지스트리 등록 — 같은 sessionId 재연결 시 기존 연결 자동 종료 ─
+  // sessionId 가 없으면 임시 키 부여 (중복 등록 방지)
+  const sseKey = sessionId ?? `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const sseHandle = registerSseClient('director', sseKey, res, req);
+
+  // sseRegistry 가 자체 25s heartbeat 를 갖지만, director 는 더 보수적으로 30s 추가
   const heartbeatTimer = setInterval(() => {
     if (!res.destroyed) {
       res.write(':heartbeat\n\n');
@@ -140,6 +146,7 @@ async function _handleStream(
     }
   } finally {
     clearInterval(heartbeatTimer);
+    sseHandle.close();
     if (!res.destroyed) res.end();
   }
 }

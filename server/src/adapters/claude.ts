@@ -47,6 +47,24 @@ function splitSystemAndMessages(messages: ModelRequest["messages"]) {
   }
 }
 
+// 2026-04-18: advisor tool 활성화 시 응답에 "먼저 advisor를 호출하여..." 류 메타 라인이 prepend 되는 경우가 있다.
+// 사용자에게 노출 금지 — 본문 추출 후 정규식으로 strip.
+function stripAdvisorMeta(text: string): string {
+  if (!text) return text
+  // 응답 시작부의 advisor 메타 라인 제거 (한 줄당 하나, 연속 가능)
+  const cleaned = text.replace(
+    /^(?:[\s>•*\-]*)?(?:먼저|우선|일단|이제)?\s*advisor[를을]?\s*호출[하해서여을][^\n]*\n+/gi,
+    ""
+  ).replace(
+    /^(?:[\s>•*\-]*)?advisor\s*(?:검토|분석|확인)[을를]?\s*반영[하해]여?[^\n]*\n+/gi,
+    ""
+  ).replace(
+    /^---\s*\n+/,  // 메타 라인 뒤 horizontal rule 도 같이 제거
+    ""
+  )
+  return cleaned.trim()
+}
+
 function extractText(data: any): string {
   const content = Array.isArray(data?.content) ? data.content : []
 
@@ -60,8 +78,8 @@ function extractText(data: any): string {
     .join("\n")
     .trim()
 
-  if (text) return text
-  if (typeof data?.output_text === "string") return data.output_text.trim()
+  if (text) return stripAdvisorMeta(text)
+  if (typeof data?.output_text === "string") return stripAdvisorMeta(data.output_text.trim())
   return ""
 }
 

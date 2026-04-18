@@ -1,6 +1,7 @@
 // chat.ts — 단일 에이전트 루프 진입점 (Phase 2.5: agent loop bridge swap)
 import { TITLE_GEN_TIMEOUT_MS, OPENAI_BASE } from "../config/defaults.js"
 import { logger } from "../observability/logger.js"
+import { registerSseClient } from "../http/sseRegistry.js"
 import { runAgentLoopRuntimeResult } from "../agent/agentLoopBridge.js"
 import { logBenchmark } from "../benchmark/benchmarkLogger.js"
 import { appendProjectMemory, getLatestProjectContext, findPastWinner } from "../memory/projectMemory.js"
@@ -865,6 +866,14 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
   reconcileThreadAttachments(normalizedInput)
 
   res.writeHead?.(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" })
+
+  // ── SSE 레지스트리 등록 (스레드별 독립 연결, 좀비 자동 정리) ───────────
+  // threadId 가 있으면 같은 키 신규 연결 시 기존 연결을 자동으로 종료한다.
+  // threadId 가 없으면 임시 키 (요청별 고유) 로 등록.
+  const sseKey = String(normalizedInput?.thread_id ?? `anon-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+  const sseHandle = registerSseClient("chat", sseKey, res as any, req as any, abortController)
+  // 라우트 종료 시 자동 정리
+  ;(res as any)?.on?.("finish", () => sseHandle.close())
 
   try {
     writeSse(res, { type: "start", thread_id: normalizedInput.thread_id, project_id: normalizedInput.project_id })
