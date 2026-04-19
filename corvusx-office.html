@@ -50,6 +50,7 @@
     --room-data:#D8D8D8;
     --room-content:#F5D6C6;
     --room-sns:#C6F5C6;
+    --room-design:#FFD6E8;       /* 핑크 — 디자인팀 */
     --room-sanmoo:#F5E8C6;
 
     --gold-strong:#C9A84C;
@@ -199,14 +200,14 @@
     display:flex;align-items:center;gap:6px;color:var(--text-mid);font-size:11px;font-weight:700}
   .tph-hud__progress strong{color:var(--green)}
 
-  /* 9개 부서 방 그리드 */
+  /* 10개 부서 방 그리드 — 5×2 (행1: 시장/경쟁/법무/재무/마케팅, 행2: R&D/데이터/콘텐츠/SNS/디자인) */
   .tph-grid{
     position:absolute;
     top:46px;left:16px;right:186px;bottom:14px;
     display:grid;
-    grid-template-columns:repeat(3,1fr);
-    grid-template-rows:repeat(3,1fr);
-    gap:6px;
+    grid-template-columns:repeat(5,1fr);
+    grid-template-rows:repeat(2,1fr);
+    gap:4px;
   }
   .tph-room{
     position:relative;
@@ -232,6 +233,7 @@
   .tph-room[data-dept="data"]     {background:var(--room-data)}
   .tph-room[data-dept="content"]  {background:var(--room-content)}
   .tph-room[data-dept="sns"]      {background:var(--room-sns)}
+  .tph-room[data-dept="design"]   {background:var(--room-design)}
 
   /* 방 상태별 효과 */
   .tph-room[data-state="working"]{
@@ -894,7 +896,7 @@
         <div class="tph-hud">
           <div class="tph-hud__logo">CONVUS X</div>
           <div class="tph-hud__mission" id="tphMission">— 대기 중 —</div>
-          <div class="tph-hud__progress">완료 <strong id="tphProgressText">0</strong>/9</div>
+          <div class="tph-hud__progress">완료 <strong id="tphProgressText">0</strong>/10</div>
         </div>
 
         <div class="tph-grid" id="tphGrid">
@@ -968,7 +970,7 @@
             <circle id="tphGaugeArc" cx="40" cy="40" r="34" fill="none" stroke="#C9A84C" stroke-width="6"
                     stroke-dasharray="213.6" stroke-dashoffset="213.6" stroke-linecap="round"/>
           </svg>
-          <div class="tph-gauge__text" id="tphGaugeText">0/9</div>
+          <div class="tph-gauge__text" id="tphGaugeText">0/10</div>
           <div class="tph-gauge__sub">완료</div>
         </div>
       </div>
@@ -1039,6 +1041,7 @@
     { id:'data',      kr:'데이터',   shortKr:'데이터', color:0x06b6d4, hex:'#06b6d4' },
     { id:'content',   kr:'콘텐츠',   shortKr:'콘텐츠', color:0xeab308, hex:'#eab308' },
     { id:'sns',       kr:'SNS',      shortKr:'SNS',    color:0x14b8a6, hex:'#14b8a6' },
+    { id:'design',    kr:'디자인',   shortKr:'디자인', color:0xD94A9B, hex:'#D94A9B' },
   ];
   const DEPT_BY_ID = Object.fromEntries(DEPTS.map(d => [d.id, d]));
 
@@ -1048,16 +1051,16 @@
   // 부모 React 앱과는 postMessage 로 진행 상태 동기화.
   const TPH_DEPT_ICON = {
     market: '📊', compete: '⚔️', legal: '⚖️', finance: '💰',
-    marketing: '📣', rnd: '🔬', data: '📈', content: '✍️', sns: '📱',
+    marketing: '📣', rnd: '🔬', data: '📈', content: '✍️', sns: '📱', design: '🎨',
   };
   const TPH_DEPT_BODY = {
     market: '#3b82f6', compete: '#ef4444', legal: '#22c55e', finance: '#fbbf24',
-    marketing: '#ec4899', rnd: '#06b6d4', data: '#94a3b8', content: '#f97316', sns: '#14b8a6',
+    marketing: '#ec4899', rnd: '#06b6d4', data: '#94a3b8', content: '#f97316', sns: '#14b8a6', design: '#D94A9B',
   };
+  // 5×2 그리드 배치 — 행1: 5개 + 상무실(우측), 행2: 5개 + 휴게실(우측)
   const TPH_LAYOUT = [
-    'market', 'compete', 'legal',
-    'finance', 'marketing', 'rnd',
-    'data', 'content', 'sns',
+    'market', 'compete', 'legal', 'finance', 'marketing',
+    'rnd', 'data', 'content', 'sns', 'design',
   ];
 
   // 부서별 액세서리 — base 캐릭터 (얼굴/몸통/다리) 위에 덧입혀 그림.
@@ -1095,6 +1098,11 @@
         return `<rect x="7" y="3" width="2" height="4" fill="#14b8a6"/>
                 <rect x="15" y="3" width="2" height="4" fill="#14b8a6"/>
                 <rect x="8" y="2" width="8" height="2" fill="#14b8a6"/>`;
+      case 'design':    // 핑크 베레모 + 팔레트 (손)
+        return `<rect x="8" y="0" width="8" height="3" fill="#D94A9B"/>
+                <rect x="14" y="1" width="3" height="1" fill="#a1317a"/>
+                <rect x="17" y="15" width="3" height="3" fill="#D94A9B"/>
+                <rect x="18" y="14" width="1" height="1" fill="#fbbf24"/>`;
       default:
         return '';
     }
@@ -1122,6 +1130,7 @@
     legal:     ['pos-br'],
     rnd:       ['pos-br'],
     content:   ['pos-br'],
+    design:    ['pos-br', 'pos-bl'],  // 화분 2개 (창의적 공간)
     marketing: ['pos-br', 'pos-bl'],
     sns:       ['pos-br', 'pos-bl'],
     compete:   [],
@@ -1162,7 +1171,7 @@
     }
   }
 
-  const _tphState = { done: 0, total: 9, missionStartedAt: 0 };
+  const _tphState = { done: 0, total: 10, missionStartedAt: 0 };
 
   function tphSetMission(text) {
     const el = document.getElementById('tphMission');
@@ -1240,7 +1249,7 @@
     const text = document.getElementById('tphProgressText');
     const gaugeText = document.getElementById('tphGaugeText');
     const arc = document.getElementById('tphGaugeArc');
-    const total = _tphState.total || 9;
+    const total = _tphState.total || 10;
     const done = Math.min(_tphState.done, total);
     if (text) text.textContent = String(done);
     if (gaugeText) gaugeText.textContent = `${done}/${total}`;
@@ -1512,7 +1521,7 @@
 
     // 초기 3초 후 — 랜덤 1~2명 휴게실 선배치 (ambiance)
     setTimeout(() => {
-      const candidates = ['content', 'sns', 'data'];
+      const candidates = ['content', 'sns', 'data', 'design'];
       const pickCount = 1 + Math.floor(Math.random() * 2);
       const shuffled = candidates.slice().sort(() => Math.random() - 0.5);
       shuffled.slice(0, pickCount).forEach(d => tphGoToBreakRoom(d));
@@ -1525,7 +1534,7 @@
       case 'mission_start': {
         const topic = String(d.topic || '').trim();
         tphSetMission(topic ? topic.slice(0, 60) : '— 미션 수행 중 —');
-        const total = Number(d.deptCount) || 9;
+        const total = Number(d.deptCount) || 10;
         _tphState.total = total;
         _tphState.done = 0;
         _tphState.missionStartedAt = Date.now();
@@ -1535,7 +1544,7 @@
       }
       case 'executive_gate_done': {
         const ids = (d.departments || []).map(x => (x && x.id) || x).filter(Boolean);
-        _tphState.total = Math.max(1, ids.length || 9);
+        _tphState.total = Math.max(1, ids.length || 10);
         _tphState.done = 0;
         _tphState.missionStartedAt = Date.now();
         for (const id of TPH_LAYOUT) tphSetRoomState(id, ids.includes(id) ? 'idle' : 'idle');
@@ -3344,7 +3353,7 @@
           window.dispatchEvent(new CustomEvent('office-event', { detail:{
             type:'mission_start',
             topic: String(p.directive).slice(0, 60),
-            deptCount: 9,
+            deptCount: 10,
           }}));
           dom.officeStatusText.textContent = '분석 중...';
         }

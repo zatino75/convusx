@@ -2,7 +2,7 @@
  * routes/departments.ts — Phase 5 부서 통계 엔드포인트
  *
  * GET /api/departments/stats
- *   9개 부서의 XP/레벨/누적 완료건수/비용/성공률을 반환.
+ *   10개 부서의 XP/레벨/누적 완료건수/비용/성공률을 반환.
  *   프런트엔드 DashboardView/WorkforceView 의 타이쿤 카드가 폴링.
  */
 

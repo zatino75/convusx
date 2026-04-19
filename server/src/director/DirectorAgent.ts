@@ -1,6 +1,6 @@
 /**
  * DirectorAgent.ts
- * 디렉터 에이전트 — 사용자 지시를 받아 PMO 계획 → 9개 부서 실행 → Critic 검증 → CEO 브리핑까지 집계
+ * 디렉터 에이전트 — 사용자 지시를 받아 PMO 계획 → 10개 부서 실행 → Critic 검증 → CEO 브리핑까지 집계
  * WebSocket / SSE onEvent 콜백을 통해 실시간 진행 상황을 프론트엔드로 스트리밍
  *
  * 변경 이력:

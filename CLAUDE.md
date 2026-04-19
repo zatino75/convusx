@@ -3,7 +3,7 @@
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
 
 ## 프로젝트 개요
-CORVUS X는 9개 부서 기반 Director Multi-Agent 시스템.
+CORVUS X는 10개 부서 기반 Director Multi-Agent 시스템.
 Claude Opus / GPT-5.4 / Gemini 2.5 Pro / Perplexity를 연결해
 AI 분석 / 법률 검토 / 상품 개발 / 시장 조사 / 재무 분석을 수행.
 
@@ -72,21 +72,23 @@ git add -A && git commit -m "feat: 내용" && git push origin main
 4. 보강 루프 1회 (rework 부서만 재실행, 구체적 개선 요청 포함)
 5. CeoBriefing (Haiku) — 5섹션 구조
 
-## 부서 구성 (9개)
+## 부서 구성 (10개)
 | 부서 | Primary | Fallback | 커넥터 | 도구 |
 |------|---------|----------|--------|------|
 | market | Claude Sonnet | Gemini 2.5 Pro | serper→perplexity | market_analyze |
 | compete | GPT-5.4-pro | Claude Sonnet | serper→perplexity | competitor_scan |
 | legal | Claude Opus 4.6 | GPT-5.4-pro | perplexity→serper | regulation_check |
 | finance | GPT-5.4-pro | Claude Sonnet | supabase→serper | finance_analyze |
-| marketing | Claude Sonnet | Gemini | nano_banana→canva | brand_positioning |
+| marketing | Claude Sonnet | GPT-5.4-pro | serper→perplexity | brand_positioning |
 | rnd | Claude Sonnet | GPT-5.4-pro | pubmed→serper | recipe_design |
 | data | Gemini 2.5 Pro | GPT-5.4-pro | posthog→supabase→serper | sentiment_analyze |
-| content | Claude Sonnet | Gemini | canva→nano_banana | content_pillar |
-| sns | Claude Sonnet | Gemini | canva→nano_banana | channel_strategy |
+| content | Claude Sonnet | GPT-5.4-pro | serper→perplexity | content_pillar |
+| sns | Claude Sonnet | Gemini 2.5 Pro | serper→perplexity | channel_strategy |
+| design | Claude Sonnet | Gemini 2.5 Pro | nano_banana→midjourney→canva | design_create |
 
-- 고가치 앙상블 (3-AI): legal, finance 2개만
+- 고가치 앙상블 (3-AI): legal, finance 2개만 (design 은 비주얼 단일 모델이 우수)
 - Fallback: Cross-provider 1단계만
+- 비주얼 에셋(이미지/영상/3D/로고/배너/인테리어)은 design 전담 — marketing/content/sns 는 전략·기획만
 
 ## 실제 모델 ID
 | 모델 | API 호출 ID | 비고 |

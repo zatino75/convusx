@@ -8,20 +8,21 @@ import { logger } from "../observability/logger.js";
 
 export type DeptId =
   | 'market' | 'compete' | 'legal' | 'finance'
-  | 'marketing' | 'rnd' | 'data' | 'content' | 'sns';
+  | 'marketing' | 'rnd' | 'data' | 'content' | 'sns' | 'design';
 
-const ALL_DEPT_IDS: DeptId[] = ['market', 'compete', 'legal', 'finance', 'marketing', 'rnd', 'data', 'content', 'sns'];
+const ALL_DEPT_IDS: DeptId[] = ['market', 'compete', 'legal', 'finance', 'marketing', 'rnd', 'data', 'content', 'sns', 'design'];
 
 const DEPT_DESCRIPTIONS: Record<DeptId, string> = {
   market:    '시장규모/트렌드/소비자 분석',
   compete:   '경쟁사/포지셔닝',
   legal:     '법규/규제/인허가',
   finance:   '재무/투자/수익',
-  marketing: '브랜드/런칭/캠페인',
+  marketing: '브랜드 전략/런칭 기획/캠페인 설계 (비주얼 제작 제외)',
   rnd:       '제품개발/기술/성분',
   data:      '검색트렌드/리뷰분석',
-  content:   '콘텐츠기획',
-  sns:       'SNS채널/인플루언서',
+  content:   '콘텐츠 기획/카피/스크립트 (비주얼 제작 제외)',
+  sns:       'SNS 채널 전략/운영 계획 (비주얼 제작 제외)',
+  design:    '이미지/영상/3D/로고/배너/포스터/패키지/인테리어 비주얼 전담',
 };
 
 const DEFAULT_DEPT_FALLBACK: DeptId[] = ['market', 'compete'];
@@ -35,13 +36,21 @@ ${ALL_DEPT_IDS.map((id) => `- ${id}: ${DEPT_DESCRIPTIONS[id]}`).join('\n')}
 
 예시:
 - "탄산수 브랜드 찾아줘" → {"depts": ["market", "compete"]}
+- "SNS 이미지 제작" → {"depts": ["sns", "design"]}
 - "SNS 전략" → {"depts": ["marketing", "sns", "content"]}
 - "법규 검토" → {"depts": ["legal"]}
-- "신규 화장품 런칭 준비" → {"depts": ["market", "compete", "legal", "marketing", "rnd"]}
+- "로고/배너/3D 디자인" → {"depts": ["design"]}
+- "매장 인테리어 리뉴얼" → {"depts": ["design"]}
+- "신규 화장품 런칭 준비" → {"depts": ["market", "compete", "legal", "marketing", "rnd", "design"]}
+- "경쟁사 비교 인포그래픽" → {"depts": ["compete", "design"]}
+
+협업 규칙:
+- 비주얼 에셋(이미지/영상/3D/로고/배너/인테리어/무드보드)이 필요하면 반드시 design 포함
+- 비주얼 키워드: 이미지, 사진, 영상, 동영상, 3D, 스케치, 디자인, 로고, 배너, 포스터, 인테리어, 패키지, 목업, 무드보드, 컨셉아트, 인포그래픽
 
 규칙:
 - 반드시 {"depts": ["..."]} JSON 형식만 반환. 다른 텍스트 금지
-- 최소 1개, 최대 9개
+- 최소 1개, 최대 10개
 - 불필요한 부서는 절대 포함하지 말 것`;
 
 function extractDeptsFromText(text: string): DeptId[] | null {

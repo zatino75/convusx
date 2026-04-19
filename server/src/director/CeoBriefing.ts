@@ -1,7 +1,7 @@
 /**
  * CeoBriefing.ts — CORVUS X CEO 브리핑 생성기
  *
- * 9개 부서 보고서 완료 후 Claude Opus 4.6으로 통합 경영 브리핑 생성
+ * 10개 부서 보고서 완료 후 Claude Opus 4.6으로 통합 경영 브리핑 생성
  * 출력: 핵심 기회 3개 / 핵심 리스크 3개 / 즉시 실행 권고 / 통합 신뢰도 점수
  * SQLite ceo_briefings 테이블에 자동 저장
  */
@@ -95,7 +95,7 @@ async function callGeminiForBriefing(systemPrompt: string, userPrompt: string): 
 
 // ─── 브리핑 시스템 프롬프트 ───────────────────────────────────────────────────
 const BRIEFING_SYSTEM_PROMPT = `당신은 CORVUS X 의 CEO 전담 브리핑 어시스턴트입니다.
-9개 부서(시장/경쟁/법무/재무/마케팅/R&D/데이터/콘텐츠/SNS) 보고를 CEO 시각으로 통합합니다.
+10개 부서(시장/경쟁/법무/재무/마케팅/R&D/데이터/콘텐츠/SNS/디자인) 보고를 CEO 시각으로 통합합니다.
 
 【출력 구조 — 반드시 아래 JSON 만 출력】
 {
@@ -128,8 +128,8 @@ const BRIEFING_SYSTEM_PROMPT = `당신은 CORVUS X 의 CEO 전담 브리핑 어�
    red = 즉시 대응 필요한 리스크/충돌
    yellow = 주의 / 추가 검증 필요
    green = 양호 / 기회 신호
-- priorityActions 는 정확히 3개. owner 는 9개 부서 ID 중 하나 또는 "ceo"
-   (market/compete/legal/finance/marketing/rnd/data/content/sns/ceo)
+- priorityActions 는 정확히 3개. owner 는 10개 부서 ID 중 하나 또는 "ceo"
+   (market/compete/legal/finance/marketing/rnd/data/content/sns/design/ceo)
 - followUpItems 는 최대 5개, 다음 라운드에서 추적할 지표/이벤트
 - opportunities/risks/recommendations 는 기존 UI 호환용 — deptFindings/priorityActions 의 핵심을 한 줄로 추출
 - 모든 값은 한국어`;

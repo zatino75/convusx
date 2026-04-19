@@ -1,7 +1,7 @@
 /**
  * deptXp.ts — Phase 5 타이쿤 게임 레이어
  *
- * 9개 부서(marketing/finance/legal/market/compete/rnd/data/content/sns) 에 대한
+ * 10개 부서(marketing/finance/legal/market/compete/rnd/data/content/sns/design) 에 대한
  * XP/레벨/누적 통계를 SQLite 에 보관한다. Director 가 부서 task 를 끝낼 때마다
  * awardXp() 를 호출해 누적한다. 프런트엔드가 /api/departments/stats 로 폴링.
  *
