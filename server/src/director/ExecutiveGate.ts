@@ -27,9 +27,9 @@ export interface ExecutiveGateResult {
   reason: string;
 }
 
-const PRIMARY_TIMEOUT_MS = 20000;
-const FALLBACK_TIMEOUT_MS = 15000;
-const MAX_TOKENS = 800;
+const PRIMARY_TIMEOUT_MS = 25000;
+const FALLBACK_TIMEOUT_MS = 40000;  // 15s 는 adapter /v1/responses 경로에서 첫 호출 시 타임아웃
+const MAX_TOKENS = 2500;            // 800 은 6-dept 한국어 JSON 중간에 잘림 (UTF-8 tokenization 비용)
 const MAX_DEPTS = 6;
 
 const ALL_DEPT_IDS: DeptId[] = [
