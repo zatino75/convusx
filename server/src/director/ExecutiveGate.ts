@@ -80,17 +80,64 @@ function buildUserPrompt(directive: string, domain: GateDomain): string {
   return `지시: ${directive}\n도메인: ${domain}`;
 }
 
-function tryParseJson(text: string): Record<string, unknown> | null {
-  const codeBlock = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const raw = codeBlock?.[1] ?? text.match(/(\{[\s\S]*\})/)?.[1] ?? '';
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
-    return null;
-  } catch {
-    return null;
+// 균형잡힌 중괄호 스캐너 — 첫 번째 완전한 JSON 오브젝트를 추출.
+// 문자열 내부의 중괄호는 무시, 이스케이프 처리.
+function extractFirstJsonObject(text: string): string | null {
+  const s = text;
+  let i = 0;
+  // 첫 { 찾기
+  while (i < s.length && s[i] !== '{') i++;
+  if (i >= s.length) return null;
+  const start = i;
+  let depth = 0;
+  let inStr = false;
+  let escape = false;
+  for (; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (escape) { escape = false; continue; }
+      if (ch === '\\') { escape = true; continue; }
+      if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth === 0) return s.slice(start, i + 1); }
   }
+  return null;
+}
+
+function tryParseJson(text: string): Record<string, unknown> | null {
+  if (!text) return null;
+  // 1) <thinking> 블록 제거 (Claude extended thinking 흔적)
+  let cleaned = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
+  // 2) code block 우선
+  const codeBlock = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidates: string[] = [];
+  if (codeBlock?.[1]) candidates.push(codeBlock[1].trim());
+  // 3) 균형잡힌 추출
+  const balanced = extractFirstJsonObject(cleaned);
+  if (balanced) candidates.push(balanced);
+  // 4) 마지막 수단: 전체 텍스트
+  candidates.push(cleaned);
+  for (const raw of candidates) {
+    const attempts = [
+      raw,
+      // 트레일링 콤마 제거
+      raw.replace(/,\s*([}\]])/g, '$1'),
+      // 스마트 따옴표 → 일반 따옴표
+      raw.replace(/[\u201C\u201D]/g, '"').replace(/[\u2018\u2019]/g, "'"),
+    ];
+    for (const attempt of attempts) {
+      try {
+        const parsed = JSON.parse(attempt);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return parsed as Record<string, unknown>;
+        }
+      } catch { /* next */ }
+    }
+  }
+  return null;
 }
 
 function normalizeDepartments(raw: unknown): GateDepartment[] {
@@ -217,8 +264,10 @@ export async function runExecutiveGate(
     if (parsed) {
       const normalized = normalizeGateResult(parsed);
       if (normalized) return normalized;
+      logger.warn({ preview: primaryText.slice(0, 300) }, '[ExecutiveGate] Claude primary 정규화 실패');
+    } else {
+      logger.warn({ preview: primaryText.slice(0, 300) }, '[ExecutiveGate] Claude primary JSON 파싱 실패');
     }
-    logger.warn('[ExecutiveGate] Claude primary 결과 파싱 실패 → GPT fallback');
   }
 
   // Fallback
@@ -228,6 +277,9 @@ export async function runExecutiveGate(
     if (parsed) {
       const normalized = normalizeGateResult(parsed);
       if (normalized) return normalized;
+      logger.warn({ preview: fallbackText.slice(0, 300) }, '[ExecutiveGate] GPT fallback 정규화 실패');
+    } else {
+      logger.warn({ preview: fallbackText.slice(0, 300) }, '[ExecutiveGate] GPT fallback JSON 파싱 실패');
     }
   }
 
