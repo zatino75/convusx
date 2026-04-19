@@ -1,5 +1,5 @@
 # CORVUS X — CLAUDE.md
-> 최종 업데이트: 2026-04-18 (커밋 aad75b8)
+> 최종 업데이트: 2026-04-19 (Middle Management 스타일 오피스 리스타일)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
 
 ## 프로젝트 개요
@@ -38,7 +38,7 @@ URL: https://app.cloudcookie.co.kr/corvusx-office.html
 - 프론트엔드: corvusx-office.html (독립 HTML, 181KB)
 - 백엔드: Node.js + TypeScript (Express)
 - DB: SQLite (서버 내장)
-- 오피스 UI: SVG + CSS 기반 TPH 스타일
+- 오피스 UI: SVG + CSS 기반 Middle Management 스타일 (파스텔 2.5D, 블롭 캐릭터, 복도 이동)
 - 배포: nginx + systemd
 - CI/CD: GitHub → auto-deploy.sh (수동 트리거)
 
@@ -67,7 +67,7 @@ git add -A && git commit -m "feat: 내용" && git push origin main
 
 ## Director 플로우
 1. ExecutiveGate (Sonnet) — 부서 선별 + 맞춤 지시 생성
-2. 부서 병렬 실행 (9개 중 선별된 부서만)
+2. 부서 병렬 실행 (10개 중 선별된 부서만)
 3. CriticReview (Haiku) — include/exclude/rework + 1~10점 품질 점수
 4. 보강 루프 1회 (rework 부서만 재실행, 구체적 개선 요청 포함)
 5. CeoBriefing (Haiku) — 5섹션 구조
@@ -130,7 +130,7 @@ ceo_briefing / all_done
 
 ### 레이아웃
 - 사이드바 (좌): 토글 + 드래그 너비 (200~400px)
-- 오피스 (중앙): TPH 스타일 9개 방 그리드 + CEO OFFICE + CRITIC
+- 오피스 (중앙): Middle Management 스타일 10개 방 + 복도 + 상무실 + 휴게실
 - 채팅 패널 (중앙 하단): 마크다운 렌더링 + 메시지 액션
 - 우측 패널: 부서현황/매출/POS/보고 탭 + 드래그 리사이즈 (240~520px)
 
@@ -149,10 +149,13 @@ ceo_briefing / all_done
 - CEO 메시지 골드 border (#C9A84C) + ★ prefix
 - 메시지 액션 (복사/편집/재생성/👍👎) / 버전 관리
 
-### 오피스 (TPH 스타일)
-- 9개 방 3x3 그리드 (부서별 고유 배경색)
-- CEO OFFICE (우상단, 골드 테두리)
-- 진행률 원형 게이지 (0/9 완료)
+### 오피스 (Middle Management 스타일)
+- 10개 방 5x2 그리드 + 중앙 복도 (캐릭터 이동 경로)
+- 파스텔 그라디언트 방 배경 + 2.5D 두께감(box-shadow + slight rotateX)
+- 블롭 캐릭터 (둥근 SVG + 큰 눈 + 볼 홍조) — 부서별 고유 컬러 + 액세서리
+- CEO OFFICE (우상단, 골드 테두리) + 휴게실 (우하단, 민트)
+- 진행률: HUD 카운터 0/10 (원형 게이지는 비활성)
+- 이동 애니메이션: dept_start/done 시 방→복도→상무실 왕복, 휴게실 wander 도 복도 경유
 - SSE 연동: working/done/error/rework/ensemble/ceo_briefing
 
 ## 서버 파일 구조
