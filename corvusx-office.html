@@ -239,10 +239,10 @@
     color:#e2e8f0;text-transform:uppercase;
   }
   .tph-room__icon{font-size:13px;line-height:1}
-  .tph-room__name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tph-room__name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px}
   .tph-room__badge{
-    padding:2px 6px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;
-    background:#555;color:#fff;
+    padding:1px 4px;border-radius:3px;font-size:8px;font-weight:800;letter-spacing:0.3px;
+    background:#555;color:#fff;flex-shrink:0;
   }
   .tph-room[data-state="working"] .tph-room__badge{background:#3b82f6;animation:tph-blink 1s infinite}
   .tph-room[data-state="done"] .tph-room__badge{background:#22c55e}
@@ -576,7 +576,7 @@
   .panel-resize:hover{background:rgba(201,100,66,.25)}
   .panel-inner{width:100%;display:flex;flex-direction:column;min-width:0;height:100%}
   .panel-tabs{display:flex;border-bottom:1px solid var(--border-soft);flex-shrink:0}
-  .tab-btn{flex:1;padding:12px 8px;background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:13.5px;font-weight:500;transition:color .12s,background .12s;position:relative}
+  .tab-btn{flex:1;padding:12px 4px;background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:12.5px;font-weight:500;transition:color .12s,background .12s;position:relative;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .tab-btn:hover{color:var(--text-soft);background:rgba(255,255,255,.02)}
   .tab-btn.active{color:var(--text)}
   .tab-btn.active::after{content:'';position:absolute;bottom:0;left:12px;right:12px;height:2px;background:var(--accent);border-radius:2px}
@@ -768,7 +768,7 @@
     <div class="panel-resize" id="panelResize" title="드래그로 크기 조절"></div>
     <div class="panel-inner">
       <div class="panel-tabs">
-        <button class="tab-btn active" data-tab="depts">부서현황</button>
+        <button class="tab-btn active" data-tab="depts">부서</button>
         <button class="tab-btn" data-tab="sales">매출</button>
         <button class="tab-btn" data-tab="pos">POS</button>
         <button class="tab-btn" data-tab="report">보고</button>
@@ -785,16 +785,17 @@
   const API_BASE = location.origin.includes('localhost') ? 'http://localhost:8000' : '';
 
   // departments
+  // shortKr: 방 카드 라벨 전용 (긴 이름 잘림 방지). 채팅 bubble 에서는 kr 사용.
   const DEPTS = [
-    { id:'market',    kr:'시장조사', color:0x3b82f6, hex:'#3b82f6' },
-    { id:'marketing', kr:'마케팅',   color:0xec4899, hex:'#ec4899' },
-    { id:'finance',   kr:'재무',     color:0x22c55e, hex:'#22c55e' },
-    { id:'legal',     kr:'법무',     color:0xa855f7, hex:'#a855f7' },
-    { id:'compete',   kr:'경쟁분석', color:0xef4444, hex:'#ef4444' },
-    { id:'rnd',       kr:'R&D',      color:0xf97316, hex:'#f97316' },
-    { id:'data',      kr:'데이터',   color:0x06b6d4, hex:'#06b6d4' },
-    { id:'content',   kr:'콘텐츠',   color:0xeab308, hex:'#eab308' },
-    { id:'sns',       kr:'SNS',      color:0x14b8a6, hex:'#14b8a6' },
+    { id:'market',    kr:'시장조사', shortKr:'시장',   color:0x3b82f6, hex:'#3b82f6' },
+    { id:'marketing', kr:'마케팅',   shortKr:'마케팅', color:0xec4899, hex:'#ec4899' },
+    { id:'finance',   kr:'재무',     shortKr:'재무',   color:0x22c55e, hex:'#22c55e' },
+    { id:'legal',     kr:'법무',     shortKr:'법무',   color:0xa855f7, hex:'#a855f7' },
+    { id:'compete',   kr:'경쟁분석', shortKr:'경쟁',   color:0xef4444, hex:'#ef4444' },
+    { id:'rnd',       kr:'R&D',      shortKr:'R&D',    color:0xf97316, hex:'#f97316' },
+    { id:'data',      kr:'데이터',   shortKr:'데이터', color:0x06b6d4, hex:'#06b6d4' },
+    { id:'content',   kr:'콘텐츠',   shortKr:'콘텐츠', color:0xeab308, hex:'#eab308' },
+    { id:'sns',       kr:'SNS',      shortKr:'SNS',    color:0x14b8a6, hex:'#14b8a6' },
   ];
   const DEPT_BY_ID = Object.fromEntries(DEPTS.map(d => [d.id, d]));
 
@@ -885,7 +886,7 @@
       room.innerHTML = `
         <div class="tph-room__head">
           <span class="tph-room__icon">${TPH_DEPT_ICON[deptId] || '📁'}</span>
-          <span class="tph-room__name">${d ? d.kr + '팀' : deptId.toUpperCase()}</span>
+          <span class="tph-room__name">${d ? (d.shortKr || d.kr) + '팀' : deptId.toUpperCase()}</span>
           <span class="tph-room__badge">IDLE</span>
         </div>
         <div class="tph-room__floor">
@@ -1104,7 +1105,8 @@
         setTimeout(() => document.getElementById('tphCeoOffice')?.classList.remove('active'), 6000);
         break;
       case 'all_done':
-        // 모두 완료
+        // 모두 완료 — HUD 미션 텍스트 리셋
+        tphSetMission('— 완료 —');
         try { window.parent.postMessage({ type: 'directorDone', total: _tphState.total }, '*'); } catch {}
         break;
     }
@@ -1843,12 +1845,16 @@
     }
   }
 
-  new Phaser.Game({
-    type:Phaser.AUTO, parent:'phaser-container',
-    backgroundColor:'#2A2D3A',
-    scale:{ mode:Phaser.Scale.FIT, autoCenter:Phaser.Scale.CENTER_BOTH, width:W, height:H, expandParent:true },
-    scene:OfficeScene, pixelArt:false,
-  });
+  // Phaser 중복 초기화 방지
+  if (!window.__corvuxPhaserCreated) {
+    window.__corvuxPhaserCreated = true;
+    new Phaser.Game({
+      type:Phaser.AUTO, parent:'phaser-container',
+      backgroundColor:'#2A2D3A',
+      scale:{ mode:Phaser.Scale.FIT, autoCenter:Phaser.Scale.CENTER_BOTH, width:W, height:H, expandParent:true },
+      scene:OfficeScene, pixelArt:false,
+    });
+  }
 
   // ─── Minimal markdown renderer ──────────────────────────────────
   function escapeHtml(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -1939,6 +1945,22 @@
 
   // ─── Messages ───────────────────────────────────────────────────
   function addMsg(payload, persist = true){
+    // ── 서버 포맷(role/content + requestMeta) → 신 포맷(kind/body/who/deptId) 호환 레이어 ──
+    // 서버가 돌려준 requestMeta 안의 kind/who/deptId/html 를 최상위로 복원
+    const rm = payload.requestMeta;
+    if (rm && typeof rm === 'object') {
+      if (!payload.kind && rm.kind) payload.kind = rm.kind;
+      if (!payload.who && rm.who) payload.who = rm.who;
+      if (!payload.deptId && rm.deptId) payload.deptId = rm.deptId;
+      if (payload.html === undefined && rm.html !== undefined) payload.html = rm.html;
+    }
+    if (!payload.kind && payload.role) {
+      const roleMap = { user:'user', assistant:'ai', system:'sys', error:'err' };
+      payload.kind = roleMap[payload.role] || 'ai';
+    }
+    if (!payload.body && payload.content) {
+      payload.body = payload.content;
+    }
     const empty = dom.chatLog.querySelector('.chat-empty'); if (empty) empty.remove();
     const id = payload.id || ('m_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5));
     const kind = payload.kind || 'ai';
@@ -2795,7 +2817,17 @@
     switch (type) {
       case 'executive_gate_start': {
         run.executiveStatus = 'reviewing';
+        run.directive = p.directive || '';
         if (active) scene?.lightExecutive(true);
+        // HUD 미션 텍스트 즉시 반영
+        if (active && p.directive) {
+          window.dispatchEvent(new CustomEvent('office-event', { detail:{
+            type:'mission_start',
+            topic: String(p.directive).slice(0, 60),
+            deptCount: 9,
+          }}));
+          dom.officeStatusText.textContent = '분석 중...';
+        }
         // "판단중..." 임시 메시지 — gate_redirect 시 제거하기 위해 ID 캡처
         const gateMsgId = 'gate_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
         run.gateMsgId = gateMsgId;

@@ -16,6 +16,7 @@ import type { ExecutiveGateResult, GateDomain } from './ExecutiveGate.js';
 import {
   createSession,
   getSession,
+  getOrCreateSession,
   startRound,
   updateDeptStatus,
   serializeRound,
@@ -112,12 +113,14 @@ export async function runDirector(
   const connectorSet = new Set(availableConnectors);
   const send = (e: WsEvent) => { try { onEvent?.(e); } catch { /* ignore */ } };
 
-  // ─ 세션 생성 or 재사용 ──────────────────────────────────────────────────────
+  // ─ 세션 생성 or 재사용 (프론트 threadId를 sessionId로 자동 등록) ──────────
   let session: ProjectSession;
   if (options.sessionId) {
-    const existing = getSession(options.sessionId);
-    if (!existing) throw new Error(`세션 없음: ${options.sessionId}`);
-    session = existing;
+    session = getOrCreateSession(
+      options.sessionId,
+      options.projectName ?? '신규 프로젝트',
+      options.userId ?? 'anonymous'
+    );
   } else {
     session = createSession(
       options.projectName ?? '신규 프로젝트',

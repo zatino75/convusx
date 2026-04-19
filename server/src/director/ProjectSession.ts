@@ -61,8 +61,8 @@ export interface ProjectSession {
 // In-memory session store (실제 배포시 Redis 또는 SQLite로 교체)
 const sessions = new Map<string, ProjectSession>();
 
-export function createSession(projectName: string, userId: string): ProjectSession {
-  const sessionId = `SESSION-${Date.now()}`;
+export function createSession(projectName: string, userId: string, externalId?: string): ProjectSession {
+  const sessionId = externalId ?? `SESSION-${Date.now()}`;
   const session: ProjectSession = {
     sessionId,
     projectName,
@@ -78,6 +78,16 @@ export function createSession(projectName: string, userId: string): ProjectSessi
 
 export function getSession(sessionId: string): ProjectSession | undefined {
   return sessions.get(sessionId);
+}
+
+/** 세션이 없으면 자동 생성하여 반환 */
+export function getOrCreateSession(sessionId: string, projectName: string, userId: string): ProjectSession {
+  const existing = sessions.get(sessionId);
+  if (existing) {
+    existing.lastActiveAt = new Date();
+    return existing;
+  }
+  return createSession(projectName, userId, sessionId);
 }
 
 export function startRound(session: ProjectSession, mission: DecomposedMission): ProjectRound {
