@@ -217,7 +217,7 @@ function pickDeptFindings(arr: unknown, reports: DeptReportEntry[]): DeptFinding
       signal: normalizeSignal((item as any).signal),
     });
     seen.add(dept as DeptId);
-    if (out.length >= 9) break;
+    if (out.length >= 10) break;
   }
   // 누락 부서가 있으면 confidence 기반으로 자동 채움
   if (out.length < reports.length) {
@@ -229,7 +229,7 @@ function pickDeptFindings(arr: unknown, reports: DeptReportEntry[]): DeptFinding
                    ?? r.report.sections?.[0]?.items?.[0]?.slice(0, 200)
                    ?? '(자동 추출 결과 없음)';
       out.push({ dept: r.deptId, finding, signal });
-      if (out.length >= 9) break;
+      if (out.length >= 10) break;
     }
   }
   return out;
