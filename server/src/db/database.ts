@@ -186,6 +186,19 @@ function mapThread(r: any) {
 }
 
 export function upsertThread(thread: { id: string; projectId: string; title: string; createdAt: string; updatedAt: string; meta?: any }) {
+  // FK 준수: projectId 가 projects 에 없으면 자동 생성 (프론트에서 POST 누락/유실된 경우 복구)
+  const projectId = thread.projectId || "__general__"
+  const projExists = db.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId)
+  if (!projExists) {
+    const now = new Date().toISOString()
+    upsertProject({
+      id: projectId,
+      title: "(자동 생성)",
+      createdAt: now,
+      updatedAt: now,
+      meta: { auto: true }
+    })
+  }
   db.prepare(`
     INSERT INTO threads (id, project_id, title, created_at, updated_at, meta)
     VALUES (@id, @projectId, @title, @createdAt, @updatedAt, @meta)
@@ -196,7 +209,7 @@ export function upsertThread(thread: { id: string; projectId: string; title: str
       meta = @meta
   `).run({
     id: thread.id,
-    projectId: thread.projectId,
+    projectId,
     title: thread.title,
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
@@ -394,12 +407,23 @@ export function setSetting(key: string, value: string) {
 }
 
 // ─── 일괄 저장 (프론트엔드 sync용) ────────────────
+// FK 보호: threads 에 없는 threadId 로 호출되면 조용히 skip (insert 시 FK constraint failed 방지)
 const saveThreadMessages = db.transaction((threadId: string, messages: any[]) => {
+  const threadExists = db.prepare("SELECT 1 FROM threads WHERE id = ?").get(threadId)
+  if (!threadExists) {
+    logger.warn({ threadId, msgCount: messages.length }, "[db] saveThreadMessages: thread 없음 — 메시지 저장 skip")
+    return
+  }
   deleteMessagesByThread(threadId)
   messages.forEach((msg, i) => upsertMessage(threadId, msg, i))
 })
 
 const saveThreadVersions = db.transaction((threadId: string, versions: Record<string, any[]>, activeIdx: Record<string, number>) => {
+  const threadExists = db.prepare("SELECT 1 FROM threads WHERE id = ?").get(threadId)
+  if (!threadExists) {
+    logger.warn({ threadId }, "[db] saveThreadVersions: thread 없음 — 버전 저장 skip")
+    return
+  }
   deleteMessageVersionsByThread(threadId)
   deleteActiveVersionsByThread(threadId)
 
