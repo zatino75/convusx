@@ -86,7 +86,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 3) 진입 장벽 등급 (HIGH / MEDIUM / LOW) + 근거
 4) 차별화 기회 Top 3 (구체적 액션 가능 수준)
 5) 출처: [출처: DART / 공시정보 / 브랜드 공식 / 업계 보고서] 형식 인용`,
-    connectorPriority: ['perplexity', 'serper'],
+    // Perplexity quota 고갈로 임시 강등 (serper 우선). 충전 후 원복 예정 — 2026-04-19
+    connectorPriority: ['serper', 'perplexity'],
     analysisFramework: 'Porter 5 Forces + Competitive Benchmarking',
   },
 
@@ -117,7 +118,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 4) 필요 인허가 목록: 기관명 + 소요기간 + 수수료(원) + 근거 조문
 5) 최근 3년 개정 이력 + 예정 개정 일정 (관보 번호 또는 공포일자)
 6) 출처: [출처: 법제처 국가법령정보센터 / 식약처 / 기재부 고시] 형식 인용`,
-    connectorPriority: ['perplexity', 'serper'],
+    // Perplexity quota 고갈로 임시 강등 (serper 우선). 충전 후 원복 예정 — 2026-04-19
+    connectorPriority: ['serper', 'perplexity'],
     analysisFramework: 'Legal Risk Matrix + Regulatory Compliance',
   },
 
@@ -282,7 +284,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 각 플랫폼별 비주얼 규격(비율/해상도/길이)과 콘텐츠 방향만 정의하고,
 실제 에셋 제작은 디자인팀 브리프로 전달하세요.
 출력 형식: 채널별 전략, 주간 게시 계획, KPI(팔로워/인게이지먼트율), 디자인팀 브리프 포함`,
-    connectorPriority: ['perplexity', 'serper'],
+    // Perplexity quota 고갈로 임시 강등 (serper 우선). 충전 후 원복 예정 — 2026-04-19
+    connectorPriority: ['serper', 'perplexity'],
     analysisFramework: 'Channel Strategy + Content Mix + Growth KPI',
   },
 

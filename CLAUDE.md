@@ -78,14 +78,14 @@ git add -A && git commit -m "feat: 내용" && git push origin main
 | 부서 | Primary | Fallback | 커넥터 | 도구 |
 |------|---------|----------|--------|------|
 | market | Gemini 2.5 Pro | Claude Sonnet | serper→perplexity | market_analyze |
-| compete | GPT-5.4-pro | Claude Sonnet | perplexity→serper | competitor_scan |
-| legal | Claude Opus 4.6 | GPT-5.4-pro | perplexity→serper | regulation_check |
+| compete | GPT-5.4-pro | Claude Sonnet | serper→perplexity* | competitor_scan |
+| legal | Claude Opus 4.6 | GPT-5.4-pro | serper→perplexity* | regulation_check |
 | finance | GPT-5.4-pro | Gemini 2.5 Pro | supabase→serper | finance_analyze |
 | marketing | Claude Sonnet | GPT-5.4-pro | serper→perplexity | brand_positioning |
 | rnd | Claude Sonnet | Gemini 2.5 Pro | pubmed→perplexity→serper | recipe_design |
 | data | Gemini 2.5 Pro | GPT-5.4-pro | posthog→supabase→serper | sentiment_analyze |
 | content | Claude Sonnet | GPT-5.4-pro | serper→perplexity | content_pillar |
-| sns | Gemini 2.5 Pro | Claude Sonnet | perplexity→serper | channel_strategy |
+| sns | Gemini 2.5 Pro | Claude Sonnet | serper→perplexity* | channel_strategy |
 | design | Claude Sonnet | Gemini 2.5 Pro | fal→nano_banana→canva | design_create |
 
 ## 내부 프로세스
@@ -100,6 +100,7 @@ git add -A && git commit -m "feat: 내용" && git push origin main
 - 비주얼 에셋(이미지/영상/3D/로고/배너/인테리어)은 design 전담 — marketing/content/sns 는 전략·기획만
 - DeepSeek 는 CriticReview Primary 에만 사용 (JSON 평가 전용)
 - fal.ai 는 design 부서 이미지/영상/3D 생성 Primary 커넥터 — 키 미설정 시 nano_banana 로 폴백
+- `*` 표시된 compete/legal/sns 의 커넥터 순서는 Perplexity quota 고갈로 임시 강등 (serper 우선). 충전 후 `perplexity→serper` 로 원복 예정 (2026-04-19)
 - 고가치 앙상블 (3-AI): legal, finance 2개만 (design 은 비주얼 단일 모델이 우수)
 
 ## 실제 모델 ID
