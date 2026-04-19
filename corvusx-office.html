@@ -297,21 +297,61 @@
     position:absolute;left:50%;bottom:38%;transform:translateX(-50%);
     width:24px;height:32px;
     image-rendering:pixelated;
+    z-index:3;
+    /* 파스텔 배경 대비용 얇은 다크 아웃라인 */
+    filter:drop-shadow(0 0 0.5px rgba(0,0,0,0.85)) drop-shadow(1px 1px 0 rgba(0,0,0,0.3));
+  }
+  /* 캐릭터 발밑 그림자 (깊이감) */
+  .tph-character::after{
+    content:"";position:absolute;left:50%;bottom:-4px;transform:translateX(-50%);
+    width:18px;height:4px;border-radius:50%;
+    background:rgba(0,0,0,0.28);filter:blur(1px);z-index:-1;pointer-events:none;
+  }
+
+  /* 기본 idle — 살짝 숨쉬기 */
+  .tph-character{animation:tph-idle-bob 2.4s ease-in-out infinite}
+  .tph-room[data-state="idle"] .tph-character{
+    animation:tph-idle-bob 2.4s ease-in-out infinite;
   }
   .tph-room[data-state="working"] .tph-character{
-    animation:tph-typing 0.45s ease-in-out infinite alternate;
+    animation:tph-typing 0.55s ease-in-out infinite;
+    transform-origin:50% 90%;
   }
   .tph-room[data-state="done"] .tph-character{
-    animation:tph-cheer 1.2s ease-in-out;
+    animation:tph-cheer 0.6s ease-out 3;
+  }
+  .tph-room[data-state="error"] .tph-character{
+    animation:tph-char-shake 0.28s ease-in-out 4;
+  }
+  .tph-room[data-state="rework"] .tph-character{
+    animation:tph-typing 0.65s ease-in-out infinite;
+    transform-origin:50% 90%;
+  }
+  /* walking — Phase C 에서 fixed 포지셔닝으로 상무실 이동. scaleX 좌우 교차로 걷기 효과 */
+  .tph-room[data-state="walking"] .tph-character{
+    animation:tph-walking 0.32s steps(2) infinite;
+  }
+
+  @keyframes tph-idle-bob{
+    0%,100%{transform:translateX(-50%) translateY(0)}
+    50%{transform:translateX(-50%) translateY(-1.5px)}
   }
   @keyframes tph-typing{
-    0%{transform:translateX(-50%) translateY(0)}
-    100%{transform:translateX(-50%) translateY(-2px)}
+    0%,100%{transform:translateX(-50%) rotate(-2deg)}
+    50%{transform:translateX(-50%) rotate(2deg)}
   }
   @keyframes tph-cheer{
-    0%,100%{transform:translateX(-50%) translateY(0) rotate(0deg)}
-    25%{transform:translateX(-50%) translateY(-6px) rotate(-3deg)}
-    75%{transform:translateX(-50%) translateY(-6px) rotate(3deg)}
+    0%,100%{transform:translateX(-50%) translateY(0)}
+    50%{transform:translateX(-50%) translateY(-5px)}
+  }
+  @keyframes tph-char-shake{
+    0%,100%{transform:translateX(-50%)}
+    25%{transform:translate(calc(-50% - 3px))}
+    75%{transform:translate(calc(-50% + 3px))}
+  }
+  @keyframes tph-walking{
+    0%,100%{transform:translateX(-50%) scaleX(1)}
+    50%{transform:translateX(-50%) scaleX(-1)}
   }
 
   /* 책상 (탑다운 뷰 픽셀 아트) */
