@@ -33,6 +33,33 @@
     --user-bubble:#C96442;
     --user-bubble-border:#B55737;
     --user-bubble-text:#FFFFFF;
+
+    /* ─ Phase A 오피스 팔레트 (Pixel Agents 스타일, 우드톤) ───────────── */
+    --floor-wood:#C8A882;
+    --floor-wood-dark:#B8956E;
+    --wall:#E8D5B8;
+    --wall-shadow:#D4BC9A;
+    --corridor:#D4B896;
+
+    --room-market:#D4E8C2;
+    --room-compete:#F5C6C6;
+    --room-legal:#C6D4E8;
+    --room-finance:#F5E6C6;
+    --room-marketing:#E8C6F5;
+    --room-rnd:#C6F5F0;
+    --room-data:#D8D8D8;
+    --room-content:#F5D6C6;
+    --room-sns:#C6F5C6;
+    --room-sanmoo:#F5E8C6;
+
+    --gold-strong:#C9A84C;
+    --gold-light:#E8C85A;
+    --wood-dark:#6B4E0A;
+    --wood-mid:#8B6914;
+    --wood-light:#A58844;
+    --text-dark:#2C2420;
+    --text-mid:#5C4A3A;
+    --text-light:#F5F0E8;
   }
   *{box-sizing:border-box}
   html,body{
@@ -119,7 +146,7 @@
 
   /* ─ main column ─ */
   .main-col{display:grid;grid-template-rows:30% 70%;min-height:0;min-width:0;background:var(--bg)}
-  .office-wrap{position:relative;background:#2A2D3A;overflow:hidden;border-bottom:1px solid var(--border-soft)}
+  .office-wrap{position:relative;background:var(--corridor);overflow:hidden;border-bottom:1px solid var(--border-soft)}
   .office-title{position:absolute;top:8px;left:14px;color:var(--text-soft);font-size:13px;letter-spacing:2px;font-weight:600;z-index:3;pointer-events:none;opacity:.7}
   .office-status{position:absolute;top:8px;right:14px;color:var(--text-soft);font-size:13px;display:flex;align-items:center;gap:6px;z-index:3;pointer-events:none}
   .office-status .dot{width:7px;height:7px;border-radius:50%;background:#374151}
@@ -129,40 +156,48 @@
   #phaser-container{width:100%;height:100%;display:none}
   #phaser-container canvas{display:block}
 
-  /* ─── TPH (Two Point Hospital) 스타일 오피스 ─────────────────────── */
+  /* ─── Pixel Agents 스타일 오피스 — 우드톤 탑다운 뷰 ─────────────────────── */
   #tph-stage{
     position:relative;width:100%;height:100%;
-    background:#1a1a2e;
+    background:var(--floor-wood);
     background-image:
-      linear-gradient(rgba(30,45,74,0.35) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(30,45,74,0.35) 1px, transparent 1px);
-    background-size:24px 24px;
+      /* 나무 바닥 결 (세로 줄무늬) */
+      repeating-linear-gradient(90deg,
+        transparent 0px, transparent 22px,
+        rgba(107,78,10,0.18) 22px, rgba(107,78,10,0.18) 23px,
+        transparent 23px, transparent 46px,
+        rgba(107,78,10,0.10) 46px, rgba(107,78,10,0.10) 47px),
+      /* 미세 가로 (나무 판자 분절) */
+      repeating-linear-gradient(0deg,
+        transparent 0px, transparent 80px,
+        rgba(107,78,10,0.14) 80px, rgba(107,78,10,0.14) 82px);
     overflow:hidden;
     image-rendering:pixelated;
     -webkit-font-smoothing:auto;
-    color:#e2e8f0;
+    color:var(--text-dark);
   }
   #tph-stage::before{
     content:"";position:absolute;inset:0;
-    background:radial-gradient(circle at 50% 35%, rgba(255,255,255,0.04) 0%, transparent 60%);
+    background:radial-gradient(circle at 50% 25%, rgba(255,255,255,0.12) 0%, transparent 55%);
     pointer-events:none;
   }
 
-  /* HUD 상단 바 */
+  /* HUD 상단 바 — 크림 아이보리 + 골드 악센트 */
   .tph-hud{
     position:absolute;top:0;left:0;right:0;
     display:flex;align-items:center;justify-content:space-between;
     padding:8px 18px;height:42px;
-    background:linear-gradient(180deg, rgba(15,10,20,0.85), rgba(15,10,20,0.4));
-    border-bottom:1px solid rgba(201,168,76,0.25);
+    background:linear-gradient(180deg, rgba(245,240,232,0.94), rgba(232,213,184,0.82));
+    border-bottom:2px solid var(--gold-strong);
+    box-shadow:0 2px 0 rgba(107,78,10,0.15);
     z-index:5;font-family:ui-monospace,Menlo,Consolas,monospace;
   }
-  .tph-hud__logo{color:#C9A84C;font-weight:700;letter-spacing:1.5px;font-size:13px}
-  .tph-hud__mission{color:#94a3b8;font-size:12px;flex:1;text-align:center;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 16px}
+  .tph-hud__logo{color:var(--wood-dark);font-weight:800;letter-spacing:1.5px;font-size:13px}
+  .tph-hud__mission{color:var(--text-mid);font-size:12px;flex:1;text-align:center;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 16px;font-weight:600}
   .tph-hud__progress{
-    display:flex;align-items:center;gap:8px;color:#cbd5e1;font-size:12px;font-weight:600}
-  .tph-hud__progress strong{color:#22c55e}
+    display:flex;align-items:center;gap:8px;color:var(--text-mid);font-size:12px;font-weight:700}
+  .tph-hud__progress strong{color:var(--green)}
 
   /* 9개 부서 방 그리드 */
   .tph-grid{
@@ -175,45 +210,47 @@
   }
   .tph-room{
     position:relative;
-    border-radius:10px;
+    border-radius:8px;
     overflow:hidden;
-    border:2px solid rgba(255,255,255,0.06);
+    border:3px solid var(--wood-dark);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,0.25), 0 2px 0 rgba(107,78,10,0.3);
     transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease;
   }
+  /* 방 바닥 하이라이트 — 탑다운 원근감 */
   .tph-room::after{
     content:"";position:absolute;inset:0;
-    background:linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.4));
-    pointer-events:none;
+    background:linear-gradient(180deg, rgba(255,255,255,0.14) 0%, transparent 24%, transparent 72%, rgba(107,78,10,0.14));
+    pointer-events:none;z-index:1;
   }
-  /* 부서별 바닥색 */
-  .tph-room[data-dept="market"]{background:#1e3a5f}
-  .tph-room[data-dept="compete"]{background:#3d1a1a}
-  .tph-room[data-dept="legal"]{background:#1a3d2b}
-  .tph-room[data-dept="finance"]{background:#2d2a1a}
-  .tph-room[data-dept="marketing"]{background:#2a1a3d}
-  .tph-room[data-dept="rnd"]{background:#1a2d3d}
-  .tph-room[data-dept="data"]{background:#1a1a1a}
-  .tph-room[data-dept="content"]{background:#3d2a1a}
-  .tph-room[data-dept="sns"]{background:#1a3d3d}
+  /* 부서별 방 바닥색 (나무 결 + 고유색) */
+  .tph-room[data-dept="market"]   {background:var(--room-market)}
+  .tph-room[data-dept="compete"]  {background:var(--room-compete)}
+  .tph-room[data-dept="legal"]    {background:var(--room-legal)}
+  .tph-room[data-dept="finance"]  {background:var(--room-finance)}
+  .tph-room[data-dept="marketing"]{background:var(--room-marketing)}
+  .tph-room[data-dept="rnd"]      {background:var(--room-rnd)}
+  .tph-room[data-dept="data"]     {background:var(--room-data)}
+  .tph-room[data-dept="content"]  {background:var(--room-content)}
+  .tph-room[data-dept="sns"]      {background:var(--room-sns)}
 
   /* 방 상태별 효과 */
   .tph-room[data-state="working"]{
-    border-color:#3b82f6;
-    box-shadow:0 0 18px rgba(59,130,246,0.45), inset 0 0 28px rgba(59,130,246,0.12);
+    border-color:#2563eb;
+    box-shadow:0 0 18px rgba(37,99,235,0.5), inset 0 0 0 1px rgba(255,255,255,0.35), 0 2px 0 rgba(107,78,10,0.3);
     animation:tph-working-pulse 1.4s ease-in-out infinite;
   }
   .tph-room[data-state="done"]{
-    border-color:#22c55e;
-    box-shadow:0 0 14px rgba(34,197,94,0.35);
+    border-color:#16a34a;
+    box-shadow:0 0 14px rgba(22,163,74,0.4), inset 0 0 0 1px rgba(255,255,255,0.35), 0 2px 0 rgba(107,78,10,0.3);
   }
   .tph-room[data-state="error"]{
-    border-color:#ef4444;
-    box-shadow:0 0 18px rgba(239,68,68,0.45);
+    border-color:#dc2626;
+    box-shadow:0 0 18px rgba(220,38,38,0.5), inset 0 0 0 1px rgba(255,255,255,0.35), 0 2px 0 rgba(107,78,10,0.3);
     animation:tph-shake 0.5s ease-in-out;
   }
   .tph-room[data-state="rework"]{
-    border-color:#f97316;
-    box-shadow:0 0 16px rgba(249,115,22,0.45), inset 0 0 24px rgba(249,115,22,0.12);
+    border-color:#ea580c;
+    box-shadow:0 0 16px rgba(234,88,12,0.5), inset 0 0 0 1px rgba(255,255,255,0.35), 0 2px 0 rgba(107,78,10,0.3);
     animation:tph-working-pulse 1.6s ease-in-out infinite;
   }
   @keyframes tph-working-pulse{
@@ -228,15 +265,16 @@
     80%{transform:translateX(3px)}
   }
 
-  /* 방 헤더 */
+  /* 방 헤더 — 벽/라벨 (상단 짙은 나무 스트립) */
   .tph-room__head{
     position:relative;z-index:2;
     display:flex;align-items:center;gap:6px;
     padding:6px 10px;
-    background:rgba(0,0,0,0.32);
-    border-bottom:1px solid rgba(255,255,255,0.06);
-    font-size:11px;font-weight:700;letter-spacing:0.8px;
-    color:#e2e8f0;text-transform:uppercase;
+    background:linear-gradient(180deg, var(--wood-mid) 0%, var(--wood-dark) 100%);
+    border-bottom:2px solid var(--wood-dark);
+    font-size:11px;font-weight:800;letter-spacing:0.8px;
+    color:#fef9ec;text-transform:uppercase;
+    text-shadow:0 1px 0 rgba(0,0,0,0.3);
   }
   .tph-room__icon{font-size:13px;line-height:1}
   .tph-room__name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px}
@@ -276,34 +314,86 @@
     75%{transform:translateX(-50%) translateY(-6px) rotate(3deg)}
   }
 
-  /* 책상 (방 하단) */
+  /* 책상 (탑다운 뷰 픽셀 아트) */
   .tph-desk{
     position:absolute;left:50%;bottom:18%;transform:translateX(-50%);
-    width:70%;height:14px;
-    background:linear-gradient(180deg, #5c4528, #3d2e1a);
-    border-radius:2px;
-    box-shadow:0 2px 0 rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08);
+    width:60%;max-width:110px;height:18px;
+    background:linear-gradient(180deg, var(--wood-mid) 0%, var(--wood-dark) 100%);
+    border:2px solid var(--wood-dark);
+    border-radius:3px;
+    box-shadow:0 3px 0 rgba(90,62,8,0.55), inset 0 1px 0 rgba(255,255,255,0.18);
+    z-index:2;
   }
   .tph-monitor{
-    position:absolute;left:50%;bottom:32%;transform:translateX(-50%);
-    width:30px;height:18px;
-    background:#0f172a;border:1px solid #475569;border-radius:2px;
+    position:absolute;left:50%;bottom:30%;transform:translateX(-50%);
+    width:34px;height:22px;
+    background:#1a1a2e;border:2px solid #2a1a0a;border-radius:2px;
+    box-shadow:0 2px 0 rgba(0,0,0,0.4);
+    z-index:2;
   }
   .tph-monitor::after{
-    content:"";position:absolute;inset:2px;background:#1e3a5f;border-radius:1px;
-    transition:background 0.2s;
+    content:"";position:absolute;inset:2px;background:#2a3a55;border-radius:1px;
+    transition:background 0.2s, box-shadow 0.2s;
   }
-  .tph-room[data-state="working"] .tph-monitor::after{background:#3b82f6;animation:tph-screen 0.8s infinite}
-  .tph-room[data-state="done"] .tph-monitor::after{background:#22c55e}
+  /* 모니터 스탠드 */
+  .tph-monitor::before{
+    content:"";position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);
+    width:10px;height:5px;background:#2a1a0a;border-radius:0 0 2px 2px;
+  }
+  .tph-room[data-state="working"] .tph-monitor::after{background:#4a90d9;box-shadow:0 0 10px rgba(74,144,217,0.75);animation:tph-screen 0.8s infinite}
+  .tph-room[data-state="done"] .tph-monitor::after{background:#4ade80;box-shadow:0 0 10px rgba(74,222,128,0.6)}
   @keyframes tph-screen{
     0%,100%{background:#3b82f6}
     50%{background:#1e40af}
   }
 
-  /* 진행바 (방 하단 1px) */
+  /* 방 바닥 — 나무 판자 결 (방 고유색 위에 줄무늬) */
+  .tph-floor-planks{
+    position:absolute;inset:0;
+    background-image:repeating-linear-gradient(90deg,
+      transparent 0px, transparent 16px,
+      rgba(107,78,10,0.12) 16px, rgba(107,78,10,0.12) 18px);
+    pointer-events:none;z-index:0;
+  }
+
+  /* 방 상단 벽 스트립 (탑다운 원근감 — tph-room__head 아래 얇은 어둠) */
+  .tph-wall-top{
+    position:absolute;top:0;left:0;right:0;height:6px;
+    background:linear-gradient(180deg, rgba(107,78,10,0.25) 0%, transparent 100%);
+    pointer-events:none;z-index:1;
+  }
+
+  /* 방 문 (하단 중앙 — 나무) */
+  .tph-door{
+    position:absolute;bottom:4px;left:50%;transform:translateX(-50%);
+    width:22px;height:10px;
+    background:linear-gradient(180deg, var(--wood-mid) 0%, var(--wood-dark) 100%);
+    border:2px solid var(--wood-dark);border-bottom:none;
+    border-radius:4px 4px 0 0;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.15);
+    z-index:2;
+  }
+  /* 문 손잡이 */
+  .tph-door::after{
+    content:"";position:absolute;top:4px;right:3px;
+    width:2px;height:2px;background:var(--gold-strong);border-radius:50%;
+  }
+
+  /* 의자 (책상 앞) */
+  .tph-chair{
+    position:absolute;bottom:8%;left:50%;transform:translateX(-50%);
+    width:16px;height:12px;
+    background:#3a2820;
+    border:2px solid #1f140c;
+    border-radius:3px 3px 6px 6px;
+    box-shadow:0 2px 0 rgba(0,0,0,0.3);
+    z-index:2;
+  }
+
+  /* 진행바 (방 하단 — 문 위쪽) */
   .tph-room__progress{
     position:absolute;left:0;right:0;bottom:0;height:3px;
-    background:rgba(0,0,0,0.4);overflow:hidden;
+    background:rgba(107,78,10,0.28);overflow:hidden;z-index:3;
   }
   .tph-room__progress-fill{
     height:100%;width:0;
@@ -311,24 +401,30 @@
     transition:width 0.4s ease-out;
   }
 
-  /* 말풍선 */
+  /* 말풍선 — 만화 스타일 (흰 배경 + 검정 외곽) */
   .tph-bubble{
-    position:absolute;left:50%;top:8px;transform:translateX(-50%);
-    background:rgba(15,23,42,0.92);color:#e2e8f0;
-    padding:4px 8px;font-size:10px;border-radius:4px;
-    border:1px solid rgba(201,168,76,0.4);
-    white-space:nowrap;max-width:90%;overflow:hidden;text-overflow:ellipsis;
-    pointer-events:none;z-index:3;
+    position:absolute;left:50%;top:32px;transform:translateX(-50%);
+    background:#fff;color:var(--text-dark);
+    padding:4px 8px;font-size:10px;font-weight:600;border-radius:5px;
+    border:2px solid var(--text-dark);
+    white-space:nowrap;max-width:86%;overflow:hidden;text-overflow:ellipsis;
+    pointer-events:none;z-index:4;
     opacity:0;transition:opacity 0.2s;
+    box-shadow:0 2px 0 rgba(0,0,0,0.15);
+  }
+  /* 말풍선 꼬리 */
+  .tph-bubble::after{
+    content:"";position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);
+    border:4px solid transparent;border-top-color:var(--text-dark);
   }
   .tph-bubble.show{opacity:1}
 
-  /* CEO OFFICE — 별도 큰 방 우측 */
+  /* 상무실 — 우측 별도 큰 방 (골드 테두리 유지) */
   .tph-ceo-office{
     position:absolute;right:24px;top:60px;width:260px;height:240px;
-    background:linear-gradient(135deg,#2d2000 0%,#3d2a08 100%);
-    border:2px solid #C9A84C;border-radius:10px;
-    box-shadow:0 0 24px rgba(201,168,76,0.25);
+    background:var(--room-sanmoo);
+    border:3px solid var(--gold-strong);border-radius:10px;
+    box-shadow:0 0 24px rgba(201,168,76,0.35), inset 0 0 0 1px rgba(255,255,255,0.4), 0 3px 0 rgba(107,78,10,0.35);
     display:flex;flex-direction:column;
     overflow:hidden;
   }
@@ -341,9 +437,10 @@
     50%{box-shadow:0 0 48px rgba(201,168,76,0.85)}
   }
   .tph-ceo-office__head{
-    padding:8px 12px;background:rgba(0,0,0,0.4);
-    color:#C9A84C;font-weight:700;font-size:12px;letter-spacing:1px;
-    border-bottom:1px solid rgba(201,168,76,0.3);
+    padding:8px 12px;background:linear-gradient(180deg, var(--gold-strong) 0%, #a07f2e 100%);
+    color:#fef9ec;font-weight:800;font-size:12px;letter-spacing:1.2px;
+    border-bottom:2px solid #a07f2e;
+    text-shadow:0 1px 0 rgba(0,0,0,0.3);
   }
   .tph-ceo-office__floor{flex:1;position:relative}
   .tph-ceo-character{
@@ -363,85 +460,21 @@
   .tph-critic.show{opacity:1}
   .tph-critic.hide{opacity:0}
 
-  /* 우하단 원형 게이지 */
+  /* 우하단 원형 게이지 — 크림 아이보리 + 골드 */
   .tph-gauge{
     position:absolute;right:24px;bottom:24px;
     width:80px;height:80px;
-    background:rgba(15,10,20,0.85);border:2px solid #C9A84C;border-radius:50%;
+    background:rgba(245,240,232,0.92);border:3px solid var(--gold-strong);border-radius:50%;
     display:flex;align-items:center;justify-content:center;
     flex-direction:column;
-    box-shadow:0 0 18px rgba(201,168,76,0.25);
+    box-shadow:0 0 18px rgba(201,168,76,0.35), 0 3px 0 rgba(107,78,10,0.3);
     z-index:5;
   }
   .tph-gauge svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
-  .tph-gauge__text{font-family:ui-monospace,monospace;font-weight:700;color:#C9A84C;font-size:14px;line-height:1.1;text-align:center;z-index:1}
-  .tph-gauge__sub{font-size:9px;color:#94a3b8;letter-spacing:0.6px}
+  .tph-gauge__text{font-family:ui-monospace,monospace;font-weight:800;color:var(--wood-dark);font-size:14px;line-height:1.1;text-align:center;z-index:1}
+  .tph-gauge__sub{font-size:9px;color:var(--text-mid);letter-spacing:0.6px;font-weight:700}
 
-  /* ─── 채팅 패널 — TPH 다크 테마 정합 ─────────────────────────────────── */
-  .chat{background:#1a1a2e;color:#e2e8f0}
-  .chat-header{background:#16213e;border-bottom:1px solid rgba(201,168,76,0.25);color:#e2e8f0}
-  .chat-header .chat-title{color:#C9A84C}
-  .chat-log{background:#1a1a2e}
-  .chat-log::-webkit-scrollbar-thumb{background:rgba(201,168,76,0.3);border-radius:4px}
-  .chat-log::-webkit-scrollbar-thumb:hover{background:rgba(201,168,76,0.5)}
-  .chat-empty{color:#94a3b8}
-  .chat-empty h3{color:#cbd5e1}
-
-  /* 메시지 버블 */
-  .chat .msg .who{color:#94a3b8}
-  .chat .msg .body{background:#16213e;border-color:rgba(255,255,255,0.06);color:#e2e8f0;
-    box-shadow:0 1px 3px rgba(0,0,0,0.4)}
-  .chat .msg.user .body{background:#0F0A14;border:1px solid #C9A84C;color:#fef3c7;
-    box-shadow:0 2px 8px rgba(201,168,76,0.18)}
-  .chat .msg.dept .body{background:#1e2d4a;border-color:rgba(255,255,255,0.06)}
-  .chat .msg.ceo .body{background:linear-gradient(135deg,#2d2000 0%,#3d2a08 100%);
-    border:1px solid #C9A84C;color:#fef3c7;
-    box-shadow:0 0 14px rgba(201,168,76,0.18)}
-  .chat .msg.ceo .who{color:#C9A84C;font-weight:700}
-  .chat .msg.ceo .who::before{content:'★ ';color:#C9A84C}
-  .chat .msg.critic .body{background:#3d1a2b;border-left:3px solid #ec4899;color:#fbcfe8}
-  .chat .msg.critic .who{color:#ec4899;font-weight:700}
-  .chat .msg.sys .body{background:transparent;color:#64748b;border:none;font-style:italic}
-  .chat .msg.err .body{background:rgba(239,68,68,0.15);border-color:rgba(239,68,68,0.4);color:#fca5a5}
-
-  /* 마크다운 본문 */
-  .chat .md code.inline{background:rgba(201,168,76,0.12);border-color:rgba(201,168,76,0.25);color:#fbbf24}
-  .chat .md pre{background:#0F0A14;border-color:rgba(201,168,76,0.18);color:#e2e8f0}
-  .chat .md pre code{color:#e2e8f0}
-  .chat .md a{color:#C9A84C}
-  .chat .md table{color:#e2e8f0}
-  .chat .md th,.chat .md td{border-color:rgba(255,255,255,0.1)}
-  .chat .md th{background:rgba(201,168,76,0.1)}
-  .chat .md blockquote{border-left-color:#C9A84C;background:rgba(201,168,76,0.08);color:#cbd5e1}
-  .chat .md hr{border-top-color:rgba(255,255,255,0.1)}
-  .chat .md strong{color:#fef3c7}
-
-  /* 입력창 */
-  .chat-input{background:#16213e;border-top:1px solid rgba(201,168,76,0.25)}
-  .chat-input-wrap{background:#0f0f1a;border:1px solid rgba(255,255,255,0.08)}
-  .chat-input-wrap:focus-within{border-color:#C9A84C;box-shadow:0 0 0 3px rgba(201,168,76,0.18)}
-  .chat-input-wrap textarea{color:#e2e8f0}
-  .chat-input-wrap textarea::placeholder{color:#64748b}
-  .chat-input.drag-over .chat-input-wrap{border-color:#C9A84C;box-shadow:0 0 0 4px rgba(201,168,76,0.2)}
-
-  /* 첨부 버튼 */
-  .attach-btn{color:#94a3b8}
-  .attach-btn:hover{color:#C9A84C}
-
-  /* 전송 버튼 */
-  .send-btn{background:#C9A84C;color:#0F0A14;border:none}
-  .send-btn:hover{background:#d4b566}
-  .send-btn.stop{background:#ef4444;color:#fff}
-
-  /* 스크롤 바닥 버튼 */
-  .to-bottom{background:#16213e;border-color:rgba(201,168,76,0.25);color:#C9A84C}
-
-  /* 슬래시 메뉴 */
-  .slash-menu{background:#16213e;border-color:rgba(201,168,76,0.25);color:#e2e8f0}
-  .slash-menu .item:hover, .slash-menu .item.active{background:rgba(201,168,76,0.15)}
-  .slash-menu .cmd{color:#C9A84C}
-  .slash-menu .desc{color:#94a3b8}
-
+  /* ─── 채팅 패널 — 아이보리 (Phase A: 다크 테마 제거) ─────────────────── */
   .chat{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:var(--chat);position:relative}
   .chat-header{padding:10px 20px;border-bottom:1px solid var(--border-soft);display:flex;align-items:center;gap:10px;flex-shrink:0}
   .chat-title{font-size:15.5px;font-weight:600;color:var(--text);cursor:pointer;padding:3px 8px;border-radius:5px;border:1px solid transparent;outline:none;max-width:500px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -671,7 +704,7 @@
         </div>
 
         <div class="tph-ceo-office" id="tphCeoOffice">
-          <div class="tph-ceo-office__head">⭐ CEO OFFICE</div>
+          <div class="tph-ceo-office__head">★ 상무실</div>
           <div class="tph-ceo-office__floor">
             <div class="tph-ceo-character" id="tphCeoChar">
               <svg viewBox="0 0 24 32" width="100%" height="100%" shape-rendering="crispEdges">
@@ -722,7 +755,7 @@
 
         <div class="tph-gauge">
           <svg viewBox="0 0 80 80">
-            <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>
+            <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(107,78,10,0.18)" stroke-width="6"/>
             <circle id="tphGaugeArc" cx="40" cy="40" r="34" fill="none" stroke="#C9A84C" stroke-width="6"
                     stroke-dasharray="213.6" stroke-dashoffset="213.6" stroke-linecap="round"/>
           </svg>
@@ -890,10 +923,14 @@
           <span class="tph-room__badge">IDLE</span>
         </div>
         <div class="tph-room__floor">
-          <div class="tph-bubble"></div>
+          <div class="tph-floor-planks"></div>
+          <div class="tph-wall-top"></div>
+          <div class="tph-door"></div>
+          <div class="tph-chair"></div>
+          <div class="tph-desk"></div>
           <div class="tph-monitor"></div>
           <div class="tph-character">${tphBuildCharacterSvg(deptId)}</div>
-          <div class="tph-desk"></div>
+          <div class="tph-bubble"></div>
           <div class="tph-room__progress"><div class="tph-room__progress-fill"></div></div>
         </div>`;
       grid.appendChild(room);
@@ -1397,7 +1434,7 @@
       }).setOrigin(0.5, 0.5);
       this.bg.add(mk(isoX(1, 0.5),   isoY(1, 0.5)   - 42, '회의실',     '#94a3b8'));
       this.bg.add(mk(isoX(3.5, 0.5), isoY(3.5, 0.5) - 42, '상무실',     '#fbbf24'));
-      this.bg.add(mk(isoX(6.5, 0.5), isoY(6.5, 0.5) - 42, 'CEO 사장실', '#f59e0b'));
+      this.bg.add(mk(isoX(6.5, 0.5), isoY(6.5, 0.5) - 42, '상무실', '#f59e0b'));
       this.bg.add(mk(isoX(3.5, 3.0), isoY(3.5, 3.0) - 62, '업무공간',   '#64748b'));
       this.bg.add(mk(isoX(3.5, 5.0), isoY(3.5, 5.0) - 18, '휴게실',     '#64748b'));
     }
@@ -2746,7 +2783,7 @@
     if (b?.recommendations?.length) html += '<div class="sec">권고</div><ul>' + b.recommendations.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     if (b?.conflictingSignals?.length) html += '<div class="sec">상충 신호</div><ul>' + b.conflictingSignals.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     if (typeof b?.overallConfidence === 'number') html += `<div class="sec">통합 신뢰도 ${Math.round(b.overallConfidence * 100)}%</div>`;
-    addMsg({ who:'CEO 브리핑', body:html || '통합 브리핑', kind:'ceo', html:true });
+    addMsg({ who:'상무 브리핑', body:html || '통합 브리핑', kind:'ceo', html:true });
     renderPanel();
   }
   function renderCriticReview(r){
@@ -3117,7 +3154,7 @@
     if (b?.recommendations?.length) html += '<div class="sec">권고</div><ul>' + b.recommendations.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     if (b?.conflictingSignals?.length) html += '<div class="sec">상충 신호</div><ul>' + b.conflictingSignals.map(x => `<li>${escapeHtml(x)}</li>`).join('') + '</ul>';
     if (typeof b?.overallConfidence === 'number') html += `<div class="sec">통합 신뢰도 ${Math.round(b.overallConfidence * 100)}%</div>`;
-    addMsgForThread(threadId, { who:'CEO 브리핑', body:html || '통합 브리핑', kind:'ceo', html:true });
+    addMsgForThread(threadId, { who:'상무 브리핑', body:html || '통합 브리핑', kind:'ceo', html:true });
   }
   function addThreadMsgByCritic(threadId, r){
     const verdict = r?.verdict === 'pass' ? '✓ PASS' : '⚠ 보강 필요';
@@ -3371,7 +3408,7 @@
       if (state.lastBriefing || state.lastCritic) {
         if (state.lastBriefing) {
           const b = state.lastBriefing;
-          const sec = document.createElement('div'); sec.className = 'panel-sec'; sec.innerHTML = '<h4>CEO 브리핑</h4>';
+          const sec = document.createElement('div'); sec.className = 'panel-sec'; sec.innerHTML = '<h4>상무 브리핑</h4>';
           const card = document.createElement('div');
           card.style.cssText = 'background:var(--surface);border:1px solid var(--border-soft);border-left:3px solid var(--gold);padding:10px 12px;border-radius:8px;font-size:14px;line-height:1.55';
           let h = '';
@@ -3391,7 +3428,7 @@
           card.innerHTML = h;
           sec.appendChild(card); body.appendChild(sec);
         }
-      } else body.innerHTML = '<div class="panel-empty">실행 완료 후 CEO 브리핑과 상무 검토가 여기에 표시됩니다.</div>';
+      } else body.innerHTML = '<div class="panel-empty">실행 완료 후 상무 브리핑과 Critic 검토가 여기에 표시됩니다.</div>';
     }
   }
 
