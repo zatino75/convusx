@@ -59,8 +59,9 @@ interface DeptReportEntry {
 }
 
 // ─── 타임아웃 ────────────────────────────────────────────────────────────────
-const PRIMARY_TIMEOUT_MS = 40000;  // Claude primary
-const FALLBACK_TIMEOUT_MS = 60000; // Gemini 2.5 Pro fallback
+const PRIMARY_TIMEOUT_MS = 30000;   // Claude Haiku primary
+const SONNET_TIMEOUT_MS = 40000;    // Claude Sonnet 1차 폴백
+const GEMINI_TIMEOUT_MS = 60000;    // Gemini 2.5 Pro 최종 폴백
 const BRIEFING_MAX_TOKENS = 3000;
 
 function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
@@ -73,23 +74,33 @@ function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
-// ─── Primary: Claude ─────────────────────────────────────────────────────────
-async function callClaudeForBriefing(systemPrompt: string, userPrompt: string): Promise<string> {
-  const { callClaude } = await import('../adapters/wrappers.js');
+// ─── Primary: Claude Haiku ───────────────────────────────────────────────────
+async function callHaikuForBriefing(systemPrompt: string, userPrompt: string): Promise<string> {
+  const { callClaudeHaiku } = await import('../adapters/wrappers.js');
   return withDeadline(
-    callClaude(systemPrompt, userPrompt, BRIEFING_MAX_TOKENS),
+    callClaudeHaiku(systemPrompt, userPrompt, BRIEFING_MAX_TOKENS),
     PRIMARY_TIMEOUT_MS,
-    'ceo_briefing_primary',
+    'ceo_briefing_haiku',
   );
 }
 
-// ─── Fallback: Gemini 2.5 Pro ────────────────────────────────────────────────
+// ─── Fallback 1: Claude Sonnet ───────────────────────────────────────────────
+async function callSonnetForBriefing(systemPrompt: string, userPrompt: string): Promise<string> {
+  const { callClaude } = await import('../adapters/wrappers.js');
+  return withDeadline(
+    callClaude(systemPrompt, userPrompt, BRIEFING_MAX_TOKENS),
+    SONNET_TIMEOUT_MS,
+    'ceo_briefing_sonnet',
+  );
+}
+
+// ─── Fallback 2: Gemini 2.5 Pro ──────────────────────────────────────────────
 async function callGeminiForBriefing(systemPrompt: string, userPrompt: string): Promise<string> {
   const { callGemini } = await import('../adapters/wrappers.js');
   return withDeadline(
-    callGemini(systemPrompt, userPrompt, BRIEFING_MAX_TOKENS),
-    FALLBACK_TIMEOUT_MS,
-    'ceo_briefing_fallback',
+    callGemini(systemPrompt, userPrompt, GEMINI_TIMEOUT_MS),
+    GEMINI_TIMEOUT_MS,
+    'ceo_briefing_gemini',
   );
 }
 
@@ -413,16 +424,22 @@ export async function generateCeoBriefing(
 
   const userPrompt = buildBriefingPrompt(directive, effectiveReports, criticReview);
   try {
-    const rawText = await callClaudeForBriefing(BRIEFING_SYSTEM_PROMPT, userPrompt);
+    const rawText = await callHaikuForBriefing(BRIEFING_SYSTEM_PROMPT, userPrompt);
     briefingData = parseBriefingJson(rawText, effectiveReports);
-  } catch (primaryErr) {
-    logger.warn({ err: primaryErr }, '[CeoBriefing] Claude primary 실패 → Gemini Pro fallback');
+  } catch (haikuErr) {
+    logger.warn({ err: haikuErr }, '[CeoBriefing] Haiku primary 실패 → Sonnet fallback');
     try {
-      const rawText = await callGeminiForBriefing(BRIEFING_SYSTEM_PROMPT, userPrompt);
+      const rawText = await callSonnetForBriefing(BRIEFING_SYSTEM_PROMPT, userPrompt);
       briefingData = parseBriefingJson(rawText, effectiveReports);
-    } catch (fallbackErr) {
-      logger.error({ err: fallbackErr }, '[CeoBriefing] Gemini fallback 실패 — 휴리스틱 브리핑');
-      briefingData = buildFallbackBriefing('', effectiveReports);
+    } catch (sonnetErr) {
+      logger.warn({ err: sonnetErr }, '[CeoBriefing] Sonnet fallback 실패 → Gemini Pro fallback');
+      try {
+        const rawText = await callGeminiForBriefing(BRIEFING_SYSTEM_PROMPT, userPrompt);
+        briefingData = parseBriefingJson(rawText, effectiveReports);
+      } catch (geminiErr) {
+        logger.error({ err: geminiErr }, '[CeoBriefing] Gemini fallback 실패 — 휴리스틱 브리핑');
+        briefingData = buildFallbackBriefing('', effectiveReports);
+      }
     }
   }
 

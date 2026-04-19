@@ -6,13 +6,15 @@
  *   2) 근거 부족/모호 → rework (보강 요청)
  *   3) 수치/견해 불일치 → conflicts 기록
  *
- * Primary: Claude Haiku (claude-haiku-4-5-20251001), max_tokens 1500, 30s
- * Fallback: Gemini 2.5 Flash, 25s
+ * Primary: DeepSeek V3.2 (deepseek-chat), 30s
+ * Fallback 1: Claude Haiku (claude-haiku-4-5-20251001), 30s
+ * Fallback 2: Gemini 2.5 Flash, 25s
  */
 
 import type { DeptReport } from "./ProjectSession.js";
 import type { DeptId } from "./TaskDecomposer.js";
 import { logger } from "../observability/logger.js";
+import { callDeepSeek } from "../adapters/deepseek.js";
 
 /** 부서별 1~10 점 품질 점수 (구체성3 + 실행가능성3 + 데이터근거2 + 명확성2) */
 export interface DeptQualityScore {
@@ -202,7 +204,19 @@ function pickConflicts(arr: unknown): Array<{ depts: DeptId[]; issue: string }> 
   return out;
 }
 
-// ─── Primary: Claude Haiku 4.5 ───────────────────────────────────────────────
+// ─── Primary: DeepSeek V3.2 ──────────────────────────────────────────────────
+async function callDeepSeekCritic(userPrompt: string): Promise<string | null> {
+  return callDeepSeek(
+    "deepseek-chat",
+    [
+      { role: "system", content: CRITIC_SYSTEM_PROMPT },
+      { role: "user", content: userPrompt },
+    ],
+    { timeoutMs: PRIMARY_TIMEOUT_MS, maxTokens: PRIMARY_MAX_TOKENS, temperature: 0.2 },
+  );
+}
+
+// ─── Fallback 1: Claude Haiku 4.5 ────────────────────────────────────────────
 async function callHaikuCritic(userPrompt: string): Promise<string | null> {
   const apiKey = String((globalThis as any)?.process?.env?.ANTHROPIC_API_KEY ?? '').trim();
   if (!apiKey) return null;
@@ -241,7 +255,7 @@ async function callHaikuCritic(userPrompt: string): Promise<string | null> {
   }
 }
 
-// ─── Fallback: Gemini 2.5 Flash ──────────────────────────────────────────────
+// ─── Fallback 2: Gemini 2.5 Flash ────────────────────────────────────────────
 async function callGeminiFlashCritic(userPrompt: string): Promise<string | null> {
   const apiKey = String((globalThis as any)?.process?.env?.GEMINI_API_KEY ?? '').trim();
   if (!apiKey) return null;
@@ -422,7 +436,17 @@ export async function runCriticReview(
 
   const userPrompt = buildUserPrompt(directive, reports);
 
-  // Primary: Haiku
+  // Primary: DeepSeek V3.2
+  const deepseekText = await callDeepSeekCritic(userPrompt);
+  if (deepseekText) {
+    const parsed = parseCriticJson(deepseekText, reports);
+    if (parsed) return parsed;
+    logger.warn('[CriticReview] DeepSeek JSON 파싱 실패 → Haiku');
+  } else {
+    logger.warn('[CriticReview] DeepSeek 응답 없음 → Haiku');
+  }
+
+  // Fallback 1: Claude Haiku
   const haikuText = await callHaikuCritic(userPrompt);
   if (haikuText) {
     const parsed = parseCriticJson(haikuText, reports);
@@ -432,13 +456,13 @@ export async function runCriticReview(
     logger.warn('[CriticReview] Haiku 응답 없음 → Gemini Flash');
   }
 
-  // Fallback: Gemini Flash
+  // Fallback 2: Gemini Flash
   const flashText = await callGeminiFlashCritic(userPrompt);
   if (flashText) {
     const parsed = parseCriticJson(flashText, reports);
     if (parsed) return parsed;
   }
 
-  logger.warn('[CriticReview] 양쪽 모두 실패 → fallback review');
+  logger.warn('[CriticReview] 3단계 모두 실패 → fallback review');
   return buildFallbackReview(reports);
 }

@@ -172,11 +172,10 @@
   #phaser-container{width:100%;height:100%;display:none}
   #phaser-container canvas{display:block}
 
-  /* ─── Middle Management 스타일 오피스 — 오픈 플로어 (방 박스 제거, 나무 바닥) ───────── */
+  /* ─── 아이소메트릭 픽셀아트 오피스 (VectorStock 스타일) ───────── */
   #tph-stage{
     position:relative;width:100%;height:100%;
     background:#C8B89A;
-    /* 나무 바닥 줄무늬 (세로) */
     background-image:
       repeating-linear-gradient(90deg,
         transparent 0px, transparent 58px,
@@ -187,7 +186,19 @@
     overflow:hidden;
     -webkit-font-smoothing:antialiased;
     color:var(--text-dark);
+    image-rendering:pixelated;
   }
+  .tph-iso-svg{
+    position:absolute;inset:0;width:100%;height:100%;
+    z-index:0;pointer-events:none;
+    image-rendering:pixelated;
+    image-rendering:crisp-edges;
+  }
+  /* working 상태: 모니터 화면 cyan 발광 */
+  .tph-room[data-state="working"] .tph-iso-monitor-screen{ fill:#4AD9F5 }
+  .tph-room[data-state="done"] .tph-iso-monitor-screen{ fill:#66BB6A }
+  .tph-room[data-state="error"] .tph-iso-monitor-screen{ fill:#EF5350 }
+  .tph-room[data-state="rework"] .tph-iso-monitor-screen{ fill:#FFA726 }
   #tph-stage::before{
     content:"";position:absolute;inset:0;
     background:radial-gradient(circle at 50% 20%, rgba(255,255,255,0.18) 0%, transparent 60%);
@@ -1047,6 +1058,64 @@
     }
   }
 
+  // 부서별 아이소메트릭 벽 색상 (뒷벽/왼벽 2톤)
+  const TPH_ISO_WALL = {
+    market:   { back:'#D4E4F0', left:'#BCD2E5' },
+    compete:  { back:'#F5D4D4', left:'#E5BABA' },
+    legal:    { back:'#D8D8E8', left:'#BFBFD6' },
+    finance:  { back:'#F5E8C6', left:'#E5D3A5' },
+    marketing:{ back:'#E8D4E8', left:'#D4B6D4' },
+    rnd:      { back:'#D4E8E4', left:'#B6D1CB' },
+    data:     { back:'#DDDDDD', left:'#BFBFBF' },
+    content:  { back:'#F5DDC4', left:'#E2C3A1' },
+    sns:      { back:'#D4E8D4', left:'#B6D1B6' },
+    design:   { back:'#F5D4E0', left:'#E3B9CA' },
+  };
+
+  // 아이소메트릭 픽셀아트 룸 (VectorStock 스타일) — 뒷벽 + 왼벽 + 바닥 + 가구
+  function tphBuildIsoRoomSvg(deptId) {
+    const c = TPH_ISO_WALL[deptId] || { back:'#DDDDDD', left:'#BFBFBF' };
+    // 벽 액자 색상 — 부서별 약간씩 다르게 포인트
+    const art1 = '#4A90D9', art2 = '#E8C85A', art3 = '#F09975';
+    return `
+      <svg class="tph-iso-svg" viewBox="0 0 100 60" preserveAspectRatio="none" shape-rendering="crispEdges">
+        <!-- 뒷벽 (오른쪽) -->
+        <polygon points="50,2 90,18 90,36 50,20" fill="${c.back}"/>
+        <!-- 왼벽 -->
+        <polygon points="10,18 50,2 50,20 10,36" fill="${c.left}"/>
+        <!-- 바닥 (아이소메트릭 평행사변형) -->
+        <polygon points="10,36 50,20 90,36 50,52" fill="#E8D4A8"/>
+        <polygon points="10,36 50,20 90,36 50,52" fill="url(#isoWood)" opacity="0.35"/>
+        <polygon points="10,36 50,20 90,36 50,52" fill="none" stroke="#8B6914" stroke-width="0.3" opacity="0.4"/>
+        <!-- 왼벽 그림 1, 2 -->
+        <polygon points="18,10 26,6 26,12 18,16" fill="${art1}" stroke="#2A2A3A" stroke-width="0.2"/>
+        <polygon points="31,6 39,3 39,9 31,12" fill="${art2}" stroke="#2A2A3A" stroke-width="0.2"/>
+        <!-- 뒷벽 그림 -->
+        <polygon points="60,8 70,12 70,18 60,14" fill="${art3}" stroke="#2A2A3A" stroke-width="0.2"/>
+        <polygon points="74,12 82,15 82,21 74,18" fill="${art1}" stroke="#2A2A3A" stroke-width="0.2"/>
+        <!-- 책상 (아이소메트릭 박스) -->
+        <polygon points="42,28 60,20 70,24 52,32" fill="#A1887F"/>
+        <polygon points="52,32 70,24 70,28 52,36" fill="#6D4C41"/>
+        <polygon points="42,28 42,32 52,36 52,32" fill="#5D4037"/>
+        <!-- 모니터 -->
+        <rect class="tph-iso-monitor-body" x="50" y="15" width="9" height="6" fill="#1a1a2e" stroke="#000" stroke-width="0.2"/>
+        <rect class="tph-iso-monitor-screen" x="50.5" y="15.5" width="8" height="5" fill="#37474F"/>
+        <polygon points="53,21 56,21 56.5,23 52.5,23" fill="#1a1a2e"/>
+        <!-- 의자 -->
+        <polygon points="42,37 50,33 54,35 46,39" fill="#455A64"/>
+        <polygon points="44,29 48,27 48,33 44,35" fill="#546E7A" opacity="0.9"/>
+        <!-- 화분 -->
+        <rect x="14" y="36" width="3.5" height="3.5" fill="#8B6914"/>
+        <polygon points="13,36 15.5,30 18,36" fill="#66BB6A"/>
+        <polygon points="14,34 15.5,31 17,34" fill="#81C784"/>
+        <defs>
+          <pattern id="isoWood" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(30)">
+            <line x1="0" y1="0" x2="0" y2="6" stroke="#6B4E0A" stroke-width="0.15"/>
+          </pattern>
+        </defs>
+      </svg>`;
+  }
+
   // 블롭 캐릭터 (Middle Management 스타일) — 둥글둥글한 몸 + 큰 눈
   function tphBuildCharacterSvg(deptId) {
     const body = TPH_DEPT_BODY[deptId] || '#64B5F6';
@@ -1110,7 +1179,6 @@
       const colIdx = (idx % 5) + 1;
       room.style.gridRow = String(rowIdx);
       room.style.gridColumn = String(colIdx);
-      const plants = (TPH_PLANTS[deptId] || []).map(p => `<div class="tph-plant ${p}"></div>`).join('');
       room.innerHTML = `
         <div class="tph-room__head">
           <span class="tph-room__icon">${TPH_DEPT_ICON[deptId] || '📁'}</span>
@@ -1118,13 +1186,7 @@
           <span class="tph-room__badge">IDLE</span>
         </div>
         <div class="tph-room__floor">
-          <div class="tph-floor-planks"></div>
-          <div class="tph-wall-top"></div>
-          ${plants}
-          <div class="tph-door"></div>
-          <div class="tph-chair"></div>
-          <div class="tph-desk"></div>
-          <div class="tph-monitor"></div>
+          ${tphBuildIsoRoomSvg(deptId)}
           <div class="tph-character">${tphBuildCharacterSvg(deptId)}</div>
           <div class="tph-bubble"></div>
           <div class="tph-room__progress"><div class="tph-room__progress-fill"></div></div>

@@ -41,8 +41,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     id: 'market',
     nameKo: '시장조사팀',
     nameEn: 'MARKET RESEARCH',
-    primaryModel: 'claude-sonnet-4-6',
-    fallbackModel: GEMINI_MODEL_ID,
+    primaryModel: GEMINI_MODEL_ID,
+    fallbackModel: 'claude-sonnet-4-6',
     maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 시장조사팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 심층 시장 분석을 제공합니다.
@@ -86,7 +86,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 3) 진입 장벽 등급 (HIGH / MEDIUM / LOW) + 근거
 4) 차별화 기회 Top 3 (구체적 액션 가능 수준)
 5) 출처: [출처: DART / 공시정보 / 브랜드 공식 / 업계 보고서] 형식 인용`,
-    connectorPriority: ['serper', 'perplexity'],
+    connectorPriority: ['perplexity', 'serper'],
     analysisFramework: 'Porter 5 Forces + Competitive Benchmarking',
   },
 
@@ -126,7 +126,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: '재무전략팀',
     nameEn: 'FINANCE STRATEGY',
     primaryModel: 'gpt-5.4-pro',
-    fallbackModel: 'claude-sonnet-4-6',
+    fallbackModel: GEMINI_MODEL_ID,
     maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 재무전략팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 재무 모델링, 투자 분석, 수익성 전망을 제공합니다.
@@ -185,7 +185,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: 'R&D제품개발팀',
     nameEn: 'R&D PRODUCT DEV',
     primaryModel: 'claude-sonnet-4-6',
-    fallbackModel: 'gpt-5.4-pro',
+    fallbackModel: GEMINI_MODEL_ID,
     maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X R&D제품개발팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 제품 컨셉 개발, 기술 분석, R&D 로드맵을 수립합니다.
@@ -215,7 +215,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
    | M+1 | M+2 | M+3 | M+4 | M+5 | M+6 |
 4) 특허/IP: 관련 등록 특허 번호 또는 회피 설계 포인트 명시
 5) 출처: [출처: PubMed / 식약처 / INCI Dictionary / 특허청 KIPRIS] 인용`,
-    connectorPriority: ['pubmed', 'serper', 'perplexity'],
+    connectorPriority: ['pubmed', 'perplexity', 'serper'],
     analysisFramework: 'Product Concept + R&D Roadmap + IP Analysis',
   },
 
@@ -266,8 +266,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     id: 'sns',
     nameKo: 'SNS소셜미디어팀',
     nameEn: 'SOCIAL MEDIA',
-    primaryModel: 'claude-sonnet-4-6',
-    fallbackModel: GEMINI_MODEL_ID,
+    primaryModel: GEMINI_MODEL_ID,
+    fallbackModel: 'claude-sonnet-4-6',
     maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X SNS소셜미디어팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 소셜미디어 전략, 채널별 운영 계획, KPI를 수립합니다.
@@ -282,7 +282,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 각 플랫폼별 비주얼 규격(비율/해상도/길이)과 콘텐츠 방향만 정의하고,
 실제 에셋 제작은 디자인팀 브리프로 전달하세요.
 출력 형식: 채널별 전략, 주간 게시 계획, KPI(팔로워/인게이지먼트율), 디자인팀 브리프 포함`,
-    connectorPriority: ['serper', 'perplexity'],
+    connectorPriority: ['perplexity', 'serper'],
     analysisFramework: 'Channel Strategy + Content Mix + Growth KPI',
   },
 
@@ -312,7 +312,7 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 7. 모든 출력에 사용 도구(nano_banana/midjourney/canva/runway/veo), 예상 제작 시간, 대안 옵션 포함
 
 출력 형식: 비주얼 기획서(컨셉/무드/레퍼런스) + 도구별 프롬프트 + 제작 일정 + 대안 A/B`,
-    connectorPriority: ['nano_banana', 'midjourney', 'canva'],
+    connectorPriority: ['fal', 'nano_banana', 'canva'],
     analysisFramework: 'Creative Brief + Multi-tool Production Plan',
   },
 };

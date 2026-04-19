@@ -47,6 +47,25 @@ export async function callClaude(
   return resp.answer ?? '';
 }
 
+/** Claude Haiku 4.5 호출 — 경량 통합/요약 경로 (CeoBriefing primary 등) */
+export async function callClaudeHaiku(
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens = 3000,
+): Promise<string> {
+  const resp = await claudeAdapter.generate({
+    provider: 'claude',
+    model: 'claude-haiku-4-5-20251001',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user',   content: userPrompt },
+    ],
+    max_tokens: maxTokens,
+  } as any);
+  if (resp.error) throw new Error(resp.error.message);
+  return resp.answer ?? '';
+}
+
 /** GPT-5.4-pro 호출 */
 export async function callOpenAI(
   systemPrompt: string,

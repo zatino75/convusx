@@ -26,6 +26,8 @@ URL: https://app.cloudcookie.co.kr/corvusx-office.html
 - 서비스: systemctl status corvusx-backend
 - 로그: journalctl -u corvusx-backend -f
 - API 키: ANTHROPIC / OPENAI / GEMINI / SERPER (등록완료)
+- 추가 키 (선택): DEEPSEEK_API_KEY (CriticReview Primary), FAL_API_KEY (design 이미지/영상 생성)
+  미설정 시 각각 Haiku / nano_banana 로 자동 폴백
 
 ## 로컬 개발 환경
 - OS: Windows 11
@@ -75,20 +77,30 @@ git add -A && git commit -m "feat: 내용" && git push origin main
 ## 부서 구성 (10개)
 | 부서 | Primary | Fallback | 커넥터 | 도구 |
 |------|---------|----------|--------|------|
-| market | Claude Sonnet | Gemini 2.5 Pro | serper→perplexity | market_analyze |
-| compete | GPT-5.4-pro | Claude Sonnet | serper→perplexity | competitor_scan |
+| market | Gemini 2.5 Pro | Claude Sonnet | serper→perplexity | market_analyze |
+| compete | GPT-5.4-pro | Claude Sonnet | perplexity→serper | competitor_scan |
 | legal | Claude Opus 4.6 | GPT-5.4-pro | perplexity→serper | regulation_check |
-| finance | GPT-5.4-pro | Claude Sonnet | supabase→serper | finance_analyze |
+| finance | GPT-5.4-pro | Gemini 2.5 Pro | supabase→serper | finance_analyze |
 | marketing | Claude Sonnet | GPT-5.4-pro | serper→perplexity | brand_positioning |
-| rnd | Claude Sonnet | GPT-5.4-pro | pubmed→serper | recipe_design |
+| rnd | Claude Sonnet | Gemini 2.5 Pro | pubmed→perplexity→serper | recipe_design |
 | data | Gemini 2.5 Pro | GPT-5.4-pro | posthog→supabase→serper | sentiment_analyze |
 | content | Claude Sonnet | GPT-5.4-pro | serper→perplexity | content_pillar |
-| sns | Claude Sonnet | Gemini 2.5 Pro | serper→perplexity | channel_strategy |
-| design | Claude Sonnet | Gemini 2.5 Pro | nano_banana→midjourney→canva | design_create |
+| sns | Gemini 2.5 Pro | Claude Sonnet | perplexity→serper | channel_strategy |
+| design | Claude Sonnet | Gemini 2.5 Pro | fal→nano_banana→canva | design_create |
 
-- 고가치 앙상블 (3-AI): legal, finance 2개만 (design 은 비주얼 단일 모델이 우수)
-- Fallback: Cross-provider 1단계만
+## 내부 프로세스
+| 프로세스 | Primary | Fallback | 비고 |
+|----------|---------|----------|------|
+| ExecutiveGate | Claude Sonnet | — | 부서 선별 + 맞춤 지시 |
+| CriticReview | DeepSeek V3.2 | Claude Haiku → Gemini Flash | 3단계 폴백 |
+| CeoBriefing | Claude Haiku | Claude Sonnet → Gemini Pro | 3단계 폴백 |
+
+- 모델 분포: Opus 1 / Sonnet 4 / Haiku 1(CeoBriefing) / GPT-5.4 2 / Gemini 3 / DeepSeek 1(Critic)
+- Fallback: Cross-provider (다른 회사 모델)
 - 비주얼 에셋(이미지/영상/3D/로고/배너/인테리어)은 design 전담 — marketing/content/sns 는 전략·기획만
+- DeepSeek 는 CriticReview Primary 에만 사용 (JSON 평가 전용)
+- fal.ai 는 design 부서 이미지/영상/3D 생성 Primary 커넥터 — 키 미설정 시 nano_banana 로 폴백
+- 고가치 앙상블 (3-AI): legal, finance 2개만 (design 은 비주얼 단일 모델이 우수)
 
 ## 실제 모델 ID
 | 모델 | API 호출 ID | 비고 |
