@@ -1,5 +1,5 @@
 # CORVUS X — CLAUDE.md
-> 최종 업데이트: 2026-04-19 (Middle Management 스타일 오피스 리스타일)
+> 최종 업데이트: 2026-04-20 (은색펄 오픈 플로어 — VectorStock 19558904 리스타일)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
 
 ## 프로젝트 개요
@@ -162,14 +162,24 @@ ceo_briefing / all_done
 - CEO 메시지 골드 border (#C9A84C) + ★ prefix
 - 메시지 액션 (복사/편집/재생성/👍👎) / 버전 관리
 
-### 오피스 (오픈 플로어 + 3 존)
+### 오피스 (오픈 플로어 + 3 존) — 은색펄 테마 (2026-04-20 재설계)
+- 레퍼런스: VectorStock 19558904 (Modern Office Support, Sensvector)
+- 팔레트: 은색펄 (#C8CDD4 바닥 / #F0F0F2 화이트펄 벽 / #4A5260 다크실버 가구 / #C9A84C CORVUS 골드 포인트 / #E24B4A 액센트)
 - 단일 오픈 오피스 (칸막이 없음) — 배경 SVG 하나(viewBox 1000×560)로 바닥/벽/책상/구역 렌더
-- 10개 팀 책상 격자 배치 (좌측 작업 영역): market / marketing / finance (행1) / legal / compete / rnd (행2) / data / content / sns (행3) / design (행4)
+  - 바닥: silverPearl 패턴 + floorSheen 광택 그라디언트 + 두께감 엣지
+  - 벽: 왼쪽(화이트펄 #F0F0F2) + 뒷쪽(실버펄 #E4E6EA) L자
+  - 디테일: 왼벽 창문 3개 + 시계 + 게시판, 뒷벽 CORVUS X 골드 로고 + 화이트보드, 정수기, 바닥 식물
+- 10개 팀 책상 다크실버 인라인 유닛 (`<g class="desk" data-dept>`):
+  - 행1(창가): market / marketing / finance
+  - 행2(중앙): legal / compete / rnd
+  - 행3(하단): data / content / sns
+  - 행4(별도): design
 - 3개 부대시설 (우측 상→하):
-  ★ 상무 테이블 — 원형 회의 테이블, 상무 캐릭터 상주
-  💼 미팅룸 — 긴 테이블 + 6석 + 화이트보드 (collab 모드)
-  ☕ 휴게실 — 소파 + 커피테이블 + TV + 자판기
+  ★ 상무 테이블 — 원형 골드 테이블 (urlGoldAccent), 상무 캐릭터 상주, 항상 은은한 골드 글로우
+  💼 미팅룸 — 긴 다크실버 테이블 + 6석 + 화이트보드 참조 (collab 모드 시 meetingPulse)
+  ☕ 휴게실 — 로즈 소파 + 유리 커피테이블 + TV(cyan) + 자판기
 - 블롭 캐릭터는 SVG 위에 HTML overlay (기존 구조 유지). `.tph-room` 은 책상 좌표에 절대 배치된 투명 컨테이너
+- 모니터 상태 컬러: working→cyan #4AD9F5 / done→green #22C55E / error→red #EF4444 / rework→amber #F59E0B / briefing→gold #C9A84C / collab→purple #BA68C8
 - 이동 로직:
   - executive_gate_done (≥3 부서) → tphRunCollab: 미팅룸 집결 ("협업 중 🤝") 후 흩어짐
   - executive_gate_done (≤2 부서) → 바로 dept_start
