@@ -150,13 +150,13 @@ ceo_briefing / all_done
 - 메시지 액션 (복사/편집/재생성/👍👎) / 버전 관리
 
 ### 오피스 (Middle Management 스타일)
-- 10개 방 5x2 그리드 + 중앙 복도 (캐릭터 이동 경로)
-- 파스텔 그라디언트 방 배경 + 2.5D 두께감(box-shadow + slight rotateX)
-- 블롭 캐릭터 (둥근 SVG + 큰 눈 + 볼 홍조) — 부서별 고유 컬러 + 액세서리
-- CEO OFFICE (우상단, 골드 테두리) + 휴게실 (우하단, 민트)
-- 진행률: HUD 카운터 0/10 (원형 게이지는 비활성)
-- 이동 애니메이션: dept_start/done 시 방→복도→상무실 왕복, 휴게실 wander 도 복도 경유
-- SSE 연동: working/done/error/rework/ensemble/ceo_briefing
+- 아이소메트릭 2.5D (rotateX + box-shadow 두께감)
+- 5×2 부서 그리드 + 중앙 복도(14px) + 상무실 + 휴게실
+- 블롭 캐릭터 (둥근 타원 + 큰 눈 + 볼 홍조 + 부서별 액세서리)
+- 복도 통한 방 간 이동 (방→복도→목적지 3단 이동)
+- 상무실 왕복: dept_start(지시) / dept_done(보고)
+- 휴게실 왕래: idle 15초 간격 25% 확률
+- 파스텔 그라디언트 방 배경 (부서별 고유색)
 
 ## 서버 파일 구조
 server/src/
