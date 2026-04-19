@@ -283,6 +283,13 @@ const DEPT_TASK_TEMPLATES: Record<DeptId, (topic: string, domain: string) => Omi
     deliverable: '채널별 전략, 포스팅 빈도, KPI 지표',
     estimatedMinutes: 6,
   }),
+  design: (topic, domain) => ({
+    priority: 'medium',
+    objective: `${topic} 비주얼 에셋 컨셉, 도구 체인, 제작 일정 수립`,
+    context: `도메인: ${domain}. 이미지/영상/3D/로고/배너/패키지/인테리어 등 비주얼 결과물`,
+    deliverable: '크리에이티브 브리프, 도구별 프롬프트, 규격 명세, 대안 A/B',
+    estimatedMinutes: 10,
+  }),
 };
 
 // 지시 유형에 따른 부서 우선순위 조정
@@ -299,6 +306,7 @@ function adjustPriorities(tasks: DeptTask[], directive: string): DeptTask[] {
   if (d.includes('경쟁') || d.includes('시장점유') || d.includes('competitor')) boostDept('compete');
   if (d.includes('마케팅') || d.includes('브랜딩') || d.includes('런칭')) boostDept('marketing');
   if (d.includes('제품') || d.includes('개발') || d.includes('성분')) boostDept('rnd');
+  if (/이미지|사진|영상|동영상|3d|스케치|디자인|로고|배너|포스터|인테리어|패키지|목업|무드보드|컨셉아트|인포그래픽/i.test(d)) boostDept('design');
 
   // 우선순위 기준 정렬
   const order = { high: 0, medium: 1, low: 2 };

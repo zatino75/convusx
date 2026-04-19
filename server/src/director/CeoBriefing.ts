@@ -150,6 +150,7 @@ function buildBriefingPrompt(
     data: '데이터인텔리전스',
     content: '콘텐츠',
     sns: 'SNS',
+    design: '디자인',
   };
 
   const reportBlocks = reports.map(({ deptId, report }) => {
