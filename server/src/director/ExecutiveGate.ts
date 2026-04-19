@@ -173,49 +173,28 @@ async function callClaudePrimary(systemPrompt: string, userPrompt: string): Prom
   }
 }
 
-// ─── Fallback: GPT-5.4-pro ──────────────────────────────────────────────────
+// ─── Fallback: GPT-5.4-pro (via main openaiAdapter → /v1/responses with chat fallback) ─
 async function callOpenAIFallback(systemPrompt: string, userPrompt: string): Promise<string | null> {
   const apiKey = String((globalThis as any)?.process?.env?.OPENAI_API_KEY ?? '').trim();
   if (!apiKey) return null;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FALLBACK_TIMEOUT_MS);
   try {
-    const { OPENAI_BASE } = await import('../config/defaults.js');
-    const res = await fetch(`${OPENAI_BASE}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-5.4-pro',
-        max_tokens: MAX_TOKENS,
-        temperature: 0.2,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-      }),
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      logger.warn({ status: res.status }, '[ExecutiveGate] GPT fallback 응답 실패');
-      return null;
-    }
-    const data: any = await res.json();
-    const choice = Array.isArray(data?.choices) ? data.choices[0] : null;
-    const content = choice?.message?.content;
-    if (typeof content === 'string') return content.trim();
-    if (Array.isArray(content)) {
-      return content.map((p: any) => (typeof p?.text === 'string' ? p.text : '')).filter(Boolean).join('\n').trim();
-    }
-    return '';
+    const { callOpenAI } = await import('../adapters/wrappers.js');
+    // wrappers.callOpenAI 는 openaiAdapter 를 통해 /v1/responses (가능 시) 또는
+    // /v1/chat/completions 로 자동 라우팅한다. 게이트에서 직접 fetch 하면
+    // gpt-5.4-pro 는 chat endpoint 에서 404 가 나므로 어댑터 경로를 타야 한다.
+    const text = await Promise.race([
+      callOpenAI(systemPrompt, userPrompt, MAX_TOKENS),
+      new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error('openai_timeout')), FALLBACK_TIMEOUT_MS),
+      ),
+    ]);
+    if (typeof text === 'string' && text.trim()) return text.trim();
+    logger.warn('[ExecutiveGate] GPT fallback 빈 응답');
+    return null;
   } catch (err) {
     logger.warn({ err: err instanceof Error ? err.message : String(err) }, '[ExecutiveGate] GPT fallback 호출 오류');
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
 

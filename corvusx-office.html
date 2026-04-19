@@ -712,6 +712,8 @@
   .chat-input-wrap:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(201,100,66,.16)}
   .chat-input-wrap textarea{width:100%;height:auto;background:transparent;border:none;outline:none;resize:none;min-height:24px;max-height:160px;line-height:1.55;color:var(--text);font-size:16px;display:block;overflow-y:auto}
   .chat-input-wrap textarea::placeholder{color:var(--text-dim)}
+  .chat-input-wrap textarea.is-locked{opacity:.55;cursor:not-allowed}
+  .chat-input-wrap:has(textarea.is-locked){background:rgba(0,0,0,.03)}
 
   .attach-btn{position:absolute;left:8px;bottom:8px;width:32px;height:32px;border:none;border-radius:9px;background:transparent;color:var(--text-dim);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s,color .12s}
   .attach-btn:hover{background:rgba(0,0,0,.06);color:var(--text)}
@@ -1274,6 +1276,30 @@
     bubble._tphTimer = setTimeout(() => { bubble.classList.remove('show'); }, ttlMs);
   }
 
+  // working 상태 동안 말풍선 회전 (분석중/검색중/작성중/정리중)
+  const TPH_WORKING_MESSAGES = ['분석 중 🔍', '검색 중 🌐', '작성 중 ✍️', '정리 중 📊'];
+  const _tphWorkingBubbleTimers = new Map();
+  function tphStartWorkingBubbleRotation(deptId) {
+    tphStopWorkingBubbleRotation(deptId);
+    let idx = 0;
+    const tick = () => {
+      const room = document.querySelector(`.tph-room[data-dept="${deptId}"]`);
+      if (!room || room.dataset.state !== 'working') {
+        tphStopWorkingBubbleRotation(deptId);
+        return;
+      }
+      tphSetBubble(deptId, TPH_WORKING_MESSAGES[idx % TPH_WORKING_MESSAGES.length], 2400);
+      idx++;
+    };
+    tick();
+    const id = setInterval(tick, 3000);
+    _tphWorkingBubbleTimers.set(deptId, id);
+  }
+  function tphStopWorkingBubbleRotation(deptId) {
+    const id = _tphWorkingBubbleTimers.get(deptId);
+    if (id != null) { clearInterval(id); _tphWorkingBubbleTimers.delete(deptId); }
+  }
+
   function tphUpdateProgress() {
     const text = document.getElementById('tphProgressText');
     const gaugeText = document.getElementById('tphGaugeText');
@@ -1294,6 +1320,7 @@
     _tphState.done = 0;
     for (const id of TPH_LAYOUT) {
       tphClearProgressInterval(id);
+      tphStopWorkingBubbleRotation(id);
       tphSetRoomFill(id, 0);
       tphSetRoomState(id, 'idle');
     }
@@ -1672,12 +1699,12 @@
         break;
       }
       case 'dept_start': {
-        // Phase C/D: 휴게실에 있으면 먼저 복귀 → 상무실 왕복 → working
-        const obj = d.objective ? String(d.objective).slice(0, 28) : '지시 수령';
-        tphSetBubble(d.deptId, obj, 4200);
+        // Phase C/D: 휴게실에 있으면 먼저 복귀 → 상무실 왕복(미팅중) → working(분석중 회전)
+        tphSetBubble(d.deptId, '미팅 중 💬', 2200);
         const runStart = () => {
-          tphWalkToSanmoo(d.deptId, 500, () => {
+          tphWalkToSanmoo(d.deptId, 1200, () => {
             tphSetRoomState(d.deptId, 'working');
+            tphStartWorkingBubbleRotation(d.deptId);
             tphStartAutoProgress(d.deptId);
           });
         };
@@ -1699,8 +1726,9 @@
       case 'dept_done':
         // Phase C: 보고하러 상무실 이동 → 복귀 → done 표시
         tphClearProgressInterval(d.deptId);
+        tphStopWorkingBubbleRotation(d.deptId);
         tphSetRoomFill(d.deptId, 100, 'linear-gradient(90deg, #22c55e, #4ade80)');
-        tphSetBubble(d.deptId, '보고 중...', 2200);
+        tphSetBubble(d.deptId, '보고 중 📋', 2200);
         tphWalkToSanmoo(d.deptId, 800, () => {
           tphSetRoomState(d.deptId, 'done');
           tphSetBubble(d.deptId, '✓ 완료', 1800);
@@ -1711,6 +1739,7 @@
         break;
       case 'dept_error':
         tphClearProgressInterval(d.deptId);
+        tphStopWorkingBubbleRotation(d.deptId);
         tphSetRoomFill(d.deptId, 100, 'linear-gradient(90deg, #ef4444, #f87171)');
         tphSetRoomState(d.deptId, 'error');
         tphSetBubble(d.deptId, '✗ 오류', 2800);
@@ -2996,21 +3025,42 @@
     if (typeof data !== 'object') return String(data);
 
     // 1) 직속 string 키 (가장 빈번한 형태)
-    const directKeys = ['text', 'content', 'answer', 'result', 'summary', 'output_text', 'message', 'delta'];
+    const directKeys = ['text', 'content', 'answer', 'result', 'summary', 'output_text', 'message', 'delta', 'briefing', 'executiveSummary'];
     for (const k of directKeys) {
       const v = data[k];
       if (typeof v === 'string' && v.trim()) return v;
     }
 
     // 2) 한 단계 nested 추출 (예: makeDonePayload.answer.text, payload.answer.text)
-    const nestedRoots = ['payload', 'answer', 'final_answer', 'result', 'response', 'data'];
+    const nestedRoots = ['payload', 'answer', 'final_answer', 'result', 'response', 'data', 'briefing'];
     for (const root of nestedRoots) {
       const node = data[root];
       if (node && typeof node === 'object') {
-        for (const k of ['text', 'content', 'answer', 'result', 'summary', 'output_text', 'message']) {
+        for (const k of ['text', 'content', 'answer', 'result', 'summary', 'output_text', 'message', 'briefing', 'executiveSummary']) {
           const v = node[k];
           if (typeof v === 'string' && v.trim()) return v;
         }
+      }
+    }
+
+    // 2b) 두 단계 nested (payload.answer.text / payload.briefing.executiveSummary 등)
+    if (data.payload && typeof data.payload === 'object') {
+      for (const mid of ['answer', 'briefing', 'result', 'data']) {
+        const node = data.payload[mid];
+        if (node && typeof node === 'object') {
+          for (const k of ['text', 'content', 'message', 'executiveSummary', 'summary']) {
+            const v = node[k];
+            if (typeof v === 'string' && v.trim()) return v;
+          }
+          if (Array.isArray(node.content) && node.content[0] && typeof node.content[0].text === 'string' && node.content[0].text.trim()) {
+            return node.content[0].text;
+          }
+        }
+      }
+      // payload.content[0].text (Anthropic-style)
+      if (Array.isArray(data.payload.content) && data.payload.content[0] && typeof data.payload.content[0].text === 'string') {
+        const t = data.payload.content[0].text;
+        if (t.trim()) return t;
       }
     }
 
@@ -3044,10 +3094,9 @@
       if (typeof d === 'string' && d.trim()) return d;
     }
 
-    // 7) 마지막 수단: JSON 미리보기 (200자 cap) — 사용자가 디버깅할 수 있게 표시
-    let preview = '';
-    try { preview = JSON.stringify(data).slice(0, 200); } catch { preview = String(data).slice(0, 200); }
-    return `[응답 파싱 실패] ${preview}`;
+    // 7) 마지막 수단: 디버깅용 콘솔 로그 + 사용자에게는 친절한 메시지
+    try { console.warn('[extractText] 파싱 실패 payload:', data); } catch {}
+    return '처리 중 오류가 발생했습니다. 다시 시도해 주세요.';
   }
 
   // ─── Sidebar render ─────────────────────────────────────────────
@@ -3450,9 +3499,16 @@
     if (run.running) {
       dom.sendBtn.classList.add('stop'); dom.sendBtn.title = '중단';
       dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="10" height="10"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>';
+      // 입력창 잠금 — 처리 중 중복 전송/입력 방지 (중단 버튼은 유효)
+      dom.directive.disabled = true;
+      dom.directive.placeholder = '처리 중입니다...';
+      dom.directive.classList.add('is-locked');
     } else {
       dom.sendBtn.classList.remove('stop'); dom.sendBtn.title = '전송';
       dom.sendBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M3 8h10M9 4l4 4-4 4"/></svg>';
+      dom.directive.disabled = false;
+      dom.directive.placeholder = '';
+      dom.directive.classList.remove('is-locked');
     }
     renderPanel();
   }
