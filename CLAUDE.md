@@ -162,14 +162,20 @@ ceo_briefing / all_done
 - CEO 메시지 골드 border (#C9A84C) + ★ prefix
 - 메시지 액션 (복사/편집/재생성/👍👎) / 버전 관리
 
-### 오피스 (Middle Management 스타일)
-- 아이소메트릭 2.5D (rotateX + box-shadow 두께감)
-- 5×2 부서 그리드 + 중앙 복도(14px) + 상무실 + 휴게실
-- 블롭 캐릭터 (둥근 타원 + 큰 눈 + 볼 홍조 + 부서별 액세서리)
-- 복도 통한 방 간 이동 (방→복도→목적지 3단 이동)
-- 상무실 왕복: dept_start(지시) / dept_done(보고)
-- 휴게실 왕래: idle 15초 간격 25% 확률
-- 파스텔 그라디언트 방 배경 (부서별 고유색)
+### 오피스 (오픈 플로어 + 3 존)
+- 단일 오픈 오피스 (칸막이 없음) — 배경 SVG 하나(viewBox 1000×560)로 바닥/벽/책상/구역 렌더
+- 10개 팀 책상 격자 배치 (좌측 작업 영역): market / marketing / finance (행1) / legal / compete / rnd (행2) / data / content / sns (행3) / design (행4)
+- 3개 부대시설 (우측 상→하):
+  ★ 상무 테이블 — 원형 회의 테이블, 상무 캐릭터 상주
+  💼 미팅룸 — 긴 테이블 + 6석 + 화이트보드 (collab 모드)
+  ☕ 휴게실 — 소파 + 커피테이블 + TV + 자판기
+- 블롭 캐릭터는 SVG 위에 HTML overlay (기존 구조 유지). `.tph-room` 은 책상 좌표에 절대 배치된 투명 컨테이너
+- 이동 로직:
+  - executive_gate_done (≥3 부서) → tphRunCollab: 미팅룸 집결 ("협업 중 🤝") 후 흩어짐
+  - executive_gate_done (≤2 부서) → 바로 dept_start
+  - dept_start → tphWalkToSanmoo ("미팅 중 💬") → working (분석/검색/작성/정리 회전)
+  - dept_done → tphWalkToSanmoo ("보고 중 📋") → done
+  - idle wander → 15초 간격 25% 확률로 휴게실 방문
 
 ## 서버 파일 구조
 server/src/

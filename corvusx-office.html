@@ -188,12 +188,7 @@
     color:var(--text-dark);
     image-rendering:pixelated;
   }
-  .tph-iso-svg{
-    position:absolute;inset:0;width:100%;height:100%;
-    z-index:0;pointer-events:none;
-    image-rendering:pixelated;
-    image-rendering:crisp-edges;
-  }
+  .tph-iso-svg{ display:none }
   /* working 상태: 모니터 화면 cyan 발광 */
   .tph-room[data-state="working"] .tph-iso-monitor-screen{ fill:#4AD9F5 }
   .tph-room[data-state="done"] .tph-iso-monitor-screen{ fill:#66BB6A }
@@ -222,52 +217,28 @@
     display:flex;align-items:center;gap:6px;color:var(--text-mid);font-size:11px;font-weight:700}
   .tph-hud__progress strong{color:var(--green)}
 
-  /* 10개 부서 오픈 플로어 — 5×2 그리드 + 중앙 여백(자연스러운 통로) */
+  /* 오픈 오피스 — .tph-grid 는 절대 좌표계 원점 역할. 방들은 각자 top/left 로 배치 */
   .tph-grid{
     position:absolute;
-    top:46px;left:16px;right:186px;bottom:14px;
-    display:grid;
-    grid-template-columns:repeat(5,1fr);
-    grid-template-rows:1fr 14px 1fr;
-    gap:4px 5px;
+    top:46px;left:16px;right:16px;bottom:14px;
   }
-  /* 복도 — 바닥과 동일 → 자연스러운 빈 공간 */
-  .tph-corridor{
-    grid-column:1 / -1;
-    grid-row:2;
-    background:transparent;
-    border:none;
-    position:relative;
-    z-index:4;
+  .tph-grid-bg{
+    position:absolute;inset:0;width:100%;height:100%;
+    pointer-events:none;z-index:0;
+    image-rendering:pixelated;
   }
-  .tph-corridor::before, .tph-corridor::after{ content:none; display:none }
+  .tph-corridor{ display:none }
+  /* 팀 책상 컨테이너 — 배경 SVG 위에 올려진 보이지 않는 히트박스 + 캐릭터 슬롯 */
   .tph-room{
-    position:relative;
-    min-height:0;
-    border-radius:0;
-    overflow:visible;
-    border:none;
+    position:absolute;
+    width:70px;height:62px;
     background:transparent;
+    border:none;
     box-shadow:none;
     transition:filter .2s ease;
+    z-index:2;
   }
-  /* 부서 영역 바닥 매트 — 아주 미세한 색 차이만 */
-  .tph-room::before{
-    content:"";position:absolute;inset:4px;z-index:0;pointer-events:none;
-    background:var(--dept-floor-tint, rgba(255,255,255,0.08));
-    border-radius:4px;
-  }
-  .tph-room::after{ content:none; display:none }
-  .tph-room[data-dept="market"]   { --dept-floor-tint: rgba(100, 181, 246, 0.10) }
-  .tph-room[data-dept="compete"]  { --dept-floor-tint: rgba(239, 83, 80, 0.10) }
-  .tph-room[data-dept="legal"]    { --dept-floor-tint: rgba(121, 134, 203, 0.10) }
-  .tph-room[data-dept="finance"]  { --dept-floor-tint: rgba(102, 187, 106, 0.10) }
-  .tph-room[data-dept="marketing"]{ --dept-floor-tint: rgba(236, 64, 122, 0.10) }
-  .tph-room[data-dept="rnd"]      { --dept-floor-tint: rgba(126, 87, 194, 0.10) }
-  .tph-room[data-dept="data"]     { --dept-floor-tint: rgba(38, 166, 154, 0.10) }
-  .tph-room[data-dept="content"]  { --dept-floor-tint: rgba(255, 167, 38, 0.10) }
-  .tph-room[data-dept="sns"]      { --dept-floor-tint: rgba(66, 165, 245, 0.10) }
-  .tph-room[data-dept="design"]   { --dept-floor-tint: rgba(171, 71, 188, 0.10) }
+  .tph-room::before, .tph-room::after{ content:none; display:none }
 
   /* 상태별 효과 — 방 박스 없이 캐릭터 주변 미세한 글로우 */
   .tph-room[data-state="working"] .tph-character{ filter:drop-shadow(0 0 6px rgba(66,165,245,0.7)) drop-shadow(0 1px 1px rgba(0,0,0,0.18)) }
@@ -457,20 +428,32 @@
   }
   .tph-bubble.show{opacity:1}
 
-  /* 상무실 — 골드 바닥 매트 (박스 제거, 얇은 점선 테두리) */
+  /* 상무 테이블 — 우측 상단 (배경 SVG 의 상무 존과 겹치는 투명 히트박스) */
   .tph-ceo-office{
-    position:absolute;right:14px;top:46px;width:160px;height:86px;
+    position:absolute;
+    /* #tph-stage 내부 좌표계: 배경 SVG 의 sanmoo 존(740,30→960,120)에 맞춰 퍼센트 배치 */
+    left:76%;top:11%;width:18%;height:16%;
     background:transparent;
-    border:1.5px dashed rgba(201, 168, 76, 0.4);border-radius:6px;
+    border:none;
     box-shadow:none;
-    display:flex;flex-direction:column;
+    display:block;
     overflow:visible;
+    z-index:3;
+    pointer-events:none;
   }
   .tph-ceo-office.active{
-    border-color:rgba(201,168,76,0.85);
-    background:rgba(201,168,76,0.08);
     animation:tph-gold-pulse 1.4s ease-in-out infinite;
   }
+  /* 구 상무실 내부 장식 (head / 바닥 데스크/화분) 숨김 — 배경 SVG 에 이미 그려짐 */
+  .tph-ceo-office__head{ display:none }
+  .tph-ceo-office__floor::before,
+  .tph-ceo-office__floor::after{ content:none; display:none }
+  /* 휴게실 내부 장식 숨김 */
+  .tph-break-room__head,
+  .tph-break-room__floor::before,
+  .tph-break-room__floor::after,
+  .tph-break-tv, .tph-break-vending, .tph-break-table,
+  .tph-break-plant-l, .tph-break-plant-r{ display:none }
   @keyframes tph-gold-pulse{
     0%,100%{filter:brightness(1)}
     50%{filter:brightness(1.08)}
@@ -504,14 +487,34 @@
                linear-gradient(180deg, transparent 65%, #A1887F 65%, #6D4C41 100%);
   }
 
-  /* ── 휴게실 (상무실 아래) — 민트 바닥 매트 ── */
+  /* ── 휴게실 — 우측 하단 (배경 SVG lounge 존 히트박스) ── */
   .tph-break-room{
-    position:absolute;right:14px;top:142px;width:160px;bottom:14px;
+    position:absolute;
+    left:76%;top:50%;width:18%;height:22%;
     background:transparent;
-    border:1.5px dashed rgba(102, 187, 106, 0.3);border-radius:6px;
+    border:none;
     box-shadow:none;
     overflow:visible;
-    display:flex;flex-direction:column;
+    display:block;
+    z-index:3;
+    pointer-events:none;
+  }
+  /* 미팅룸 — 우측 중단 (배경 SVG meeting 존 히트박스) */
+  .tph-meeting-room{
+    position:absolute;
+    left:76%;top:30%;width:18%;height:18%;
+    background:transparent;
+    border:none;
+    overflow:visible;
+    z-index:3;
+    pointer-events:none;
+  }
+  .tph-meeting-room.active{
+    animation:tph-meeting-pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes tph-meeting-pulse{
+    0%,100%{ filter:none }
+    50%    { filter:drop-shadow(0 0 6px rgba(100,181,246,0.5)) }
   }
   .tph-break-room__head{
     padding:4px 10px;background:transparent;
@@ -896,6 +899,9 @@
           </div>
         </div>
 
+        <!-- 미팅룸 (collab 모드: ≥3 부서 집결) — 배경 SVG meeting 존의 히트박스 -->
+        <div class="tph-meeting-room" id="tphMeetingRoom"></div>
+
         <div class="tph-critic hide" id="tphCritic">
           <svg viewBox="0 0 24 32" width="100%" height="100%" shape-rendering="crispEdges">
             <!-- 얼굴 -->
@@ -1166,21 +1172,37 @@
     data:      [],
   };
 
+  // 책상 좌표 (오픈 오피스 좌측 작업 영역) — viewBox 1000×560 기준 → % 로 변환해 스케일 대응
+  const TPH_DESK_POS = {
+    market:    { x: 130, y: 160 },
+    marketing: { x: 250, y: 130 },
+    finance:   { x: 370, y: 100 },
+    legal:     { x: 180, y: 220 },
+    compete:   { x: 300, y: 190 },
+    rnd:       { x: 420, y: 160 },
+    data:      { x: 230, y: 280 },
+    content:   { x: 350, y: 250 },
+    sns:       { x: 470, y: 220 },
+    design:    { x: 280, y: 340 },
+  };
+  const VB_W = 1000, VB_H = 560;
+
   function tphInitGrid() {
     const grid = document.getElementById('tphGrid');
     if (!grid) return;
     grid.innerHTML = '';
-    TPH_LAYOUT.forEach((deptId, idx) => {
+    // 배경 SVG (오픈 오피스 바닥 + 벽 + 책상 가구 + 3개 구역)
+    grid.insertAdjacentHTML('beforeend', tphBuildOfficeBgSvg());
+    TPH_LAYOUT.forEach((deptId) => {
       const d = DEPT_BY_ID[deptId];
+      const pos = TPH_DESK_POS[deptId];
       const room = document.createElement('div');
       room.className = 'tph-room';
       room.dataset.dept = deptId;
       room.dataset.state = 'idle';
-      // 5칸씩 → 앞 5 = 행1, 뒤 5 = 행3 (행2는 복도)
-      const rowIdx = idx < 5 ? 1 : 3;
-      const colIdx = (idx % 5) + 1;
-      room.style.gridRow = String(rowIdx);
-      room.style.gridColumn = String(colIdx);
+      // 70×62 컨테이너를 책상 좌표 중앙에 배치
+      room.style.left = `calc(${(pos.x / VB_W * 100).toFixed(2)}% - 35px)`;
+      room.style.top  = `calc(${(pos.y / VB_H * 100).toFixed(2)}% - 28px)`;
       room.innerHTML = `
         <div class="tph-room__head">
           <span class="tph-room__icon">${TPH_DEPT_ICON[deptId] || '📁'}</span>
@@ -1188,18 +1210,119 @@
           <span class="tph-room__badge">IDLE</span>
         </div>
         <div class="tph-room__floor">
-          ${tphBuildIsoRoomSvg(deptId)}
           <div class="tph-character">${tphBuildCharacterSvg(deptId)}</div>
           <div class="tph-bubble"></div>
           <div class="tph-room__progress"><div class="tph-room__progress-fill"></div></div>
         </div>`;
       grid.appendChild(room);
     });
-    // 복도 — 행2 전체 칸 (캐릭터 이동 경로)
-    const corridor = document.createElement('div');
-    corridor.className = 'tph-corridor';
-    corridor.id = 'tphCorridor';
-    grid.appendChild(corridor);
+  }
+
+  // 오픈 오피스 배경 SVG (바닥 / 벽 / 책상 가구 / 상무 테이블 / 미팅룸 / 휴게실 비주얼)
+  function tphBuildOfficeBgSvg() {
+    const deskUnit = (dx, dy, label) => `
+      <g transform="translate(${dx - 35}, ${dy - 20})">
+        <polygon points="10,30 50,15 70,22 30,37" fill="#8B6914"/>
+        <polygon points="30,37 70,22 70,30 30,45" fill="#6B4E0A"/>
+        <rect x="38" y="13" width="18" height="12" fill="#222" rx="1"/>
+        <rect x="39.5" y="14.5" width="15" height="9" fill="#1a3a5a" rx="0.5" class="iso-monitor-${label}"/>
+        <polygon points="42,25 51,25 50,28 43,28" fill="#444"/>
+        <rect x="36" y="28" width="14" height="2" fill="#DDD" rx="0.5"/>
+        <polygon points="24,48 38,40 43,43 29,51" fill="#3A3A3A"/>
+        <text x="35" y="8" text-anchor="middle" font-size="7" fill="#333" font-weight="600" opacity="0.75">${label}</text>
+      </g>`;
+    return `
+      <svg class="tph-grid-bg" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <pattern id="woodFloor" patternUnits="userSpaceOnUse" width="40" height="20" patternTransform="rotate(-30)">
+            <rect width="40" height="20" fill="#E8D4A8"/>
+            <line x1="0" y1="0" x2="0" y2="20" stroke="#C9A879" stroke-width="0.5"/>
+            <line x1="20" y1="0" x2="20" y2="20" stroke="#C9A879" stroke-width="0.5"/>
+          </pattern>
+          <pattern id="meetingCarpet" patternUnits="userSpaceOnUse" width="10" height="10">
+            <rect width="10" height="10" fill="#9FA8B8"/>
+            <circle cx="5" cy="5" r="0.5" fill="#7A8598"/>
+          </pattern>
+          <pattern id="loungeFloor" patternUnits="userSpaceOnUse" width="20" height="20">
+            <rect width="20" height="20" fill="#D4E8D8"/>
+            <rect x="0" y="0" width="10" height="10" fill="#C4D8C8" opacity="0.5"/>
+            <rect x="10" y="10" width="10" height="10" fill="#C4D8C8" opacity="0.5"/>
+          </pattern>
+        </defs>
+        <!-- 메인 오픈 오피스 바닥 -->
+        <polygon points="30,120 420,20 720,170 330,270" fill="url(#woodFloor)"/>
+        <polygon points="30,120 420,20 720,170 330,270" fill="none" stroke="#8B6914" stroke-width="1.5"/>
+        <!-- 확장 바닥 (design 영역까지) -->
+        <polygon points="330,270 720,170 760,190 370,290" fill="url(#woodFloor)" opacity="0.85"/>
+        <!-- 왼쪽 벽 -->
+        <polygon points="30,120 420,20 420,0 30,100" fill="#F4E8D4" stroke="#A89680" stroke-width="1"/>
+        <!-- 뒷벽 -->
+        <polygon points="420,20 720,170 720,150 420,0" fill="#EAE0D0" stroke="#A89680" stroke-width="1"/>
+        <!-- 화이트보드 (왼벽) -->
+        <g transform="skewY(-15)">
+          <rect x="100" y="40" width="80" height="40" fill="white" stroke="#333" stroke-width="1"/>
+          <line x1="110" y1="50" x2="170" y2="50" stroke="#4A90D9" stroke-width="1.5"/>
+          <line x1="110" y1="60" x2="165" y2="60" stroke="#333" stroke-width="0.5"/>
+          <line x1="110" y1="70" x2="150" y2="70" stroke="#333" stroke-width="0.5"/>
+        </g>
+        <!-- 로고 (뒷벽) -->
+        <g transform="skewY(15)">
+          <rect x="480" y="35" width="100" height="30" fill="#0F0A14" stroke="#C9A84C" stroke-width="1.5"/>
+          <text x="530" y="55" text-anchor="middle" font-size="11" fill="#C9A84C" font-weight="bold">CORVUS X</text>
+        </g>
+        <!-- 책상 10개 (배경 아이소메트릭) -->
+        ${deskUnit(130, 160, 'market')}
+        ${deskUnit(250, 130, 'marketing')}
+        ${deskUnit(370, 100, 'finance')}
+        ${deskUnit(180, 220, 'legal')}
+        ${deskUnit(300, 190, 'compete')}
+        ${deskUnit(420, 160, 'rnd')}
+        ${deskUnit(230, 280, 'data')}
+        ${deskUnit(350, 250, 'content')}
+        ${deskUnit(470, 220, 'sns')}
+        ${deskUnit(280, 340, 'design')}
+        <!-- 식물 소품 -->
+        <g transform="translate(70, 200)">
+          <rect x="0" y="0" width="10" height="8" fill="#8B6914"/>
+          <polygon points="0,0 5,-10 10,-5 8,2" fill="#66BB6A"/>
+          <polygon points="5,-10 10,-15 12,-8" fill="#81C784"/>
+        </g>
+        <!-- 상무 테이블 영역 -->
+        <g id="sanmooZone" data-zone="sanmoo">
+          <polygon points="740,100 910,30 960,50 790,120" fill="#F0E4B8" opacity="0.7"/>
+          <polygon points="740,100 910,30 960,50 790,120" fill="none" stroke="#C9A84C" stroke-width="1.5" stroke-dasharray="4,2"/>
+          <ellipse cx="850" cy="75" rx="45" ry="22" fill="#8B6914" stroke="#5A4208" stroke-width="1.5"/>
+          <ellipse cx="850" cy="73" rx="45" ry="22" fill="#A67C1E"/>
+          <circle cx="850" cy="55" r="4" fill="#C9A84C" stroke="#5A4208" stroke-width="1"/>
+          <text x="850" y="22" text-anchor="middle" font-size="10" fill="#5A4208" font-weight="700">★ 상무 테이블</text>
+        </g>
+        <!-- 미팅룸 영역 -->
+        <g id="meetingZone" data-zone="meeting">
+          <polygon points="740,220 910,150 960,170 790,240" fill="url(#meetingCarpet)" opacity="0.8"/>
+          <polygon points="740,220 910,150 960,170 790,240" fill="none" stroke="#5A7AA8" stroke-width="1.5" stroke-dasharray="4,2"/>
+          <polygon points="790,210 910,160 940,172 820,222" fill="#6B4E0A" stroke="#3A2800" stroke-width="1"/>
+          <polygon points="790,210 910,160 910,166 790,216" fill="#8B6914"/>
+          <text x="850" y="142" text-anchor="middle" font-size="10" fill="#3C5880" font-weight="700">💼 미팅룸</text>
+        </g>
+        <!-- 휴게실 영역 -->
+        <g id="loungeZone" data-zone="lounge">
+          <polygon points="740,340 910,270 960,290 790,360" fill="url(#loungeFloor)" opacity="0.8"/>
+          <polygon points="740,340 910,270 960,290 790,360" fill="none" stroke="#4A9B5E" stroke-width="1.5" stroke-dasharray="4,2"/>
+          <polygon points="800,320 870,290 895,298 825,328" fill="#D48A8A"/>
+          <polygon points="800,320 870,290 870,285 800,315" fill="#B86060"/>
+          <ellipse cx="830" cy="308" rx="5" ry="2.5" fill="#F4C0C0"/>
+          <ellipse cx="860" cy="296" rx="5" ry="2.5" fill="#F4C0C0"/>
+          <polygon points="830,340 870,322 885,328 845,346" fill="#6B4E0A"/>
+          <rect x="848" y="328" width="8" height="6" fill="#FFF" rx="1"/>
+          <g transform="skewY(-15)">
+            <rect x="900" y="260" width="40" height="22" fill="#222" stroke="#000"/>
+            <rect x="902" y="262" width="36" height="18" fill="#4AD9F5"/>
+          </g>
+          <rect x="750" y="315" width="20" height="35" fill="#E24B4A" stroke="#333"/>
+          <rect x="753" y="318" width="14" height="14" fill="#FFF"/>
+          <text x="850" y="262" text-anchor="middle" font-size="10" fill="#2E6B3E" font-weight="700">☕ 휴게실</text>
+        </g>
+      </svg>`;
   }
 
   const _tphState = { done: 0, total: 10, missionStartedAt: 0 };
@@ -1479,6 +1602,84 @@
     }, arrivalMs);
   }
 
+  /* ── Collab 모드: 미팅룸 집결 (≥3 부서 선별 시) ───────────────────────── */
+  function tphWalkToMeeting(deptId, holdMs, seatIdx, onReturn) {
+    if (_tphWalking.has(deptId)) { onReturn?.(); return; }
+    const room = document.querySelector(`.tph-room[data-dept="${deptId}"]`);
+    const char = room?.querySelector('.tph-character');
+    const meeting = document.getElementById('tphMeetingRoom');
+    const stage = document.getElementById('tph-stage');
+    if (!room || !char || !meeting || !stage) { onReturn?.(); return; }
+    _tphWalking.add(deptId);
+    if (!char._tphHome) char._tphHome = { parent: char.parentElement, nextSibling: char.nextSibling };
+    const charRect = char.getBoundingClientRect();
+    const stageRect = stage.getBoundingClientRect();
+    const mRect = meeting.getBoundingClientRect();
+    const startX = charRect.left - stageRect.left;
+    const startY = charRect.top - stageRect.top;
+    // 6 좌석 대각 배치 (테이블 주변)
+    const col = seatIdx % 3, row = Math.floor(seatIdx / 3);
+    const offsetX = col * 20 - 20;
+    const offsetY = row * 16;
+    const targetX = mRect.left - stageRect.left + mRect.width * 0.5 - 12 + offsetX;
+    const targetY = mRect.top - stageRect.top + mRect.height * 0.55 + offsetY;
+
+    stage.appendChild(char);
+    char.classList.add('tph-walk-lifted', 'is-walking');
+    char.style.position = 'absolute';
+    char.style.left = startX + 'px';
+    char.style.top = startY + 'px';
+    char.style.bottom = 'auto';
+    char.style.transform = 'none';
+    requestAnimationFrame(() => {
+      char.style.left = targetX + 'px';
+      char.style.top = targetY + 'px';
+    });
+
+    setTimeout(() => {
+      char.classList.remove('is-walking');
+      char.classList.add('is-reporting');
+      setTimeout(() => {
+        char.classList.remove('is-reporting');
+        char.classList.add('is-walking');
+        const rct = room.getBoundingClientRect();
+        const srct = stage.getBoundingClientRect();
+        const homeX = rct.left - srct.left + rct.width / 2 - 12;
+        const homeY = rct.top - srct.top + rct.height * 0.62;
+        char.style.left = homeX + 'px';
+        char.style.top = homeY + 'px';
+        setTimeout(() => {
+          char.classList.remove('tph-walk-lifted', 'is-walking', 'is-reporting');
+          char.style.cssText = '';
+          const home = char._tphHome;
+          if (home?.parent && home.parent.isConnected) {
+            if (home.nextSibling && home.nextSibling.parentElement === home.parent) {
+              home.parent.insertBefore(char, home.nextSibling);
+            } else {
+              home.parent.appendChild(char);
+            }
+          }
+          _tphWalking.delete(deptId);
+          onReturn?.();
+        }, 750);
+      }, holdMs);
+    }, 900);
+  }
+
+  function tphRunCollab(deptIds) {
+    if (!Array.isArray(deptIds) || deptIds.length < 3) return;
+    const meeting = document.getElementById('tphMeetingRoom');
+    meeting?.classList.add('active');
+    deptIds.forEach((id, i) => {
+      setTimeout(() => {
+        tphSetBubble(id, '협업 중 🤝', 2500);
+        tphWalkToMeeting(id, 1800, i, () => {
+          if (i === deptIds.length - 1) meeting?.classList.remove('active');
+        });
+      }, i * 180);
+    });
+  }
+
   /* ── Phase D: 휴게실 wander (idle 직원 주기적 방문) ─────────────────────
    * _charLocation: 각 부서 캐릭터의 현재 위치 ('desk' | 'break')
    * _breakReturnTimers: 휴게실에서 복귀 예약된 setTimeout id
@@ -1696,6 +1897,8 @@
         for (const id of TPH_LAYOUT) tphSetRoomState(id, ids.includes(id) ? 'idle' : 'idle');
         tphUpdateProgress();
         try { window.parent.postMessage({ type: 'missionStart', topic: '' }, '*'); } catch {}
+        // ≥3 부서 선별 시 미팅룸 집결 (collab 모드) — dept_start 이전에 잠깐 모이는 컷신
+        if (ids.length >= 3) tphRunCollab(ids);
         break;
       }
       case 'dept_start': {
