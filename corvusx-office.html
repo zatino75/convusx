@@ -172,31 +172,37 @@
   #phaser-container{width:100%;height:100%;display:none}
   #phaser-container canvas{display:block}
 
-  /* ─── 은색펄 오픈 플로어 오피스 (VectorStock 19558904 스타일) ───────── */
+  /* ─── 진짜 픽셀아트 오피스 (640×360 viewBox, 4px 그리드, crispEdges) ───────── */
   #tph-stage{
     position:relative;width:100%;height:100%;
-    background:#D4D8DE;  /* 은색펄 외곽 */
-    background-image:
-      radial-gradient(ellipse at 50% 30%, rgba(255,255,255,0.25) 0%, transparent 65%),
-      radial-gradient(ellipse at 50% 100%, rgba(139,146,156,0.18) 0%, transparent 50%);
+    background:#F8F9FB;
     overflow:hidden;
-    -webkit-font-smoothing:antialiased;
     color:var(--text-dark);
+  }
+  /* 픽셀아트 모드 강제 — 이 컨테이너 내 모든 SVG/텍스트에 AA 비활성 */
+  #office-stage,
+  .tph-grid-bg{
+    image-rendering:pixelated;
+    image-rendering:-moz-crisp-edges;
+    image-rendering:crisp-edges;
+    shape-rendering:crispEdges;
+  }
+  #office-stage text{
+    font-family:'Courier New','Consolas',monospace !important;
+    -webkit-font-smoothing:none !important;
+    text-rendering:geometricPrecision !important;
   }
   .tph-iso-svg{ display:none }
 
-  /* 배경 SVG 내 desk 그룹 — 상태별 모니터 발광 */
-  .tph-grid-bg .desk{ transition:filter 0.3s }
+  /* 배경 SVG 내 desk 그룹 — 상태별 모니터 발광 (픽셀아트 팔레트) */
+  .tph-grid-bg .desk{ transition:filter 0.2s }
+  .tph-grid-bg .desk:hover{ filter:brightness(1.15) }
   .tph-grid-bg .desk[data-state="working"] .monitor-screen{ fill:#4AD9F5 }
-  .tph-grid-bg .desk[data-state="working"] .monitor-back{ filter:drop-shadow(0 0 3px rgba(74,217,245,0.6)) }
-  .tph-grid-bg .desk[data-state="done"] .monitor-screen{ fill:#22C55E }
-  .tph-grid-bg .desk[data-state="error"] .monitor-screen{ fill:#EF4444 }
-  .tph-grid-bg .desk[data-state="rework"] .monitor-screen{ fill:#F59E0B }
-  .tph-grid-bg .desk[data-state="briefing"] .monitor-screen{ fill:#C9A84C }
-  .tph-grid-bg .desk[data-state="collab"] .monitor-screen{ fill:#BA68C8 }
-
-  /* 상무 테이블 — 은은한 골드 글로우 */
-  #sanmooZone{ filter:drop-shadow(0 0 2px rgba(201,168,76,0.25)) }
+  .tph-grid-bg .desk[data-state="done"]    .monitor-screen{ fill:#22C55E }
+  .tph-grid-bg .desk[data-state="error"]   .monitor-screen{ fill:#EF4444 }
+  .tph-grid-bg .desk[data-state="rework"]  .monitor-screen{ fill:#F59E0B }
+  .tph-grid-bg .desk[data-state="briefing"].monitor-screen{ fill:#C9A84C }
+  .tph-grid-bg .desk[data-state="collab"]  .monitor-screen{ fill:#BA68C8 }
   #tph-stage::before{
     content:"";position:absolute;inset:0;
     background:radial-gradient(circle at 50% 20%, rgba(255,255,255,0.18) 0%, transparent 60%);
@@ -431,10 +437,10 @@
   }
   .tph-bubble.show{opacity:1}
 
-  /* 상무 테이블 — 우측 상단 (배경 SVG 의 sanmooZone 660,90→880,190 히트박스) */
+  /* 상무 테이블 — 우측 상단 (640×360 viewBox, sanmooZone 440,120→560,180 히트박스) */
   .tph-ceo-office{
     position:absolute;
-    left:66%;top:16%;width:22%;height:18%;
+    left:69%;top:33%;width:19%;height:17%;
     background:transparent;
     border:none;
     box-shadow:none;
@@ -489,10 +495,10 @@
                linear-gradient(180deg, transparent 65%, #A1887F 65%, #6D4C41 100%);
   }
 
-  /* ── 휴게실 — 우측 하단 (배경 SVG loungeZone 660,310→880,410 히트박스) ── */
+  /* ── 휴게실 — 우측 하단 (640×360 viewBox, loungeZone 432,266→592,322 히트박스) ── */
   .tph-break-room{
     position:absolute;
-    left:66%;top:55%;width:22%;height:18%;
+    left:67%;top:74%;width:25%;height:16%;
     background:transparent;
     border:none;
     box-shadow:none;
@@ -501,10 +507,10 @@
     z-index:3;
     pointer-events:none;
   }
-  /* 미팅룸 — 우측 중단 (배경 SVG meetingZone 660,200→880,300 히트박스) */
+  /* 미팅룸 — 우측 중단 (meetingZone 432,202→572,254 히트박스) */
   .tph-meeting-room{
     position:absolute;
-    left:66%;top:36%;width:22%;height:18%;
+    left:67%;top:56%;width:22%;height:15%;
     background:transparent;
     border:none;
     overflow:visible;
@@ -1174,21 +1180,21 @@
     data:      [],
   };
 
-  // 책상 좌표 (은색펄 오픈 플로어 레이아웃, VectorStock 19558904 스타일) — viewBox 1000×560 기준
-  // 캐릭터는 책상 의자 위치 근처에 배치. PART A data-home-x/y 와 일치.
+  // 책상 좌표 (진짜 픽셀아트 오피스, 4px 그리드) — viewBox 640×360 기준
+  // 캐릭터(의자) 위치: drawDesk(x, y) 의 (x+16, y+28) 지점
   const TPH_DESK_POS = {
-    market:    { x: 180, y: 220 },
-    marketing: { x: 300, y: 190 },
-    finance:   { x: 420, y: 160 },
-    legal:     { x: 200, y: 280 },
-    compete:   { x: 320, y: 250 },
-    rnd:       { x: 440, y: 220 },
-    data:      { x: 220, y: 340 },
-    content:   { x: 340, y: 310 },
-    sns:       { x: 460, y: 280 },
-    design:    { x: 340, y: 380 },
+    market:    { x: 116, y: 188 },
+    marketing: { x: 196, y: 168 },
+    finance:   { x: 276, y: 148 },
+    legal:     { x: 136, y: 238 },
+    compete:   { x: 216, y: 218 },
+    rnd:       { x: 296, y: 198 },
+    data:      { x: 156, y: 288 },
+    content:   { x: 236, y: 268 },
+    sns:       { x: 316, y: 248 },
+    design:    { x: 216, y: 328 },
   };
-  const VB_W = 1000, VB_H = 560;
+  const VB_W = 640, VB_H = 360;
 
   function tphInitGrid() {
     const grid = document.getElementById('tphGrid');
@@ -1221,192 +1227,259 @@
     });
   }
 
-  // 오픈 오피스 배경 SVG — 은색펄 오픈 플로어 (VectorStock 19558904 스타일)
-  // 팔레트: #C8CDD4 (바닥 은색펄), #F0F0F2 (화이트펄 벽), #4A5260 (다크실버 가구), #C9A84C (CORVUS 골드)
+  // 진짜 픽셀아트 오피스 — 4px 그리드, rect 만 사용, crispEdges, 3~4단계 플래토 (그라디언트 금지)
+  // viewBox 640×360, 모든 좌표 4px 배수. 아이소메트릭은 2:1 계단식 근사.
+  // 팔레트: 바닥 #E4E6EA/#C8CDD4/#A8ADB5, 벽 #F0F0F2/#E4E6EA, 가구 #6B7380/#4A5260/#2A2E38, 골드 #E4C773/#C9A84C/#8B6914
   function tphBuildOfficeBgSvg() {
-    // 인라인 책상 유닛 — data-dept 속성으로 상태 추적. <symbol>/<use> 대신 인라인
-    // (CSS [data-state] 선택자가 shadow DOM 을 넘지 못함 → 인라인 유지)
-    const deskUnit = (dx, dy, deptId, label) => `
-      <g class="desk" id="desk-${deptId}" data-dept="${deptId}"
-         data-home-x="${dx}" data-home-y="${dy}"
-         transform="translate(${dx - 40}, ${dy - 30})">
-        <!-- 책상 상판 (다크실버) -->
-        <polygon points="10,30 50,15 75,25 35,40" fill="#4A5260"/>
-        <polygon points="35,40 75,25 75,35 35,50" fill="#3A4250"/>
-        <polygon points="10,30 35,40 35,50 10,40" fill="#424954"/>
-        <!-- 모니터 받침 -->
-        <rect x="42" y="16" width="22" height="2" fill="#6B7380"/>
-        <!-- 모니터 본체 / 스크린 -->
-        <rect class="monitor-back" x="42" y="12" width="22" height="15" fill="#2A2E38" rx="1"/>
-        <rect class="monitor-screen" x="44" y="14" width="18" height="11" fill="#1a3a5a" rx="0.5"/>
-        <!-- 받침대 -->
-        <polygon points="48,27 58,27 56,31 50,31" fill="#4A5260"/>
-        <!-- 키보드 -->
-        <rect x="38" y="33" width="16" height="3" fill="#D8DCE2" rx="0.5"/>
-        <!-- 의자 -->
-        <polygon class="chair" points="25,48 40,41 45,45 30,52" fill="#2A2E38"/>
-        <rect class="chair-back" x="28" y="37" width="12" height="8" fill="#2A2E38" rx="1"/>
-        <!-- 라벨 -->
-        <text x="40" y="8" text-anchor="middle" font-size="8" fill="#4A5260" font-weight="600">${label}</text>
+    // ─── 인라인 드로잉 헬퍼 (모듈 스코프 오염 방지) ───
+    const drawIsoFloor = (x, y, w, h) => {
+      const rows = [];
+      const rowHeight = 4;
+      const numRows = h / rowHeight;
+      for (let i = 0; i < numRows; i++) {
+        const ry = y + i * rowHeight;
+        const offset = (i / numRows) * (w * 0.3);
+        const leftX = x + offset;
+        const rightX = x + w - offset;
+        const width = rightX - leftX;
+        const color = i % 16 < 4 ? '#E4E6EA' : (i % 16 < 12 ? '#C8CDD4' : '#D4D9DE');
+        rows.push(`<rect x="${leftX}" y="${ry}" width="${width}" height="${rowHeight}" fill="${color}"/>`);
+      }
+      rows.push(`<rect x="${x}" y="${y+h}" width="${w*0.7}" height="6" fill="#8B929C"/>`);
+      return rows.join('');
+    };
+
+    const drawLeftWall = (x1, y1, x2, y2) => {
+      const rects = [];
+      const steps = 20;
+      const stepW = (x2 - x1) / steps;
+      const stepH = (y2 - y1) / steps;
+      const wallHeight = 80;
+      for (let i = 0; i < steps; i++) {
+        const sx = x1 + i * stepW;
+        const sy = y1 + i * stepH;
+        rects.push(`<rect x="${sx}" y="${sy - wallHeight}" width="${stepW + 1}" height="${wallHeight}" fill="#F0F0F2"/>`);
+        rects.push(`<rect x="${sx}" y="${sy - wallHeight}" width="${stepW + 1}" height="2" fill="#A8ADB5"/>`);
+      }
+      return rects.join('');
+    };
+
+    const drawBackWall = (x1, y1, x2, y2) => {
+      const rects = [];
+      const steps = 20;
+      const stepW = (x2 - x1) / steps;
+      const stepH = (y2 - y1) / steps;
+      const wallHeight = 80;
+      for (let i = 0; i < steps; i++) {
+        const sx = x1 + i * stepW;
+        const sy = y1 + i * stepH;
+        rects.push(`<rect x="${sx}" y="${sy - wallHeight}" width="${stepW + 1}" height="${wallHeight}" fill="#E4E6EA"/>`);
+        rects.push(`<rect x="${sx}" y="${sy - wallHeight}" width="${stepW + 1}" height="2" fill="#A8ADB5"/>`);
+      }
+      return rects.join('');
+    };
+
+    const drawPixelWindow = (x, y, w, h) => `
+      <rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#FAFCFE"/>
+      <rect x="${x}" y="${y}" width="${w}" height="2" fill="#6B7380"/>
+      <rect x="${x}" y="${y+h-2}" width="${w}" height="2" fill="#6B7380"/>
+      <rect x="${x}" y="${y}" width="2" height="${h}" fill="#6B7380"/>
+      <rect x="${x+w-2}" y="${y}" width="2" height="${h}" fill="#6B7380"/>
+      <rect x="${x+w/2-1}" y="${y}" width="2" height="${h}" fill="#6B7380"/>
+      <rect x="${x}" y="${y+h/2-1}" width="${w}" height="2" fill="#6B7380"/>
+      <rect x="${x+4}" y="${y+4}" width="4" height="${h/2-6}" fill="#FFFFFF" opacity="0.5"/>`;
+
+    const drawCorvusLogo = (x, y) => `
+      <rect x="${x}" y="${y}" width="100" height="28" fill="#0F0A14"/>
+      <rect x="${x}" y="${y}" width="100" height="2" fill="#C9A84C"/>
+      <rect x="${x}" y="${y+26}" width="100" height="2" fill="#C9A84C"/>
+      <rect x="${x}" y="${y}" width="2" height="28" fill="#C9A84C"/>
+      <rect x="${x+98}" y="${y}" width="2" height="28" fill="#C9A84C"/>
+      <text x="${x+50}" y="${y+18}" text-anchor="middle" font-family="'Courier New',monospace" font-size="11" font-weight="bold" fill="#C9A84C">CORVUS X</text>`;
+
+    const drawWhiteboard = (x, y) => `
+      <rect x="${x}" y="${y}" width="72" height="44" fill="#FAFAFC"/>
+      <rect x="${x}" y="${y}" width="72" height="2" fill="#4A5260"/>
+      <rect x="${x}" y="${y+42}" width="72" height="2" fill="#4A5260"/>
+      <rect x="${x}" y="${y}" width="2" height="44" fill="#4A5260"/>
+      <rect x="${x+70}" y="${y}" width="2" height="44" fill="#4A5260"/>
+      <rect x="${x+6}" y="${y+8}" width="24" height="2" fill="#4A90D9"/>
+      <rect x="${x+6}" y="${y+14}" width="40" height="2" fill="#4A5260"/>
+      <rect x="${x+6}" y="${y+20}" width="20" height="2" fill="#E24B4A"/>
+      <rect x="${x+34}" y="${y+26}" width="4" height="12" fill="#4A90D9"/>
+      <rect x="${x+42}" y="${y+22}" width="4" height="16" fill="#4CAF50"/>
+      <rect x="${x+50}" y="${y+30}" width="4" height="8" fill="#FF9800"/>
+      <rect x="${x+58}" y="${y+18}" width="4" height="20" fill="#BA68C8"/>`;
+
+    const drawWallClock = (x, y) => `
+      <rect x="${x}" y="${y}" width="16" height="16" fill="#FAFAFC"/>
+      <rect x="${x+2}" y="${y}" width="12" height="2" fill="#4A5260"/>
+      <rect x="${x+2}" y="${y+14}" width="12" height="2" fill="#4A5260"/>
+      <rect x="${x}" y="${y+2}" width="2" height="12" fill="#4A5260"/>
+      <rect x="${x+14}" y="${y+2}" width="2" height="12" fill="#4A5260"/>
+      <rect x="${x+7}" y="${y+4}" width="2" height="4" fill="#2A2E38"/>
+      <rect x="${x+8}" y="${y+8}" width="4" height="2" fill="#2A2E38"/>`;
+
+    const drawWaterCooler = (x, y) => `
+      <ellipse cx="${x+10}" cy="${y}" rx="10" ry="3" fill="#4AD9F5"/>
+      <rect x="${x+1}" y="${y}" width="18" height="14" fill="#7BE4F7"/>
+      <rect x="${x+1}" y="${y}" width="18" height="2" fill="#4AD9F5"/>
+      <rect x="${x}" y="${y+14}" width="20" height="24" fill="#D8DCE2"/>
+      <rect x="${x}" y="${y+14}" width="20" height="2" fill="#A8ADB5"/>
+      <rect x="${x}" y="${y+36}" width="20" height="2" fill="#6B7380"/>
+      <rect x="${x+4}" y="${y+22}" width="4" height="4" fill="#E24B4A"/>
+      <rect x="${x+12}" y="${y+22}" width="4" height="4" fill="#4A90D9"/>
+      <rect x="${x+6}" y="${y+30}" width="8" height="2" fill="#6B7380"/>`;
+
+    const drawPlant = (x, y) => `
+      <rect x="${x}" y="${y+8}" width="16" height="14" fill="#C9A84C"/>
+      <rect x="${x}" y="${y+8}" width="16" height="2" fill="#E4C773"/>
+      <rect x="${x}" y="${y+20}" width="16" height="2" fill="#8B6914"/>
+      <rect x="${x+4}" y="${y}" width="2" height="10" fill="#4CAF50"/>
+      <rect x="${x+6}" y="${y-2}" width="4" height="12" fill="#66BB6A"/>
+      <rect x="${x+10}" y="${y}" width="2" height="10" fill="#4CAF50"/>
+      <rect x="${x+2}" y="${y+2}" width="2" height="6" fill="#388E3C"/>
+      <rect x="${x+12}" y="${y+2}" width="2" height="6" fill="#388E3C"/>`;
+
+    const drawDesk = (x, y, id, label) => `
+      <g class="desk" id="desk-${id}" data-dept="${id}" data-home-x="${x+16}" data-home-y="${y+28}">
+        <rect x="${x}" y="${y+12}" width="48" height="12" fill="#4A5260"/>
+        <rect x="${x}" y="${y+12}" width="48" height="2" fill="#6B7380"/>
+        <rect x="${x}" y="${y+22}" width="48" height="2" fill="#2A2E38"/>
+        <rect x="${x+4}" y="${y+24}" width="4" height="8" fill="#2A2E38"/>
+        <rect x="${x+40}" y="${y+24}" width="4" height="8" fill="#2A2E38"/>
+        <rect x="${x+18}" y="${y+10}" width="12" height="2" fill="#6B7380"/>
+        <rect x="${x+22}" y="${y+8}" width="4" height="2" fill="#4A5260"/>
+        <rect class="monitor-back" x="${x+16}" y="${y-4}" width="16" height="14" fill="#2A2E38"/>
+        <rect class="monitor-screen" x="${x+18}" y="${y-2}" width="12" height="10" fill="#1A3A5A"/>
+        <rect x="${x+18}" y="${y+16}" width="12" height="3" fill="#D8DCE2"/>
+        <rect x="${x+19}" y="${y+17}" width="1" height="1" fill="#6B7380"/>
+        <rect x="${x+21}" y="${y+17}" width="1" height="1" fill="#6B7380"/>
+        <rect x="${x+23}" y="${y+17}" width="1" height="1" fill="#6B7380"/>
+        <rect x="${x+25}" y="${y+17}" width="1" height="1" fill="#6B7380"/>
+        <rect x="${x+27}" y="${y+17}" width="1" height="1" fill="#6B7380"/>
+        <rect x="${x+20}" y="${y+22}" width="8" height="6" fill="#2A2E38"/>
+        <rect x="${x+22}" y="${y+18}" width="4" height="6" fill="#2A2E38"/>
+        <rect x="${x+20}" y="${y+28}" width="2" height="2" fill="#1A1A1E"/>
+        <rect x="${x+26}" y="${y+28}" width="2" height="2" fill="#1A1A1E"/>
+        <text x="${x+24}" y="${y+36}" text-anchor="middle" font-family="'Courier New',monospace" font-size="8" font-weight="bold" fill="#4A5260">${label}</text>
       </g>`;
+
+    const drawSanmooTable = (x, y) => `
+      <g id="sanmooZone" data-zone="sanmoo">
+        <rect x="${x-20}" y="${y-20}" width="120" height="60" fill="#E4E6EA" opacity="0.6"/>
+        <rect x="${x-20}" y="${y-20}" width="120" height="2" fill="#C9A84C"/>
+        <rect x="${x-20}" y="${y+38}" width="120" height="2" fill="#C9A84C"/>
+        <rect x="${x+20}" y="${y}" width="40" height="16" fill="#E4C773"/>
+        <rect x="${x+12}" y="${y+4}" width="56" height="8" fill="#E4C773"/>
+        <rect x="${x+16}" y="${y+2}" width="48" height="12" fill="#D4AF37"/>
+        <rect x="${x+20}" y="${y+14}" width="40" height="4" fill="#8B6914"/>
+        <rect x="${x+24}" y="${y+18}" width="32" height="2" fill="#5A4208"/>
+        <rect x="${x+36}" y="${y-8}" width="8" height="4" fill="#C9A84C"/>
+        <text x="${x+40}" y="${y-10}" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" font-weight="bold" fill="#8B6914">★ 상무 테이블</text>
+      </g>
+      <g id="sanmoo-character" transform="translate(${x+36}, ${y-4})">
+        <rect x="0" y="8" width="8" height="2" fill="#00000033"/>
+        <rect x="1" y="0" width="6" height="6" fill="#C9A84C"/>
+        <rect x="2" y="1" width="1" height="1" fill="#2A2E38"/>
+        <rect x="5" y="1" width="1" height="1" fill="#2A2E38"/>
+        <rect x="0" y="6" width="8" height="4" fill="#8B6914"/>
+      </g>`;
+
+    const drawMeetingTable = (x, y) => `
+      <g id="meetingZone" data-zone="meeting">
+        <rect x="${x-8}" y="${y-8}" width="140" height="52" fill="#D8DCE2" opacity="0.7"/>
+        <rect x="${x-8}" y="${y-8}" width="140" height="2" fill="#5A7AA8"/>
+        <rect x="${x-8}" y="${y+42}" width="140" height="2" fill="#5A7AA8"/>
+        <rect x="${x}" y="${y+16}" width="124" height="12" fill="#4A5260"/>
+        <rect x="${x}" y="${y+16}" width="124" height="2" fill="#6B7380"/>
+        <rect x="${x}" y="${y+26}" width="124" height="2" fill="#2A2E38"/>
+        <rect x="${x+4}" y="${y+28}" width="4" height="6" fill="#2A2E38"/>
+        <rect x="${x+116}" y="${y+28}" width="4" height="6" fill="#2A2E38"/>
+        <rect x="${x+60}" y="${y+28}" width="4" height="6" fill="#2A2E38"/>
+        <rect x="${x+12}" y="${y+10}" width="8" height="6" fill="#6B7380"/>
+        <rect x="${x+48}" y="${y+10}" width="8" height="6" fill="#6B7380"/>
+        <rect x="${x+84}" y="${y+10}" width="8" height="6" fill="#6B7380"/>
+        <rect x="${x+12}" y="${y+28}" width="8" height="6" fill="#6B7380"/>
+        <rect x="${x+48}" y="${y+28}" width="8" height="6" fill="#6B7380"/>
+        <rect x="${x+84}" y="${y+28}" width="8" height="6" fill="#6B7380"/>
+        <rect x="${x+30}" y="${y+18}" width="8" height="6" fill="#1A1A1E"/>
+        <rect x="${x+31}" y="${y+19}" width="6" height="4" fill="#4AD9F5"/>
+        <rect x="${x+70}" y="${y+18}" width="8" height="6" fill="#1A1A1E"/>
+        <rect x="${x+71}" y="${y+19}" width="6" height="4" fill="#4AD9F5"/>
+        <rect x="${x+100}" y="${y+20}" width="4" height="4" fill="#FAFAFC"/>
+        <rect x="${x+100}" y="${y+19}" width="4" height="1" fill="#8B6914"/>
+        <text x="${x+62}" y="${y-2}" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" font-weight="bold" fill="#3C5880">💼 미팅룸</text>
+      </g>`;
+
+    const drawLoungeArea = (x, y) => `
+      <g id="loungeZone" data-zone="lounge">
+        <rect x="${x-8}" y="${y-4}" width="160" height="56" fill="#E0E4EA" opacity="0.6"/>
+        <rect x="${x-8}" y="${y-4}" width="160" height="2" fill="#4A9B5E"/>
+        <rect x="${x-8}" y="${y+50}" width="160" height="2" fill="#4A9B5E"/>
+        <rect x="${x+10}" y="${y+20}" width="60" height="16" fill="#D4A8B0"/>
+        <rect x="${x+10}" y="${y+10}" width="60" height="12" fill="#E8BAC2"/>
+        <rect x="${x+10}" y="${y+10}" width="60" height="2" fill="#F4D0D4"/>
+        <rect x="${x+10}" y="${y+34}" width="60" height="2" fill="#B88890"/>
+        <rect x="${x+4}" y="${y+14}" width="8" height="20" fill="#B88890"/>
+        <rect x="${x+68}" y="${y+14}" width="8" height="20" fill="#B88890"/>
+        <rect x="${x+18}" y="${y+12}" width="10" height="8" fill="#F4D0D4"/>
+        <rect x="${x+44}" y="${y+12}" width="10" height="8" fill="#F4D0D4"/>
+        <rect x="${x+28}" y="${y+40}" width="30" height="8" fill="#8B929C" opacity="0.8"/>
+        <rect x="${x+28}" y="${y+40}" width="30" height="2" fill="#A8ADB5"/>
+        <rect x="${x+34}" y="${y+38}" width="6" height="4" fill="#FAFAFC"/>
+        <rect x="${x+46}" y="${y+38}" width="4" height="4" fill="#E24B4A"/>
+        <rect x="${x+90}" y="${y}" width="40" height="24" fill="#1A1A1E"/>
+        <rect x="${x+92}" y="${y+2}" width="36" height="20" fill="#4AD9F5"/>
+        <rect x="${x+92}" y="${y+2}" width="36" height="2" fill="#7BE4F7"/>
+        <rect x="${x+94}" y="${y+20}" width="32" height="2" fill="#E24B4A"/>
+        <rect x="${x+130}" y="${y+20}" width="20" height="28" fill="#6B7380"/>
+        <rect x="${x+130}" y="${y+20}" width="20" height="2" fill="#A8ADB5"/>
+        <rect x="${x+132}" y="${y+23}" width="16" height="12" fill="#FAFAFC"/>
+        <rect x="${x+134}" y="${y+25}" width="3" height="3" fill="#C9A84C"/>
+        <rect x="${x+139}" y="${y+25}" width="3" height="3" fill="#4AD9F5"/>
+        <rect x="${x+144}" y="${y+25}" width="3" height="3" fill="#E24B4A"/>
+        <rect x="${x+134}" y="${y+30}" width="3" height="3" fill="#4CAF50"/>
+        <rect x="${x+139}" y="${y+30}" width="3" height="3" fill="#BA68C8"/>
+        <rect x="${x+144}" y="${y+30}" width="3" height="3" fill="#FF9800"/>
+        <rect x="${x+136}" y="${y+40}" width="8" height="4" fill="#2A2E38"/>
+        <text x="${x+75}" y="${y-6}" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" font-weight="bold" fill="#2E6B3E">☕ 휴게실</text>
+      </g>`;
+
+    const desks = [
+      { id: 'market',    x: 100, y: 160, label: '시장' },
+      { id: 'marketing', x: 180, y: 140, label: '마케팅' },
+      { id: 'finance',   x: 260, y: 120, label: '재무' },
+      { id: 'legal',     x: 120, y: 210, label: '법무' },
+      { id: 'compete',   x: 200, y: 190, label: '경쟁' },
+      { id: 'rnd',       x: 280, y: 170, label: 'R&D' },
+      { id: 'data',      x: 140, y: 260, label: '데이터' },
+      { id: 'content',   x: 220, y: 240, label: '콘텐츠' },
+      { id: 'sns',       x: 300, y: 220, label: 'SNS' },
+      { id: 'design',    x: 200, y: 300, label: '디자인' },
+    ];
+
     return `
-      <svg class="tph-grid-bg" id="office-stage" viewBox="0 0 1000 560"
-           style="shape-rendering: crispEdges;"
-           preserveAspectRatio="xMidYMid meet">
-        <defs>
-          <!-- 은색펄 바닥 펄 패턴 -->
-          <pattern id="silverPearl" patternUnits="userSpaceOnUse" width="60" height="30">
-            <rect width="60" height="30" fill="#C8CDD4"/>
-            <circle cx="15" cy="8" r="0.8" fill="#E0E4EA" opacity="0.6"/>
-            <circle cx="40" cy="20" r="0.6" fill="#E0E4EA" opacity="0.5"/>
-            <circle cx="50" cy="5" r="0.4" fill="#F0F2F5" opacity="0.7"/>
-            <circle cx="8" cy="22" r="0.5" fill="#E0E4EA" opacity="0.5"/>
-          </pattern>
-          <!-- 바닥 광택 그라디언트 -->
-          <linearGradient id="floorSheen" x1="0%" y1="0%" x2="100%" y2="50%">
-            <stop offset="0%" stop-color="#E0E4EA" stop-opacity="0.4"/>
-            <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0.15"/>
-            <stop offset="100%" stop-color="#C8CDD4" stop-opacity="0.3"/>
-          </linearGradient>
-          <!-- 상무 테이블용 골드 -->
-          <linearGradient id="goldAccent" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#E4C773"/>
-            <stop offset="50%" stop-color="#C9A84C"/>
-            <stop offset="100%" stop-color="#8B6914"/>
-          </linearGradient>
-        </defs>
-
-        <!-- 1. 메인 바닥 (오픈 플로어 통짜) -->
-        <polygon points="80,180 520,40 960,230 520,420" fill="url(#silverPearl)"/>
-        <polygon points="80,180 520,40 960,230 520,420" fill="url(#floorSheen)"/>
-        <!-- 바닥 두께감 -->
-        <polygon points="80,180 520,420 520,440 80,200" fill="#8B929C"/>
-        <polygon points="520,420 960,230 960,250 520,440" fill="#8B929C"/>
-
-        <!-- 2. 왼벽 (화이트펄) -->
-        <polygon points="80,180 520,40 520,-50 80,90" fill="#F0F0F2"/>
-        <polygon points="80,180 520,40 520,-50 80,90" fill="none" stroke="#A8ADB5" stroke-width="1.5"/>
-
-        <!-- 3. 뒷벽 (실버펄) -->
-        <polygon points="520,40 960,230 960,140 520,-50" fill="#E4E6EA"/>
-        <polygon points="520,40 960,230 960,140 520,-50" fill="none" stroke="#A8ADB5" stroke-width="1.5"/>
-
-        <!-- 4. 왼벽 창문 3개 (자연광) -->
-        <g id="left-windows">
-          <rect x="150" y="20" width="80" height="60" fill="#FAFAFC" opacity="0.9" transform="skewY(-18.4)"/>
-          <rect x="260" y="-10" width="80" height="60" fill="#FAFAFC" opacity="0.9" transform="skewY(-18.4)"/>
-          <rect x="370" y="-40" width="80" height="60" fill="#FAFAFC" opacity="0.9" transform="skewY(-18.4)"/>
-          <rect x="150" y="20" width="80" height="60" fill="none" stroke="#A8ADB5" stroke-width="1" transform="skewY(-18.4)"/>
-          <rect x="260" y="-10" width="80" height="60" fill="none" stroke="#A8ADB5" stroke-width="1" transform="skewY(-18.4)"/>
-          <rect x="370" y="-40" width="80" height="60" fill="none" stroke="#A8ADB5" stroke-width="1" transform="skewY(-18.4)"/>
-        </g>
-
-        <!-- 5. 뒷벽 CORVUS X 로고 (골드 포인트) -->
-        <g id="corvus-sign">
-          <rect x="620" y="50" width="120" height="35" fill="#0F0A14" stroke="#C9A84C" stroke-width="2" transform="skewY(23.2)"/>
-          <text x="680" y="72" text-anchor="middle" font-size="12" fill="#C9A84C" font-weight="700" transform="skewY(23.2)">CORVUS X</text>
-        </g>
-
-        <!-- 6. 뒷벽 화이트보드 -->
-        <g id="whiteboard">
-          <rect x="780" y="90" width="90" height="50" fill="#FAFAFC" stroke="#4A5260" stroke-width="1" transform="skewY(23.2)"/>
-          <line x1="790" y1="105" x2="860" y2="105" stroke="#4A90D9" stroke-width="1.5" transform="skewY(23.2)"/>
-          <line x1="790" y1="115" x2="850" y2="115" stroke="#4A5260" stroke-width="0.5" transform="skewY(23.2)"/>
-          <line x1="790" y1="125" x2="840" y2="125" stroke="#E24B4A" stroke-width="1.5" transform="skewY(23.2)"/>
-        </g>
-
-        <!-- 7. 왼벽 시계 / 게시판 -->
-        <circle cx="230" cy="-5" r="10" fill="#FAFAFC" stroke="#4A5260" stroke-width="1.5"/>
-        <line x1="230" y1="-5" x2="230" y2="-12" stroke="#4A5260" stroke-width="1.5"/>
-        <line x1="230" y1="-5" x2="235" y2="-5" stroke="#4A5260" stroke-width="1"/>
-        <rect x="300" y="-30" width="70" height="45" fill="#6B7380" stroke="#4A5260" stroke-width="1" transform="skewY(-18.4)"/>
-        <rect x="308" y="-22" width="22" height="14" fill="#C9A84C" opacity="0.8" transform="skewY(-18.4)"/>
-        <rect x="335" y="-15" width="22" height="14" fill="#FAFAFC" transform="skewY(-18.4)"/>
-
-        <!-- 8. 정수기 (왼쪽 구석) -->
-        <g transform="translate(130, 210)">
-          <rect x="0" y="0" width="18" height="30" fill="#D8DCE2" stroke="#4A5260"/>
-          <ellipse cx="9" cy="0" rx="10" ry="3" fill="#4AD9F5" stroke="#4A5260"/>
-          <rect x="4" y="20" width="10" height="6" fill="#6B7380"/>
-        </g>
-
-        <!-- 9. 바닥 식물 -->
-        <g transform="translate(80, 360)">
-          <rect x="0" y="8" width="20" height="18" fill="#C9A84C" rx="1"/>
-          <ellipse cx="5" cy="0" rx="4" ry="8" fill="#5AAA50"/>
-          <ellipse cx="10" cy="-3" rx="5" ry="10" fill="#66BB6A"/>
-          <ellipse cx="15" cy="0" rx="4" ry="8" fill="#5AAA50"/>
-        </g>
-
-        <!-- 10. 팀 책상 10개 — 행1: market/marketing/finance, 행2: legal/compete/rnd,
-             행3: data/content/sns, 행4: design (디자인팀은 별도 공간) -->
-        ${deskUnit(180, 220, 'market',    '시장조사')}
-        ${deskUnit(300, 190, 'marketing', '마케팅')}
-        ${deskUnit(420, 160, 'finance',   '재무')}
-        ${deskUnit(200, 280, 'legal',     '법무')}
-        ${deskUnit(320, 250, 'compete',   '경쟁분석')}
-        ${deskUnit(440, 220, 'rnd',       'R&D')}
-        ${deskUnit(220, 340, 'data',      '데이터')}
-        ${deskUnit(340, 310, 'content',   '콘텐츠')}
-        ${deskUnit(460, 280, 'sns',       'SNS')}
-        ${deskUnit(340, 380, 'design',    '디자인')}
-
-        <!-- 11. 상무 테이블 (원형, 골드 포인트) -->
-        <g id="sanmooZone" data-zone="sanmoo">
-          <polygon points="660,160 820,90 880,115 720,190" fill="#E0E4EA" opacity="0.5"/>
-          <polygon points="660,160 820,90 880,115 720,190" fill="none" stroke="#C9A84C" stroke-width="1.5" stroke-dasharray="4,2"/>
-          <ellipse cx="770" cy="145" rx="45" ry="22" fill="url(#goldAccent)" stroke="#8B6914" stroke-width="1.5"/>
-          <ellipse cx="770" cy="143" rx="45" ry="22" fill="#D4AF37" opacity="0.7"/>
-          <circle cx="770" cy="125" r="4" fill="#C9A84C" stroke="#8B6914" stroke-width="1"/>
-          <text x="770" y="92" text-anchor="middle" font-size="10" fill="#8B6914" font-weight="700">★ 상무 테이블</text>
-        </g>
-        <!-- 상무 캐릭터 (상시 자리) -->
-        <g id="sanmoo-character" transform="translate(770, 125)">
-          <ellipse cx="0" cy="8" rx="6" ry="2" fill="rgba(0,0,0,0.2)"/>
-          <circle cx="0" cy="-3" r="5" fill="#C9A84C"/>
-          <circle cx="-1.5" cy="-4" r="0.5" fill="#2A2E38"/>
-          <circle cx="1.5" cy="-4" r="0.5" fill="#2A2E38"/>
-          <rect x="-3" y="1" width="6" height="6" fill="#8B6914" rx="1"/>
-        </g>
-
-        <!-- 12. 미팅룸 (긴 테이블 6석) -->
-        <g id="meetingZone" data-zone="meeting">
-          <polygon points="660,270 820,200 880,225 720,300" fill="#D8DCE2" opacity="0.6"/>
-          <polygon points="660,270 820,200 880,225 720,300" fill="none" stroke="#5A7AA8" stroke-width="1.5" stroke-dasharray="4,2"/>
-          <polygon points="720,280 840,230 870,242 750,292" fill="#4A5260" stroke="#2A2E38" stroke-width="1"/>
-          <polygon points="720,280 840,230 840,236 720,286" fill="#6B7380"/>
-          <circle cx="740" cy="270" r="3" fill="#8B929C" opacity="0.7"/>
-          <circle cx="780" cy="252" r="3" fill="#8B929C" opacity="0.7"/>
-          <circle cx="820" cy="234" r="3" fill="#8B929C" opacity="0.7"/>
-          <circle cx="760" cy="292" r="3" fill="#8B929C" opacity="0.7"/>
-          <circle cx="800" cy="274" r="3" fill="#8B929C" opacity="0.7"/>
-          <circle cx="840" cy="256" r="3" fill="#8B929C" opacity="0.7"/>
-          <text x="770" y="200" text-anchor="middle" font-size="10" fill="#3C5880" font-weight="700">💼 미팅룸</text>
-        </g>
-
-        <!-- 13. 휴게실 -->
-        <g id="loungeZone" data-zone="lounge">
-          <polygon points="660,380 820,310 880,335 720,410" fill="#E0E4EA" opacity="0.5"/>
-          <polygon points="660,380 820,310 880,335 720,410" fill="none" stroke="#4A9B5E" stroke-width="1.5" stroke-dasharray="4,2"/>
-          <!-- 소파 (로즈) -->
-          <polygon points="720,370 790,340 820,350 750,380" fill="#D4A8B0"/>
-          <polygon points="720,370 790,340 790,335 720,365" fill="#B88890"/>
-          <ellipse cx="750" cy="360" rx="5" ry="2.5" fill="#F4D0D4"/>
-          <ellipse cx="780" cy="348" rx="5" ry="2.5" fill="#F4D0D4"/>
-          <!-- 커피 테이블 -->
-          <polygon points="755,388 795,370 810,378 770,394" fill="#8B929C" opacity="0.8"/>
-          <rect x="772" y="376" width="8" height="6" fill="#FAFAFC" rx="1"/>
-          <!-- TV -->
-          <rect x="820" y="305" width="40" height="22" fill="#1A1A1E" stroke="#2A2E38" transform="skewY(-15)"/>
-          <rect x="822" y="307" width="36" height="18" fill="#4AD9F5" opacity="0.7" transform="skewY(-15)"/>
-          <!-- 자판기 -->
-          <rect x="670" y="365" width="20" height="35" fill="#6B7380" stroke="#2A2E38"/>
-          <rect x="673" y="368" width="14" height="14" fill="#FAFAFC" stroke="#2A2E38" stroke-width="0.5"/>
-          <rect x="675" y="370" width="3" height="3" fill="#C9A84C"/>
-          <rect x="680" y="370" width="3" height="3" fill="#4AD9F5"/>
-          <rect x="685" y="370" width="3" height="3" fill="#E24B4A"/>
-          <text x="770" y="312" text-anchor="middle" font-size="10" fill="#2E6B3E" font-weight="700">☕ 휴게실</text>
-        </g>
+      <svg class="tph-grid-bg" id="office-stage" viewBox="0 0 640 360"
+           preserveAspectRatio="xMidYMid meet"
+           style="image-rendering: pixelated; shape-rendering: crispEdges; background:#F8F9FB;">
+        ${drawIsoFloor(40, 120, 560, 200)}
+        ${drawLeftWall(40, 40, 320, 80)}
+        ${drawBackWall(320, 40, 640, 120)}
+        ${drawPixelWindow(80, 48, 48, 36)}
+        ${drawPixelWindow(140, 38, 48, 36)}
+        ${drawPixelWindow(200, 28, 48, 36)}
+        ${drawPixelWindow(260, 18, 48, 36)}
+        ${drawCorvusLogo(420, 40)}
+        ${drawWhiteboard(520, 60)}
+        ${drawWallClock(180, 20)}
+        ${drawWaterCooler(60, 140)}
+        ${drawPlant(50, 210)}
+        ${drawPlant(560, 210)}
+        ${desks.map(d => drawDesk(d.x, d.y, d.id, d.label)).join('')}
+        ${drawSanmooTable(460, 140)}
+        ${drawMeetingTable(440, 210)}
+        ${drawLoungeArea(440, 270)}
       </svg>`;
   }
 
