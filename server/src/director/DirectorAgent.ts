@@ -134,6 +134,7 @@ export async function runDirector(
     const domain = detectMissionDomain(directive) as GateDomain;
     send({ type: 'executive_gate_start', directive: directive.slice(0, 200), domain });
     gate = await runExecutiveGate(directive, domain);
+    logger.info({ action: gate.action, deptCount: gate.departments.length, reason: gate.reason }, '[Director] gate done');
     send({
       type: 'executive_gate_done',
       action: gate.action,
@@ -316,8 +317,12 @@ export async function runDirector(
     }
   });
 
+  logger.info({ sessionId: session.sessionId, taskCount: mission.tasks.length, depts: mission.tasks.map(t => t.deptId) }, '[Director] 부서 병렬 실행 시작');
+
   // ─ 전체 완료 대기 ────────────────────────────────────────────────────────────
-  await Promise.allSettled(agentPromises);
+  const results = await Promise.allSettled(agentPromises);
+  const settled = results.map((r, i) => ({ dept: mission.tasks[i]?.deptId, status: r.status, ...(r.status === 'rejected' ? { reason: String((r as any).reason?.message ?? (r as any).reason ?? '').slice(0, 200) } : {}) }));
+  logger.info({ sessionId: session.sessionId, settled, completedReports: completedReports.length }, '[Director] 부서 병렬 실행 종료');
 
   // ─ 세션 SQLite 저장 (라운드 포함) ────────────────────────────────────────────
   persistSession(session).catch(() => {});

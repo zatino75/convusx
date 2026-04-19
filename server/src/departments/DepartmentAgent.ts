@@ -9,6 +9,7 @@ import { getDept } from './DepartmentRegistry.js';
 import type { DeptConfig } from './DepartmentRegistry.js';
 import { estimateCostUsd } from '../cost/costCalc.js';
 import type { ModelUsage } from '../adapters/types.js';
+import { logger } from '../observability/logger.js';
 
 export type ProgressCallback = (deptId: DeptId, message: string, percent: number) => void;
 
@@ -382,6 +383,7 @@ export async function runDepartmentAgent(
   const startTime = Date.now();
   const dept = getDept(task.deptId);
   if (!dept) throw new Error(`부서 설정 없음: ${task.deptId}`);
+  logger.info({ deptId: task.deptId, primary: dept.primaryModel, connectors: dept.connectorPriority }, '[DepartmentAgent] 시작');
 
   const available = options.availableConnectors ?? new Set<string>();
   const { onProgress } = options;
@@ -395,6 +397,7 @@ export async function runDepartmentAgent(
     available,
     onProgress
   );
+  logger.info({ deptId: task.deptId, connectorsUsed, dataLen: preResearchData.length }, '[DepartmentAgent] 사전조사 완료');
 
   onProgress?.(task.deptId, 'AI 분석 준비 중...', 35);
 
@@ -414,6 +417,7 @@ export async function runDepartmentAgent(
     onProgress,
     task.deptId
   );
+  logger.info({ deptId: task.deptId, model: modelUsed, outputLen: rawOutput.length }, '[DepartmentAgent] 모델 호출 완료');
 
   onProgress?.(task.deptId, '보고서 작성 중...', 85);
 
