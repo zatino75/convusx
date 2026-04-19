@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CORVUS X — Login</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{
+      font-family:'Inter','Noto Sans KR',-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+      background:#0F0A14;color:#E4E6EA;
+      min-height:100vh;display:flex;align-items:center;justify-content:center;
+      position:relative;overflow:hidden;
+    }
+    body::before{
+      content:'';position:absolute;inset:0;
+      background:radial-gradient(ellipse at top right,#1F1828 0%,#0F0A14 60%);
+      z-index:0;
+    }
+    body::after{
+      content:'';position:absolute;top:0;left:50%;width:1px;height:40%;
+      background:linear-gradient(to bottom,transparent,#C9A84C,transparent);
+      opacity:.3;z-index:0;
+    }
+
+    .login-box{
+      position:relative;z-index:1;width:400px;padding:48px 40px;
+      background:rgba(20,14,30,.9);
+      border:1px solid #2A2E38;border-radius:2px;
+      box-shadow:0 20px 60px rgba(0,0,0,.5);
+    }
+    .logo{text-align:center;margin-bottom:40px}
+    .logo-text{
+      font-family:'Courier New',monospace;font-size:28px;font-weight:700;
+      letter-spacing:4px;color:#C9A84C;margin-bottom:8px;
+    }
+    .logo-sub{font-size:11px;color:#6B7380;letter-spacing:6px;text-transform:uppercase}
+
+    .form-group{margin-bottom:20px}
+    .form-label{
+      display:block;font-size:11px;color:#8B929C;margin-bottom:8px;
+      letter-spacing:1px;text-transform:uppercase;
+    }
+    .form-input{
+      width:100%;padding:12px 14px;
+      background:#0F0A14;border:1px solid #2A2E38;border-radius:2px;
+      color:#E4E6EA;font-size:14px;font-family:inherit;
+      transition:border-color .2s;
+    }
+    .form-input:focus{outline:none;border-color:#C9A84C}
+
+    .login-btn{
+      width:100%;padding:14px;margin-top:12px;
+      background:#C9A84C;border:none;border-radius:2px;
+      color:#0F0A14;font-size:13px;font-weight:700;
+      letter-spacing:2px;text-transform:uppercase;
+      cursor:pointer;transition:background .2s;
+    }
+    .login-btn:hover{background:#E4C773}
+    .login-btn:disabled{opacity:.5;cursor:not-allowed}
+
+    .error-msg{
+      margin-top:16px;padding:12px;
+      background:rgba(226,75,74,.1);border:1px solid #E24B4A;border-radius:2px;
+      color:#E24B4A;font-size:12px;text-align:center;display:none;
+    }
+    .error-msg.show{display:block}
+
+    .footer{
+      margin-top:32px;padding-top:24px;border-top:1px solid #2A2E38;
+      text-align:center;font-size:10px;color:#4A5260;letter-spacing:1px;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-box">
+    <div class="logo">
+      <div class="logo-text">CORVUS X</div>
+      <div class="logo-sub">Director Multi-Agent System</div>
+    </div>
+
+    <form id="login-form" onsubmit="return handleLogin(event)">
+      <div class="form-group">
+        <label class="form-label" for="password">PASSWORD</label>
+        <input type="password" id="password" class="form-input"
+               autocomplete="current-password" required autofocus>
+      </div>
+
+      <button type="submit" class="login-btn" id="login-btn">LOGIN</button>
+
+      <div class="error-msg" id="error-msg"></div>
+    </form>
+
+    <div class="footer">© 2026 CORVUS X · Authorized Personnel Only</div>
+  </div>
+
+  <script>
+    // 이미 로그인된 상태면 루트로
+    fetch('/api/auth/me', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { if (d && d.authenticated) location.replace('/'); })
+      .catch(() => {});
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const btn = document.getElementById('login-btn');
+      const errEl = document.getElementById('error-msg');
+      const password = document.getElementById('password').value;
+
+      errEl.classList.remove('show');
+      btn.disabled = true;
+      btn.textContent = 'LOGGING IN...';
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ password })
+        });
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          const map = {
+            invalid_password: '비밀번호가 올바르지 않습니다',
+            password_required: '비밀번호를 입력하세요',
+            too_many_attempts: `시도 횟수 초과 — ${Math.ceil((data.retry_after_sec || 900) / 60)}분 후 재시도`,
+            password_login_disabled: '서버에 비밀번호가 설정되지 않았습니다',
+          };
+          throw new Error(map[data.error] || data.error || '로그인 실패');
+        }
+
+        location.replace('/');
+      } catch (err) {
+        errEl.textContent = err.message || '비밀번호가 올바르지 않습니다';
+        errEl.classList.add('show');
+        btn.disabled = false;
+        btn.textContent = 'LOGIN';
+      }
+      return false;
+    }
+  </script>
+</body>
+</html>

@@ -214,6 +214,13 @@
   .tph-hud__progress{
     display:flex;align-items:center;gap:6px;color:var(--text-mid);font-size:11px;font-weight:700}
   .tph-hud__progress strong{color:var(--green)}
+  .tph-hud__logout{
+    margin-left:10px;padding:3px 10px;
+    background:transparent;border:1px solid #A8ADB5;border-radius:3px;
+    color:var(--text-mid);font-size:10px;font-weight:700;letter-spacing:1px;
+    cursor:pointer;transition:all .15s;font-family:ui-monospace,Menlo,Consolas,monospace;
+  }
+  .tph-hud__logout:hover{border-color:#E24B4A;color:#E24B4A}
 
   /* 오픈 오피스 — .tph-grid 는 절대 좌표계 원점 역할. 방들은 각자 top/left 로 배치 */
   .tph-grid{
@@ -847,6 +854,8 @@
           <div class="tph-hud__logo">CONVUS X</div>
           <div class="tph-hud__mission" id="tphMission">— 대기 중 —</div>
           <div class="tph-hud__progress">완료 <strong id="tphProgressText">0</strong>/10</div>
+          <button id="logout-btn" type="button" class="tph-hud__logout"
+                  title="로그아웃">LOGOUT</button>
         </div>
 
         <div class="tph-grid" id="tphGrid">
@@ -2082,6 +2091,24 @@
   tphUpdateProgress();
   // Phase D: idle wander (휴게실 방문) — 그리드 준비 후 시작
   tphStartIdleWander();
+
+  // ─── 인증 가드 + 로그아웃 ────────────────────────────────────────────────
+  // 세션 만료·쿠키 제거 시 /login 으로 이동. nginx 가 먼저 막지만 탭 방치 중 만료 케이스 방어.
+  fetch('/api/auth/me', { credentials: 'include' })
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { if (d && !d.authenticated) location.replace('/login'); })
+    .catch(() => { /* 네트워크 오류 시 무시 — 사용자에게 불필요한 로그인 강제 방지 */ });
+
+  const _logoutBtn = document.getElementById('logout-btn');
+  if (_logoutBtn) {
+    _logoutBtn.addEventListener('click', async () => {
+      if (!confirm('로그아웃 하시겠습니까?')) return;
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      } catch { /* 네트워크 실패해도 쿠키는 서버에서 Max-Age=0 로 지워야 이상적이지만, 실패 시 강제 이동 */ }
+      location.replace('/login');
+    });
+  }
 
   // slash commands
   const SLASH_COMMANDS = [

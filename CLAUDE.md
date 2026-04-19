@@ -8,7 +8,24 @@ Claude Opus / GPT-5.4 / Gemini 2.5 Pro / Perplexity를 연결해
 AI 분석 / 법률 검토 / 상품 개발 / 시장 조사 / 재무 분석을 수행.
 
 진입점: corvusx-office.html 단일 (AI CHAT 폐기됨)
-URL: https://app.cloudcookie.co.kr (루트 접속 시 자동 `/corvusx-office.html` 302 리다이렉트)
+URL: https://app.cloudcookie.co.kr (로그인 필수)
+
+## 접속 및 인증
+- 로그인 페이지: `/login` (공개) — `login.html` 단일 비밀번호 입력
+- 루트 `/`: corvus_session 쿠키 없으면 nginx 가 `/login` 으로 302 → 있으면 `/corvusx-office.html` 서빙
+- 쿠키: `corvus_session` (httpOnly, Secure, SameSite=Strict, Max-Age 7일)
+- 백엔드 인증: scrypt 비밀번호 해시 + HMAC-SHA256 세션 서명
+  - `server/src/http/auth.ts` — 인증 primitive (scrypt, HMAC, 쿠키 파싱)
+  - `server/src/routes/auth.ts` — `/api/auth/login` (`POST { password }`) / `/logout` / `/me`
+  - `server/src/index.ts` — `/api/*` 전체 보호, 화이트리스트(/api/health, /api/auth/*) 만 공개
+- 환경변수 (서버 `/etc/corvusx/.env`):
+  - `CORVUS_ACCESS_PASSWORD_HASH` — `scrypt$N$saltHex$hashHex` 형식
+  - `CORVUS_SESSION_SECRET` — 32자+ hex (HMAC 서명 키)
+- 로그아웃: 오피스 HUD 우측 `LOGOUT` 버튼 → `POST /api/auth/logout` → `/login` 이동
+- 자동 리다이렉트: 오피스 로드 시 `GET /api/auth/me` 호출, `authenticated:false` 면 `/login` 이동 (탭 방치 중 세션 만료 방어)
+- 절대 금지:
+  - `/etc/nginx/.htpasswd` + `auth_basic` — 내부 로그인 UI 와 충돌
+  - `isLocalRequest()` localhost 자동 통과 — nginx 리버스 프록시에서 인증 전체 무력화 (`http/auth.ts` 는 항상 false 반환)
 
 ## 4가지 도구 운영 원칙
 | 도구 | 역할 | 금지 |
