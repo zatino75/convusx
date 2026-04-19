@@ -81,8 +81,8 @@
   .app.is-resizing{transition:none;user-select:none;-webkit-user-select:none}
   .app.is-resizing iframe{pointer-events:none}
   .app[data-sidebar="closed"]{grid-template-columns:0 1fr var(--panel-w,300px)}
-  .app[data-panel="closed"]{grid-template-columns:var(--sidebar-w,260px) 1fr 0}
-  .app[data-sidebar="closed"][data-panel="closed"]{grid-template-columns:0 1fr 0}
+  .app[data-panel="closed"]{grid-template-columns:var(--sidebar-w,260px) 1fr 34px}
+  .app[data-sidebar="closed"][data-panel="closed"]{grid-template-columns:0 1fr 34px}
 
   /* ─ sidebar ─────────────────────────────────────────────────────── */
   .sidebar{background:var(--sidebar);border-right:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden;min-width:0;position:relative}
@@ -145,7 +145,7 @@
   .bubble-menu .sub{position:absolute;left:100%;top:0;margin-left:2px}
 
   /* ─ main column ─ */
-  .main-col{display:grid;grid-template-rows:30% 70%;min-height:0;min-width:0;background:var(--bg)}
+  .main-col{display:grid;grid-template-rows:22% 78%;min-height:0;min-width:0;background:var(--bg)}
   .office-wrap{position:relative;background:var(--corridor);overflow:hidden;border-bottom:1px solid var(--border-soft)}
   .office-title{position:absolute;top:8px;left:14px;color:var(--text-soft);font-size:13px;letter-spacing:2px;font-weight:600;z-index:3;pointer-events:none;opacity:.7}
   .office-status{position:absolute;top:8px;right:14px;color:var(--text-soft);font-size:13px;display:flex;align-items:center;gap:6px;z-index:3;pointer-events:none}
@@ -186,27 +186,27 @@
   .tph-hud{
     position:absolute;top:0;left:0;right:0;
     display:flex;align-items:center;justify-content:space-between;
-    padding:8px 18px;height:42px;
+    padding:5px 14px;height:32px;
     background:linear-gradient(180deg, rgba(245,240,232,0.94), rgba(232,213,184,0.82));
     border-bottom:2px solid var(--gold-strong);
     box-shadow:0 2px 0 rgba(107,78,10,0.15);
     z-index:5;font-family:ui-monospace,Menlo,Consolas,monospace;
   }
-  .tph-hud__logo{color:var(--wood-dark);font-weight:800;letter-spacing:1.5px;font-size:13px}
-  .tph-hud__mission{color:var(--text-mid);font-size:12px;flex:1;text-align:center;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 16px;font-weight:600}
+  .tph-hud__logo{color:var(--wood-dark);font-weight:800;letter-spacing:1.2px;font-size:11.5px}
+  .tph-hud__mission{color:var(--text-mid);font-size:11px;flex:1;text-align:center;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 12px;font-weight:600}
   .tph-hud__progress{
-    display:flex;align-items:center;gap:8px;color:var(--text-mid);font-size:12px;font-weight:700}
+    display:flex;align-items:center;gap:6px;color:var(--text-mid);font-size:11px;font-weight:700}
   .tph-hud__progress strong{color:var(--green)}
 
   /* 9개 부서 방 그리드 */
   .tph-grid{
     position:absolute;
-    top:60px;left:24px;right:300px;bottom:80px;
+    top:46px;left:16px;right:186px;bottom:14px;
     display:grid;
     grid-template-columns:repeat(3,1fr);
     grid-template-rows:repeat(3,1fr);
-    gap:14px;
+    gap:6px;
   }
   .tph-room{
     position:relative;
@@ -268,19 +268,19 @@
   /* 방 헤더 — 벽/라벨 (상단 짙은 나무 스트립) */
   .tph-room__head{
     position:relative;z-index:2;
-    display:flex;align-items:center;gap:6px;
-    padding:6px 10px;
+    display:flex;align-items:center;gap:4px;
+    padding:3px 6px;
     background:linear-gradient(180deg, var(--wood-mid) 0%, var(--wood-dark) 100%);
     border-bottom:2px solid var(--wood-dark);
-    font-size:11px;font-weight:800;letter-spacing:0.8px;
+    font-size:9px;font-weight:800;letter-spacing:0.5px;
     color:#fef9ec;text-transform:uppercase;
     text-shadow:0 1px 0 rgba(0,0,0,0.3);
   }
-  .tph-room__icon{font-size:13px;line-height:1}
-  .tph-room__name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px}
+  .tph-room__icon{font-size:11px;line-height:1}
+  .tph-room__name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px}
   .tph-room__badge{
-    padding:1px 4px;border-radius:3px;font-size:8px;font-weight:800;letter-spacing:0.3px;
-    background:#555;color:#fff;flex-shrink:0;
+    padding:0 3px;border-radius:2px;font-size:7.5px;font-weight:800;letter-spacing:0.2px;
+    background:#555;color:#fff;flex-shrink:0;line-height:1.5;
   }
   .tph-room[data-state="working"] .tph-room__badge{background:#3b82f6;animation:tph-blink 1s infinite}
   .tph-room[data-state="done"] .tph-room__badge{background:#22c55e}
@@ -295,7 +295,7 @@
   .tph-room__floor{position:relative;z-index:1;flex:1;height:calc(100% - 24px);overflow:hidden}
   .tph-character{
     position:absolute;left:50%;bottom:38%;transform:translateX(-50%);
-    width:24px;height:32px;
+    width:20px;height:26px;
     image-rendering:pixelated;
     z-index:3;
     /* 파스텔 배경 대비용 얇은 다크 아웃라인 */
@@ -353,6 +353,16 @@
     0%,100%{transform:translateX(-50%) scaleX(1)}
     50%{transform:translateX(-50%) scaleX(-1)}
   }
+
+  /* 캐릭터 머리 위 이모지 (휴게실 쉬는 중 표시) */
+  .tph-char-emoji{
+    position:absolute;bottom:100%;left:50%;transform:translateX(-50%);
+    font-size:11px;line-height:1;margin-bottom:2px;
+    filter:drop-shadow(0 1px 1px rgba(0,0,0,0.4));
+    pointer-events:none;white-space:nowrap;
+    animation:tph-emoji-fade 0.3s ease-out;
+  }
+  @keyframes tph-emoji-fade{from{opacity:0;transform:translate(-50%, 4px)}to{opacity:1;transform:translateX(-50%)}}
 
   /* ── Phase C: 상무실 이동 (stage 로 리프팅된 캐릭터 전용) ── */
   /* is-walking: 좌우 flip 으로 걷는 효과. translateX(-50%) 제외 — left/top 이 직접 좌표 */
@@ -443,13 +453,27 @@
   /* 의자 (책상 앞) */
   .tph-chair{
     position:absolute;bottom:8%;left:50%;transform:translateX(-50%);
-    width:16px;height:12px;
+    width:14px;height:10px;
     background:#3a2820;
     border:2px solid #1f140c;
     border-radius:3px 3px 6px 6px;
     box-shadow:0 2px 0 rgba(0,0,0,0.3);
     z-index:2;
   }
+
+  /* 화분 (방 코너) */
+  .tph-plant{
+    position:absolute;
+    width:9px;height:13px;
+    background:radial-gradient(ellipse at 50% 35%, #66BB6A 0%, #2E7D32 60%, transparent 65%),
+               linear-gradient(180deg, transparent 62%, #8B6914 62%, #6B4E0A 100%);
+    z-index:2;pointer-events:none;
+    filter:drop-shadow(0 1px 0 rgba(0,0,0,0.25));
+  }
+  .tph-plant.pos-tr{right:3px;top:26px}
+  .tph-plant.pos-tl{left:3px;top:26px}
+  .tph-plant.pos-br{right:3px;bottom:6px}
+  .tph-plant.pos-bl{left:3px;bottom:6px}
 
   /* 진행바 (방 하단 — 문 위쪽) */
   .tph-room__progress{
@@ -482,33 +506,134 @@
 
   /* 상무실 — 우측 별도 큰 방 (골드 테두리 유지) */
   .tph-ceo-office{
-    position:absolute;right:24px;top:60px;width:260px;height:240px;
+    position:absolute;right:14px;top:46px;width:160px;height:86px;
     background:var(--room-sanmoo);
-    border:3px solid var(--gold-strong);border-radius:10px;
-    box-shadow:0 0 24px rgba(201,168,76,0.35), inset 0 0 0 1px rgba(255,255,255,0.4), 0 3px 0 rgba(107,78,10,0.35);
+    border:2px solid var(--gold-strong);border-radius:8px;
+    box-shadow:0 0 16px rgba(201,168,76,0.32), inset 0 0 0 1px rgba(255,255,255,0.4), 0 2px 0 rgba(107,78,10,0.35);
     display:flex;flex-direction:column;
     overflow:hidden;
   }
   .tph-ceo-office.active{
-    box-shadow:0 0 36px rgba(201,168,76,0.7);
+    box-shadow:0 0 28px rgba(201,168,76,0.7);
     animation:tph-gold-pulse 1.4s ease-in-out infinite;
   }
   @keyframes tph-gold-pulse{
-    0%,100%{box-shadow:0 0 24px rgba(201,168,76,0.4)}
-    50%{box-shadow:0 0 48px rgba(201,168,76,0.85)}
+    0%,100%{box-shadow:0 0 16px rgba(201,168,76,0.4)}
+    50%{box-shadow:0 0 34px rgba(201,168,76,0.85)}
   }
   .tph-ceo-office__head{
-    padding:8px 12px;background:linear-gradient(180deg, var(--gold-strong) 0%, #a07f2e 100%);
-    color:#fef9ec;font-weight:800;font-size:12px;letter-spacing:1.2px;
-    border-bottom:2px solid #a07f2e;
+    padding:3px 8px;background:linear-gradient(180deg, var(--gold-strong) 0%, #a07f2e 100%);
+    color:#fef9ec;font-weight:800;font-size:9.5px;letter-spacing:0.8px;
+    border-bottom:1px solid #a07f2e;
     text-shadow:0 1px 0 rgba(0,0,0,0.3);
   }
   .tph-ceo-office__floor{flex:1;position:relative}
   .tph-ceo-character{
-    position:absolute;left:50%;bottom:30%;transform:translateX(-50%);
-    width:28px;height:36px;image-rendering:pixelated;
+    position:absolute;left:50%;bottom:22%;transform:translateX(-50%);
+    width:22px;height:28px;image-rendering:pixelated;
   }
   .tph-ceo-office.active .tph-ceo-character{animation:tph-cheer 1.6s ease-in-out infinite}
+
+  /* 상무실 내부 — 소형 책상 */
+  .tph-ceo-office__floor::before{
+    content:"";position:absolute;left:50%;bottom:6%;transform:translateX(-50%);
+    width:44px;height:10px;
+    background:linear-gradient(180deg, var(--wood-mid) 0%, var(--wood-dark) 100%);
+    border:1px solid var(--wood-dark);border-radius:2px;
+    box-shadow:0 2px 0 rgba(90,62,8,0.5);
+  }
+  /* 상무실 화분 우측 */
+  .tph-ceo-office__floor::after{
+    content:"";position:absolute;right:6px;bottom:4px;
+    width:9px;height:13px;
+    background:radial-gradient(ellipse at 50% 35%, #4CAF50 0%, #2E7D32 60%, transparent 65%),
+               linear-gradient(180deg, transparent 65%, #8B6914 65%, #6B4E0A 100%);
+  }
+
+  /* ── 휴게실 (상무실 아래) ────────────────────────────────── */
+  .tph-break-room{
+    position:absolute;right:14px;top:142px;width:160px;bottom:14px;
+    background:#E8F5E9;
+    background-image:repeating-linear-gradient(90deg,
+      transparent 0px, transparent 14px,
+      rgba(107,78,10,0.10) 14px, rgba(107,78,10,0.10) 15px);
+    border:2px solid var(--wood-dark);border-radius:8px;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,0.3), 0 2px 0 rgba(107,78,10,0.3);
+    overflow:hidden;
+    display:flex;flex-direction:column;
+  }
+  .tph-break-room__head{
+    padding:3px 6px;background:linear-gradient(180deg, #6b8e6b 0%, #4a6a4a 100%);
+    color:#fef9ec;font-weight:800;font-size:9px;letter-spacing:0.6px;
+    border-bottom:1px solid #4a6a4a;
+    text-shadow:0 1px 0 rgba(0,0,0,0.25);
+  }
+  .tph-break-room__floor{flex:1;position:relative}
+  /* 소파 좌 */
+  .tph-break-room__floor::before{
+    content:"";position:absolute;left:10px;top:30%;
+    width:26px;height:12px;
+    background:linear-gradient(180deg, #8b5a2b 0%, #6b4219 100%);
+    border:1px solid #3a2410;border-radius:3px 3px 1px 1px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.2), 0 2px 0 rgba(0,0,0,0.3);
+  }
+  /* 소파 우 */
+  .tph-break-room__floor::after{
+    content:"";position:absolute;right:10px;top:30%;
+    width:26px;height:12px;
+    background:linear-gradient(180deg, #8b5a2b 0%, #6b4219 100%);
+    border:1px solid #3a2410;border-radius:3px 3px 1px 1px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.2), 0 2px 0 rgba(0,0,0,0.3);
+  }
+  /* 커피 테이블 / 자판기 / TV / 화분 */
+  .tph-break-table{
+    position:absolute;left:50%;top:52%;transform:translateX(-50%);
+    width:22px;height:8px;
+    background:linear-gradient(180deg, #a58844 0%, #6B4E0A 100%);
+    border:1px solid #3a2410;border-radius:2px;
+    box-shadow:0 2px 0 rgba(0,0,0,0.3);
+  }
+  .tph-break-table::after{
+    content:"";position:absolute;top:1px;left:50%;transform:translateX(-50%);
+    width:6px;height:3px;background:#6b3419;border-radius:1px;
+  }
+  .tph-break-vending{
+    position:absolute;right:6px;bottom:6px;
+    width:18px;height:28px;
+    background:linear-gradient(180deg, #dc2626 0%, #991b1b 100%);
+    border:1.5px solid #5a1010;border-radius:2px;
+    box-shadow:inset 0 2px 0 rgba(255,255,255,0.15);
+  }
+  .tph-break-vending::before{
+    content:"";position:absolute;top:3px;left:2px;
+    width:13px;height:8px;background:#1a1a2e;border:1px solid #000;border-radius:1px;
+  }
+  .tph-break-vending::after{
+    content:"";position:absolute;bottom:3px;left:2px;
+    width:13px;height:4px;background:#fef9ec;border:1px solid #000;border-radius:1px;
+  }
+  .tph-break-tv{
+    position:absolute;left:6px;top:6px;
+    width:22px;height:14px;
+    background:#1a1a2e;border:2px solid #2a1a0a;border-radius:2px;
+    box-shadow:0 2px 0 rgba(0,0,0,0.3), inset 0 0 0 1px #374a70;
+  }
+  .tph-break-tv::after{
+    content:"";position:absolute;inset:2px;
+    background:linear-gradient(135deg, #4a90d9 0%, #2a5580 100%);
+    animation:tph-tv-flicker 1.6s ease-in-out infinite;
+  }
+  @keyframes tph-tv-flicker{
+    0%,100%{opacity:0.85}50%{opacity:1}
+  }
+  .tph-break-plant-l, .tph-break-plant-r{
+    position:absolute;
+    width:11px;height:15px;
+    background:radial-gradient(ellipse at 50% 35%, #66BB6A 0%, #2E7D32 60%, transparent 65%),
+               linear-gradient(180deg, transparent 62%, #8B6914 62%, #6B4E0A 100%);
+  }
+  .tph-break-plant-l{left:32px;bottom:6px}
+  .tph-break-plant-r{right:30px;bottom:38px}
 
   /* CRITIC 캐릭터 (복도) */
   .tph-critic{
@@ -521,12 +646,13 @@
   .tph-critic.show{opacity:1}
   .tph-critic.hide{opacity:0}
 
-  /* 우하단 원형 게이지 — 크림 아이보리 + 골드 */
+  /* 우하단 원형 게이지 — 휴게실 공간 확보를 위해 비활성 (HUD 에 카운터 노출됨) */
   .tph-gauge{
+    display:none;
     position:absolute;right:24px;bottom:24px;
     width:80px;height:80px;
     background:rgba(245,240,232,0.92);border:3px solid var(--gold-strong);border-radius:50%;
-    display:flex;align-items:center;justify-content:center;
+    align-items:center;justify-content:center;
     flex-direction:column;
     box-shadow:0 0 18px rgba(201,168,76,0.35), 0 3px 0 rgba(107,78,10,0.3);
     z-index:5;
@@ -699,8 +825,20 @@
   .toggle-btn:hover{background:var(--surface);color:var(--text)}
   .toggle-sidebar{top:10px;left:8px;transition:left .25s ease}
   .app[data-sidebar="open"] .toggle-sidebar{left:calc(var(--sidebar-w,260px) - 38px)}
-  .toggle-panel{top:50%;right:8px;transform:translateY(-50%);transition:right .25s ease}
-  .app[data-panel="open"] .toggle-panel{right:264px}
+
+  /* 우측 패널 상단 토글 버튼 (탭바 맨 오른쪽) */
+  .panel-tab-toggle{
+    margin-left:auto;background:transparent;border:none;cursor:pointer;
+    color:var(--gold-strong);font-size:12px;font-weight:700;padding:4px 9px;
+    border-left:1px solid var(--border-soft);align-self:stretch;flex-shrink:0;
+    transition:background .15s;
+  }
+  .panel-tab-toggle:hover{background:rgba(201,168,76,0.15);color:#a07f2e}
+  /* 패널 닫힘 상태: 탭/본문 숨기고 토글만 노출 */
+  .app[data-panel="closed"] .tab-btn:not(.panel-tab-toggle){display:none}
+  .app[data-panel="closed"] .panel-body{display:none}
+  .app[data-panel="closed"] .panel-resize{display:none}
+  .app[data-panel="closed"] .panel-tab-toggle{border-left:none;margin-left:0}
 
   /* toast */
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:8px;font-size:14.5px;z-index:300;box-shadow:0 10px 30px rgba(100,90,70,.22);opacity:0;transition:opacity .2s}
@@ -711,7 +849,6 @@
 <div class="app" id="app" data-sidebar="open" data-panel="open">
 
   <button class="toggle-btn toggle-sidebar" id="toggleSidebar" title="사이드바">☰</button>
-  <button class="toggle-btn toggle-panel" id="togglePanel" title="우측 패널">◀</button>
 
   <!-- sidebar -->
   <aside class="sidebar">
@@ -792,6 +929,17 @@
           </div>
         </div>
 
+        <div class="tph-break-room" id="tphBreakRoom">
+          <div class="tph-break-room__head">☕ 휴게실</div>
+          <div class="tph-break-room__floor">
+            <div class="tph-break-tv"></div>
+            <div class="tph-break-vending"></div>
+            <div class="tph-break-table"></div>
+            <div class="tph-break-plant-l"></div>
+            <div class="tph-break-plant-r"></div>
+          </div>
+        </div>
+
         <div class="tph-critic hide" id="tphCritic">
           <svg viewBox="0 0 24 32" width="100%" height="100%" shape-rendering="crispEdges">
             <!-- 얼굴 -->
@@ -866,6 +1014,7 @@
         <button class="tab-btn" data-tab="sales">매출</button>
         <button class="tab-btn" data-tab="pos">POS</button>
         <button class="tab-btn" data-tab="report">보고</button>
+        <button class="tab-btn panel-tab-toggle" id="togglePanel" title="패널 여닫기">▶</button>
       </div>
       <div class="panel-body" id="panelBody"></div>
     </div>
@@ -967,6 +1116,19 @@
       </svg>`;
   }
 
+  // 방별 화분 배치 (생동감) — 바쁜 부서(compete/finance/data)는 없음
+  const TPH_PLANTS = {
+    market:    ['pos-br'],
+    legal:     ['pos-br'],
+    rnd:       ['pos-br'],
+    content:   ['pos-br'],
+    marketing: ['pos-br', 'pos-bl'],
+    sns:       ['pos-br', 'pos-bl'],
+    compete:   [],
+    finance:   [],
+    data:      [],
+  };
+
   function tphInitGrid() {
     const grid = document.getElementById('tphGrid');
     if (!grid) return;
@@ -977,6 +1139,7 @@
       room.className = 'tph-room';
       room.dataset.dept = deptId;
       room.dataset.state = 'idle';
+      const plants = (TPH_PLANTS[deptId] || []).map(p => `<div class="tph-plant ${p}"></div>`).join('');
       room.innerHTML = `
         <div class="tph-room__head">
           <span class="tph-room__icon">${TPH_DEPT_ICON[deptId] || '📁'}</span>
@@ -986,6 +1149,7 @@
         <div class="tph-room__floor">
           <div class="tph-floor-planks"></div>
           <div class="tph-wall-top"></div>
+          ${plants}
           <div class="tph-door"></div>
           <div class="tph-chair"></div>
           <div class="tph-desk"></div>
@@ -1197,6 +1361,164 @@
     }, 750);
   }
 
+  /* ── Phase D: 휴게실 wander (idle 직원 주기적 방문) ─────────────────────
+   * _charLocation: 각 부서 캐릭터의 현재 위치 ('desk' | 'break')
+   * _breakReturnTimers: 휴게실에서 복귀 예약된 setTimeout id
+   * dept_start 시 휴게실에 있으면 먼저 복귀 후 상무실 왕복.
+   */
+  const _charLocation = new Map();      // deptId → 'desk' | 'break'
+  const _breakReturnTimers = new Map(); // deptId → timeoutId
+  const BREAK_EMOJIS = ['☕', '😴', '🎵', '📱', '🍫'];
+  const IDLE_WANDER_INTERVAL_MS = 15000;
+  const BREAK_PROBABILITY = 0.25;
+  const BREAK_REST_MIN_MS = 30000;
+  const BREAK_REST_MAX_MS = 60000;
+
+  // 휴게실 내부 랜덤 좌석 좌표 (소파 좌/우 중앙)
+  function _tphBreakSeat() {
+    const br = document.getElementById('tphBreakRoom');
+    const stage = document.getElementById('tph-stage');
+    if (!br || !stage) return null;
+    const brRect = br.getBoundingClientRect();
+    const stRect = stage.getBoundingClientRect();
+    const leftSeat  = { x: brRect.left - stRect.left + 22, y: brRect.top - stRect.top + brRect.height * 0.35 };
+    const rightSeat = { x: brRect.left - stRect.left + brRect.width - 32, y: brRect.top - stRect.top + brRect.height * 0.35 };
+    return Math.random() < 0.5 ? leftSeat : rightSeat;
+  }
+
+  function tphGoToBreakRoom(deptId) {
+    if (_tphWalking.has(deptId)) return;
+    if (_charLocation.get(deptId) === 'break') return;
+    const room = document.querySelector(`.tph-room[data-dept="${deptId}"]`);
+    const char = room?.querySelector('.tph-character');
+    const stage = document.getElementById('tph-stage');
+    const seat = _tphBreakSeat();
+    if (!room || !char || !stage || !seat) return;
+
+    _tphWalking.add(deptId);
+    _charLocation.set(deptId, 'break');
+
+    if (!char._tphHome) {
+      char._tphHome = { parent: char.parentElement, nextSibling: char.nextSibling };
+    }
+    // 리프팅
+    const charRect = char.getBoundingClientRect();
+    const stRect = stage.getBoundingClientRect();
+    const startX = charRect.left - stRect.left;
+    const startY = charRect.top - stRect.top;
+    stage.appendChild(char);
+    char.classList.add('tph-walk-lifted', 'is-walking');
+    char.style.position = 'absolute';
+    char.style.left = startX + 'px';
+    char.style.top = startY + 'px';
+    char.style.bottom = 'auto';
+    char.style.transform = 'none';
+
+    requestAnimationFrame(() => {
+      char.style.left = seat.x + 'px';
+      char.style.top = seat.y + 'px';
+    });
+
+    setTimeout(() => {
+      char.classList.remove('is-walking');
+      char.classList.add('is-reporting');
+      _tphWalking.delete(deptId);
+      // 이모지 뱃지
+      const existing = char.querySelector('.tph-char-emoji');
+      if (existing) existing.remove();
+      const em = document.createElement('div');
+      em.className = 'tph-char-emoji';
+      em.textContent = BREAK_EMOJIS[Math.floor(Math.random() * BREAK_EMOJIS.length)];
+      char.appendChild(em);
+
+      // 30~60초 후 자동 복귀
+      const rest = BREAK_REST_MIN_MS + Math.random() * (BREAK_REST_MAX_MS - BREAK_REST_MIN_MS);
+      const tid = setTimeout(() => {
+        _breakReturnTimers.delete(deptId);
+        tphReturnFromBreak(deptId);
+      }, rest);
+      _breakReturnTimers.set(deptId, tid);
+    }, 900);
+  }
+
+  function tphReturnFromBreak(deptId, onDone) {
+    // 예약된 자동 복귀 타이머 취소
+    const tid = _breakReturnTimers.get(deptId);
+    if (tid != null) { clearTimeout(tid); _breakReturnTimers.delete(deptId); }
+
+    if (_charLocation.get(deptId) !== 'break') { onDone?.(); return; }
+    const char = document.querySelector(`#tph-stage > .tph-character`);
+    // Above selector matches ANY lifted char; we need the right one via _tphHome ownership.
+    // Iterate lifted chars and find the one whose _tphHome maps to this deptId's room.
+    const room = document.querySelector(`.tph-room[data-dept="${deptId}"]`);
+    if (!room) { _charLocation.delete(deptId); onDone?.(); return; }
+    const stage = document.getElementById('tph-stage');
+    const liftedChars = stage.querySelectorAll(':scope > .tph-character');
+    let myChar = null;
+    for (const c of liftedChars) {
+      if (c._tphHome && c._tphHome.parent && room.contains(c._tphHome.parent)) { myChar = c; break; }
+    }
+    if (!myChar) { _charLocation.delete(deptId); onDone?.(); return; }
+
+    _tphWalking.add(deptId);
+    // 이모지 제거 + walking 재시작
+    myChar.querySelector('.tph-char-emoji')?.remove();
+    myChar.classList.remove('is-reporting');
+    myChar.classList.add('is-walking');
+
+    const rct = room.getBoundingClientRect();
+    const srct = stage.getBoundingClientRect();
+    const homeX = rct.left - srct.left + rct.width / 2 - 10;
+    const homeY = rct.top - srct.top + rct.height * 0.62;
+    myChar.style.left = homeX + 'px';
+    myChar.style.top = homeY + 'px';
+
+    setTimeout(() => {
+      myChar.classList.remove('tph-walk-lifted', 'is-walking', 'is-reporting');
+      myChar.style.cssText = '';
+      const home = myChar._tphHome;
+      if (home?.parent && home.parent.isConnected) {
+        if (home.nextSibling && home.nextSibling.parentElement === home.parent) {
+          home.parent.insertBefore(myChar, home.nextSibling);
+        } else {
+          home.parent.appendChild(myChar);
+        }
+      }
+      _tphWalking.delete(deptId);
+      _charLocation.set(deptId, 'desk');
+      onDone?.();
+    }, 750);
+  }
+
+  function tphStartIdleWander() {
+    setInterval(() => {
+      // 미션 진행 중이면 wander 중단 (현재 어떤 부서도 working 이면 idle time 아님)
+      const anyWorking = TPH_LAYOUT.some(id => {
+        const r = document.querySelector(`.tph-room[data-dept="${id}"]`);
+        return r && ['working','rework'].includes(r.dataset.state);
+      });
+      if (anyWorking) return;
+
+      for (const deptId of TPH_LAYOUT) {
+        const room = document.querySelector(`.tph-room[data-dept="${deptId}"]`);
+        if (!room || room.dataset.state !== 'idle') continue;
+        if (_tphWalking.has(deptId)) continue;
+        if (_charLocation.get(deptId) === 'break') continue;
+        if (Math.random() < BREAK_PROBABILITY) {
+          tphGoToBreakRoom(deptId);
+        }
+      }
+    }, IDLE_WANDER_INTERVAL_MS);
+
+    // 초기 3초 후 — 랜덤 1~2명 휴게실 선배치 (ambiance)
+    setTimeout(() => {
+      const candidates = ['content', 'sns', 'data'];
+      const pickCount = 1 + Math.floor(Math.random() * 2);
+      const shuffled = candidates.slice().sort(() => Math.random() - 0.5);
+      shuffled.slice(0, pickCount).forEach(d => tphGoToBreakRoom(d));
+    }, 3000);
+  }
+
   function tphHandleEvent(e) {
     const d = (e && e.detail) || {};
     switch (d.type) {
@@ -1222,14 +1544,20 @@
         break;
       }
       case 'dept_start': {
-        // Phase C: 상무실로 지시받으러 → 복귀 → working 시작
-        // 방 에 지시 말풍선 즉시 표시 (부재 시 기본 텍스트)
+        // Phase C/D: 휴게실에 있으면 먼저 복귀 → 상무실 왕복 → working
         const obj = d.objective ? String(d.objective).slice(0, 28) : '지시 수령';
         tphSetBubble(d.deptId, obj, 4200);
-        tphWalkToSanmoo(d.deptId, 500, () => {
-          tphSetRoomState(d.deptId, 'working');
-          tphStartAutoProgress(d.deptId);
-        });
+        const runStart = () => {
+          tphWalkToSanmoo(d.deptId, 500, () => {
+            tphSetRoomState(d.deptId, 'working');
+            tphStartAutoProgress(d.deptId);
+          });
+        };
+        if (_charLocation.get(d.deptId) === 'break') {
+          tphReturnFromBreak(d.deptId, runStart);
+        } else {
+          runStart();
+        }
         break;
       }
       case 'dept_progress':
@@ -1306,6 +1634,8 @@
   // 초기 그리드 렌더
   tphInitGrid();
   tphUpdateProgress();
+  // Phase D: idle wander (휴게실 방문) — 그리드 준비 후 시작
+  tphStartIdleWander();
 
   // slash commands
   const SLASH_COMMANDS = [
@@ -1402,7 +1732,8 @@
   function applyToggles(){
     dom.app.dataset.sidebar = localStorage.getItem(LS.SIDEBAR) === 'closed' ? 'closed' : 'open';
     dom.app.dataset.panel   = localStorage.getItem(LS.PANEL)   === 'closed' ? 'closed' : 'open';
-    dom.togglePanel.textContent = dom.app.dataset.panel === 'open' ? '◀' : '▶';
+    // 토글이 패널 내부로 옮겨졌으므로 화살표 방향 반전: 열림 → ▶ (닫기), 닫힘 → ◀ (열기)
+    dom.togglePanel.textContent = dom.app.dataset.panel === 'open' ? '▶' : '◀';
   }
   dom.toggleSidebar.addEventListener('click', () => {
     const next = dom.app.dataset.sidebar === 'open' ? 'closed' : 'open';
@@ -1410,11 +1741,12 @@
     localStorage.setItem(LS.SIDEBAR, next);
   });
   dom.sbToggleCollapse.addEventListener('click', () => dom.toggleSidebar.click());
-  dom.togglePanel.addEventListener('click', () => {
+  dom.togglePanel.addEventListener('click', (ev) => {
+    ev.stopPropagation();
     const next = dom.app.dataset.panel === 'open' ? 'closed' : 'open';
     dom.app.dataset.panel = next;
     localStorage.setItem(LS.PANEL, next);
-    dom.togglePanel.textContent = next === 'open' ? '◀' : '▶';
+    dom.togglePanel.textContent = next === 'open' ? '▶' : '◀';
   });
 
   // sidebar resize
@@ -3444,7 +3776,10 @@
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     renderPanel();
   }
-  document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    if (b.classList.contains('panel-tab-toggle')) return;  // 토글 버튼은 tab 전환 대상 아님
+    b.addEventListener('click', () => switchTab(b.dataset.tab));
+  });
 
   let posCache = null;
   async function fetchPos(){
