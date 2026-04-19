@@ -172,26 +172,15 @@
   #phaser-container{width:100%;height:100%;display:none}
   #phaser-container canvas{display:block}
 
-  /* ─── 진짜 픽셀아트 오피스 (640×360 viewBox, 4px 그리드, crispEdges) ───────── */
+  /* ─── 평면 2D top-down 오피스 (800×440 viewBox, SimCity 스타일) ───────── */
   #tph-stage{
     position:relative;width:100%;height:100%;
-    background:#F8F9FB;
+    background:#E8EAF0;
     overflow:hidden;
     color:var(--text-dark);
   }
-  /* 픽셀아트 모드 강제 — 이 컨테이너 내 모든 SVG/텍스트에 AA 비활성 */
-  #office-stage,
-  .tph-grid-bg{
-    image-rendering:pixelated;
-    image-rendering:-moz-crisp-edges;
-    image-rendering:crisp-edges;
-    shape-rendering:crispEdges;
-  }
-  #office-stage text{
-    font-family:'Courier New','Consolas',monospace !important;
-    -webkit-font-smoothing:none !important;
-    text-rendering:geometricPrecision !important;
-  }
+  /* 2D 평면도 — crispEdges 만 유지 (픽셀 강제는 해제, 원/곡선 있음) */
+  .tph-grid-bg{ shape-rendering:crispEdges }
   .tph-iso-svg{ display:none }
 
   /* 배경 SVG 내 desk 그룹 — 상태별 모니터 발광 (픽셀아트 팔레트) */
@@ -437,10 +426,10 @@
   }
   .tph-bubble.show{opacity:1}
 
-  /* 상무 테이블 — 우측 상단 (640×360 viewBox, sanmooZone 440,120→560,180 히트박스) */
+  /* 상무 테이블 — 우측 상단 (800×440 viewBox, sanmooZone 560,50→780,140 히트박스) */
   .tph-ceo-office{
     position:absolute;
-    left:69%;top:33%;width:19%;height:17%;
+    left:70%;top:11%;width:28%;height:21%;
     background:transparent;
     border:none;
     box-shadow:none;
@@ -495,10 +484,10 @@
                linear-gradient(180deg, transparent 65%, #A1887F 65%, #6D4C41 100%);
   }
 
-  /* ── 휴게실 — 우측 하단 (640×360 viewBox, loungeZone 432,266→592,322 히트박스) ── */
+  /* ── 휴게실 — 우측 하단 (800×440 viewBox, loungeZone 560,300→780,420 히트박스) ── */
   .tph-break-room{
     position:absolute;
-    left:67%;top:74%;width:25%;height:16%;
+    left:70%;top:68%;width:28%;height:27%;
     background:transparent;
     border:none;
     box-shadow:none;
@@ -507,10 +496,10 @@
     z-index:3;
     pointer-events:none;
   }
-  /* 미팅룸 — 우측 중단 (meetingZone 432,202→572,254 히트박스) */
+  /* 미팅룸 — 우측 중단 (meetingZone 560,170→780,280 히트박스) */
   .tph-meeting-room{
     position:absolute;
-    left:67%;top:56%;width:22%;height:15%;
+    left:70%;top:39%;width:28%;height:25%;
     background:transparent;
     border:none;
     overflow:visible;
@@ -1180,21 +1169,21 @@
     data:      [],
   };
 
-  // 책상 좌표 (진짜 픽셀아트 오피스, 4px 그리드) — viewBox 640×360 기준
-  // 캐릭터(의자) 위치: drawDesk(x, y) 의 (x+16, y+28) 지점
+  // 책상 좌표 (평면 2D top-down 오피스) — viewBox 800×440 기준
+  // 캐릭터(의자) 위치: drawDesk2D(x, y) 의 (x+40, y+70) 지점 = 의자 중앙
   const TPH_DESK_POS = {
-    market:    { x: 116, y: 188 },
-    marketing: { x: 196, y: 168 },
-    finance:   { x: 276, y: 148 },
-    legal:     { x: 136, y: 238 },
-    compete:   { x: 216, y: 218 },
-    rnd:       { x: 296, y: 198 },
-    data:      { x: 156, y: 288 },
-    content:   { x: 236, y: 268 },
-    sns:       { x: 316, y: 248 },
-    design:    { x: 216, y: 328 },
+    market:    { x: 80,  y: 130 },
+    marketing: { x: 200, y: 130 },
+    finance:   { x: 320, y: 130 },
+    legal:     { x: 440, y: 130 },
+    compete:   { x: 80,  y: 240 },
+    rnd:       { x: 200, y: 240 },
+    content:   { x: 320, y: 240 },
+    sns:       { x: 440, y: 240 },
+    data:      { x: 140, y: 360 },
+    design:    { x: 380, y: 360 },
   };
-  const VB_W = 640, VB_H = 360;
+  const VB_W = 800, VB_H = 440;
 
   function tphInitGrid() {
     const grid = document.getElementById('tphGrid');
@@ -1227,259 +1216,195 @@
     });
   }
 
-  // 진짜 픽셀아트 오피스 — 4px 그리드, rect 만 사용, crispEdges, 3~4단계 플래토 (그라디언트 금지)
-  // viewBox 640×360, 모든 좌표 4px 배수. 아이소메트릭은 2:1 계단식 근사.
-  // 팔레트: 바닥 #E4E6EA/#C8CDD4/#A8ADB5, 벽 #F0F0F2/#E4E6EA, 가구 #6B7380/#4A5260/#2A2E38, 골드 #E4C773/#C9A84C/#8B6914
+  // 평면 2D top-down 오피스 — SimCity 스타일 평면도 (아이소메트릭 완전 포기)
+  // viewBox 800×440, 바닥 은색펄 타일 그리드(40px) + 외벽 두꺼운 테두리 + 내부 점선 구분
+  // 팔레트: 바닥 #E8EAF0, 가구 #6B7380/#4A5260/#2A2E38, 골드 #E4C773/#C9A84C, 액센트 #E24B4A
   function tphBuildOfficeBgSvg() {
-    // ─── 인라인 드로잉 헬퍼 (모듈 스코프 오염 방지) ───
-    const drawIsoFloor = (x, y, w, h) => {
-      const rows = [];
-      const rowHeight = 4;
-      const numRows = h / rowHeight;
-      for (let i = 0; i < numRows; i++) {
-        const ry = y + i * rowHeight;
-        const offset = (i / numRows) * (w * 0.3);
-        const leftX = x + offset;
-        const rightX = x + w - offset;
-        const width = rightX - leftX;
-        const color = i % 16 < 4 ? '#E4E6EA' : (i % 16 < 12 ? '#C8CDD4' : '#D4D9DE');
-        rows.push(`<rect x="${leftX}" y="${ry}" width="${width}" height="${rowHeight}" fill="${color}"/>`);
-      }
-      rows.push(`<rect x="${x}" y="${y+h}" width="${w*0.7}" height="6" fill="#8B929C"/>`);
-      return rows.join('');
-    };
-
-    const drawLeftWall = (x1, y1, x2, y2) => {
-      const rects = [];
-      const steps = 20;
-      const stepW = (x2 - x1) / steps;
-      const stepH = (y2 - y1) / steps;
-      const wallHeight = 80;
-      for (let i = 0; i < steps; i++) {
-        const sx = x1 + i * stepW;
-        const sy = y1 + i * stepH;
-        rects.push(`<rect x="${sx}" y="${sy - wallHeight}" width="${stepW + 1}" height="${wallHeight}" fill="#F0F0F2"/>`);
-        rects.push(`<rect x="${sx}" y="${sy - wallHeight}" width="${stepW + 1}" height="2" fill="#A8ADB5"/>`);
-      }
-      return rects.join('');
-    };
-
-    const drawBackWall = (x1, y1, x2, y2) => {
-      const rects = [];
-      const steps = 20;
-      const stepW = (x2 - x1) / steps;
-      const stepH = (y2 - y1) / steps;
-      const wallHeight = 80;
-      for (let i = 0; i < steps; i++) {
-        const sx = x1 + i * stepW;
-        const sy = y1 + i * stepH;
-        rects.push(`<rect x="${sx}" y="${sy - wallHeight}" width="${stepW + 1}" height="${wallHeight}" fill="#E4E6EA"/>`);
-        rects.push(`<rect x="${sx}" y="${sy - wallHeight}" width="${stepW + 1}" height="2" fill="#A8ADB5"/>`);
-      }
-      return rects.join('');
-    };
-
-    const drawPixelWindow = (x, y, w, h) => `
-      <rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#FAFCFE"/>
-      <rect x="${x}" y="${y}" width="${w}" height="2" fill="#6B7380"/>
-      <rect x="${x}" y="${y+h-2}" width="${w}" height="2" fill="#6B7380"/>
-      <rect x="${x}" y="${y}" width="2" height="${h}" fill="#6B7380"/>
-      <rect x="${x+w-2}" y="${y}" width="2" height="${h}" fill="#6B7380"/>
-      <rect x="${x+w/2-1}" y="${y}" width="2" height="${h}" fill="#6B7380"/>
-      <rect x="${x}" y="${y+h/2-1}" width="${w}" height="2" fill="#6B7380"/>
-      <rect x="${x+4}" y="${y+4}" width="4" height="${h/2-6}" fill="#FFFFFF" opacity="0.5"/>`;
-
-    const drawCorvusLogo = (x, y) => `
-      <rect x="${x}" y="${y}" width="100" height="28" fill="#0F0A14"/>
-      <rect x="${x}" y="${y}" width="100" height="2" fill="#C9A84C"/>
-      <rect x="${x}" y="${y+26}" width="100" height="2" fill="#C9A84C"/>
-      <rect x="${x}" y="${y}" width="2" height="28" fill="#C9A84C"/>
-      <rect x="${x+98}" y="${y}" width="2" height="28" fill="#C9A84C"/>
-      <text x="${x+50}" y="${y+18}" text-anchor="middle" font-family="'Courier New',monospace" font-size="11" font-weight="bold" fill="#C9A84C">CORVUS X</text>`;
-
-    const drawWhiteboard = (x, y) => `
-      <rect x="${x}" y="${y}" width="72" height="44" fill="#FAFAFC"/>
-      <rect x="${x}" y="${y}" width="72" height="2" fill="#4A5260"/>
-      <rect x="${x}" y="${y+42}" width="72" height="2" fill="#4A5260"/>
-      <rect x="${x}" y="${y}" width="2" height="44" fill="#4A5260"/>
-      <rect x="${x+70}" y="${y}" width="2" height="44" fill="#4A5260"/>
-      <rect x="${x+6}" y="${y+8}" width="24" height="2" fill="#4A90D9"/>
-      <rect x="${x+6}" y="${y+14}" width="40" height="2" fill="#4A5260"/>
-      <rect x="${x+6}" y="${y+20}" width="20" height="2" fill="#E24B4A"/>
-      <rect x="${x+34}" y="${y+26}" width="4" height="12" fill="#4A90D9"/>
-      <rect x="${x+42}" y="${y+22}" width="4" height="16" fill="#4CAF50"/>
-      <rect x="${x+50}" y="${y+30}" width="4" height="8" fill="#FF9800"/>
-      <rect x="${x+58}" y="${y+18}" width="4" height="20" fill="#BA68C8"/>`;
-
-    const drawWallClock = (x, y) => `
-      <rect x="${x}" y="${y}" width="16" height="16" fill="#FAFAFC"/>
-      <rect x="${x+2}" y="${y}" width="12" height="2" fill="#4A5260"/>
-      <rect x="${x+2}" y="${y+14}" width="12" height="2" fill="#4A5260"/>
-      <rect x="${x}" y="${y+2}" width="2" height="12" fill="#4A5260"/>
-      <rect x="${x+14}" y="${y+2}" width="2" height="12" fill="#4A5260"/>
-      <rect x="${x+7}" y="${y+4}" width="2" height="4" fill="#2A2E38"/>
-      <rect x="${x+8}" y="${y+8}" width="4" height="2" fill="#2A2E38"/>`;
-
-    const drawWaterCooler = (x, y) => `
-      <ellipse cx="${x+10}" cy="${y}" rx="10" ry="3" fill="#4AD9F5"/>
-      <rect x="${x+1}" y="${y}" width="18" height="14" fill="#7BE4F7"/>
-      <rect x="${x+1}" y="${y}" width="18" height="2" fill="#4AD9F5"/>
-      <rect x="${x}" y="${y+14}" width="20" height="24" fill="#D8DCE2"/>
-      <rect x="${x}" y="${y+14}" width="20" height="2" fill="#A8ADB5"/>
-      <rect x="${x}" y="${y+36}" width="20" height="2" fill="#6B7380"/>
-      <rect x="${x+4}" y="${y+22}" width="4" height="4" fill="#E24B4A"/>
-      <rect x="${x+12}" y="${y+22}" width="4" height="4" fill="#4A90D9"/>
-      <rect x="${x+6}" y="${y+30}" width="8" height="2" fill="#6B7380"/>`;
-
-    const drawPlant = (x, y) => `
-      <rect x="${x}" y="${y+8}" width="16" height="14" fill="#C9A84C"/>
-      <rect x="${x}" y="${y+8}" width="16" height="2" fill="#E4C773"/>
-      <rect x="${x}" y="${y+20}" width="16" height="2" fill="#8B6914"/>
-      <rect x="${x+4}" y="${y}" width="2" height="10" fill="#4CAF50"/>
-      <rect x="${x+6}" y="${y-2}" width="4" height="12" fill="#66BB6A"/>
-      <rect x="${x+10}" y="${y}" width="2" height="10" fill="#4CAF50"/>
-      <rect x="${x+2}" y="${y+2}" width="2" height="6" fill="#388E3C"/>
-      <rect x="${x+12}" y="${y+2}" width="2" height="6" fill="#388E3C"/>`;
-
-    const drawDesk = (x, y, id, label) => `
-      <g class="desk" id="desk-${id}" data-dept="${id}" data-home-x="${x+16}" data-home-y="${y+28}">
-        <rect x="${x}" y="${y+12}" width="48" height="12" fill="#4A5260"/>
-        <rect x="${x}" y="${y+12}" width="48" height="2" fill="#6B7380"/>
-        <rect x="${x}" y="${y+22}" width="48" height="2" fill="#2A2E38"/>
-        <rect x="${x+4}" y="${y+24}" width="4" height="8" fill="#2A2E38"/>
-        <rect x="${x+40}" y="${y+24}" width="4" height="8" fill="#2A2E38"/>
-        <rect x="${x+18}" y="${y+10}" width="12" height="2" fill="#6B7380"/>
-        <rect x="${x+22}" y="${y+8}" width="4" height="2" fill="#4A5260"/>
-        <rect class="monitor-back" x="${x+16}" y="${y-4}" width="16" height="14" fill="#2A2E38"/>
-        <rect class="monitor-screen" x="${x+18}" y="${y-2}" width="12" height="10" fill="#1A3A5A"/>
-        <rect x="${x+18}" y="${y+16}" width="12" height="3" fill="#D8DCE2"/>
-        <rect x="${x+19}" y="${y+17}" width="1" height="1" fill="#6B7380"/>
-        <rect x="${x+21}" y="${y+17}" width="1" height="1" fill="#6B7380"/>
-        <rect x="${x+23}" y="${y+17}" width="1" height="1" fill="#6B7380"/>
-        <rect x="${x+25}" y="${y+17}" width="1" height="1" fill="#6B7380"/>
-        <rect x="${x+27}" y="${y+17}" width="1" height="1" fill="#6B7380"/>
-        <rect x="${x+20}" y="${y+22}" width="8" height="6" fill="#2A2E38"/>
-        <rect x="${x+22}" y="${y+18}" width="4" height="6" fill="#2A2E38"/>
-        <rect x="${x+20}" y="${y+28}" width="2" height="2" fill="#1A1A1E"/>
-        <rect x="${x+26}" y="${y+28}" width="2" height="2" fill="#1A1A1E"/>
-        <text x="${x+24}" y="${y+36}" text-anchor="middle" font-family="'Courier New',monospace" font-size="8" font-weight="bold" fill="#4A5260">${label}</text>
+    // ─── 평면 2D 드로잉 헬퍼 (모듈 스코프 오염 방지) ───
+    const drawDesk2D = (x, y, id, label) => `
+      <g class="desk" id="desk-${id}" data-dept="${id}" data-home-x="${x+40}" data-home-y="${y+70}">
+        <!-- 책상 상판 -->
+        <rect x="${x}" y="${y}" width="80" height="40" fill="#6B7380" stroke="#2A2E38" stroke-width="1.5"/>
+        <rect x="${x+2}" y="${y+2}" width="76" height="36" fill="#8B929C"/>
+        <!-- 모니터 -->
+        <rect class="monitor-back" x="${x+28}" y="${y+4}" width="24" height="14" fill="#1A1A1E" stroke="#4A5260" stroke-width="1"/>
+        <rect class="monitor-screen" x="${x+30}" y="${y+6}" width="20" height="10" fill="#1A3A5A"/>
+        <!-- 키보드 -->
+        <rect x="${x+26}" y="${y+24}" width="28" height="8" fill="#D8DCE2" stroke="#6B7380" stroke-width="0.5"/>
+        <line x1="${x+30}" y1="${y+26}" x2="${x+50}" y2="${y+26}" stroke="#A8ADB5" stroke-width="0.5"/>
+        <line x1="${x+30}" y1="${y+30}" x2="${x+50}" y2="${y+30}" stroke="#A8ADB5" stroke-width="0.5"/>
+        <!-- 마우스 -->
+        <ellipse cx="${x+62}" cy="${y+28}" rx="3" ry="4" fill="#D8DCE2" stroke="#6B7380" stroke-width="0.5"/>
+        <!-- 의자 (원형, 위에서 본 모습) -->
+        <circle cx="${x+40}" cy="${y+52}" r="10" fill="#2A2E38" stroke="#1A1A1E" stroke-width="1"/>
+        <circle cx="${x+40}" cy="${y+52}" r="6" fill="#4A5260"/>
+        <circle cx="${x+40}" cy="${y+52}" r="2" fill="#6B7380"/>
+        <!-- 부서명 라벨 -->
+        <text x="${x+40}" y="${y-4}" text-anchor="middle" font-family="'Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#2A2E38">${label}</text>
       </g>`;
 
-    const drawSanmooTable = (x, y) => `
+    const drawWaterCooler2D = (x, y) => `
+      <g class="fixture">
+        <rect x="${x}" y="${y}" width="28" height="36" fill="#D8DCE2" stroke="#4A5260" stroke-width="1.5"/>
+        <rect x="${x+4}" y="${y+4}" width="20" height="16" fill="#4AD9F5" stroke="#2A6B8A" stroke-width="1"/>
+        <rect x="${x+8}" y="${y+22}" width="4" height="4" fill="#E24B4A"/>
+        <rect x="${x+16}" y="${y+22}" width="4" height="4" fill="#4A90D9"/>
+        <rect x="${x+10}" y="${y+30}" width="8" height="4" fill="#6B7380"/>
+        <text x="${x+14}" y="${y+46}" text-anchor="middle" font-family="'Noto Sans KR',sans-serif" font-size="7" fill="#4A5260">정수기</text>
+      </g>`;
+
+    const drawPlant2D = (x, y) => `
+      <g class="fixture">
+        <circle cx="${x+14}" cy="${y+20}" r="12" fill="#C9A84C" stroke="#8B6914" stroke-width="1.5"/>
+        <circle cx="${x+14}" cy="${y+20}" r="8" fill="#E4C773"/>
+        <circle cx="${x+14}" cy="${y+16}" r="10" fill="#4CAF50" opacity="0.9"/>
+        <circle cx="${x+8}" cy="${y+14}" r="5" fill="#66BB6A"/>
+        <circle cx="${x+20}" cy="${y+14}" r="5" fill="#66BB6A"/>
+        <circle cx="${x+14}" cy="${y+10}" r="5" fill="#81C784"/>
+      </g>`;
+
+    const drawSanmooTable2D = (x, y) => `
       <g id="sanmooZone" data-zone="sanmoo">
-        <rect x="${x-20}" y="${y-20}" width="120" height="60" fill="#E4E6EA" opacity="0.6"/>
-        <rect x="${x-20}" y="${y-20}" width="120" height="2" fill="#C9A84C"/>
-        <rect x="${x-20}" y="${y+38}" width="120" height="2" fill="#C9A84C"/>
-        <rect x="${x+20}" y="${y}" width="40" height="16" fill="#E4C773"/>
-        <rect x="${x+12}" y="${y+4}" width="56" height="8" fill="#E4C773"/>
-        <rect x="${x+16}" y="${y+2}" width="48" height="12" fill="#D4AF37"/>
-        <rect x="${x+20}" y="${y+14}" width="40" height="4" fill="#8B6914"/>
-        <rect x="${x+24}" y="${y+18}" width="32" height="2" fill="#5A4208"/>
-        <rect x="${x+36}" y="${y-8}" width="8" height="4" fill="#C9A84C"/>
-        <text x="${x+40}" y="${y-10}" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" font-weight="bold" fill="#8B6914">★ 상무 테이블</text>
+        <rect x="${x}" y="${y}" width="220" height="90" fill="#FAF5E6" stroke="#C9A84C" stroke-width="2" stroke-dasharray="6,3"/>
+        <text x="${x+110}" y="${y-4}" text-anchor="middle" font-family="'Noto Sans KR',sans-serif" font-size="11" font-weight="700" fill="#8B6914">★ 상무 테이블</text>
+        <!-- 원형 테이블 -->
+        <circle cx="${x+110}" cy="${y+45}" r="28" fill="#C9A84C" stroke="#8B6914" stroke-width="2"/>
+        <circle cx="${x+110}" cy="${y+45}" r="22" fill="#E4C773"/>
+        <circle cx="${x+110}" cy="${y+45}" r="14" fill="#D4AF37" opacity="0.5"/>
+        <!-- 의자 6개 -->
+        <circle cx="${x+110}" cy="${y+10}" r="6" fill="#4A5260" stroke="#2A2E38" stroke-width="1"/>
+        <circle cx="${x+148}" cy="${y+25}" r="6" fill="#4A5260" stroke="#2A2E38" stroke-width="1"/>
+        <circle cx="${x+148}" cy="${y+65}" r="6" fill="#4A5260" stroke="#2A2E38" stroke-width="1"/>
+        <circle cx="${x+110}" cy="${y+80}" r="6" fill="#4A5260" stroke="#2A2E38" stroke-width="1"/>
+        <circle cx="${x+72}" cy="${y+65}" r="6" fill="#4A5260" stroke="#2A2E38" stroke-width="1"/>
+        <circle cx="${x+72}" cy="${y+25}" r="6" fill="#4A5260" stroke="#2A2E38" stroke-width="1"/>
       </g>
-      <g id="sanmoo-character" transform="translate(${x+36}, ${y-4})">
-        <rect x="0" y="8" width="8" height="2" fill="#00000033"/>
-        <rect x="1" y="0" width="6" height="6" fill="#C9A84C"/>
-        <rect x="2" y="1" width="1" height="1" fill="#2A2E38"/>
-        <rect x="5" y="1" width="1" height="1" fill="#2A2E38"/>
-        <rect x="0" y="6" width="8" height="4" fill="#8B6914"/>
+      <!-- 상무 캐릭터 (상석 고정) -->
+      <g id="sanmoo-character" transform="translate(${x+110}, ${y+10})">
+        <circle cx="0" cy="0" r="7" fill="#C9A84C" stroke="#8B6914" stroke-width="1.5"/>
+        <circle cx="-2" cy="-1" r="0.8" fill="#2A2E38"/>
+        <circle cx="2" cy="-1" r="0.8" fill="#2A2E38"/>
       </g>`;
 
-    const drawMeetingTable = (x, y) => `
+    const drawMeetingTable2D = (x, y) => `
       <g id="meetingZone" data-zone="meeting">
-        <rect x="${x-8}" y="${y-8}" width="140" height="52" fill="#D8DCE2" opacity="0.7"/>
-        <rect x="${x-8}" y="${y-8}" width="140" height="2" fill="#5A7AA8"/>
-        <rect x="${x-8}" y="${y+42}" width="140" height="2" fill="#5A7AA8"/>
-        <rect x="${x}" y="${y+16}" width="124" height="12" fill="#4A5260"/>
-        <rect x="${x}" y="${y+16}" width="124" height="2" fill="#6B7380"/>
-        <rect x="${x}" y="${y+26}" width="124" height="2" fill="#2A2E38"/>
-        <rect x="${x+4}" y="${y+28}" width="4" height="6" fill="#2A2E38"/>
-        <rect x="${x+116}" y="${y+28}" width="4" height="6" fill="#2A2E38"/>
-        <rect x="${x+60}" y="${y+28}" width="4" height="6" fill="#2A2E38"/>
-        <rect x="${x+12}" y="${y+10}" width="8" height="6" fill="#6B7380"/>
-        <rect x="${x+48}" y="${y+10}" width="8" height="6" fill="#6B7380"/>
-        <rect x="${x+84}" y="${y+10}" width="8" height="6" fill="#6B7380"/>
-        <rect x="${x+12}" y="${y+28}" width="8" height="6" fill="#6B7380"/>
-        <rect x="${x+48}" y="${y+28}" width="8" height="6" fill="#6B7380"/>
-        <rect x="${x+84}" y="${y+28}" width="8" height="6" fill="#6B7380"/>
-        <rect x="${x+30}" y="${y+18}" width="8" height="6" fill="#1A1A1E"/>
-        <rect x="${x+31}" y="${y+19}" width="6" height="4" fill="#4AD9F5"/>
-        <rect x="${x+70}" y="${y+18}" width="8" height="6" fill="#1A1A1E"/>
-        <rect x="${x+71}" y="${y+19}" width="6" height="4" fill="#4AD9F5"/>
-        <rect x="${x+100}" y="${y+20}" width="4" height="4" fill="#FAFAFC"/>
-        <rect x="${x+100}" y="${y+19}" width="4" height="1" fill="#8B6914"/>
-        <text x="${x+62}" y="${y-2}" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" font-weight="bold" fill="#3C5880">💼 미팅룸</text>
+        <rect x="${x}" y="${y}" width="220" height="110" fill="#EAF2FB" stroke="#5A7AA8" stroke-width="2" stroke-dasharray="6,3"/>
+        <text x="${x+110}" y="${y-4}" text-anchor="middle" font-family="'Noto Sans KR',sans-serif" font-size="11" font-weight="700" fill="#3C5880">💼 미팅룸</text>
+        <!-- 긴 회의 테이블 -->
+        <rect x="${x+40}" y="${y+40}" width="140" height="30" fill="#6B7380" stroke="#2A2E38" stroke-width="1.5"/>
+        <rect x="${x+42}" y="${y+42}" width="136" height="26" fill="#8B929C"/>
+        <!-- 의자 6개 (3×2) -->
+        <circle cx="${x+60}" cy="${y+22}" r="7" fill="#4A5260" stroke="#2A2E38"/>
+        <circle cx="${x+110}" cy="${y+22}" r="7" fill="#4A5260" stroke="#2A2E38"/>
+        <circle cx="${x+160}" cy="${y+22}" r="7" fill="#4A5260" stroke="#2A2E38"/>
+        <circle cx="${x+60}" cy="${y+88}" r="7" fill="#4A5260" stroke="#2A2E38"/>
+        <circle cx="${x+110}" cy="${y+88}" r="7" fill="#4A5260" stroke="#2A2E38"/>
+        <circle cx="${x+160}" cy="${y+88}" r="7" fill="#4A5260" stroke="#2A2E38"/>
+        <!-- 노트북 2대 -->
+        <rect x="${x+70}" y="${y+48}" width="14" height="10" fill="#1A1A1E" stroke="#4A5260" stroke-width="0.5"/>
+        <rect x="${x+72}" y="${y+50}" width="10" height="6" fill="#4AD9F5"/>
+        <rect x="${x+136}" y="${y+48}" width="14" height="10" fill="#1A1A1E" stroke="#4A5260" stroke-width="0.5"/>
+        <rect x="${x+138}" y="${y+50}" width="10" height="6" fill="#4AD9F5"/>
+        <!-- 커피컵 -->
+        <circle cx="${x+104}" cy="${y+55}" r="4" fill="#FAFAFC" stroke="#8B6914"/>
+        <circle cx="${x+104}" cy="${y+55}" r="2.5" fill="#6B4E0A"/>
       </g>`;
 
-    const drawLoungeArea = (x, y) => `
+    const drawLoungeArea2D = (x, y) => `
       <g id="loungeZone" data-zone="lounge">
-        <rect x="${x-8}" y="${y-4}" width="160" height="56" fill="#E0E4EA" opacity="0.6"/>
-        <rect x="${x-8}" y="${y-4}" width="160" height="2" fill="#4A9B5E"/>
-        <rect x="${x-8}" y="${y+50}" width="160" height="2" fill="#4A9B5E"/>
-        <rect x="${x+10}" y="${y+20}" width="60" height="16" fill="#D4A8B0"/>
-        <rect x="${x+10}" y="${y+10}" width="60" height="12" fill="#E8BAC2"/>
-        <rect x="${x+10}" y="${y+10}" width="60" height="2" fill="#F4D0D4"/>
-        <rect x="${x+10}" y="${y+34}" width="60" height="2" fill="#B88890"/>
-        <rect x="${x+4}" y="${y+14}" width="8" height="20" fill="#B88890"/>
-        <rect x="${x+68}" y="${y+14}" width="8" height="20" fill="#B88890"/>
-        <rect x="${x+18}" y="${y+12}" width="10" height="8" fill="#F4D0D4"/>
-        <rect x="${x+44}" y="${y+12}" width="10" height="8" fill="#F4D0D4"/>
-        <rect x="${x+28}" y="${y+40}" width="30" height="8" fill="#8B929C" opacity="0.8"/>
-        <rect x="${x+28}" y="${y+40}" width="30" height="2" fill="#A8ADB5"/>
-        <rect x="${x+34}" y="${y+38}" width="6" height="4" fill="#FAFAFC"/>
-        <rect x="${x+46}" y="${y+38}" width="4" height="4" fill="#E24B4A"/>
-        <rect x="${x+90}" y="${y}" width="40" height="24" fill="#1A1A1E"/>
-        <rect x="${x+92}" y="${y+2}" width="36" height="20" fill="#4AD9F5"/>
-        <rect x="${x+92}" y="${y+2}" width="36" height="2" fill="#7BE4F7"/>
-        <rect x="${x+94}" y="${y+20}" width="32" height="2" fill="#E24B4A"/>
-        <rect x="${x+130}" y="${y+20}" width="20" height="28" fill="#6B7380"/>
-        <rect x="${x+130}" y="${y+20}" width="20" height="2" fill="#A8ADB5"/>
-        <rect x="${x+132}" y="${y+23}" width="16" height="12" fill="#FAFAFC"/>
-        <rect x="${x+134}" y="${y+25}" width="3" height="3" fill="#C9A84C"/>
-        <rect x="${x+139}" y="${y+25}" width="3" height="3" fill="#4AD9F5"/>
-        <rect x="${x+144}" y="${y+25}" width="3" height="3" fill="#E24B4A"/>
-        <rect x="${x+134}" y="${y+30}" width="3" height="3" fill="#4CAF50"/>
-        <rect x="${x+139}" y="${y+30}" width="3" height="3" fill="#BA68C8"/>
-        <rect x="${x+144}" y="${y+30}" width="3" height="3" fill="#FF9800"/>
-        <rect x="${x+136}" y="${y+40}" width="8" height="4" fill="#2A2E38"/>
-        <text x="${x+75}" y="${y-6}" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" font-weight="bold" fill="#2E6B3E">☕ 휴게실</text>
+        <rect x="${x}" y="${y}" width="220" height="120" fill="#EAF5EE" stroke="#4A9B5E" stroke-width="2" stroke-dasharray="6,3"/>
+        <text x="${x+110}" y="${y-4}" text-anchor="middle" font-family="'Noto Sans KR',sans-serif" font-size="11" font-weight="700" fill="#2E6B3E">☕ 휴게실</text>
+        <!-- 소파 -->
+        <rect x="${x+20}" y="${y+20}" width="90" height="30" fill="#D4A8B0" stroke="#B88890" stroke-width="1.5" rx="4"/>
+        <rect x="${x+28}" y="${y+26}" width="18" height="18" fill="#F4D0D4" rx="2"/>
+        <rect x="${x+56}" y="${y+26}" width="18" height="18" fill="#F4D0D4" rx="2"/>
+        <rect x="${x+84}" y="${y+26}" width="18" height="18" fill="#F4D0D4" rx="2"/>
+        <!-- 커피 테이블 -->
+        <rect x="${x+30}" y="${y+60}" width="70" height="20" fill="#8B929C" stroke="#4A5260" stroke-width="1" opacity="0.9" rx="2"/>
+        <rect x="${x+44}" y="${y+66}" width="8" height="8" fill="#FAFAFC"/>
+        <rect x="${x+68}" y="${y+64}" width="14" height="10" fill="#E24B4A"/>
+        <!-- TV -->
+        <rect x="${x+140}" y="${y+20}" width="60" height="36" fill="#1A1A1E" stroke="#4A5260" stroke-width="2"/>
+        <rect x="${x+144}" y="${y+24}" width="52" height="28" fill="#4AD9F5"/>
+        <rect x="${x+148}" y="${y+28}" width="20" height="2" fill="#FAFAFC"/>
+        <rect x="${x+148}" y="${y+33}" width="16" height="2" fill="#FAFAFC"/>
+        <rect x="${x+148}" y="${y+38}" width="18" height="2" fill="#FAFAFC"/>
+        <rect x="${x+144}" y="${y+46}" width="52" height="6" fill="#E24B4A"/>
+        <!-- 자판기 -->
+        <rect x="${x+140}" y="${y+66}" width="40" height="50" fill="#6B7380" stroke="#2A2E38" stroke-width="1.5"/>
+        <rect x="${x+144}" y="${y+70}" width="32" height="20" fill="#FAFAFC" stroke="#4A5260"/>
+        <rect x="${x+148}" y="${y+74}" width="5" height="5" fill="#C9A84C"/>
+        <rect x="${x+156}" y="${y+74}" width="5" height="5" fill="#4AD9F5"/>
+        <rect x="${x+164}" y="${y+74}" width="5" height="5" fill="#E24B4A"/>
+        <rect x="${x+148}" y="${y+82}" width="5" height="5" fill="#4CAF50"/>
+        <rect x="${x+156}" y="${y+82}" width="5" height="5" fill="#BA68C8"/>
+        <rect x="${x+164}" y="${y+82}" width="5" height="5" fill="#FF9800"/>
+        <rect x="${x+152}" y="${y+100}" width="16" height="8" fill="#2A2E38"/>
+        <!-- 화분 -->
+        <circle cx="${x+195}" cy="${y+100}" r="8" fill="#C9A84C" stroke="#8B6914"/>
+        <circle cx="${x+195}" cy="${y+96}" r="6" fill="#66BB6A"/>
       </g>`;
 
     const desks = [
-      { id: 'market',    x: 100, y: 160, label: '시장' },
-      { id: 'marketing', x: 180, y: 140, label: '마케팅' },
-      { id: 'finance',   x: 260, y: 120, label: '재무' },
-      { id: 'legal',     x: 120, y: 210, label: '법무' },
-      { id: 'compete',   x: 200, y: 190, label: '경쟁' },
-      { id: 'rnd',       x: 280, y: 170, label: 'R&D' },
-      { id: 'data',      x: 140, y: 260, label: '데이터' },
-      { id: 'content',   x: 220, y: 240, label: '콘텐츠' },
-      { id: 'sns',       x: 300, y: 220, label: 'SNS' },
-      { id: 'design',    x: 200, y: 300, label: '디자인' },
+      // Row 1 (북쪽, 창가) — market / marketing / finance / legal
+      { id: 'market',    x: 40,  y: 60,  label: '시장조사' },
+      { id: 'marketing', x: 160, y: 60,  label: '마케팅' },
+      { id: 'finance',   x: 280, y: 60,  label: '재무' },
+      { id: 'legal',     x: 400, y: 60,  label: '법무' },
+      // Row 2 (중앙) — compete / rnd / content / sns
+      { id: 'compete',   x: 40,  y: 170, label: '경쟁분석' },
+      { id: 'rnd',       x: 160, y: 170, label: 'R&D' },
+      { id: 'content',   x: 280, y: 170, label: '콘텐츠' },
+      { id: 'sns',       x: 400, y: 170, label: 'SNS' },
+      // Row 3 (하단) — data / design (간격 넓게)
+      { id: 'data',      x: 100, y: 290, label: '데이터' },
+      { id: 'design',    x: 340, y: 290, label: '디자인' },
     ];
 
+    // 타일 그리드 라인 (40px 단위 은은한 배경)
+    const gridLines = [];
+    for (let gx = 40; gx < 800; gx += 40) {
+      gridLines.push(`<line x1="${gx}" y1="0" x2="${gx}" y2="440" stroke="#D8DCE2" stroke-width="0.5"/>`);
+    }
+    for (let gy = 40; gy < 440; gy += 40) {
+      gridLines.push(`<line x1="0" y1="${gy}" x2="800" y2="${gy}" stroke="#D8DCE2" stroke-width="0.5"/>`);
+    }
+
+    // 위쪽 벽 창문 5개
+    const windows = [];
+    for (let i = 0; i < 5; i++) {
+      const wx = 40 + i * 90;
+      windows.push(`
+        <rect x="${wx}" y="4" width="70" height="16" fill="#BEE4F4" stroke="#4A90D9" stroke-width="1.5"/>
+        <line x1="${wx+35}" y1="4" x2="${wx+35}" y2="20" stroke="#4A90D9" stroke-width="1"/>`);
+    }
+
     return `
-      <svg class="tph-grid-bg" id="office-stage" viewBox="0 0 640 360"
+      <svg class="tph-grid-bg" id="office-stage" viewBox="0 0 800 440"
            preserveAspectRatio="xMidYMid meet"
-           style="image-rendering: pixelated; shape-rendering: crispEdges; background:#F8F9FB;">
-        ${drawIsoFloor(40, 120, 560, 200)}
-        ${drawLeftWall(40, 40, 320, 80)}
-        ${drawBackWall(320, 40, 640, 120)}
-        ${drawPixelWindow(80, 48, 48, 36)}
-        ${drawPixelWindow(140, 38, 48, 36)}
-        ${drawPixelWindow(200, 28, 48, 36)}
-        ${drawPixelWindow(260, 18, 48, 36)}
-        ${drawCorvusLogo(420, 40)}
-        ${drawWhiteboard(520, 60)}
-        ${drawWallClock(180, 20)}
-        ${drawWaterCooler(60, 140)}
-        ${drawPlant(50, 210)}
-        ${drawPlant(560, 210)}
-        ${desks.map(d => drawDesk(d.x, d.y, d.id, d.label)).join('')}
-        ${drawSanmooTable(460, 140)}
-        ${drawMeetingTable(440, 210)}
-        ${drawLoungeArea(440, 270)}
+           style="shape-rendering: crispEdges; background:#E8EAF0;">
+        <!-- 바닥 (은색펄 평면) -->
+        <rect x="0" y="0" width="800" height="440" fill="#E8EAF0"/>
+        ${gridLines.join('')}
+        <!-- 외벽 -->
+        <rect x="0" y="0" width="800" height="440" fill="none" stroke="#4A5260" stroke-width="8"/>
+        <!-- 내부 구분선 (왼쪽 작업공간 vs 오른쪽 부대시설) -->
+        <line x1="540" y1="24" x2="540" y2="436" stroke="#A8ADB5" stroke-width="4" stroke-dasharray="8,4"/>
+        <!-- 창문 5개 -->
+        ${windows.join('')}
+        <!-- CORVUS X 로고 -->
+        <rect x="560" y="8" width="220" height="28" fill="#0F0A14" stroke="#C9A84C" stroke-width="2"/>
+        <text x="670" y="28" text-anchor="middle" font-family="monospace" font-size="16" font-weight="bold" fill="#C9A84C">CORVUS X</text>
+        <!-- 팀 책상 10개 -->
+        ${desks.map(d => drawDesk2D(d.x, d.y, d.id, d.label)).join('')}
+        <!-- 정수기 + 화분 (왼쪽 하단 여유 공간) -->
+        ${drawWaterCooler2D(40, 380)}
+        ${drawPlant2D(100, 380)}
+        ${drawPlant2D(460, 380)}
+        <!-- 우측 3 구역 (세로 배치) -->
+        ${drawSanmooTable2D(560, 50)}
+        ${drawMeetingTable2D(560, 170)}
+        ${drawLoungeArea2D(560, 300)}
       </svg>`;
   }
 

@@ -1,5 +1,5 @@
 # CORVUS X — CLAUDE.md
-> 최종 업데이트: 2026-04-20 (은색펄 오픈 플로어 — VectorStock 19558904 리스타일)
+> 최종 업데이트: 2026-04-20 (평면 2D top-down 오피스 전환 — 아이소메트릭 포기)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
 
 ## 프로젝트 개요
@@ -8,7 +8,7 @@ Claude Opus / GPT-5.4 / Gemini 2.5 Pro / Perplexity를 연결해
 AI 분석 / 법률 검토 / 상품 개발 / 시장 조사 / 재무 분석을 수행.
 
 진입점: corvusx-office.html 단일 (AI CHAT 폐기됨)
-URL: https://app.cloudcookie.co.kr/corvusx-office.html
+URL: https://app.cloudcookie.co.kr (루트 접속 시 자동 `/corvusx-office.html` 302 리다이렉트)
 
 ## 4가지 도구 운영 원칙
 | 도구 | 역할 | 금지 |
@@ -162,24 +162,24 @@ ceo_briefing / all_done
 - CEO 메시지 골드 border (#C9A84C) + ★ prefix
 - 메시지 액션 (복사/편집/재생성/👍👎) / 버전 관리
 
-### 오피스 (오픈 플로어 + 3 존) — 은색펄 테마 (2026-04-20 재설계)
-- 레퍼런스: VectorStock 19558904 (Modern Office Support, Sensvector)
-- 팔레트: 은색펄 (#C8CDD4 바닥 / #F0F0F2 화이트펄 벽 / #4A5260 다크실버 가구 / #C9A84C CORVUS 골드 포인트 / #E24B4A 액센트)
-- 단일 오픈 오피스 (칸막이 없음) — 배경 SVG 하나(viewBox 1000×560)로 바닥/벽/책상/구역 렌더
-  - 바닥: silverPearl 패턴 + floorSheen 광택 그라디언트 + 두께감 엣지
-  - 벽: 왼쪽(화이트펄 #F0F0F2) + 뒷쪽(실버펄 #E4E6EA) L자
-  - 디테일: 왼벽 창문 3개 + 시계 + 게시판, 뒷벽 CORVUS X 골드 로고 + 화이트보드, 정수기, 바닥 식물
-- 10개 팀 책상 다크실버 인라인 유닛 (`<g class="desk" data-dept>`):
-  - 행1(창가): market / marketing / finance
-  - 행2(중앙): legal / compete / rnd
-  - 행3(하단): data / content / sns
-  - 행4(별도): design
-- 3개 부대시설 (우측 상→하):
-  ★ 상무 테이블 — 원형 골드 테이블 (urlGoldAccent), 상무 캐릭터 상주, 항상 은은한 골드 글로우
-  💼 미팅룸 — 긴 다크실버 테이블 + 6석 + 화이트보드 참조 (collab 모드 시 meetingPulse)
-  ☕ 휴게실 — 로즈 소파 + 유리 커피테이블 + TV(cyan) + 자판기
-- 블롭 캐릭터는 SVG 위에 HTML overlay (기존 구조 유지). `.tph-room` 은 책상 좌표에 절대 배치된 투명 컨테이너
-- 모니터 상태 컬러: working→cyan #4AD9F5 / done→green #22C55E / error→red #EF4444 / rework→amber #F59E0B / briefing→gold #C9A84C / collab→purple #BA68C8
+### 오피스 (평면 2D top-down) — SimCity 스타일 (2026-04-20 전환)
+- 아이소메트릭 완전 포기 → 순수 top-down 평면도 (가구 겹침 0건, 명확한 구획)
+- viewBox 800×440
+- 팔레트: 바닥 #E8EAF0, 타일 그리드 #D8DCE2, 가구 #6B7380/#8B929C/#2A2E38, 골드 #C9A84C/#E4C773, 액센트 #E24B4A
+- 외벽: #4A5260 stroke 8px 두꺼운 테두리 + 내부 점선 구분선(x=540)으로 왼쪽 작업공간/오른쪽 부대시설 분리
+- 바닥: 은색펄 + 40×40 타일 그리드 (은은한 #D8DCE2 0.5px 라인)
+- 북쪽 벽: 창문 5개 (70×16 파스텔 블루 + 중앙 mullion) + CORVUS X 골드 로고 박스
+- 10개 팀 책상 (2D 평면 `drawDesk2D`, 80×40 상판 + 모니터 24×14 + 키보드 + 마우스 + 원형 의자):
+  - 행1(북쪽 창가): market / marketing / finance / legal
+  - 행2(중앙): compete / rnd / content / sns
+  - 행3(남쪽, 간격 넓게): data / design
+- 3개 부대시설 (오른쪽 세로, 각 구역 점선 테두리):
+  ★ 상무 테이블 (560,50 – 220×90) — 원형 골드 테이블 + 의자 6개 + 상무 캐릭터(상석 고정)
+  💼 미팅룸 (560,170 – 220×110) — 긴 직사각형 테이블 + 3×2 의자 6석 + 노트북 2대 + 커피컵
+  ☕ 휴게실 (560,300 – 220×120) — U자 소파 + 쿠션 3개 + 유리 커피테이블 + TV(cyan + 뉴스틱커) + 6색 자판기 + 화분
+- 왼쪽 하단 공터: 정수기(28×36 + 빨/파 꼭지) + 화분 2개
+- 블롭 캐릭터는 SVG 위에 HTML overlay (기존 구조 유지). 캐릭터 디자인은 옵션 A(기존 블롭) 유지 — 정체성 보존
+- 모니터 상태 컬러: working→cyan #4AD9F5 / done→green #22C55E / error→red #EF4444 / rework→amber #F59E0B / briefing→gold / collab→purple
 - 이동 로직:
   - executive_gate_done (≥3 부서) → tphRunCollab: 미팅룸 집결 ("협업 중 🤝") 후 흩어짐
   - executive_gate_done (≤2 부서) → 바로 dept_start
