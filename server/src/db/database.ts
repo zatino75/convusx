@@ -186,19 +186,10 @@ function mapThread(r: any) {
 }
 
 export function upsertThread(thread: { id: string; projectId: string; title: string; createdAt: string; updatedAt: string; meta?: any }) {
-  // FK 준수: projectId 가 projects 에 없으면 자동 생성 (프론트에서 POST 누락/유실된 경우 복구)
-  const projectId = thread.projectId || "__general__"
+  // FK 준수: projectId 가 projects 에 없으면 __general__ 로 폴백 (고스트 프로젝트 생성 금지)
+  let projectId = thread.projectId || "__general__"
   const projExists = db.prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId)
-  if (!projExists) {
-    const now = new Date().toISOString()
-    upsertProject({
-      id: projectId,
-      title: "(자동 생성)",
-      createdAt: now,
-      updatedAt: now,
-      meta: { auto: true }
-    })
-  }
+  if (!projExists) projectId = "__general__"
   db.prepare(`
     INSERT INTO threads (id, project_id, title, created_at, updated_at, meta)
     VALUES (@id, @projectId, @title, @createdAt, @updatedAt, @meta)
