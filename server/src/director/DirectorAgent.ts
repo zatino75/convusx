@@ -53,7 +53,7 @@ export type WsEvent =
   | { type: 'critic_done'; review: CriticReviewResult }
   | { type: 'critic_rework'; rework: DeptId[]; rework_reason: Partial<Record<DeptId, string>> }
   | { type: 'dept_rework_start'; deptId: DeptId; reason: string }
-  | { type: 'dept_rework_done'; deptId: DeptId; report: object; model: string; connectors: string[]; durationMs: number }
+  | { type: 'dept_rework_done'; deptId: DeptId; report: object; model: string; connectors: string[]; durationMs: number; regression?: boolean; oldConfidence?: number; newConfidence?: number }
   | { type: 'critic_review'; review: CriticReviewResult }  // 하위호환
   | { type: 'ceo_briefing'; briefing: CeoBriefingResult }
   | { type: 'all_done'; sessionId: string; roundNumber: number; summary: object; briefing?: CeoBriefingResult; critic?: CriticReviewResult }
@@ -381,6 +381,40 @@ export async function runDirector(
 
             try {
               const result = await runDepartmentAgent(reworkTask, reworkOpts);
+
+              // 점수 퇴보 가드: 보강 후 confidence 가 원본보다 낮으면 원본 유지
+              // Why: rework 가 항상 개선을 보장하지 않음 — 모델이 과도하게 단순화하거나
+              // 새 컨텍스트에 휘둘려 더 빈약한 답을 낼 때 원본 자료를 보존해야 한다.
+              const oldConfidence = existingReportEntry?.report.confidence ?? 0;
+              const newConfidence = result.report.confidence ?? 0;
+              if (existingReportEntry && newConfidence < oldConfidence) {
+                logger.warn(
+                  { deptId, oldConfidence, newConfidence },
+                  '[Director] 보강 결과 confidence 하락 → 원본 유지'
+                );
+                updateDeptStatus(session, round.roundNumber, deptId, {
+                  status: 'done',
+                  completedAt: new Date(),
+                  report: existingReportEntry.report,
+                  aiModel: existingReportEntry.report.aiModel,
+                  connectorsUsed: existingReportEntry.report.connectorsUsed,
+                });
+                send({
+                  type: 'dept_rework_done',
+                  deptId,
+                  report: existingReportEntry.report,
+                  model: existingReportEntry.report.aiModel ?? result.modelUsed,
+                  connectors: existingReportEntry.report.connectorsUsed ?? result.connectorsUsed,
+                  durationMs: result.durationMs,
+                  regression: true,
+                  oldConfidence,
+                  newConfidence,
+                });
+                // completedReports 변경 안 함 — 원본이 이미 들어 있음
+                // awardXp 도 호출하지 않음 (보강 실패로 간주)
+                return;
+              }
+
               updateDeptStatus(session, round.roundNumber, deptId, {
                 status: 'done',
                 completedAt: new Date(),
@@ -395,6 +429,8 @@ export async function runDirector(
                 model: result.modelUsed,
                 connectors: result.connectorsUsed,
                 durationMs: result.durationMs,
+                oldConfidence,
+                newConfidence,
               });
               // 기존 보고 교체
               const idx = completedReports.findIndex((r) => r.deptId === deptId);

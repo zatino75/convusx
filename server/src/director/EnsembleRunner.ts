@@ -75,9 +75,9 @@ function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
-const PER_MODEL_TIMEOUT_MS = 120000;          // 2026-04-18: GPT-5.4-pro 분석 프롬프트가 60s 부족 — 상향
-const ENSEMBLE_TOTAL_TIMEOUT_MS = 150000;     // 위와 비례 상향 (병렬이라 max + buffer)
-const SYNTHESIS_TIMEOUT_MS = 110000;         // Claude 통합 호출 — 분산 큰 응답시간 흡수
+const PER_MODEL_TIMEOUT_MS = 180000;          // 2026-04-20: Opus/GPT-5.4-pro 가 120s 도 종종 초과 — 3분으로 상향
+const ENSEMBLE_TOTAL_TIMEOUT_MS = 420000;     // 7분 (3모델 × 180s + 버퍼). 병렬이라도 nginx proxy_read 600s 이내
+const SYNTHESIS_TIMEOUT_MS = 150000;          // Claude 통합 호출 — 분산 큰 응답시간 흡수 (110→150)
 const SYNTHESIS_DRAFT_TRUNCATE = 1200;       // synthesis 프롬프트 입력 시 모델당 최대 글자수
 const SYNTHESIS_MAX_TOKENS = 2500;           // synthesis 응답 토큰 — 4개 섹션 모두 출력 위해 여유
 

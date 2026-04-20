@@ -157,10 +157,38 @@ function normalizeDepartments(raw: unknown): GateDepartment[] {
   return out;
 }
 
-function normalizeGateResult(parsed: Record<string, unknown>): ExecutiveGateResult | null {
+// 조건부 키워드 가드: 지시문에 키워드가 없으면 해당 부서를 결과에서 제외.
+// finance 가 무관한 요청(런칭/콘텐츠/SNS 전략 등)에 자주 끼어드는 문제를 잡는다.
+// 키워드는 한국어/영어 모두 lowercase 비교.
+const CONDITIONAL_KEYWORDS: Partial<Record<DeptId, string[]>> = {
+  finance: [
+    '예산', '투자', '가격', '비용', '수익', '매출', '재무', '재정', '자본', '자금',
+    '단가', '원가', '마진', '회계', '손익', '수익성', '가격대', '객단가', '수수료',
+    '비용구조', '마진율', '펀딩', '투자금', 'roi', 'finance', 'p&l', 'ebitda', 'cogs',
+  ],
+};
+
+function applyKeywordGuards(directive: string, departments: GateDepartment[]): GateDepartment[] {
+  const q = directive.toLowerCase();
+  return departments.filter((d) => {
+    const required = CONDITIONAL_KEYWORDS[d.id];
+    if (!required) return true;
+    const hit = required.some((kw) => q.includes(kw.toLowerCase()));
+    if (!hit) {
+      logger.info(
+        { deptId: d.id, preview: directive.slice(0, 80) },
+        '[ExecutiveGate] 조건부 키워드 미감지 → 부서 제외',
+      );
+    }
+    return hit;
+  });
+}
+
+function normalizeGateResult(parsed: Record<string, unknown>, directive: string): ExecutiveGateResult | null {
   const rawAction = String(parsed.action ?? '').trim().toLowerCase();
   const rawComplexity = String(parsed.complexity ?? '').trim().toLowerCase();
-  const departments = normalizeDepartments(parsed.departments);
+  const rawDepartments = normalizeDepartments(parsed.departments);
+  const departments = applyKeywordGuards(directive, rawDepartments);
   const reason = String(parsed.reason ?? '').trim().slice(0, 400);
 
   const action: ExecutiveGateResult['action'] =
@@ -262,7 +290,7 @@ export async function runExecutiveGate(
   if (primaryText) {
     const parsed = tryParseJson(primaryText);
     if (parsed) {
-      const normalized = normalizeGateResult(parsed);
+      const normalized = normalizeGateResult(parsed, trimmed);
       if (normalized) return normalized;
       logger.warn({ preview: primaryText.slice(0, 300) }, '[ExecutiveGate] Claude primary 정규화 실패');
     } else {
@@ -275,7 +303,7 @@ export async function runExecutiveGate(
   if (fallbackText) {
     const parsed = tryParseJson(fallbackText);
     if (parsed) {
-      const normalized = normalizeGateResult(parsed);
+      const normalized = normalizeGateResult(parsed, trimmed);
       if (normalized) return normalized;
       logger.warn({ preview: fallbackText.slice(0, 300) }, '[ExecutiveGate] GPT fallback 정규화 실패');
     } else {

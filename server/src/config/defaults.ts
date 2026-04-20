@@ -12,7 +12,9 @@ export const PERPLEXITY_BASE  = "https://api.perplexity.ai"
 // 2026-04-17: 현실화. high-value 부서(claude-opus-4-6) 는 90s, 일반 60s, Gemini 45s 로
 // DepartmentAgent.callPrimaryModel 에서 prefix 매칭해 분기한다.
 // 여기서는 어댑터 네트워크 레벨 하드 상한만 관리.
-export const ADAPTER_TIMEOUT_MS = 120000       // 텍스트 생성 (Claude/OpenAI/Perplexity) 최상한
+// 2026-04-20: 어댑터 상한을 120s → 180s 로 상향 (Opus/GPT-5.4-pro 분석 프롬프트가 120s 도 종종 초과).
+//             부서 단 prefix 분기는 DepartmentAgent.primaryTimeoutMsFor() 에서 별도 관리.
+export const ADAPTER_TIMEOUT_MS = 180000       // 텍스트 생성 (Claude/OpenAI/Perplexity) 최상한
 export const ADAPTER_TIMEOUT_GEMINI_MS = 60000 // Gemini 비스트리밍
 export const ADAPTER_TIMEOUT_STREAM_GEMINI_MS = 120000 // Gemini 스트리밍
 export const IMAGE_GEN_TIMEOUT_MS = 120000     // 이미지/영상 생성
