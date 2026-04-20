@@ -4199,8 +4199,8 @@
     if (threadId) url.searchParams.set('sessionId', threadId);
 
     // SSE 타임아웃 — 360s 총 상한, 180s 경고, 연결 오류시 5s 간격 재연결 (2회 한정)
-    const SSE_TOTAL_TIMEOUT_MS = 360000;
-    const SSE_WARNING_MS = 180000;
+    const SSE_TOTAL_TIMEOUT_MS = 540000;
+    const SSE_WARNING_MS = 360000;
     const RECONNECT_DELAY_MS = 5000;
     const MAX_RECONNECTS = 2;
     run.reconnects = 0;
@@ -4243,7 +4243,7 @@
     // 360s 전체 타임아웃 — 강제 종료
     run.totalTimer = setTimeout(() => {
       if (run.running) {
-        addMsgForThread(threadId, { who:'', body:'응답 타임아웃 (6분) — 연결 종료', kind:'err' });
+        addMsgForThread(threadId, { who:'', body:'응답 타임아웃 (9분) — 연결 종료', kind:'err' });
         finishRun(threadId, true);
       }
     }, SSE_TOTAL_TIMEOUT_MS);
