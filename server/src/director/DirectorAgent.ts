@@ -330,7 +330,8 @@ export async function runDirector(
   // ─ 2026-04-20: CriticReview + 보강 루프 bypass (응답속도 우선) — dead code 보존 ─
   // 원 블록은 if(false) 안에 그대로 유지. CeoBriefing 은 기본 criticReview 로 진행.
   let briefing: CeoBriefingResult | undefined;
-  let criticReview: CriticReviewResult | undefined = {
+  // declaration 에서 `| undefined` 제거 — bypass 로 항상 default 값 보장. if(false) 내부의 criticReview narrowing 문제도 회피.
+  let criticReview: CriticReviewResult = {
     verdict: 'pass',
     include: completedReports.map((r) => r.deptId),
     exclude: [],
