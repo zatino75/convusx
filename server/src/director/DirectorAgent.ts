@@ -392,19 +392,20 @@ export async function runDirector(
                   { deptId, oldConfidence, newConfidence },
                   '[Director] 보강 결과 confidence 하락 → 원본 유지'
                 );
+                // updateDeptStatus 는 partial merge — aiModel/connectorsUsed 는
+                // 원본 1차 실행 시 이미 설정됨. status/report 만 갱신해 그 값 보존.
                 updateDeptStatus(session, round.roundNumber, deptId, {
                   status: 'done',
                   completedAt: new Date(),
                   report: existingReportEntry.report,
-                  aiModel: existingReportEntry.report.aiModel,
-                  connectorsUsed: existingReportEntry.report.connectorsUsed,
                 });
                 send({
                   type: 'dept_rework_done',
                   deptId,
                   report: existingReportEntry.report,
-                  model: existingReportEntry.report.aiModel ?? result.modelUsed,
-                  connectors: existingReportEntry.report.connectorsUsed ?? result.connectorsUsed,
+                  // 보강 시도 자체는 result.modelUsed 로 일어남 — 그 값을 보고
+                  model: result.modelUsed,
+                  connectors: result.connectorsUsed,
                   durationMs: result.durationMs,
                   regression: true,
                   oldConfidence,
