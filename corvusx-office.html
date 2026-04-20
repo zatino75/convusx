@@ -4198,7 +4198,7 @@
     // sessionId = threadId — 같은 스레드 재진입 시 서버 sseRegistry 가 기존 SSE 종료 후 교체
     if (threadId) url.searchParams.set('sessionId', threadId);
 
-    // SSE 타임아웃 — 360s 총 상한, 180s 경고, 연결 오류시 5s 간격 재연결 (2회 한정)
+    // SSE 타임아웃 — 540s 총 상한, 360s 경고, 연결 오류시 5s 간격 재연결 (2회 한정)
     const SSE_TOTAL_TIMEOUT_MS = 540000;
     const SSE_WARNING_MS = 360000;
     const RECONNECT_DELAY_MS = 5000;
@@ -4238,7 +4238,7 @@
 
     // 180s 경고
     run.warnTimer = setTimeout(() => {
-      if (run.running) addMsgForThread(threadId, { who:'', body:'응답이 없습니다 (180초 경과)', kind:'sys' });
+      if (run.running) addMsgForThread(threadId, { who:'', body:'응답이 없습니다 (6분 경과)', kind:'sys' });
     }, SSE_WARNING_MS);
     // 360s 전체 타임아웃 — 강제 종료
     run.totalTimer = setTimeout(() => {
