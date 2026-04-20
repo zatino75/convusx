@@ -161,8 +161,9 @@
   .bubble-menu .sub{position:absolute;left:100%;top:0;margin-left:2px}
 
   /* ─ main column ─ */
-  .main-col{display:grid;grid-template-rows:22% 78%;min-height:0;min-width:0;background:var(--bg)}
-  .office-wrap{position:relative;background:#C8B89A;overflow:hidden;border-bottom:1px solid var(--border-soft)}
+  /* 2026-04-20: 채팅 전용 모드 — office-wrap 숨기고 main-col 1열로 (chat 이 100% 점유) */
+  .main-col{display:grid;grid-template-rows:1fr;min-height:0;min-width:0;background:var(--bg)}
+  .office-wrap{display:none;position:relative;background:#C8B89A;overflow:hidden;border-bottom:1px solid var(--border-soft)}
   .office-title{position:absolute;top:8px;left:14px;color:var(--text-soft);font-size:13px;letter-spacing:2px;font-weight:600;z-index:3;pointer-events:none;opacity:.7}
   .office-status{position:absolute;top:8px;right:14px;color:var(--text-soft);font-size:13px;display:flex;align-items:center;gap:6px;z-index:3;pointer-events:none}
   .office-status .dot{width:7px;height:7px;border-radius:50%;background:#374151}

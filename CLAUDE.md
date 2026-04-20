@@ -233,7 +233,7 @@ server/src/
 1. toolRegistry.ts에서 tools/*.js 직접 import — ESM 순환 import TDZ. toolBootstrap.ts로 분리
 2. auth에서 isLocalRequest localhost 자동 통과 — nginx 리버스 프록시에서 인증 무력화
 3. /etc/nginx/.htpasswd + auth_basic — 내부 로그인 UI 충돌
-4. AI CHAT 별도 뷰/탭 재도입 — 오피스 안에 채팅 있음. 구버전 폐기됨
+4. (수정 2026-04-20) 채팅 전용 모드로 전환 — `.office-wrap` CSS `display:none` 으로 숨김. 오피스 SVG / TPH_* JS 함수 / `.tph-*` CSS 는 dead code 로 남아 있음. 향후 완전 제거 시 SSE 핸들러(`tphSetRoomState` 등) 호출처도 함께 정리 필요
 5. Notion/Drive에서 지침 문서 참조 — 이 CLAUDE.md가 유일한 소스
 6. EnsembleRunner Promise.allSettled — Promise.all 유지
 7. CriticReview needs_followup인데 targetDeptId 비움 — CRITIC walk 멈춤

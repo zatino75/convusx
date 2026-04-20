@@ -224,15 +224,17 @@ async function runPreResearch(
 
 // ─── 모델별 현실화 타임아웃 (prefix 매칭) ─────────────────────────────────────
 // claude-opus-4-6: 180초 (2026-04-20: extended thinking + 분석 프롬프트가 90s 자주 초과 — 90→180)
-// claude-sonnet-4-6: 60초
-// gpt-5.4-pro: 60초
+// claude-sonnet-4-6: 120초 (2026-04-20: 60→120 — 분석/요약 프롬프트가 60s 자주 초과)
+// claude-haiku / 일반 claude: 60초 (Haiku 는 채점/브리핑 등 가벼운 작업이라 유지)
+// gpt-5.4-pro / o*: 120초 (2026-04-20: 60→120 — finance/compete 분석 프롬프트가 60s 부족)
 // gemini-2.5-pro: 45초
 // Fallback: 45초 전부 공통
 function primaryTimeoutMsFor(model: string): number {
   const m = model.toLowerCase();
   if (m.startsWith('claude-opus')) return 180000;
-  if (m.startsWith('claude-sonnet') || m.startsWith('claude-haiku') || m.startsWith('claude')) return 60000;
-  if (m.startsWith('gpt') || m.startsWith('o')) return 60000;
+  if (m.startsWith('claude-sonnet')) return 120000;
+  if (m.startsWith('claude-haiku') || m.startsWith('claude')) return 60000;
+  if (m.startsWith('gpt') || m.startsWith('o')) return 120000;
   if (m.startsWith('gemini')) return 45000;
   return 60000;
 }
