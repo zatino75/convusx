@@ -30,7 +30,7 @@ export interface ExecutiveGateResult {
 const PRIMARY_TIMEOUT_MS = 25000;
 const FALLBACK_TIMEOUT_MS = 40000;  // 15s 는 adapter /v1/responses 경로에서 첫 호출 시 타임아웃
 const MAX_TOKENS = 2500;            // 800 은 6-dept 한국어 JSON 중간에 잘림 (UTF-8 tokenization 비용)
-const MAX_DEPTS = 6;
+const MAX_DEPTS = 4;  // 2026-04-20: 6→4 (응답속도 우선 — 부서 다중 호출 비용 절감)
 
 const ALL_DEPT_IDS: DeptId[] = [
   'market', 'compete', 'legal', 'finance',
@@ -188,7 +188,7 @@ function normalizeGateResult(parsed: Record<string, unknown>, directive: string)
   const rawAction = String(parsed.action ?? '').trim().toLowerCase();
   const rawComplexity = String(parsed.complexity ?? '').trim().toLowerCase();
   const rawDepartments = normalizeDepartments(parsed.departments);
-  const departments = applyKeywordGuards(directive, rawDepartments);
+  const departments = applyKeywordGuards(directive, rawDepartments).slice(0, 4);
   const reason = String(parsed.reason ?? '').trim().slice(0, 400);
 
   const action: ExecutiveGateResult['action'] =

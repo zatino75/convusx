@@ -327,9 +327,24 @@ export async function runDirector(
   // ─ 세션 SQLite 저장 (라운드 포함) ────────────────────────────────────────────
   persistSession(session).catch(() => {});
 
-  // ─ 상무 3단계 검토 + 보강 루프 (1회 한정) ───────────────────────────────────
+  // ─ 2026-04-20: CriticReview + 보강 루프 bypass (응답속도 우선) — dead code 보존 ─
+  // 원 블록은 if(false) 안에 그대로 유지. CeoBriefing 은 기본 criticReview 로 진행.
   let briefing: CeoBriefingResult | undefined;
-  let criticReview: CriticReviewResult | undefined;
+  let criticReview: CriticReviewResult | undefined = {
+    verdict: 'pass',
+    include: completedReports.map((r) => r.deptId),
+    exclude: [],
+    rework: [],
+    rework_reason: {},
+    conflicts: [],
+    summary: 'CriticReview bypass — 응답속도 우선',
+    scores: {},
+    keyIssues: [],
+    contradictions: [],
+    verificationNeeded: [],
+    confidence: 1,
+  };
+  if (false) {
   if (completedReports.length > 0) {
     try {
       send({ type: 'critic_start' });
@@ -450,6 +465,7 @@ export async function runDirector(
       logger.error({ err }, '[Director] Critic 검토 실패');
     }
   }
+  } // end if(false) — CriticReview bypass
 
   if (completedReports.length > 0) {
     try {
