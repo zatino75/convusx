@@ -1,5 +1,5 @@
 # CORVUS X — CLAUDE.md
-> 최종 업데이트: 2026-04-20 (평면 2D top-down 오피스 전환 — 아이소메트릭 포기)
+> 최종 업데이트: 2026-04-21 (팀 응답 마크다운 전환 + Critic bypass + 오피스 UI 숨김 + 타임아웃 체인 확장)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
 
 ## 프로젝트 개요
@@ -84,12 +84,22 @@ git add -A && git commit -m "feat: 내용" && git push origin main
     → single_agent: Opus 단독 처리
     → director: 부서 선별 + 맞춤 지시 → 병렬 실행 → 취합 → CEO 브리핑
 
-## Director 플로우
-1. ExecutiveGate (Sonnet) — 부서 선별 + 맞춤 지시 생성
-2. 부서 병렬 실행 (10개 중 선별된 부서만)
-3. CriticReview (Haiku) — include/exclude/rework + 1~10점 품질 점수
-4. 보강 루프 1회 (rework 부서만 재실행, 구체적 개선 요청 포함)
+## Director 플로우 (속도 우선 정책, 2026-04-20~21)
+1. ExecutiveGate (Sonnet) — 부서 선별 + 맞춤 지시 생성 → **`slice(0, MAX_DEPTS=4)` 로 최대 4개 부서로 상한**
+2. 부서 병렬 실행 (10개 중 선별된 ≤4개 부서만)
+3. ~~CriticReview~~ — **`if (false)` bypass 상태. 기본 verdict (includeAll, score=7) 항상 통과**
+4. ~~보강 루프~~ — Critic bypass 로 rework 경로 비활성
 5. CeoBriefing (Haiku) — 5섹션 구조
+
+> MAX_DEPTS=4 / Critic bypass 는 응답속도(앙상블 420s 내) 확보를 위한 의도적 정책. 재활성화 금지.
+
+## 팀별 응답 형식 (2026-04-21 전환)
+JSON 스키마 강제 폐지 → 마크다운 자유 출력.
+- 출력 구조: `### 핵심 요약` / `### 주요 발견` / `### 리스크` (🔴/🟡/🟢) / `### 추가 확인 필요`
+- 꼬리 1줄: `confidence: 0.XX` (regex 로만 추출)
+- 본문은 마크다운 그대로 UI 에 표시. 표/인용/이모지 자유 사용
+- 파서: `parseMarkdownSections` (헤딩 기반) + `tryParseJson` (confidence regex)
+- `citations` 필드 제거 — 본문 내 링크로 통합
 
 ## 부서 구성 (10개)
 | 부서 | Primary | Fallback | 커넥터 | 도구 |
@@ -133,21 +143,27 @@ git add -A && git commit -m "feat: 내용" && git push origin main
 | Perplexity | sonar-pro | 웹 검색 |
 | Serper | Google Search API | Tavily 대체 |
 
-## 타임아웃
-| 항목 | 초 |
-|------|-----|
-| Claude Opus | 90 |
-| Claude Sonnet / GPT | 60 |
-| GPT-5.4-pro (앙상블) | 120 |
-| Gemini | 45 |
-| Fallback | 45 |
-| CriticReview | 30 |
-| CeoBriefing | 40 |
-| 앙상블 전체 | 90 |
-| synthesis | 110 |
-| 커넥터 | 15 |
-| nginx proxy_read | 600 |
-| SSE 연결 | 360 |
+## 타임아웃 체인 (2026-04-21, 변경 금지)
+프론트 SSE(540s) ⊃ nginx SSE stream(3600s) ⊃ 앙상블 전체(420s) ⊃ 모델당(180s).
+하나라도 줄이면 중간에서 타임아웃 → 부분 응답 손실.
+
+| 레이어 | 항목 | 초 |
+|--------|------|-----|
+| 프론트 | SSE 총 상한 | **540** |
+| 프론트 | SSE 경고 표시 | **360** |
+| 앙상블 | 전체 | **420** |
+| 앙상블 | 모델당 | **180** |
+| 앙상블 | Synthesis | **150** |
+| 어댑터 | 상한 (모든 provider) | **180** |
+| 모델 | Claude Opus | **180** |
+| 모델 | Claude Sonnet / GPT-5.4 | **120** |
+| 모델 | Claude Haiku | **60** |
+| 모델 | Gemini | 45 |
+| 프로세스 | CriticReview (bypass 중) | 30 |
+| 프로세스 | CeoBriefing | 40 |
+| 프로세스 | 커넥터 | 15 |
+| nginx | /api/ proxy_read | **600** |
+| nginx | SSE stream | **3600** |
 
 ## SSE 이벤트
 executive_gate_start / done / redirect
@@ -158,11 +174,15 @@ ceo_briefing / all_done
 
 ## corvusx-office.html 현재 기능
 
-### 레이아웃
+> **2026-04-20: 채팅 전용 모드 전환**. `.office-wrap { display:none }` 으로 오피스 SVG 숨김.
+> 재도입 금지 — 응답속도/시각 노이즈 이슈로 의도적 비활성화.
+> 오피스 SVG / TPH_* JS / `.tph-*` CSS / SSE 핸들러(`tphSetRoomState` 등) 는 dead code 로 잔존.
+
+### 레이아웃 (현재 활성)
 - 사이드바 (좌): 토글 + 드래그 너비 (200~400px)
-- 오피스 (중앙): Middle Management 스타일 10개 방 + 복도 + 상무실 + 휴게실
-- 채팅 패널 (중앙 하단): 마크다운 렌더링 + 메시지 액션
+- 채팅 패널 (중앙, 전체 폭): 마크다운 렌더링 + 메시지 액션
 - 우측 패널: 부서현황/매출/POS/보고 탭 + 드래그 리사이즈 (240~520px)
+- ~~오피스 SVG~~: 숨김 (display:none)
 
 ### 사이드바
 - 새 채팅 / 이미지 / 대시보드
@@ -233,10 +253,16 @@ server/src/
 1. toolRegistry.ts에서 tools/*.js 직접 import — ESM 순환 import TDZ. toolBootstrap.ts로 분리
 2. auth에서 isLocalRequest localhost 자동 통과 — nginx 리버스 프록시에서 인증 무력화
 3. /etc/nginx/.htpasswd + auth_basic — 내부 로그인 UI 충돌
-4. (수정 2026-04-20) 채팅 전용 모드로 전환 — `.office-wrap` CSS `display:none` 으로 숨김. 오피스 SVG / TPH_* JS 함수 / `.tph-*` CSS 는 dead code 로 남아 있음. 향후 완전 제거 시 SSE 핸들러(`tphSetRoomState` 등) 호출처도 함께 정리 필요
-5. Notion/Drive에서 지침 문서 참조 — 이 CLAUDE.md가 유일한 소스
-6. EnsembleRunner Promise.allSettled — Promise.all 유지
-7. CriticReview needs_followup인데 targetDeptId 비움 — CRITIC walk 멈춤
+4. 오피스 UI 재도입 — `.office-wrap { display:none }` 유지. 채팅 전용 모드는 의도적 전환 (2026-04-20)
+5. CriticReview 재활성화 — `if (false)` bypass 유지. 속도 우선 정책 (2026-04-20)
+6. MAX_DEPTS 증가 / ExecutiveGate slice(0,4) 해제 — 부서 최대 4개 상한 유지
+7. 팀 응답 JSON 스키마 복귀 — 마크다운 자유 출력만 허용. `parseMarkdownSections` 기반 파서 유지
+8. 타임아웃 체인 축소 — 540s(프론트) > 420s(앙상블) > 180s(모델) 체인 깨지 말 것
+9. `/etc/nginx/sites-enabled/corvusx` 를 symlink 로 변환 — **일반 파일**로 유지 (symlink 전환 시 envsubst/배포 깨짐)
+10. nginx 백업 파일을 `sites-enabled/` 내 `.bak` 으로 저장 — nginx 가 로드 시도. **항상 `/root/nginx-backups/` 로 이동**
+11. Notion/Drive에서 지침 문서 참조 — 이 CLAUDE.md가 유일한 소스
+12. EnsembleRunner Promise.allSettled — Promise.all 유지
+13. CriticReview needs_followup인데 targetDeptId 비움 — CRITIC walk 멈춤 (bypass 해제 시 재발 주의)
 
 ## 알려진 이슈
 - GPT-5.4-pro 120s 타임아웃 내 응답 못할 때 → ensemble verdict split
