@@ -1,5 +1,5 @@
 # CORVUS X — CLAUDE.md
-> 최종 업데이트: 2026-04-21 (팀 응답 마크다운 전환 + Critic bypass + 오피스 UI 숨김 + 타임아웃 체인 확장)
+> 최종 업데이트: 2026-04-21 (dead code 2200줄 삭제 + GPT 60s 타임아웃 + CeoBriefing 프롬프트 강화)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
 
 ## 프로젝트 개요
@@ -54,10 +54,10 @@ URL: https://app.cloudcookie.co.kr (로그인 필수)
 - 운영 스크립트: .\convusx-ops.ps1 [작업시작|작업완료|상태확인|드라이브정리]
 
 ## 기술 스택
-- 프론트엔드: corvusx-office.html (독립 HTML, 181KB)
+- 프론트엔드: corvusx-office.html (독립 HTML, 117KB — 2026-04-21 dead code 삭제 후)
 - 백엔드: Node.js + TypeScript (Express)
 - DB: SQLite (서버 내장)
-- 오피스 UI: SVG + CSS 기반 Middle Management 스타일 (파스텔 2.5D, 블롭 캐릭터, 복도 이동)
+- ~~오피스 UI~~: 2026-04-21 완전 삭제 (TPH/Phaser/SVG 2200줄). 채팅 전용 UI만 잔존
 - 배포: nginx + systemd
 - CI/CD: GitHub → auto-deploy.sh (수동 트리거)
 
@@ -156,7 +156,8 @@ JSON 스키마 강제 폐지 → 마크다운 자유 출력.
 | 앙상블 | Synthesis | **150** |
 | 어댑터 | 상한 (모든 provider) | **180** |
 | 모델 | Claude Opus | **180** |
-| 모델 | Claude Sonnet / GPT-5.4 | **120** |
+| 모델 | Claude Sonnet | **120** |
+| 모델 | GPT-5.4 | **60** (2026-04-21: 120→60, fallback 빠르게) |
 | 모델 | Claude Haiku | **60** |
 | 모델 | Gemini | 45 |
 | 프로세스 | CriticReview (bypass 중) | 30 |
@@ -172,57 +173,22 @@ critic_start / done / rework
 ensemble_start / ensemble_voice / ensemble_done
 ceo_briefing / all_done
 
-## corvusx-office.html 현재 기능
+## corvusx-office.html 현재 기능 (117KB, 2307줄)
 
-> **2026-04-20: 채팅 전용 모드 전환**. `.office-wrap { display:none }` 으로 오피스 SVG 숨김.
-> 재도입 금지 — 응답속도/시각 노이즈 이슈로 의도적 비활성화.
-> 오피스 SVG / TPH_* JS / `.tph-*` CSS / SSE 핸들러(`tphSetRoomState` 등) 는 dead code 로 잔존.
+> **2026-04-21: 오피스 dead code 완전 삭제**. TPH/Phaser/SVG 오피스 코드 2200줄 삭제.
+> Phaser CDN, `.tph-*` CSS 457줄, `.office-wrap` HTML 99줄, tph* JS 1080줄, Phaser Scene 570줄 제거.
+> 오피스 UI 재도입 시 처음부터 새로 작성해야 함.
 
-### 레이아웃 (현재 활성)
+### 레이아웃 (채팅 전용)
 - 사이드바 (좌): 토글 + 드래그 너비 (200~400px)
-- 채팅 패널 (중앙, 전체 폭): 마크다운 렌더링 + 메시지 액션
+- 채팅 패널 (중앙, 전체 폭): 마크다운 렌더링 + 메시지 액션 + LOGOUT 버튼 (chat-header 우측)
 - 우측 패널: 부서현황/매출/POS/보고 탭 + 드래그 리사이즈 (240~520px)
-- ~~오피스 SVG~~: 숨김 (display:none)
 
-### 사이드바
-- 새 채팅 / 이미지 / 대시보드
-- 프로젝트 + 스레드 카드 (고정/해제/삭제 + 📌 배지)
-- 최근 채팅 (general 스레드)
-
-### 입력창
-- 자동 높이 24~160px / 한글 IME 가드
-- 파일 첨부 (드래그/선택/붙여넣기) / 최대 10개 20MB
-- 슬래시 커맨드 13개
-
-### 대화창
-- marked.js + DOMPurify + highlight.js
-- CEO 메시지 골드 border (#C9A84C) + ★ prefix
-- 메시지 액션 (복사/편집/재생성/👍👎) / 버전 관리
-
-### 오피스 (평면 2D top-down) — SimCity 스타일 (2026-04-20 전환)
-- 아이소메트릭 완전 포기 → 순수 top-down 평면도 (가구 겹침 0건, 명확한 구획)
-- viewBox 800×440
-- 팔레트: 바닥 #E8EAF0, 타일 그리드 #D8DCE2, 가구 #6B7380/#8B929C/#2A2E38, 골드 #C9A84C/#E4C773, 액센트 #E24B4A
-- 외벽: #4A5260 stroke 8px 두꺼운 테두리 + 내부 점선 구분선(x=540)으로 왼쪽 작업공간/오른쪽 부대시설 분리
-- 바닥: 은색펄 + 40×40 타일 그리드 (은은한 #D8DCE2 0.5px 라인)
-- 북쪽 벽: 창문 5개 (70×16 파스텔 블루 + 중앙 mullion) + CORVUS X 골드 로고 박스
-- 10개 팀 책상 (2D 평면 `drawDesk2D`, 80×40 상판 + 모니터 24×14 + 키보드 + 마우스 + 원형 의자):
-  - 행1(북쪽 창가): market / marketing / finance / legal
-  - 행2(중앙): compete / rnd / content / sns
-  - 행3(남쪽, 간격 넓게): data / design
-- 3개 부대시설 (오른쪽 세로, 각 구역 점선 테두리):
-  ★ 상무 테이블 (560,50 – 220×90) — 원형 골드 테이블 + 의자 6개 + 상무 캐릭터(상석 고정)
-  💼 미팅룸 (560,170 – 220×110) — 긴 직사각형 테이블 + 3×2 의자 6석 + 노트북 2대 + 커피컵
-  ☕ 휴게실 (560,300 – 220×120) — U자 소파 + 쿠션 3개 + 유리 커피테이블 + TV(cyan + 뉴스틱커) + 6색 자판기 + 화분
-- 왼쪽 하단 공터: 정수기(28×36 + 빨/파 꼭지) + 화분 2개
-- 블롭 캐릭터는 SVG 위에 HTML overlay (기존 구조 유지). 캐릭터 디자인은 옵션 A(기존 블롭) 유지 — 정체성 보존
-- 모니터 상태 컬러: working→cyan #4AD9F5 / done→green #22C55E / error→red #EF4444 / rework→amber #F59E0B / briefing→gold / collab→purple
-- 이동 로직:
-  - executive_gate_done (≥3 부서) → tphRunCollab: 미팅룸 집결 ("협업 중 🤝") 후 흩어짐
-  - executive_gate_done (≤2 부서) → 바로 dept_start
-  - dept_start → tphWalkToSanmoo ("미팅 중 💬") → working (분석/검색/작성/정리 회전)
-  - dept_done → tphWalkToSanmoo ("보고 중 📋") → done
-  - idle wander → 15초 간격 25% 확률로 휴게실 방문
+### 멀티 채팅 SSE (구현 완료)
+- `state.threadRuns[threadId]` — 스레드별 독립 EventSource + 부서 상태
+- `ensureRun(threadId)` — 스레드별 run 객체 관리
+- `sessionId=threadId` 파라미터로 백엔드 sseRegistry 연결
+- 540s 총 상한 / 360s 경고 / 5s 재연결 (2회 한정)
 
 ## 서버 파일 구조
 server/src/
@@ -253,7 +219,7 @@ server/src/
 1. toolRegistry.ts에서 tools/*.js 직접 import — ESM 순환 import TDZ. toolBootstrap.ts로 분리
 2. auth에서 isLocalRequest localhost 자동 통과 — nginx 리버스 프록시에서 인증 무력화
 3. /etc/nginx/.htpasswd + auth_basic — 내부 로그인 UI 충돌
-4. 오피스 UI 재도입 — `.office-wrap { display:none }` 유지. 채팅 전용 모드는 의도적 전환 (2026-04-20)
+4. 오피스 UI 재도입 — 2026-04-21 TPH/Phaser 코드 완전 삭제됨. 재도입 시 처음부터 새로 작성 필요
 5. CriticReview 재활성화 — `if (false)` bypass 유지. 속도 우선 정책 (2026-04-20)
 6. MAX_DEPTS 증가 / ExecutiveGate slice(0,4) 해제 — 부서 최대 4개 상한 유지
 7. 팀 응답 JSON 스키마 복귀 — 마크다운 자유 출력만 허용. `parseMarkdownSections` 기반 파서 유지
@@ -265,8 +231,8 @@ server/src/
 13. CriticReview needs_followup인데 targetDeptId 비움 — CRITIC walk 멈춤 (bypass 해제 시 재발 주의)
 
 ## 알려진 이슈
-- GPT-5.4-pro 120s 타임아웃 내 응답 못할 때 → ensemble verdict split
-- TPH HUD 미션 텍스트: mission_start topic 미연결 ("대기 중" 고정)
+- GPT-5.4-pro 60s 타임아웃 → fallback 빈번할 수 있음 (의도적 — 느린 GPT 보다 빠른 fallback 선호)
+- ~~TPH HUD 미션 텍스트~~ — 삭제됨 (dead code 정리)
 - 멀티 채팅 SSE: 백엔드 인프라 완성, 프론트(office.html) 미연결
 
 ## 새 스레드 시작 프로토콜
