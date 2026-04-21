@@ -61,37 +61,66 @@ function clampConfidence(value: unknown, fallback = 0.7): number {
   return Math.max(0, Math.min(1, Math.round(n * 100) / 100));
 }
 
-function pickList(value: unknown, max = 8): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => String(item ?? '').trim())
-    .filter(Boolean)
-    .slice(0, max);
+// 마크다운 응답 꼬리의 `confidence: 0.XX` 를 regex 로 추출.
+// JSON 파싱을 대체하는 경량 파서 — 본문은 마크다운 그대로 사용.
+function tryParseJson(text: string): { confidence: number } | null {
+  const match = text.match(/confidence\s*[:：]\s*(0?\.\d+|1(?:\.0+)?|[01])\s*$/im);
+  if (!match) return null;
+  return { confidence: clampConfidence(match[1], 0.72) };
 }
 
-function extractJsonObject(text: string): Record<string, unknown> | null {
-  const codeBlock = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const raw = codeBlock?.[1] ?? text.match(/(\{[\s\S]*\})/)?.[1] ?? '';
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
-  } catch {
-    return null;
+function parseMarkdownSections(text: string): Record<string, string[]> {
+  const result: Record<string, string[]> = {};
+  const lines = text.split('\n');
+  let currentHeading = '';
+  let currentItems: string[] = [];
+
+  const flush = () => {
+    if (currentHeading) {
+      result[currentHeading] = (result[currentHeading] ?? []).concat(currentItems);
+    }
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('---')) continue;
+    // confidence 꼬리 라인은 섹션에서 제외
+    if (/^confidence\s*[:：]/i.test(trimmed)) continue;
+
+    const headingMatch = trimmed.match(/^#{1,4}\s+(.+)$/) || trimmed.match(/^\*\*(.+)\*\*$/);
+    if (headingMatch) {
+      flush();
+      currentHeading = headingMatch[1].trim();
+      currentItems = [];
+    } else if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || /^\d+\.\s/.test(trimmed)) {
+      const item = trimmed.replace(/^[-•]\s+/, '').replace(/^\d+\.\s+/, '').trim();
+      if (item) currentItems.push(item);
+    } else if (currentHeading) {
+      currentItems.push(trimmed);
+    }
   }
+  flush();
+  return result;
 }
 
 function parseStructuredOutput(rawText: string, task: DeptTask): DeptReport['structured'] | null {
-  const parsed = extractJsonObject(rawText);
-  if (!parsed) return null;
+  const confidenceParsed = tryParseJson(rawText);
+  const sections = parseMarkdownSections(rawText);
 
-  const summary = String(parsed.summary ?? '').trim();
-  const keyFindings = pickList(parsed.key_findings ?? parsed.keyFindings, 10);
-  const risks = pickList(parsed.risks, 8);
-  const assumptions = pickList(parsed.assumptions, 8);
-  const needsFollowup = pickList(parsed.needs_followup ?? parsed.needsFollowup, 8);
-  const citations = pickList(parsed.citations ?? parsed.sources, 10);
-  const confidence = clampConfidence(parsed.confidence, 0.72);
+  const findSection = (...keywords: string[]): string[] => {
+    for (const kw of keywords) {
+      const heading = Object.keys(sections).find((h) => h.includes(kw));
+      if (heading) return sections[heading];
+    }
+    return [];
+  };
+
+  const summary = findSection('핵심 요약', '요약').join(' ').trim();
+  const keyFindings = findSection('주요 발견', '핵심 근거', '발견').slice(0, 10);
+  const risks = findSection('리스크').slice(0, 8);
+  const needsFollowup = findSection('추가 확인', '확인 필요').slice(0, 8);
+  const assumptions = findSection('가정').slice(0, 8);
+  const confidence = confidenceParsed?.confidence ?? 0.72;
 
   if (!summary && keyFindings.length === 0 && risks.length === 0) return null;
 
@@ -102,7 +131,6 @@ function parseStructuredOutput(rawText: string, task: DeptTask): DeptReport['str
     assumptions,
     needsFollowup,
     confidence,
-    citations: citations.length > 0 ? citations : undefined,
   };
 }
 
@@ -465,22 +493,31 @@ function buildUserPrompt(task: DeptTask, preResearchData: string): string {
 ${preResearchData ? `## 사전 조사 데이터\n${preResearchData}\n` : ''}
 
 ## 요청
-위 임무와 데이터를 바탕으로 전문가 수준의 분석을 수행하고, 아래 JSON 스키마로만 응답하라.
-{
-  "summary": "핵심 요약 2~3문장",
-  "key_findings": ["핵심 근거"],
-  "risks": ["핵심 리스크"],
-  "assumptions": ["가정"],
-  "needs_followup": ["추가 확인 필요 항목"],
-  "confidence": 0.0,
-  "citations": ["출처 또는 데이터 근거"]
-}
+위 임무와 데이터를 바탕으로 전문가 수준의 분석을 마크다운 형식으로 작성하라.
+
+출력 구조 (순서 준수):
+### 핵심 요약
+2~3문장. 수치 포함.
+
+### 주요 발견
+- 각 항목은 수치/출처 포함
+- 최대 8개
+
+### 리스크
+- 🔴 HIGH / 🟡 MEDIUM / 🟢 LOW 등급 명시
+- 최대 5개
+
+### 추가 확인 필요
+- ⚠ 항목
+
+---
+confidence: 0.XX
+(마지막 줄에 이 형식으로만 신뢰도 숫자 표기)
 
 규칙:
-- confidence는 0~1 숫자
-- key_findings/risks/assumptions/needs_followup는 각각 최대 8개
-- 근거가 불충분하면 needs_followup에 명시
-- JSON 외 설명 텍스트는 금지
+- 마크다운 표, 코드블록, 이모지 자유롭게 사용
+- 각 팀 시스템 프롬프트에서 요구한 형식 (비교표, 조문 인용 등) 충실히 반영
+- confidence 줄 외 JSON 형식 사용 금지
 `.trim();
 }
 
