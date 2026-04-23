@@ -1,5 +1,5 @@
 # CORVUS X — CLAUDE.md
-> 최종 업데이트: 2026-04-23 (Phaser 잔해 구문오류 11곳 수정 + 단일에이전트 마크다운 렌더링 추가)
+> 최종 업데이트: 2026-04-23 (Session 3: SPOF 제거, fusion bypass, 토큰/비용 로깅 추가)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
 
 ## 프로젝트 개요
@@ -109,20 +109,21 @@ JSON 스키마 강제 폐지 → 마크다운 자유 출력.
 | legal | Claude Opus 4.6 | GPT-5.4-pro | serper→perplexity* | regulation_check |
 | finance | GPT-5.4-pro | Gemini 2.5 Pro | supabase→serper | finance_analyze |
 | marketing | Claude Sonnet | GPT-5.4-pro | serper→perplexity | brand_positioning |
-| rnd | Claude Sonnet | Gemini 2.5 Pro | pubmed→perplexity→serper | recipe_design |
+| rnd | Gemini 2.5 Pro | Claude Sonnet | pubmed→perplexity→serper | recipe_design |
 | data | Gemini 2.5 Pro | GPT-5.4-pro | posthog→supabase→serper | sentiment_analyze |
-| content | Claude Sonnet | GPT-5.4-pro | serper→perplexity | content_pillar |
+| content | GPT-5.4-pro | Claude Sonnet | serper→perplexity | content_pillar |
 | sns | Gemini 2.5 Pro | Claude Sonnet | serper→perplexity* | channel_strategy |
 | design | Claude Sonnet | Gemini 2.5 Pro | fal→nano_banana→canva | design_create |
 
 ## 내부 프로세스
 | 프로세스 | Primary | Fallback | 비고 |
 |----------|---------|----------|------|
-| ExecutiveGate | Claude Sonnet | — | 부서 선별 + 맞춤 지시 |
-| CriticReview | DeepSeek V3.2 | Claude Haiku → Gemini Flash | 3단계 폴백 |
+| ExecutiveGate | Claude Sonnet | GPT-5.4-pro → Gemini 2.5 Pro | 3단계 폴백 (2026-04-23 SPOF 제거) |
+| CriticReview | DeepSeek V3.2 | Claude Haiku → Gemini Flash | 3단계 폴백 (현재 bypass 중) |
 | CeoBriefing | Claude Haiku | Claude Sonnet → Gemini Pro | 3단계 폴백 |
 
-- 모델 분포: Opus 1 / Sonnet 4 / Haiku 1(CeoBriefing) / GPT-5.4 2 / Gemini 3 / DeepSeek 1(Critic)
+- 모델 분포 (Primary 기준): Opus 1 / Sonnet 2 / Haiku 1 / GPT-5.4 3 / Gemini 4 / DeepSeek 1(Critic)
+- 2026-04-23 리밸런싱: Anthropic 30% / Google 40% / OpenAI 30% (Primary 기준) — SPOF 리스크 분산
 - Fallback: Cross-provider (다른 회사 모델)
 - 비주얼 에셋(이미지/영상/3D/로고/배너/인테리어)은 design 전담 — marketing/content/sns 는 전략·기획만
 - DeepSeek 는 CriticReview Primary 에만 사용 (JSON 평가 전용)
@@ -229,6 +230,9 @@ server/src/
 11. Notion/Drive에서 지침 문서 참조 — 이 CLAUDE.md가 유일한 소스
 12. EnsembleRunner Promise.allSettled — Promise.all 유지
 13. CriticReview needs_followup인데 targetDeptId 비움 — CRITIC walk 멈춤 (bypass 해제 시 재발 주의)
+14. fusion/threadFusion.buildFusionSystemBlock 재활성화 금지 — 2026-04-23 bypass. 스레드 간 자동 공유 경로 폐기. 동일 기능은 fusion/unifiedRetrieval 로 대체됨
+15. fusion/sourcePromoter.promoteThreadToSource 재활성화 금지 — 2026-04-23 bypass. 스레드→프로젝트 자산 자동 승격 차단. projectFusion 은 프로젝트 내부 로직이므로 유지
+16. recordProviderMetric 의 ctx.model/ctx.usage 인자 제거 금지 — 2026-04-23 비용 관측 인프라 전제. 제거 시 cost_usd 로그 사라짐
 
 ## 알려진 이슈
 - GPT-5.4-pro 60s 타임아웃 → fallback 빈번할 수 있음 (의도적 — 느린 GPT 보다 빠른 fallback 선호)
@@ -237,6 +241,17 @@ server/src/
 - ExecutiveGate 단일에이전트 과분류: "간단히"/"요약" 수식어에 분석 요청도 single_agent로 빠짐 → Gate 프롬프트 개선 필요
 - 2026-04-23: Phaser dead code 삭제 시 잔해(dispatchEvent 괄호, scene 참조) 11곳 → SyntaxError로 전체 JS 실행 불가 → 수정 완료
 - 2026-04-23: startSingleAgentStreamInto에서 스트리밍 완료 후 renderMarkdown 미적용 → raw 마크다운 표시 → 수정 완료
+- 2026-04-23 Session 3: Perplexity `insufficient_quota` 확인. `* 표시` 부서(compete/legal/sns) 의 serper→perplexity 강등은 결제 충전 전까지 유지. Claude Code 처리 불가 (결제 이슈)
+
+## 비용 관측 (2026-04-23 추가)
+- 모든 provider 어댑터 성공 호출 시 `[adapter:usage]` 구조화 로그 emit
+- `server/src/adapters/shared.ts` 의 `recordProviderMetric` 이 옵션 ctx {model, usage} 를 받아 `estimateCostUsd` 로 비용 계산 후 logger.info
+- `server/src/cost/costCalc.ts` + `MODEL_PRICING_USD_PER_1K_TOKENS` (config/defaults.ts) 기반 가격 테이블
+  - 2026-04-23 추가: `claude-haiku-4-5-20251001`, `deepseek-chat`
+- 로그 필드: `provider`, `model`, `input_tokens`, `output_tokens`, `cost_usd`, `latency_ms`
+- 조회: `journalctl -u corvusx-backend | grep 'adapter:usage' | grep cost_usd`
+- DeepSeek 는 ModelAdapter 인터페이스 밖이라 deepseek.ts 내부에서 inline 로깅
+- TODO: `/api/usage/daily` 집계 엔드포인트 (다음 세션)
 
 ## 새 스레드 시작 프로토콜
 1. Claude.ai: "Notion에서 CONVUS X 개발 현황 불러와서 이어서 작업해줘"
