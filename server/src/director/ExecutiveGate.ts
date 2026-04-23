@@ -4,10 +4,11 @@
  * 유저 지시를 Claude Sonnet 이 받아 단순/복잡 판단 + 부서 선별 + 맞춤 지시 생성.
  * Director / single-agent 분기의 단일 진입점.
  *
- * Primary : claude-sonnet-4-6, max_tokens 800, 20s
- * Fallback: gpt-5.4-pro, max_tokens 800, 15s
+ * Primary  : claude-sonnet-4-6, max_tokens 2500, 25s
+ * Fallback1: gpt-5.4-pro via openaiAdapter, 40s
+ * Fallback2: gemini-2.5-pro via geminiAdapter, 30s (2026-04-23 추가 — SPOF 제거)
  *
- * 양쪽 실패 시: { action: 'single_agent', departments: [], reason: 'gate_error' }
+ * 3단계 모두 실패 시: { action: 'single_agent', departments: [], reason: 'gate_error' }
  */
 
 import type { DeptId } from './TaskDecomposer.js';
@@ -29,6 +30,7 @@ export interface ExecutiveGateResult {
 
 const PRIMARY_TIMEOUT_MS = 25000;
 const FALLBACK_TIMEOUT_MS = 40000;  // 15s 는 adapter /v1/responses 경로에서 첫 호출 시 타임아웃
+const GEMINI_FALLBACK_TIMEOUT_MS = 30000;  // 2026-04-23: Fallback 2 (Anthropic+OpenAI 동시 장애 대비)
 const MAX_TOKENS = 2500;            // 800 은 6-dept 한국어 JSON 중간에 잘림 (UTF-8 tokenization 비용)
 const MAX_DEPTS = 4;  // 2026-04-20: 6→4 (응답속도 우선 — 부서 다중 호출 비용 절감)
 
@@ -248,7 +250,7 @@ async function callClaudePrimary(systemPrompt: string, userPrompt: string): Prom
   }
 }
 
-// ─── Fallback: GPT-5.4-pro (via main openaiAdapter → /v1/responses with chat fallback) ─
+// ─── Fallback 1: GPT-5.4-pro (via main openaiAdapter → /v1/responses with chat fallback) ─
 async function callOpenAIFallback(systemPrompt: string, userPrompt: string): Promise<string | null> {
   const apiKey = String((globalThis as any)?.process?.env?.OPENAI_API_KEY ?? '').trim();
   if (!apiKey) return null;
@@ -269,6 +271,28 @@ async function callOpenAIFallback(systemPrompt: string, userPrompt: string): Pro
     return null;
   } catch (err) {
     logger.warn({ err: err instanceof Error ? err.message : String(err) }, '[ExecutiveGate] GPT fallback 호출 오류');
+    return null;
+  }
+}
+
+// ─── Fallback 2: Gemini 2.5 Pro (2026-04-23 추가 — Anthropic+OpenAI 동시 장애 대비) ─
+async function callGeminiFallback(systemPrompt: string, userPrompt: string): Promise<string | null> {
+  const apiKey = String((globalThis as any)?.process?.env?.GEMINI_API_KEY ?? '').trim();
+  if (!apiKey) return null;
+
+  try {
+    const { callGemini } = await import('../adapters/wrappers.js');
+    const text = await Promise.race([
+      callGemini(systemPrompt, userPrompt, MAX_TOKENS),
+      new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error('gemini_timeout')), GEMINI_FALLBACK_TIMEOUT_MS),
+      ),
+    ]);
+    if (typeof text === 'string' && text.trim()) return text.trim();
+    logger.warn('[ExecutiveGate] Gemini fallback 빈 응답');
+    return null;
+  } catch (err) {
+    logger.warn({ err: err instanceof Error ? err.message : String(err) }, '[ExecutiveGate] Gemini fallback 호출 오류');
     return null;
   }
 }
@@ -298,7 +322,7 @@ export async function runExecutiveGate(
     }
   }
 
-  // Fallback
+  // Fallback 1: GPT-5.4-pro
   const fallbackText = await callOpenAIFallback(systemPrompt, userPrompt);
   if (fallbackText) {
     const parsed = tryParseJson(fallbackText);
@@ -311,6 +335,19 @@ export async function runExecutiveGate(
     }
   }
 
-  logger.warn('[ExecutiveGate] 양쪽 모두 실패 → single_agent fallback');
+  // Fallback 2: Gemini 2.5 Pro (2026-04-23 추가)
+  const geminiText = await callGeminiFallback(systemPrompt, userPrompt);
+  if (geminiText) {
+    const parsed = tryParseJson(geminiText);
+    if (parsed) {
+      const normalized = normalizeGateResult(parsed, trimmed);
+      if (normalized) return normalized;
+      logger.warn({ preview: geminiText.slice(0, 300) }, '[ExecutiveGate] Gemini fallback 정규화 실패');
+    } else {
+      logger.warn({ preview: geminiText.slice(0, 300) }, '[ExecutiveGate] Gemini fallback JSON 파싱 실패');
+    }
+  }
+
+  logger.warn('[ExecutiveGate] 3단계 모두 실패 → single_agent fallback');
   return { complexity: 'simple', action: 'single_agent', departments: [], reason: 'gate_error' };
 }
