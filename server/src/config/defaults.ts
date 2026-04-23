@@ -72,11 +72,13 @@ export const MODEL_PRICING_USD_PER_1K_TOKENS: Record<string, { input: number; ou
   "gpt-5.3-codex":         { input: 0.003,  output: 0.012 },
   "claude-sonnet-4-6":     { input: 0.003,  output: 0.015 },
   "claude-opus-4-6":       { input: 0.015,  output: 0.075 },
+  "claude-haiku-4-5-20251001": { input: 0.0008, output: 0.004 },
   [GEMINI_MODEL_ID]:       { input: 0.00125,output: 0.01 },
   [GEMINI_FLASH_MODEL_ID]: { input: 0.0001, output: 0.0004 },
   "sonar-pro":             { input: 0.003,  output: 0.015 },
   "sonar-reasoning-pro":   { input: 0.002,  output: 0.008 },
   "sonar":                 { input: 0.001,  output: 0.001 },
+  "deepseek-chat":         { input: 0.00027, output: 0.0011 },
 }
 
 // ── 모델 기본값 ──

@@ -333,7 +333,7 @@ export const claudeAdapter: ModelAdapter = {
         error_code: streamed.errorCode ?? undefined,
         retriable: !!streamed.errorCode
       })
-      recordProviderMetric("claude", streamed.latency, isSuccess)
+      recordProviderMetric("claude", streamed.latency, isSuccess, { model, usage: streamed?.data?.usage })
 
       if (isSuccess) {
         return {
@@ -365,7 +365,7 @@ export const claudeAdapter: ModelAdapter = {
             error_code: undefined,
             retriable: false
           })
-          recordProviderMetric("claude", latency, true)
+          recordProviderMetric("claude", latency, true, { model, usage: data?.usage })
 
           // 비스트리밍 결과를 onToken 으로 전달
           if (onToken) {
@@ -491,7 +491,7 @@ export const claudeAdapter: ModelAdapter = {
           error_code: undefined,
           retriable: false
         })
-        recordProviderMetric("claude", latency, true)
+        recordProviderMetric("claude", latency, true, { model, usage: data?.usage })
 
         return {
           provider: req.provider,

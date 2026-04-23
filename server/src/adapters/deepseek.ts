@@ -52,7 +52,23 @@ export async function callDeepSeek(
     }
     const data: any = await res.json()
     const text = data?.choices?.[0]?.message?.content
-    return typeof text === "string" ? text : null
+    if (typeof text !== "string") return null
+
+    // 2026-04-23: token usage 로깅 (OpenAI 호환 포맷)
+    const usage = data?.usage
+    if (usage) {
+      import("../cost/costCalc.js").then(mod => {
+        const costUsd = mod.estimateCostUsd(model, usage)
+        logger.info("[adapter:usage]", {
+          provider: "deepseek",
+          model,
+          input_tokens: Number(usage.prompt_tokens ?? 0) || 0,
+          output_tokens: Number(usage.completion_tokens ?? 0) || 0,
+          cost_usd: Number(costUsd.toFixed(6)),
+        })
+      }).catch(() => { /* 로깅 실패 무시 */ })
+    }
+    return text
   } catch (err) {
     logger.warn(
       { err: err instanceof Error ? err.message : String(err) },

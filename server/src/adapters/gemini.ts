@@ -425,7 +425,7 @@ export const geminiAdapter: ModelAdapter = {
           error_code: streamed.errorCode ?? undefined,
           retriable: !isSuccess && streamed.errorCode !== "aborted"
         })
-        recordProviderMetric("gemini", streamed.latency, isSuccess)
+        recordProviderMetric("gemini", streamed.latency, isSuccess, { model, usage: streamed.usage })
 
         // 클라이언트 abort → 즉시 반환
         if (streamed.errorCode === "aborted") {
@@ -572,7 +572,7 @@ export const geminiAdapter: ModelAdapter = {
           retriable: false,
           http_status: response.status
         })
-        recordProviderMetric("gemini", latencyMs, true)
+        recordProviderMetric("gemini", latencyMs, true, { model, usage })
 
         return {
           provider: req.provider,

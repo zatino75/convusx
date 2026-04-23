@@ -103,11 +103,41 @@ function isRetriableErrorCode(code: string): boolean {
  * APM Provider 호출 기록 래퍼 (D5 연동).
  * 각 어댑터에서 이미 계산한 latencyMs와 성공 여부를 넘기면 됨.
  * import 순환 방지를 위해 dynamic import 사용.
+ *
+ * 2026-04-23: 옵션 ctx (model + usage) 를 받으면 성공 호출에 한해
+ * 토큰 사용량과 USD 비용을 구조화 로그로 함께 emit. 비용 관측 인프라 기반.
  */
-export function recordProviderMetric(provider: string, latencyMs: number, success: boolean) {
+export function recordProviderMetric(
+  provider: string,
+  latencyMs: number,
+  success: boolean,
+  ctx?: { model?: string; usage?: any }
+) {
   import("../observability/apm.js")
     .then(mod => mod.recordProviderCall(provider, latencyMs, success))
     .catch(() => { /* APM 미사용 환경 무시 */ })
+
+  // 성공 호출 + usage 제공된 경우에만 비용 로그 emit
+  if (!success || !ctx?.usage || !ctx?.model) return
+  const usage = ctx.usage
+  const inputTokens = Number(usage.input_tokens ?? usage.prompt_tokens ?? 0) || 0
+  const outputTokens = Number(usage.output_tokens ?? usage.completion_tokens ?? 0) || 0
+  if (inputTokens === 0 && outputTokens === 0) return
+
+  Promise.all([
+    import("../cost/costCalc.js"),
+    import("../observability/logger.js"),
+  ]).then(([costMod, logMod]) => {
+    const costUsd = costMod.estimateCostUsd(ctx.model, usage)
+    logMod.logger.info("[adapter:usage]", {
+      provider,
+      model: ctx.model,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cost_usd: Number(costUsd.toFixed(6)),
+      latency_ms: latencyMs,
+    })
+  }).catch(() => { /* 로깅 실패 무시 (hot path 보호) */ })
 }
 
 export function normalizeContent(content: any): string {

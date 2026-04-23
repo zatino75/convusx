@@ -289,7 +289,7 @@ export const openaiAdapter: ModelAdapter = {
               outcome: "success",
               retriable: false
             })
-            recordProviderMetric("openai", latencyMs, true)
+            recordProviderMetric("openai", latencyMs, true, { model, usage: streamResult.usage })
             return {
               provider: req.provider,
               model,
@@ -411,7 +411,7 @@ export const openaiAdapter: ModelAdapter = {
           retriable: false,
           http_status: response.status
         })
-        recordProviderMetric("openai", latencyMs, true)
+        recordProviderMetric("openai", latencyMs, true, { model, usage })
 
         return {
           provider: req.provider,

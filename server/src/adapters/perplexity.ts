@@ -171,7 +171,7 @@ export const perplexityAdapter: ModelAdapter = {
           error_code: undefined,
           retriable: false
         })
-        recordProviderMetric("perplexity", latency, true)
+        recordProviderMetric("perplexity", latency, true, { model, usage: data?.usage })
 
         return {
           provider: req.provider,
