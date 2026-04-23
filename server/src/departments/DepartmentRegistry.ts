@@ -186,8 +186,9 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     id: 'rnd',
     nameKo: 'R&D제품개발팀',
     nameEn: 'R&D PRODUCT DEV',
-    primaryModel: 'claude-sonnet-4-6',
-    fallbackModel: GEMINI_MODEL_ID,
+    // 2026-04-23: Gemini 2.5 Pro 로 승격 (학술/PubMed grounding 강점) — Anthropic 의존도 감소
+    primaryModel: GEMINI_MODEL_ID,
+    fallbackModel: 'claude-sonnet-4-6',
     maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X R&D제품개발팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 제품 컨셉 개발, 기술 분석, R&D 로드맵을 수립합니다.
@@ -244,8 +245,9 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     id: 'content',
     nameKo: '콘텐츠크리에이티브팀',
     nameEn: 'CONTENT & CREATIVE',
-    primaryModel: 'claude-sonnet-4-6',
-    fallbackModel: 'gpt-5.4-pro',
+    // 2026-04-23: GPT-5.4-pro 로 승격 (문체 다양성/카피라이팅 강점) — Anthropic 의존도 감소
+    primaryModel: 'gpt-5.4-pro',
+    fallbackModel: 'claude-sonnet-4-6',
     maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 콘텐츠크리에이티브팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 브랜드 콘텐츠 전략, 카피라이팅, 스크립트를 담당합니다.
