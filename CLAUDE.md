@@ -1,5 +1,5 @@
 # CORVUS X — CLAUDE.md
-> 최종 업데이트: 2026-04-21 (dead code 2200줄 삭제 + GPT 60s 타임아웃 + CeoBriefing 프롬프트 강화)
+> 최종 업데이트: 2026-04-23 (Phaser 잔해 구문오류 11곳 수정 + 단일에이전트 마크다운 렌더링 추가)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
 
 ## 프로젝트 개요
@@ -233,7 +233,10 @@ server/src/
 ## 알려진 이슈
 - GPT-5.4-pro 60s 타임아웃 → fallback 빈번할 수 있음 (의도적 — 느린 GPT 보다 빠른 fallback 선호)
 - ~~TPH HUD 미션 텍스트~~ — 삭제됨 (dead code 정리)
-- 멀티 채팅 SSE: 백엔드 인프라 완성, 프론트(office.html) 미연결
+- ~~멀티 채팅 SSE: 백엔드 인프라 완성, 프론트(office.html) 미연결~~ — 연결 완료 (2026-04-21)
+- ExecutiveGate 단일에이전트 과분류: "간단히"/"요약" 수식어에 분석 요청도 single_agent로 빠짐 → Gate 프롬프트 개선 필요
+- 2026-04-23: Phaser dead code 삭제 시 잔해(dispatchEvent 괄호, scene 참조) 11곳 → SyntaxError로 전체 JS 실행 불가 → 수정 완료
+- 2026-04-23: startSingleAgentStreamInto에서 스트리밍 완료 후 renderMarkdown 미적용 → raw 마크다운 표시 → 수정 완료
 
 ## 새 스레드 시작 프로토콜
 1. Claude.ai: "Notion에서 CONVUS X 개발 현황 불러와서 이어서 작업해줘"

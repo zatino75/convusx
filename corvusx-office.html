@@ -1585,10 +1585,7 @@
     state.running = run.running;
     dom.officeStatusDot.className = 'dot' + (run.running ? ' live' : '');
     dom.officeStatusText.textContent = run.running ? '실행 중...' : '대기 중';
-    // Phaser scene — replay current dept glows/positions
-    /* [Phaser removed] */
-      scene.lightExecutive(run.executiveActive);
-    }
+    // [Phaser removed] scene replay + lightExecutive
     // Send button toggles to stop if running
     if (run.running) {
       dom.sendBtn.classList.add('stop'); dom.sendBtn.title = '중단';
@@ -1616,14 +1613,7 @@
       case 'executive_gate_start': {
         run.executiveStatus = 'reviewing';
         run.directive = p.directive || '';
-        if (active) /* [Phaser removed] */ // HUD 미션 텍스트 즉시 반영
-        if (active && p.directive) {
-            type:'mission_start',
-            topic: String(p.directive).slice(0, 60),
-            deptCount: 10,
-          }}));
-          dom.officeStatusText.textContent = '분석 중...';
-        }
+        // [Phaser removed] HUD 미션 텍스트 + officeStatusText
         // "판단중..." 임시 메시지 — gate_redirect 시 제거하기 위해 ID 캡처
         const gateMsgId = 'gate_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
         run.gateMsgId = gateMsgId;
@@ -1642,12 +1632,12 @@
           // Phaser: 선택된 부서만 "일어나기" 반응
         }
         // single_agent 인 경우 별도 버블 추가 금지 (redirect 에서 "판단중" 제거 + 단일 에이전트 스트리밍)
-        if (active && action === 'director') setTimeout(() => /* [Phaser removed] */ , 2500);
+        // [Phaser removed] director 선택 부서 반응 애니메이션
         break;
       }
       case 'executive_gate_redirect': {
         run.executiveStatus = 'done';
-        if (active) /* [Phaser removed] */ // "판단중..." 임시 메시지 제거
+        // [Phaser removed] 판단중 메시지 제거 애니메이션
         if (run.gateMsgId) {
           removeMessageFromThread(threadId, run.gateMsgId);
           run.gateMsgId = null;
@@ -1662,18 +1652,13 @@
       case 'mission_start':
         run.missionDeptCount = Number(p.deptCount || 9);
         run.deptCompletedCount = 0; run.executiveActive = false;
-          type:'mission_start',
-          topic: p.topic || p.directive || '',
-          deptCount: Number(p.deptCount || 9),
-        }}));
+        // [Phaser removed] mission_start dispatch
         break;
       case 'dept_start':
         run.deptStates[p.deptId] = 'working';
         break;
       case 'dept_progress':
-        if (active) /* [Phaser removed] */ if (active)
-          type:'dept_progress', deptId:p.deptId, percent:p.percent, message:p.message,
-        }}));
+        // [Phaser removed] dept_progress dispatch
         break;
       case 'dept_done':
         run.deptStates[p.deptId] = 'done';
@@ -1691,7 +1676,7 @@
       case 'critic_done':
         run.executiveStatus = p.review?.verdict === 'needs_rework' ? 'rework' : 'done';
         run.lastCritic = p.review;
-        if (active) { /* [Phaser removed] */ setTimeout(() => /* [Phaser removed] */ , 5000); }
+        // [Phaser removed] critic animation
         addThreadMsgByCritic(threadId, p.review);
         break;
       case 'critic_review':
@@ -1699,11 +1684,11 @@
         if (!run.executiveStatus || run.executiveStatus === 'idle') {
           run.executiveStatus = p.review?.verdict === 'needs_rework' ? 'rework' : 'done';
         }
-        if (active) { /* [Phaser removed] */ setTimeout(() => /* [Phaser removed] */ , 5000); }
+        // [Phaser removed] critic review animation
         if (!run._criticMsgShown) { run._criticMsgShown = true; addThreadMsgByCritic(threadId, p.review); }
         if ((p.review?.verdict === 'needs_followup' || p.review?.verdict === 'needs_rework') && (p.review?.targetDeptId || p.deptId)) {
           const tgt = p.review.targetDeptId || p.deptId;
-          if (active) setTimeout(() => /* [Phaser removed] */ , 800);
+          // [Phaser removed] rework target animation
         }
         break;
       case 'critic_rework':
@@ -1714,12 +1699,13 @@
         break;
       case 'dept_rework_start':
         run.deptStates[p.deptId] = 'rework';
-        if (active) { /* [Phaser removed] */ ); }
+        // [Phaser removed] rework start animation
         addMsgForThread(threadId, { who:(DEPT_BY_ID[p.deptId]?.kr || p.deptId) + '팀', body:`보강중: ${p.reason || ''}`, kind:'sys' });
         break;
       case 'dept_rework_done':
         run.deptStates[p.deptId] = 'rework_done';
-        if (active) /* [Phaser removed] */ if (p.report) addThreadMsgByDeptReport(threadId, p.deptId, p.report);
+        // [Phaser removed] rework done animation
+        if (p.report) addThreadMsgByDeptReport(threadId, p.deptId, p.report);
         break;
       case 'ensemble_start':
         break;
@@ -1741,9 +1727,7 @@
         break;
       case 'ceo_briefing':
         run.lastBriefing = p.briefing;
-        if (active) {
-          /* [Phaser removed] */ setTimeout(() => /* [Phaser removed] */ , 6000);
-        }
+        // [Phaser removed] briefing animation
         addThreadMsgByBriefing(threadId, p.briefing);
         break;
       case 'all_done':
@@ -1869,6 +1853,13 @@
           }
         }
       }
+      // 스트리밍 완료 — 마크다운 렌더링 적용
+      if (bodyEl && accumulated) {
+        bodyEl.classList.add('md');
+        bodyEl.innerHTML = renderMarkdown(accumulated);
+        bindCopyButtons(bodyEl);
+        autoScrollIfNeeded();
+      }
       debouncedSaveMessages(threadId);
     } catch (err) {
       appendChunk(`\n[오류: ${err && err.message || String(err)}]`);
@@ -1939,8 +1930,8 @@
     run.directive = directive;  // gate_redirect 시 /api/chat/stream 재호출에 사용
     run.reworkDepts = []; run.reworkReasons = {}; run._criticMsgShown = false;
     for (const d of DEPTS) run.deptStates[d.id] = 'idle';
-    // reset scene only if this is the active thread
-    if (isActive(threadId)) const cur = getActiveThread();
+    // [Phaser removed] reset scene
+    const cur = getActiveThread();
     if (cur && (!cur.title || cur.title === '신규 대화')) {
       cur.title = directive.slice(0, 30); saveThreads(); renderSidebar();
       dom.chatTitle.textContent = cur.title;
