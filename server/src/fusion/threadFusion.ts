@@ -263,17 +263,28 @@ export function fuseThreadContext(opts: {
 }
 
 // ─── system 블록 빌더 (에이전트 프롬프트 주입용) ──────────────────────────────
-export function buildFusionSystemBlock(opts: {
+// 2026-04-23: 스레드 간 자동 공유 경로 폐기 (bypass).
+// unifiedRetrieval.buildUnifiedContextBlock 이 동일 기능을 점수 기반으로 제공하므로
+// 중복 주입을 막기 위해 buildFusionSystemBlock 은 빈 문자열 반환으로 차단.
+// 원본 로직은 아래 if (false) 블록에 보존 (재활성화 시 복원 가능).
+export function buildFusionSystemBlock(_opts: {
   project_id: string;
   query: string;
   max_threads?: number;
 }): string {
-  const result = fuseThreadContext(opts);
-  if (result.matched_threads.length === 0 && result.matched_reports.length === 0) return '';
-  return [
-    `[프로젝트 지식 자동 융합 컨텍스트]`,
-    `현재 프로젝트의 과거 스레드와 부서 보고서에서 자동 추출한 내용이다. 현재 질문에 직접 관련된 내용만 선별해 답변에 활용하라.`,
-    result.fused_summary,
-  ].join('\n');
+  return '';
+  // eslint-disable-next-line no-unreachable
+  if (false) {
+    // ===== 원본 코드 (2026-04-23 bypass 이전) =====
+    const result = fuseThreadContext(_opts);
+    if (result.matched_threads.length === 0 && result.matched_reports.length === 0) return '';
+    return [
+      `[프로젝트 지식 자동 융합 컨텍스트]`,
+      `현재 프로젝트의 과거 스레드와 부서 보고서에서 자동 추출한 내용이다. 현재 질문에 직접 관련된 내용만 선별해 답변에 활용하라.`,
+      result.fused_summary,
+    ].join('\n');
+    // ===== /원본 코드 =====
+  }
+  return '';
 }
 

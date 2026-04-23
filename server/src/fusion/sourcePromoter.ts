@@ -34,25 +34,39 @@ export function promoteThreadToSource(opts: {
   content: string
   source_hint?: string
 }): PromoteResult {
-  const { project_id, thread_id, thread_title, summary, content, source_hint } = opts
-  try {
-    const now = Date.now()
-    const assetId = `promoted-${thread_id.slice(0, 8)}-${now}`
-    addProjectSourceAsset(project_id, {
-      id: assetId,
-      name: thread_title ?? `\uc2a4\ub808\ub4dc \uc2b9\uaca9 ${new Date(now).toISOString().slice(0, 10)}`,
-      type: "promoted_thread",
-      content: content.slice(0, 8000),
-      preview: summary.slice(0, 400),
-      source_thread_id: thread_id,
-      source_hint: source_hint ?? null,
-      created_at: now,
-      confirmed: true,
-    } as any)
-    logger.info("[sourcePromoter] promoted thread to source", { project_id, thread_id, asset_id: assetId })
-    return { ok: true, asset_id: assetId }
-  } catch (error: any) {
-    logger.warn("[sourcePromoter] promote failed", { error: String(error?.message ?? error) })
-    return { ok: false, asset_id: null, error: String(error?.message ?? error) }
+  // 2026-04-23: 스레드 → 프로젝트 소스 자동 승격 경로 폐기 (bypass).
+  // 원본 로직은 아래 if (false) 블록에 보존.
+  logger.info("[sourcePromoter] promotion bypassed — cross-thread promotion disabled", {
+    project_id: opts.project_id,
+    thread_id: opts.thread_id,
+  })
+  return { ok: false, asset_id: null, error: "promotion_disabled_2026_04_23" }
+
+  // eslint-disable-next-line no-unreachable
+  if (false) {
+    // ===== 원본 코드 (2026-04-23 bypass 이전) =====
+    const { project_id, thread_id, thread_title, summary, content, source_hint } = opts
+    try {
+      const now = Date.now()
+      const assetId = `promoted-${thread_id.slice(0, 8)}-${now}`
+      addProjectSourceAsset(project_id, {
+        id: assetId,
+        name: thread_title ?? `\uc2a4\ub808\ub4dc \uc2b9\uaca9 ${new Date(now).toISOString().slice(0, 10)}`,
+        type: "promoted_thread",
+        content: content.slice(0, 8000),
+        preview: summary.slice(0, 400),
+        source_thread_id: thread_id,
+        source_hint: source_hint ?? null,
+        created_at: now,
+        confirmed: true,
+      } as any)
+      logger.info("[sourcePromoter] promoted thread to source", { project_id, thread_id, asset_id: assetId })
+      return { ok: true, asset_id: assetId }
+    } catch (error: any) {
+      logger.warn("[sourcePromoter] promote failed", { error: String(error?.message ?? error) })
+      return { ok: false, asset_id: null, error: String(error?.message ?? error) }
+    }
+    // ===== /원본 코드 =====
   }
+  return { ok: false, asset_id: null, error: "unreachable" }
 }
