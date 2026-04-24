@@ -427,6 +427,7 @@
         <button class="tab-btn" data-tab="sales">매출</button>
         <button class="tab-btn" data-tab="pos">POS</button>
         <button class="tab-btn" data-tab="report">보고</button>
+        <button class="tab-btn" data-tab="cost">💰 비용</button>
         <button class="tab-btn panel-tab-toggle" id="togglePanel" title="패널 여닫기">▶</button>
       </div>
       <div class="panel-body" id="panelBody"></div>
@@ -1732,6 +1733,8 @@
         break;
       case 'all_done':
         finishRun(threadId);
+        // Phase 3: 실행 완료 시 비용 탭 열려있으면 자동 갱신
+        if (state.currentTab === 'cost' && dom.panelBody) loadCostData(dom.panelBody);
         break;
       case 'stream_end': if (run.running) finishRun(threadId, false); break;
       case 'error':
@@ -2163,6 +2166,92 @@
           sec.appendChild(card); body.appendChild(sec);
         }
       } else body.innerHTML = '<div class="panel-empty">실행 완료 후 상무 브리핑과 Critic 검토가 여기에 표시됩니다.</div>';
+    } else if (state.currentTab === 'cost') {
+      body.innerHTML = '<div class="panel-empty">비용 데이터 로딩중...</div>';
+      loadCostData(body);
+    }
+  }
+
+  // ─── Cost Dashboard (Phase 3 2026-04-24) ─────────────────────────
+  // 한도/차단 없음 (Phase 2 축소 스펙). 순수 실시간 금액 표시만.
+  const COST_PROVIDER_LABELS = {
+    claude: 'Anthropic', anthropic: 'Anthropic',
+    openai: 'OpenAI',
+    gemini: 'Google',
+    perplexity: 'Perplexity',
+    deepseek: 'DeepSeek',
+    fal: 'fal.ai',
+  };
+  const COST_PROVIDER_COLORS = {
+    claude: '#d97706', anthropic: '#d97706',
+    openai: '#10a37f',
+    gemini: '#4285f4',
+    perplexity: '#6366f1',
+    deepseek: '#e11d48',
+    fal: '#7c3aed',
+  };
+  function renderCostRow(provider, todayUsd, monthlyUsd, maxToday) {
+    const label = COST_PROVIDER_LABELS[provider] || provider;
+    const color = COST_PROVIDER_COLORS[provider] || '#888';
+    const pct = maxToday > 0 ? Math.min((todayUsd / maxToday) * 100, 100) : 0;
+    return `
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
+          <span style="color:var(--text);font-weight:500;">${escapeHtml(label)}</span>
+          <span style="color:var(--text-dim);">오늘 $${todayUsd.toFixed(4)}</span>
+        </div>
+        <div style="background:var(--border-soft);border-radius:3px;height:5px;">
+          <div style="background:${color};width:${pct}%;height:100%;border-radius:3px;transition:width .3s;"></div>
+        </div>
+        <div style="font-size:10px;color:var(--text-dim);margin-top:2px;text-align:right;">
+          이번 달: $${monthlyUsd.toFixed(4)}
+        </div>
+      </div>`;
+  }
+  async function loadCostData(body) {
+    try {
+      const r = await fetch(API_BASE + '/api/usage/summary', { credentials: 'include' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      if (!d.ok && d.ok !== undefined) throw new Error(d.error || 'unknown');
+      if (state.currentTab !== 'cost') return; // 탭 바뀌면 중단
+
+      const today = d.today || {};
+      const monthly = d.monthly || {};
+      const providers = Array.from(new Set([...Object.keys(today), ...Object.keys(monthly)])).sort();
+      const maxToday = Math.max(0.0001, ...Object.values(today).map(Number));
+
+      body.innerHTML = '';
+      const head = document.createElement('div'); head.className = 'panel-sec';
+      head.innerHTML = `<h4>크레딧 사용 현황</h4>
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">
+          ${escapeHtml(d.date || '')} · 실시간
+          <button id="costReload" style="float:right;font-size:10px;background:none;border:1px solid var(--border-soft);border-radius:3px;padding:1px 6px;cursor:pointer;color:var(--text-dim);">↻</button>
+        </div>`;
+      if (providers.length === 0) {
+        head.innerHTML += '<div class="panel-empty">사용 내역 없음</div>';
+      } else {
+        const rows = providers.map(p => renderCostRow(p, Number(today[p] ?? 0), Number(monthly[p] ?? 0), maxToday)).join('');
+        const wrap = document.createElement('div'); wrap.innerHTML = rows; head.appendChild(wrap);
+      }
+      body.appendChild(head);
+
+      const totals = document.createElement('div'); totals.className = 'panel-sec'; totals.style.marginTop = '10px';
+      totals.innerHTML = `<h4>합계</h4>
+        <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;">
+          <span style="color:var(--text-dim);">오늘</span>
+          <span style="color:var(--text);font-weight:600;">$${Number(d.total_today ?? 0).toFixed(4)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;">
+          <span style="color:var(--text-dim);">이번 달</span>
+          <span style="color:var(--text);font-weight:600;">$${Number(d.total_monthly ?? 0).toFixed(4)}</span>
+        </div>`;
+      body.appendChild(totals);
+
+      const reloadBtn = document.getElementById('costReload');
+      if (reloadBtn) reloadBtn.onclick = () => loadCostData(body);
+    } catch (err) {
+      body.innerHTML = `<div class="panel-empty" style="color:#e74c3c;">비용 데이터 로드 실패: ${escapeHtml(String(err.message || err))}</div>`;
     }
   }
 

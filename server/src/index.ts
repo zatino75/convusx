@@ -41,7 +41,7 @@ import { runBenchmarkRoute, runBenchmarkRunRoute, runBenchmarkHistoryRoute } fro
 import { runFeedbackRoute } from "./routes/feedback.js"
 import { runSlidesGenerateRoute as generateSlidesRoute } from "./routes/slides.js"
 import { chatRoute, chatStreamRoute } from "./routes/chat.js"
-import { usageRoute, scoreboardRoute, usageResetRoute } from "./routes/usage.js"
+import { usageRoute, scoreboardRoute, usageResetRoute, usageSummaryRoute } from "./routes/usage.js"
 import { dashboardRoute } from "./routes/dashboard.js"
 import { getSalesRoute, addSalesRoute, deleteSalesRoute } from "./routes/sales.js"
 import { getPosRoute, checkoutPosRoute, refundPosRoute } from "./routes/pos.js"
@@ -193,6 +193,7 @@ router.post("/api/slides/generate", async (req: IncomingMessage, res: ServerResp
 
 // ── Usage / Scoreboard / Dashboard ──
 router.post("/api/usage/reset", async (req: ParsedRequest, res: ExpressLikeResponse) => { await usageResetRoute.handler(req, res) })
+router.get("/api/usage/summary", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await usageSummaryRoute.handler({}, res) })
 router.get("/api/usage", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await usageRoute.handler({}, res) })
 router.get("/api/scoreboard", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await scoreboardRoute.handler({}, res) })
 router.get("/api/dashboard", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await dashboardRoute.handler({}, res) })
