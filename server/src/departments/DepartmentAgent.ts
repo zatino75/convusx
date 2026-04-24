@@ -309,25 +309,31 @@ async function callPrimaryModel(
     );
     return { text: r.text, model, usage: r.usage, modelIdForPricing: r.modelIdForPricing };
   } catch (err) {
-    if (dept.fallbackModel) {
-      if (deptId) onProgress?.(deptId, `${dept.fallbackModel}로 재시도 중...`, 55);
+    // 2026-04-24: fallbackChain 우선, 없으면 단일 fallbackModel 로 폴백 (backward compat).
+    const chain: string[] = Array.isArray(dept.fallbackChain) && dept.fallbackChain.length > 0
+      ? dept.fallbackChain
+      : (dept.fallbackModel ? [dept.fallbackModel] : []);
+    let lastErr = err;
+    for (const fb of chain) {
+      if (deptId) onProgress?.(deptId, `${fb}로 재시도 중...`, 55);
       try {
         const r = await withTimeout(
-          route(dept.fallbackModel),
+          route(fb),
           FALLBACK_TIMEOUT_MS,
-          `fallback_${dept.fallbackModel}`
+          `fallback_${fb}`
         );
         return {
           text: r.text,
-          model: `${dept.fallbackModel} (fallback)`,
+          model: `${fb} (fallback)`,
           usage: r.usage,
           modelIdForPricing: r.modelIdForPricing,
         };
-      } catch {
-        // fallback도 실패 → 원래 에러 전파
+      } catch (e) {
+        lastErr = e;
+        // 다음 체인 시도
       }
     }
-    throw err;
+    throw lastErr;
   }
 }
 

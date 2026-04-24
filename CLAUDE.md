@@ -106,7 +106,7 @@ JSON 스키마 강제 폐지 → 마크다운 자유 출력.
 |------|---------|----------|--------|------|
 | market | Gemini 2.5 Pro | Claude Sonnet | serper→perplexity | market_analyze |
 | compete | GPT-5.4-pro | Claude Sonnet | serper→perplexity* | competitor_scan |
-| legal | Claude Opus 4.6 | GPT-5.4-pro | serper→perplexity* | regulation_check |
+| legal | Claude Sonnet 4.6 | GPT-5.4-pro → Gemini 2.5 Pro | serper→perplexity* | regulation_check |
 | finance | GPT-5.4-pro | Gemini 2.5 Pro | supabase→serper | finance_analyze |
 | marketing | Claude Sonnet | GPT-5.4-pro | serper→perplexity | brand_positioning |
 | rnd | Gemini 2.5 Pro | Claude Sonnet | pubmed→perplexity→serper | recipe_design |

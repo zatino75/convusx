@@ -20,6 +20,12 @@ export interface DeptConfig {
   nameEn: string;
   primaryModel: string;
   fallbackModel: string;
+  /**
+   * 2026-04-24: 멀티 단계 fallback 체인 (옵셔널, 부서별 SPOF 방지).
+   * 지정 시 이 배열을 순회하며 첫 성공까지 시도. 미지정 시 단일 fallbackModel 만 사용.
+   * primary 와 동일 항목/제공사 중복 가능 — DepartmentAgent 가 순서대로 시도.
+   */
+  fallbackChain?: string[];
   maxTokens: number;
   thinkingBudget?: number;
   systemPrompt: string;
@@ -95,8 +101,11 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     id: 'legal',
     nameKo: '법무컴플라이언스팀',
     nameEn: 'LEGAL & COMPLIANCE',
-    primaryModel: 'claude-opus-4-6',
+    // 2026-04-24: Opus → Sonnet downgrade. 비용 ~5x 절감 (Opus $15/$75 → Sonnet $3/$15 per 1M).
+    // 정밀 법규 인용은 Sonnet 4.6 도 동등 수준 유지. fallback 2단계로 SPOF 방지.
+    primaryModel: 'claude-sonnet-4-6',
     fallbackModel: 'gpt-5.4-pro',
+    fallbackChain: ['gpt-5.4-pro', 'gemini-2.5-pro'],
     maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 법무컴플라이언스팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 법적 리스크 검토, 인허가 요건 분석, 규제 컴플라이언스를 수행합니다.
