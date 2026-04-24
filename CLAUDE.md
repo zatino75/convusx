@@ -1,5 +1,5 @@
 # CORVUS X — CLAUDE.md
-> 최종 업데이트: 2026-04-24 (Session 4 Phase 1-4 + 비용 critical 후속: legal Opus→Sonnet, single_agent Opus 제거)
+> 최종 업데이트: 2026-04-24 (Session 5: Classifier 라우팅, 부서 2단계 처리, 비용 추적 결함 수정, Opus 전 사용처 제거)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
 
 ## 프로젝트 개요
@@ -78,18 +78,32 @@ curl -s https://app.cloudcookie.co.kr/api/health
 git add -A && git commit -m "feat: 내용" && git push origin main
 ```
 
-## 아키텍처 — 상무 게이트키퍼
-유저 메시지 (20자 이상)
-  → ExecutiveGate (Claude Sonnet, 20초)
-    → single_agent: Opus 단독 처리
-    → director: 부서 선별 + 맞춤 지시 → 병렬 실행 → 취합 → CEO 브리핑
+## 아키텍처 — 의도 분류 + 게이트키퍼 (2026-04-24 Session 5)
+유저 메시지
+  → **Classifier (Gemini 2.5 Flash, ~5s, ~$0.001)**
+    → simple_qa → single_agent (Sonnet 단독, ~$0.05)
+    → operational/research/strategic → ExecutiveGate Planner
+        → director: 부서 선별 + 맞춤 지시 → 부서 병렬 실행 (2단계) → CEO 브리핑
 
-## Director 플로우 (속도 우선 정책, 2026-04-20~21)
-1. ExecutiveGate (Sonnet) — 부서 선별 + 맞춤 지시 생성 → **`slice(0, MAX_DEPTS=4)` 로 최대 4개 부서로 상한**
-2. 부서 병렬 실행 (10개 중 선별된 ≤4개 부서만)
-3. ~~CriticReview~~ — **`if (false)` bypass 상태. 기본 verdict (includeAll, score=7) 항상 통과**
-4. ~~보강 루프~~ — Critic bypass 로 rework 경로 비활성
-5. CeoBriefing (Haiku) — 5섹션 구조
+## Director 플로우 (속도 + 비용 우선, 2026-04-20~24)
+1. **Classifier (Gemini Flash)** — intent + maxDepts 결정. simple_qa 면 Planner 우회.
+2. ExecutiveGate Planner (Sonnet → GPT → Gemini 3단계 폴백) — 부서 선별 + 맞춤 지시. intent 기반 maxDepts cap 적용.
+3. 부서 병렬 실행 (선별된 ≤ intent_maxDepts 부서)
+   - **1단계**: Gemini Flash 초안 (15s, ~$0.003/부서, non-fatal)
+   - **2단계**: 부서 Primary 심화 (초안을 보강·심화·근거 보완)
+4. ~~CriticReview~~ — **`if (false)` bypass 상태. 기본 verdict (includeAll, score=7) 항상 통과**
+5. ~~보강 루프~~ — Critic bypass 로 rework 경로 비활성
+6. CeoBriefing (Haiku) — 5섹션 구조
+
+## intent → maxDepts (Classifier 결정)
+| intent | maxDepts | 라우팅 |
+|---|---|---|
+| simple_qa | 0 | single_agent (Sonnet) |
+| operational | 2 | director |
+| research | 3 | director |
+| strategic | 4 | director |
+
+> 모든 intent maxDepts ≤ 4 — CLAUDE.md 규칙 #6 (MAX_DEPTS=4) 유지.
 
 > MAX_DEPTS=4 / Critic bypass 는 응답속도(앙상블 420s 내) 확보를 위한 의도적 정책. 재활성화 금지.
 
@@ -122,8 +136,9 @@ JSON 스키마 강제 폐지 → 마크다운 자유 출력.
 | CriticReview | DeepSeek V3.2 | Claude Haiku → Gemini Flash | 3단계 폴백 (현재 bypass 중) |
 | CeoBriefing | Claude Haiku | Claude Sonnet → Gemini Pro | 3단계 폴백 |
 
-- 모델 분포 (Primary 기준): Opus 1 / Sonnet 2 / Haiku 1 / GPT-5.4 3 / Gemini 4 / DeepSeek 1(Critic)
-- 2026-04-23 리밸런싱: Anthropic 30% / Google 40% / OpenAI 30% (Primary 기준) — SPOF 리스크 분산
+- 모델 분포 (Primary 기준, 2026-04-24 Session 5): **Opus 0** / Sonnet 3 (legal/marketing/design) / Haiku 1 / GPT-5.4 3 / Gemini 4 (Pro) + Flash (Classifier+부서 1단계) / DeepSeek 1(Critic)
+- Anthropic ~30% / Google ~40% (+Flash 보조) / OpenAI ~30%
+- **Opus 완전 제거** — 2026-04-24 검증: 일일 $25 중 $24.78 (98.4%) 가 Opus. Classifier 완성 후 strategic 2단계에만 선택적 복귀 예정.
 - Fallback: Cross-provider (다른 회사 모델)
 - 비주얼 에셋(이미지/영상/3D/로고/배너/인테리어)은 design 전담 — marketing/content/sns 는 전략·기획만
 - DeepSeek 는 CriticReview Primary 에만 사용 (JSON 평가 전용)
@@ -134,10 +149,11 @@ JSON 스키마 강제 폐지 → 마크다운 자유 출력.
 ## 실제 모델 ID
 | 모델 | API 호출 ID | 비고 |
 |------|-------------|------|
-| Claude Opus | claude-opus-4-6 | 에이전트 루프, legal |
-| Claude Sonnet | claude-sonnet-4-6 | 6개 부서, ExecutiveGate |
-| Claude Haiku | claude-haiku-4-5-20251001 | Critic, CEO Briefing |
-| GPT | gpt-5.4-pro | compete, finance |
+| Claude Opus | claude-opus-4-6 | **현재 미사용** (2026-04-24 전 사용처 제거) |
+| Claude Sonnet | claude-sonnet-4-6 | single_agent primary, ExecutiveGate Planner, legal/marketing/design 부서 |
+| Claude Haiku | claude-haiku-4-5-20251001 | Critic, CEO Briefing, Classifier fallback |
+| GPT | gpt-5.4-pro | compete, finance, content |
+| Gemini Flash | gemini-2.5-flash | Classifier primary, 부서 1단계 초안, TaskDecomposer, CriticReview fallback |
 | GPT 앙상블 | gpt-5.4 | 3-AI 앙상블 |
 | Gemini | gemini-2.5-pro | data 부서, PDF |
 | Gemini 표시 | Gemini 2.5 Pro | GEMINI_DISPLAY_LABEL |
@@ -234,6 +250,7 @@ server/src/
 15. fusion/sourcePromoter.promoteThreadToSource 재활성화 금지 — 2026-04-23 bypass. 스레드→프로젝트 자산 자동 승격 차단. projectFusion 은 프로젝트 내부 로직이므로 유지
 16. recordProviderMetric 의 ctx.model/ctx.usage 인자 제거 금지 — 2026-04-23 비용 관측 인프라 전제. 제거 시 cost_usd 로그 사라짐
 17. 로컬 PC 에 `ANTHROPIC_API_KEY` 환경변수 설정 금지 — Claude Code 가 Max 구독 대신 API 크레딧 소비. 2026-04-23 인시던트: $200 소진. 서버 키는 `/etc/corvusx/.env` 에만, 로컬에는 절대 설정하지 말 것
+18. **Claude Opus 를 single_agent / 부서 / ExecutiveGate Primary 로 사용 금지** — 2026-04-24 검증: 일일 $25 중 Opus 가 $24.78 (98.4%). Classifier 가 strategic 으로 라우팅한 2단계 심화에서만 선택적 escalation 예정 (현재 미구현). 우회 도입 금지.
 
 ## 알려진 이슈
 - GPT-5.4-pro 60s 타임아웃 → fallback 빈번할 수 있음 (의도적 — 느린 GPT 보다 빠른 fallback 선호)
@@ -247,6 +264,11 @@ server/src/
 - 2026-04-24 비용 critical: 검증 결과 Opus 가 일일 비용의 98.4% 점유 → 두 가지 후속 조치
   1. **legal 부서**: primary `claude-opus-4-6` → `claude-sonnet-4-6`, fallback chain `[gpt-5.4-pro, gemini-2.5-pro]` (DepartmentRegistry/Agent 에 fallbackChain 옵셔널 필드 도입)
   2. **single_agent**: agentLoopBridge 의 Opus 슬롯 완전 제거. 신 체인 = Sonnet (primary, 180s, tool use) → GPT-5.4-pro (60s, emergency) → Gemini 2.5 Pro (45s, emergency). Opus 는 추후 Classifier 완성 후 strategic 질문에만 선택적 사용 예정
+- 2026-04-24 Session 5: 의도 기반 라우팅 도입
+  1. **Classifier (`director/Classifier.ts`)**: Gemini 2.5 Flash → Haiku fallback. intent ∈ {simple_qa, operational, research, strategic} + maxDepts 결정. ExecutiveGate 진입 첫 단계로 호출. simple_qa 면 Planner 우회하고 즉시 single_agent 라우팅 → Sonnet 1회로 처리 (~$0.05).
+  2. **부서 2단계 처리 (`DepartmentAgent.ts`)**: 사전조사 다음에 Gemini Flash 초안 (15s, ~$0.003), 그 다음 Primary 가 초안을 보강·심화. 1단계 실패는 non-fatal (2단계 단독 진행).
+  3. **GEMINI_FLASH_MODEL_ID**: `gemini-2.0-flash` → `gemini-2.5-flash` 업그레이드 (CriticReview/TaskDecomposer 도 자동 적용).
+  4. ExecutiveGate Planner 가 intent.maxDepts 기반 동적 cap 적용 (operational=2, research=3, strategic=4). 기존 hardcoded `slice(0,4)` 제거 (모두 ≤ MAX_DEPTS=4 유지).
 
 ## 비용 관측 (2026-04-23 추가)
 - 모든 provider 어댑터 성공 호출 시 `[adapter:usage]` 구조화 로그 emit
@@ -257,7 +279,10 @@ server/src/
 - 조회: `journalctl -u corvusx-backend | grep 'adapter:usage' | grep cost_usd`
 - DeepSeek 는 ModelAdapter 인터페이스 밖이라 deepseek.ts 내부에서 inline 로깅
 - 2026-04-24 Session 4 Phase 2: `server/src/creditGuard.ts` — 경량 in-memory 트래커 추가 (한도/차단 없음). `recordProviderMetric` 옆에서 `recordCost()` 병행 호출로 당일 provider 별 누적만 유지. 장기 집계 진실 소스는 여전히 journalctl.
-- 2026-04-24 Session 4 Phase 3: `GET /api/usage/summary` — 오늘(creditGuard) + 이번 달(journalctl 파싱) 반환. 💰 탭에서 소비.
+- 2026-04-24 Session 4 Phase 3: `GET /api/usage/summary` — 오늘(creditGuard) + 이번 달(journalctl 파싱) 반환. 💰 탭에서 소비. ※ 서버 process 가 `corvusx` 유저로 실행 → journalctl 권한 필요. `usermod -a -G systemd-journal corvusx && systemctl restart corvusx-backend` 적용 필요 (선택).
+- 2026-04-24 Session 5 Phase 5 (비용 추적 결함 수정):
+  1. **Gemini cost_usd 누락 수정**: `shared.ts::recordProviderMetric` 의 토큰 추출에 Gemini 키(`promptTokenCount`/`candidatesTokenCount`) 추가. 이전엔 `input_tokens`/`prompt_tokens` 만 인식해서 Gemini 호출이 항상 0 토큰 → early return → cost 로그 미발생. 이제 모든 Gemini 부서/Flash 호출이 추적됨.
+  2. **agentLoop $0 수정**: `agentLoop.ts` 가 Anthropic API 를 직접 fetch 해서 ModelAdapter 우회 → cost 로그 미발생. 루프 종료 후 `recordProviderMetric("claude", latency, true, {model, usage})` 호출 추가. single_agent 호출의 비용도 이제 정확히 추적.
 
 ## 새 스레드 시작 프로토콜 (Phase 0 필수)
 

@@ -50,6 +50,24 @@ async function callGeminiDetailed(systemPrompt: string, userPrompt: string, maxT
   return _call(systemPrompt, userPrompt, maxTokens);
 }
 
+// 2026-04-24 Session 5 Phase 3: 부서 1단계 초안용 (Gemini 2.5 Flash, ~$0.003/부서).
+// wrappers.callGeminiDetailed 가 Pro 로 하드코딩되어 별도 모델 ID 로 호출.
+async function callGeminiFlashDraft(systemPrompt: string, userPrompt: string, maxTokens: number): Promise<DetailedCall> {
+  const { geminiAdapter } = await import('../adapters/gemini.js');
+  const { GEMINI_FLASH_MODEL_ID } = await import('../config/defaults.js');
+  const resp = await geminiAdapter.generate({
+    provider: 'gemini',
+    model: GEMINI_FLASH_MODEL_ID,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user',   content: userPrompt },
+    ],
+    max_tokens: maxTokens,
+  } as any);
+  if (resp.error) throw new Error(resp.error.message);
+  return { text: resp.answer ?? '', usage: resp.usage ?? {}, model: resp.model ?? GEMINI_FLASH_MODEL_ID };
+}
+
 async function callPerplexity(query: string, maxTokens: number): Promise<string> {
   const { callPerplexity: _call } = await import('../adapters/wrappers.js');
   return _call(query, maxTokens);
@@ -435,12 +453,38 @@ export async function runDepartmentAgent(
   );
   logger.info({ deptId: task.deptId, connectorsUsed, dataLen: preResearchData.length }, '[DepartmentAgent] 사전조사 완료');
 
+  // ②.5 1단계 초안 — Gemini Flash (Session 5 Phase 3, 2026-04-24)
+  // 빠른 구조화 → 2단계 Primary 가 이 초안을 보강·심화. 실패는 non-fatal.
+  onProgress?.(task.deptId, '1단계 초안 작성 중 (Flash)...', 30);
+  let draftText = '';
+  try {
+    const draftPrompt = buildDraftPrompt(dept, task, preResearchData);
+    const draftResp = await withTimeout(
+      callGeminiFlashDraft('', draftPrompt, 800),
+      15_000,
+      'flash_draft',
+    );
+    draftText = String(draftResp.text ?? '').trim();
+    logger.info(
+      { deptId: task.deptId, model: draftResp.model, draftLen: draftText.length },
+      '[DepartmentAgent] 1단계 초안 완료'
+    );
+  } catch (err) {
+    logger.warn(
+      { deptId: task.deptId, error: String((err as any)?.message ?? err) },
+      '[DepartmentAgent] 1단계 초안 실패 — 2단계 단독 진행'
+    );
+  }
+
   onProgress?.(task.deptId, 'AI 분석 준비 중...', 35);
 
-  // ② 분석 프롬프트 구성
-  const userPrompt = buildUserPrompt(task, preResearchData);
+  // ③ 분석 프롬프트 구성 (1단계 초안 있으면 첨부)
+  const baseUserPrompt = buildUserPrompt(task, preResearchData);
+  const userPrompt = draftText
+    ? `${baseUserPrompt}\n\n## 1단계 초안 (Gemini Flash, 빠른 구조화)\n${draftText}\n\n→ 위 초안을 보강·심화·근거 보완하여 최종 분석을 작성하세요.`
+    : baseUserPrompt;
 
-  // ③ 주요 AI 모델 호출
+  // ④ 주요 AI 모델 호출
   const {
     text: rawOutput,
     model: modelUsed,
@@ -479,6 +523,22 @@ export async function runDepartmentAgent(
     durationMs: Date.now() - startTime,
     costUsd,
   };
+}
+
+// ─── 1단계 초안 프롬프트 (Phase 3, 2026-04-24) ──────────────────────────────
+// Gemini Flash 가 짧은 시간/저렴한 비용으로 구조 + 키포인트만 정리.
+// 2단계 Primary 가 이걸 받아 심화 분석을 작성한다.
+function buildDraftPrompt(dept: DeptConfig, task: DeptTask, preResearchData: string): string {
+  const ctx = String(task.context ?? '').slice(0, 1500);
+  const research = preResearchData ? `\n\n[사전 조사 발췌]\n${preResearchData.slice(0, 2000)}` : '';
+  return `당신은 ${dept.nameKo} 전문가입니다.
+다음 질문에 대해 핵심 포인트와 구조를 빠르게 정리하세요.
+상세 분석은 불필요. 키포인트와 목차 수준으로만 작성.
+
+질문 컨텍스트:
+${ctx}${research}
+
+출력 형식: 마크다운 bullet 3~5개, 각 항목 1줄 설명. 200~400자.`;
 }
 
 // ─── 사용자 프롬프트 빌더 ─────────────────────────────────────────────────────

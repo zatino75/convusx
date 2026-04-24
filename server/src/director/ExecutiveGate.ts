@@ -13,6 +13,7 @@
 
 import type { DeptId } from './TaskDecomposer.js';
 import { logger } from '../observability/logger.js';
+import { classify } from './Classifier.js';
 
 export type GateDomain = 'ecig' | 'food' | 'cosmetic' | 'general';
 
@@ -39,7 +40,7 @@ const ALL_DEPT_IDS: DeptId[] = [
   'marketing', 'rnd', 'data', 'content', 'sns', 'design',
 ];
 
-function buildSystemPrompt(): string {
+function buildSystemPrompt(maxDeptsForIntent: number = MAX_DEPTS): string {
   return `당신은 CORVUS X의 상무입니다.
 사용자 지시를 분석해서 업무를 배분합니다.
 
@@ -66,7 +67,7 @@ function buildSystemPrompt(): string {
 
 판단:
 1. 단순 질문/정보 요청 → single_agent
-2. 전략/개발/다각도 검토 → director (최대 ${MAX_DEPTS}개 부서)
+2. 전략/개발/다각도 검토 → director (최대 ${maxDeptsForIntent}개 부서)
 3. 각 부서 지시는 원문 그대로 말고 해당 부서에 맞게 구체적으로 재가공
 
 JSON만 반환 (다른 텍스트 금지):
@@ -142,8 +143,9 @@ function tryParseJson(text: string): Record<string, unknown> | null {
   return null;
 }
 
-function normalizeDepartments(raw: unknown): GateDepartment[] {
+function normalizeDepartments(raw: unknown, maxDeptsForIntent: number = MAX_DEPTS): GateDepartment[] {
   if (!Array.isArray(raw)) return [];
+  const cap = Math.min(MAX_DEPTS, Math.max(0, maxDeptsForIntent));  // CLAUDE.md 규칙 #6: ≤ MAX_DEPTS
   const out: GateDepartment[] = [];
   const seen = new Set<DeptId>();
   for (const item of raw) {
@@ -154,7 +156,7 @@ function normalizeDepartments(raw: unknown): GateDepartment[] {
     if (!instruction) continue;
     out.push({ id, instruction: instruction.slice(0, 1200) });
     seen.add(id);
-    if (out.length >= MAX_DEPTS) break;
+    if (out.length >= cap) break;
   }
   return out;
 }
@@ -186,11 +188,12 @@ function applyKeywordGuards(directive: string, departments: GateDepartment[]): G
   });
 }
 
-function normalizeGateResult(parsed: Record<string, unknown>, directive: string): ExecutiveGateResult | null {
+function normalizeGateResult(parsed: Record<string, unknown>, directive: string, maxDeptsForIntent: number = MAX_DEPTS): ExecutiveGateResult | null {
   const rawAction = String(parsed.action ?? '').trim().toLowerCase();
   const rawComplexity = String(parsed.complexity ?? '').trim().toLowerCase();
-  const rawDepartments = normalizeDepartments(parsed.departments);
-  const departments = applyKeywordGuards(directive, rawDepartments).slice(0, 4);
+  const rawDepartments = normalizeDepartments(parsed.departments, maxDeptsForIntent);
+  const cap = Math.min(MAX_DEPTS, Math.max(0, maxDeptsForIntent));
+  const departments = applyKeywordGuards(directive, rawDepartments).slice(0, cap);
   const reason = String(parsed.reason ?? '').trim().slice(0, 400);
 
   const action: ExecutiveGateResult['action'] =
@@ -306,7 +309,24 @@ export async function runExecutiveGate(
     return { complexity: 'simple', action: 'single_agent', departments: [], reason: 'empty_directive' };
   }
 
-  const systemPrompt = buildSystemPrompt();
+  // ── Step 1: Classifier (2026-04-24 Session 5 Phase 2) ──────────────────
+  // Gemini Flash → Haiku fallback. ~5초/$0.001. simple_qa 면 Planner 우회.
+  const classification = await classify(trimmed);
+  if (classification.intent === 'simple_qa') {
+    logger.info('[ExecutiveGate] classifier → single_agent', { reason: classification.reason });
+    return {
+      complexity: 'simple',
+      action: 'single_agent',
+      departments: [],
+      reason: `classifier_simple_qa: ${classification.reason}`,
+    };
+  }
+
+  // ── Step 2: Planner (Sonnet → GPT → Gemini 3단계 폴백) ──────────────────
+  // intent 기반 maxDepts cap (operational=2, research=3, strategic=4).
+  // CLAUDE.md 규칙 #6: 모든 cap ≤ MAX_DEPTS=4.
+  const maxDeptsForIntent = Math.min(MAX_DEPTS, classification.maxDepts);
+  const systemPrompt = buildSystemPrompt(maxDeptsForIntent);
   const userPrompt = buildUserPrompt(trimmed, domain);
 
   // Primary
@@ -314,7 +334,7 @@ export async function runExecutiveGate(
   if (primaryText) {
     const parsed = tryParseJson(primaryText);
     if (parsed) {
-      const normalized = normalizeGateResult(parsed, trimmed);
+      const normalized = normalizeGateResult(parsed, trimmed, maxDeptsForIntent);
       if (normalized) return normalized;
       logger.warn({ preview: primaryText.slice(0, 300) }, '[ExecutiveGate] Claude primary 정규화 실패');
     } else {
@@ -327,7 +347,7 @@ export async function runExecutiveGate(
   if (fallbackText) {
     const parsed = tryParseJson(fallbackText);
     if (parsed) {
-      const normalized = normalizeGateResult(parsed, trimmed);
+      const normalized = normalizeGateResult(parsed, trimmed, maxDeptsForIntent);
       if (normalized) return normalized;
       logger.warn({ preview: fallbackText.slice(0, 300) }, '[ExecutiveGate] GPT fallback 정규화 실패');
     } else {
@@ -340,7 +360,7 @@ export async function runExecutiveGate(
   if (geminiText) {
     const parsed = tryParseJson(geminiText);
     if (parsed) {
-      const normalized = normalizeGateResult(parsed, trimmed);
+      const normalized = normalizeGateResult(parsed, trimmed, maxDeptsForIntent);
       if (normalized) return normalized;
       logger.warn({ preview: geminiText.slice(0, 300) }, '[ExecutiveGate] Gemini fallback 정규화 실패');
     } else {

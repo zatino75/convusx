@@ -490,5 +490,20 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
   result.stop_reason = stopReason
   result.usage = usage
   result.latency_ms = Date.now() - startedAt
+
+  // 2026-04-24 Session 5 Phase 5: 비용 추적 결함 수정.
+  // agentLoop 은 Anthropic API 를 직접 fetch 해서 ModelAdapter.recordProviderMetric 경로를
+  // 우회한다 → cost_usd 로그 + creditGuard 트래커가 single_agent 호출에 대해 0 으로 표시됐다.
+  // 루프 종료 후 누적 usage 와 활성 모델로 한 번 emit 한다 (실패 비용은 기록하지 않음).
+  if (result.ok && (usage.input_tokens || usage.output_tokens)) {
+    try {
+      const { recordProviderMetric } = await import("../adapters/shared.js")
+      recordProviderMetric("claude", result.latency_ms, true, {
+        model: activeModel,
+        usage: { input_tokens: usage.input_tokens ?? 0, output_tokens: usage.output_tokens ?? 0 },
+      })
+    } catch { /* 비용 로깅 실패 무시 */ }
+  }
+
   return result
 }

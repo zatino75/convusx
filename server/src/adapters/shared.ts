@@ -120,8 +120,14 @@ export function recordProviderMetric(
   // 성공 호출 + usage 제공된 경우에만 비용 로그 emit
   if (!success || !ctx?.usage || !ctx?.model) return
   const usage = ctx.usage
-  const inputTokens = Number(usage.input_tokens ?? usage.prompt_tokens ?? 0) || 0
-  const outputTokens = Number(usage.output_tokens ?? usage.completion_tokens ?? 0) || 0
+  // 2026-04-24 Session 5 Phase 5 결함 수정: Gemini usageMetadata 키 추가 인식.
+  //   Anthropic: input_tokens / output_tokens
+  //   OpenAI:    prompt_tokens / completion_tokens
+  //   Gemini:    promptTokenCount / candidatesTokenCount  ← 누락되어 비용 로그 0
+  const inputTokens =
+    Number(usage.input_tokens ?? usage.prompt_tokens ?? usage.promptTokenCount ?? 0) || 0
+  const outputTokens =
+    Number(usage.output_tokens ?? usage.completion_tokens ?? usage.candidatesTokenCount ?? 0) || 0
   if (inputTokens === 0 && outputTokens === 0) return
 
   Promise.all([

@@ -62,7 +62,9 @@ export const REUSE_PAST_WINNER_CONFIDENCE = 999  // 비활성화 상태
 // adapters/gemini.ts 도 여기서 re-export 한다. 이전엔 adapters/gemini.ts 가 소유했지만
 // defaults.ts ← adapters/gemini.ts 방향의 순환 import 위험이 있어 여기로 끌어올렸다.
 export const GEMINI_MODEL_ID = "gemini-2.5-pro"
-export const GEMINI_FLASH_MODEL_ID = "gemini-2.0-flash"
+// 2026-04-24 Session 5: 2.0-flash → 2.5-flash (Classifier 및 부서 1단계 초안 용).
+// 2.5 Flash 가 동일 가격대에서 더 정확. 기존 사용처(CriticReview, TaskDecomposer) 도 동시 업그레이드.
+export const GEMINI_FLASH_MODEL_ID = "gemini-2.5-flash"
 export const GEMINI_DISPLAY_LABEL = "Gemini 2.5 Pro"
 
 // ── 비용 ──
