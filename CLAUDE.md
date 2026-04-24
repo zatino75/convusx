@@ -1,5 +1,5 @@
 # CORVUS X — CLAUDE.md
-> 최종 업데이트: 2026-04-23 (Session 3: SPOF 제거, fusion bypass, 토큰/비용 로깅 추가)
+> 최종 업데이트: 2026-04-24 (Session 4 Phase 1-4: single_agent fallback, creditGuard 트래커, 비용 대시보드, Phase 0 체크리스트)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
 
 ## 프로젝트 개요
@@ -233,6 +233,7 @@ server/src/
 14. fusion/threadFusion.buildFusionSystemBlock 재활성화 금지 — 2026-04-23 bypass. 스레드 간 자동 공유 경로 폐기. 동일 기능은 fusion/unifiedRetrieval 로 대체됨
 15. fusion/sourcePromoter.promoteThreadToSource 재활성화 금지 — 2026-04-23 bypass. 스레드→프로젝트 자산 자동 승격 차단. projectFusion 은 프로젝트 내부 로직이므로 유지
 16. recordProviderMetric 의 ctx.model/ctx.usage 인자 제거 금지 — 2026-04-23 비용 관측 인프라 전제. 제거 시 cost_usd 로그 사라짐
+17. 로컬 PC 에 `ANTHROPIC_API_KEY` 환경변수 설정 금지 — Claude Code 가 Max 구독 대신 API 크레딧 소비. 2026-04-23 인시던트: $200 소진. 서버 키는 `/etc/corvusx/.env` 에만, 로컬에는 절대 설정하지 말 것
 
 ## 알려진 이슈
 - GPT-5.4-pro 60s 타임아웃 → fallback 빈번할 수 있음 (의도적 — 느린 GPT 보다 빠른 fallback 선호)
@@ -242,6 +243,7 @@ server/src/
 - 2026-04-23: Phaser dead code 삭제 시 잔해(dispatchEvent 괄호, scene 참조) 11곳 → SyntaxError로 전체 JS 실행 불가 → 수정 완료
 - 2026-04-23: startSingleAgentStreamInto에서 스트리밍 완료 후 renderMarkdown 미적용 → raw 마크다운 표시 → 수정 완료
 - 2026-04-23 Session 3: Perplexity `insufficient_quota` 확인. `* 표시` 부서(compete/legal/sns) 의 serper→perplexity 강등은 결제 충전 전까지 유지. Claude Code 처리 불가 (결제 이슈)
+- 2026-04-24 Session 4 Phase 1: single_agent SPOF 제거 — agent loop 가 Claude Opus 4.6 → Sonnet 4.6 → GPT-5.4-pro → Gemini 2.5 Pro 체인으로 자동 폴백. Opus/Sonnet 은 tool use 유지, GPT/Gemini 는 emergency 텍스트 전용. SSE 이벤트 `single_agent_fallback` 발행. `agentLoopBridge.ts` 구현 — 2026-04-23 Anthropic 크레딧 소진 시 single_agent 전체 실패 재발 방지
 
 ## 비용 관측 (2026-04-23 추가)
 - 모든 provider 어댑터 성공 호출 시 `[adapter:usage]` 구조화 로그 emit
@@ -251,11 +253,25 @@ server/src/
 - 로그 필드: `provider`, `model`, `input_tokens`, `output_tokens`, `cost_usd`, `latency_ms`
 - 조회: `journalctl -u corvusx-backend | grep 'adapter:usage' | grep cost_usd`
 - DeepSeek 는 ModelAdapter 인터페이스 밖이라 deepseek.ts 내부에서 inline 로깅
-- TODO: `/api/usage/daily` 집계 엔드포인트 (다음 세션)
+- 2026-04-24 Session 4 Phase 2: `server/src/creditGuard.ts` — 경량 in-memory 트래커 추가 (한도/차단 없음). `recordProviderMetric` 옆에서 `recordCost()` 병행 호출로 당일 provider 별 누적만 유지. 장기 집계 진실 소스는 여전히 journalctl.
+- 2026-04-24 Session 4 Phase 3: `GET /api/usage/summary` — 오늘(creditGuard) + 이번 달(journalctl 파싱) 반환. 💰 탭에서 소비.
 
-## 새 스레드 시작 프로토콜
-1. Claude.ai: "Notion에서 CONVUS X 개발 현황 불러와서 이어서 작업해줘"
-2. Notion에서 잔여 작업 확인
+## 새 스레드 시작 프로토콜 (Phase 0 필수)
+
+### ⚠️ Phase 0 — 크레딧 안전 점검 (생략 금지)
+> 2026-04-23 인시던트: 환경변수 방치로 Claude Code 가 Max 구독 대신 API 크레딧 $200 소진.
+
+1. PowerShell 에서 환경변수 확인: `echo $env:ANTHROPIC_API_KEY`
+   → 값 있으면 작업 **중단**. 환경변수 제거 후 세션 재시작.
+2. Claude Code `/status` 확인
+   → `Login method: Claude Max account` 확인 후 진행
+   → `API` 나오면 작업 **중단** + 사용자 보고
+3. 주간 한도 80% 이상이면 중대 작업 자제 권고
+4. provider 크레딧 상태 확인 (Anthropic / Perplexity / fal.ai 소진 여부 보고)
+
+### Phase 0 통과 후 작업 시작
+1. Claude.ai: "Notion 에서 CORVUS X 개발 현황 불러와서 이어서 작업해줘"
+2. Notion 에서 잔여 작업 확인
 3. 코드 세부사항은 서버에서 직접 cat/grep
 4. Drive 문서는 절대 조회하지 않음
 
