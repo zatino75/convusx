@@ -137,6 +137,12 @@ export function recordProviderMetric(
       cost_usd: Number(costUsd.toFixed(6)),
       latency_ms: latencyMs,
     })
+    // 2026-04-24 Phase 2: 조회 전용 트래커에 병행 집계.
+    // 기존 journalctl 로그는 그대로 두고 (CLAUDE.md 규칙 #16),
+    // 대시보드 실시간 조회용으로만 in-memory 누적.
+    import("../creditGuard.js")
+      .then(guardMod => guardMod.recordCost(provider, costUsd))
+      .catch(() => { /* 트래커 실패는 무시 (hot path 보호) */ })
   }).catch(() => { /* 로깅 실패 무시 (hot path 보호) */ })
 }
 
