@@ -48,6 +48,10 @@ export type AgentLoopInput = {
   disable_tools?: boolean
   /** system prompt 보강 — 프로젝트 지침, 도메인 프로파일 등 */
   extra_system?: string
+  /** Anthropic 모델 오버라이드 (기본: claude-opus-4-6). Sonnet fallback 용. */
+  model_override?: string
+  /** 전체 루프 타임아웃 오버라이드 ms (기본: 180_000) */
+  timeout_ms_override?: number
   /** 외부 abort signal */
   signal?: AbortSignal
   /** 스트리밍 토큰 콜백 — 최종 텍스트 블록에 한해 호출 */
@@ -300,6 +304,8 @@ async function callAnthropicRaw(params: {
 export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResult> {
   const startedAt = Date.now()
   const apiKey = process.env.ANTHROPIC_API_KEY
+  const activeModel = input.model_override || DEFAULT_MODEL
+  const activeTimeoutMs = input.timeout_ms_override || AGENT_LOOP_TIMEOUT_MS
 
   const toolCallLog: ToolCallRecord[] = []
 
@@ -307,7 +313,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
     ok: false,
     text: "",
     provider: "anthropic",
-    model: DEFAULT_MODEL,
+    model: activeModel,
     iterations: 0,
     tool_calls: toolCallLog,
     usage: {},
@@ -337,7 +343,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
   const tools = input.disable_tools ? [] : toAnthropicTools(listTools())
 
   const payloadBase: any = {
-    model: DEFAULT_MODEL,
+    model: activeModel,
     max_tokens: DEFAULT_MAX_TOKENS,
     system,
   }
@@ -365,7 +371,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
     }
 
     const elapsed = Date.now() - startedAt
-    const remaining = Math.max(10_000, AGENT_LOOP_TIMEOUT_MS - elapsed)
+    const remaining = Math.max(10_000, activeTimeoutMs - elapsed)
 
     const payload = { ...payloadBase, messages }
 

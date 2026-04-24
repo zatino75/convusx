@@ -16,6 +16,61 @@
 import { runAgentLoop, type AgentLoopInput, type AgentLoopResult } from "./agentLoop.js"
 import { logger } from "../observability/logger.js"
 import { decideHighValue, buildDomainHint } from "./triggerDetection.js"
+import { callOpenAI, callGemini } from "../adapters/wrappers.js"
+
+// ─── single_agent cross-provider fallback chain ─────────────────────────────
+// 2026-04-24 (Session 4 Phase 1): Opus → Sonnet → GPT-5.4-pro → Gemini 2.5 Pro.
+// Opus/Sonnet 는 full agent loop (tool use 유지), GPT/Gemini 는 tool 없는 단순
+// 텍스트 호출 (emergency answer). Anthropic 전체 장애 시에도 응답 확보.
+const SONNET_TIMEOUT_MS = 120_000
+const GPT_FALLBACK_TIMEOUT_MS = 60_000
+const GEMINI_FALLBACK_TIMEOUT_MS = 45_000
+
+function loopFailureIsRetryable(result: AgentLoopResult): boolean {
+  if (result.ok) return false
+  const reason = String(result.stop_reason ?? "")
+  return reason === "api_error" || reason === "timeout" || reason === "exception" || !result.text
+}
+
+async function callWithTimeout<T>(p: Promise<T>, ms: number, tag: string): Promise<T> {
+  return await Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${tag}_timeout`)), ms)),
+  ])
+}
+
+function buildEmergencySystemPrompt(extraSystem?: string): string {
+  const base = [
+    "You are CORVUS X in emergency fallback mode.",
+    "Primary Anthropic Claude path failed; you are a simpler cross-provider fallback.",
+    "Answer the user's latest message directly in Korean (unless they wrote in English).",
+    "No tool use is available — rely only on your own knowledge.",
+    "Be concise but correct. If you don't know, say so explicitly.",
+  ].join("\n")
+  return extraSystem ? `${base}\n\n${extraSystem}` : base
+}
+
+function buildFallbackLoopResult(args: {
+  provider: string
+  model: string
+  text: string
+  ok: boolean
+  latencyMs: number
+  error?: string
+}): AgentLoopResult {
+  return {
+    ok: args.ok,
+    text: args.text,
+    provider: args.provider,
+    model: args.model,
+    iterations: 1,
+    tool_calls: [],
+    usage: {},
+    latency_ms: args.latencyMs,
+    stop_reason: args.ok ? "fallback_ok" : "fallback_failed",
+    error: args.error,
+  }
+}
 
 function safeString(value: any): string {
   return String(value ?? "").trim()
@@ -81,7 +136,10 @@ function buildToolTimeline(loop: AgentLoopResult) {
 }
 
 function buildRuntimeCompatibleResult(effectiveInput: any, loop: AgentLoopResult) {
-  const provider = loop.ok ? "claude" : null
+  // 2026-04-24 Phase 1: fallback chain 도입 이후 loop.provider 가 claude 가 아닐 수 있다.
+  // anthropic(Opus/Sonnet) / openai(GPT) / gemini 중 실제 응답 provider 를 반영.
+  const loopProvider = loop.provider === "anthropic" ? "claude" : loop.provider
+  const provider = loop.ok ? loopProvider : null
   const task = safeString(effectiveInput?.task) || "dialogue"
   const toolNames = loop.tool_calls.map((t) => t.tool_name)
   const uniqueToolNames = [...new Set(toolNames)]
@@ -133,7 +191,7 @@ function buildRuntimeCompatibleResult(effectiveInput: any, loop: AgentLoopResult
       route: {
         task,
         strategy: "agent_loop",
-        primary_provider: "claude",
+        primary_provider: loopProvider ?? "claude",
         verifier_providers: [],
         parallel_providers: [],
         fallback_providers: [],
@@ -263,23 +321,136 @@ export async function runAgentLoopRuntimeResult(
     onToolCall: liveToolCall,
   }
 
-  let loopResult: AgentLoopResult
-  try {
-    loopResult = await runAgentLoop(loopInput)
-  } catch (error: any) {
-    logger.warn("[agentLoopRuntime] runAgentLoop threw", { error: String(error?.message ?? error) })
-    loopResult = {
-      ok: false,
-      text: "",
-      provider: "anthropic",
-      model: "claude-opus-4-6",
-      iterations: 0,
-      tool_calls: [],
-      usage: {},
-      latency_ms: 0,
-      stop_reason: "exception",
-      error: String(error?.message ?? error),
+  // ── Fallback chain: Opus → Sonnet → GPT-5.4-pro → Gemini 2.5 Pro ──────
+  // 2026-04-23 인시던트: Anthropic 크레딧 소진 시 single_agent 전체 실패.
+  // CLAUDE.md 규칙 #6 (MAX_DEPTS) 와 무관 — 이건 부서가 아닌 단일 에이전트 경로.
+  const emitFallback = async (from: { provider: string; model: string }, to: { provider: string; model: string }, reason: string) => {
+    if (!onEvent) return
+    try {
+      await onEvent({
+        type: "single_agent_fallback",
+        from_provider: from.provider,
+        from_model: from.model,
+        to_provider: to.provider,
+        to_model: to.model,
+        reason,
+      })
+    } catch { /* ignore */ }
+  }
+
+  const emergencyUserText = (() => {
+    // 첨부/히스토리 힌트를 포함한 loopInput.message 가 사용자의 최신 발화
+    return message || "사용자 메시지가 비어있습니다."
+  })()
+
+  const runAnthropicAttempt = async (model: string, timeoutMs: number): Promise<AgentLoopResult> => {
+    try {
+      return await runAgentLoop({
+        ...loopInput,
+        model_override: model,
+        timeout_ms_override: timeoutMs,
+      })
+    } catch (error: any) {
+      logger.warn("[agentLoopRuntime] runAgentLoop threw", { model, error: String(error?.message ?? error) })
+      return {
+        ok: false,
+        text: "",
+        provider: "anthropic",
+        model,
+        iterations: 0,
+        tool_calls: [],
+        usage: {},
+        latency_ms: 0,
+        stop_reason: "exception",
+        error: String(error?.message ?? error),
+      }
     }
+  }
+
+  // Primary: Claude Opus 4.6
+  let loopResult: AgentLoopResult = await runAnthropicAttempt("claude-opus-4-6", 180_000)
+
+  // Fallback 1: Claude Sonnet 4.6 (같은 agent loop, tool use 유지)
+  if (loopFailureIsRetryable(loopResult)) {
+    logger.warn("[agentLoopRuntime] Opus failed → Sonnet fallback", {
+      stop_reason: loopResult.stop_reason, error: loopResult.error,
+    })
+    await emitFallback(
+      { provider: "anthropic", model: "claude-opus-4-6" },
+      { provider: "anthropic", model: "claude-sonnet-4-6" },
+      String(loopResult.stop_reason || loopResult.error || "opus_failed"),
+    )
+    loopResult = await runAnthropicAttempt("claude-sonnet-4-6", SONNET_TIMEOUT_MS)
+  }
+
+  // Fallback 2: GPT-5.4-pro (도구 없는 단순 텍스트)
+  if (loopFailureIsRetryable(loopResult)) {
+    logger.warn("[agentLoopRuntime] Sonnet failed → GPT fallback", {
+      stop_reason: loopResult.stop_reason, error: loopResult.error,
+    })
+    await emitFallback(
+      { provider: "anthropic", model: "claude-sonnet-4-6" },
+      { provider: "openai", model: "gpt-5.4-pro" },
+      String(loopResult.stop_reason || loopResult.error || "sonnet_failed"),
+    )
+    const startedAt = Date.now()
+    try {
+      const text = await callWithTimeout(
+        callOpenAI(buildEmergencySystemPrompt(loopInput.extra_system), emergencyUserText, 4096),
+        GPT_FALLBACK_TIMEOUT_MS,
+        "gpt_fallback",
+      )
+      loopResult = buildFallbackLoopResult({
+        provider: "openai", model: "gpt-5.4-pro",
+        text: (text || "").trim(), ok: Boolean((text || "").trim()),
+        latencyMs: Date.now() - startedAt,
+      })
+    } catch (error: any) {
+      loopResult = buildFallbackLoopResult({
+        provider: "openai", model: "gpt-5.4-pro",
+        text: "", ok: false,
+        latencyMs: Date.now() - startedAt,
+        error: String(error?.message ?? error),
+      })
+    }
+  }
+
+  // Fallback 3: Gemini 2.5 Pro
+  if (loopFailureIsRetryable(loopResult)) {
+    logger.warn("[agentLoopRuntime] GPT failed → Gemini fallback", {
+      stop_reason: loopResult.stop_reason, error: loopResult.error,
+    })
+    await emitFallback(
+      { provider: "openai", model: "gpt-5.4-pro" },
+      { provider: "gemini", model: "gemini-2.5-pro" },
+      String(loopResult.stop_reason || loopResult.error || "gpt_failed"),
+    )
+    const startedAt = Date.now()
+    try {
+      const text = await callWithTimeout(
+        callGemini(buildEmergencySystemPrompt(loopInput.extra_system), emergencyUserText, 4096),
+        GEMINI_FALLBACK_TIMEOUT_MS,
+        "gemini_fallback",
+      )
+      loopResult = buildFallbackLoopResult({
+        provider: "gemini", model: "gemini-2.5-pro",
+        text: (text || "").trim(), ok: Boolean((text || "").trim()),
+        latencyMs: Date.now() - startedAt,
+      })
+    } catch (error: any) {
+      loopResult = buildFallbackLoopResult({
+        provider: "gemini", model: "gemini-2.5-pro",
+        text: "", ok: false,
+        latencyMs: Date.now() - startedAt,
+        error: String(error?.message ?? error),
+      })
+    }
+  }
+
+  if (!loopResult.ok) {
+    logger.error("[agentLoopRuntime] all 4 providers failed", {
+      stop_reason: loopResult.stop_reason, error: loopResult.error,
+    })
   }
 
   // final_answer 이벤트
@@ -287,7 +458,8 @@ export async function runAgentLoopRuntimeResult(
     try {
       await onEvent({
         type: "final_answer",
-        provider: "claude",
+        provider: loopResult.provider,
+        model: loopResult.model,
         text: loopResult.text,
         ok: loopResult.ok,
         latency_ms: loopResult.latency_ms,
