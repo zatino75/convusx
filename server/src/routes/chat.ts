@@ -316,8 +316,11 @@ function writeSse(res: RouteResponse, payload: any) {
 //   - force_single_agent === true → 강제 single agent (gate 스킵)
 //   - force_director    === true → 강제 director (gate 여전히 호출해 departments 는 활용)
 //   - attached_file 있으면 파일 처리 경로 우선 → gate 스킵
-//   - 20자 미만 → gate 비용 회피, single agent 직행
-//   - 그 외 → ExecutiveGate 호출 후 gate.action 에 따라 분기
+//   - 그 외 → ExecutiveGate(=Classifier+Planner) 호출 후 gate.action 에 따라 분기
+//
+// 2026-04-24 Session 5: 기존 `q.length >= 20` 컷 제거. Classifier (Gemini Flash, ~$0.001)
+// 가 모든 길이의 질문을 빠르고 저렴하게 분류하므로 휴리스틱 길이 컷은 불필요.
+// 이전엔 17자 한국어 분석 질문이 Gate 를 우회해 single_agent 로 직행 → 부서 2단계 누락 버그.
 type RouteDecision =
   | { kind: 'single_agent'; gate?: ExecutiveGateResult }
   | { kind: 'director'; gate: ExecutiveGateResult }
@@ -330,8 +333,6 @@ async function decideRoute(input: any, query: string): Promise<RouteDecision> {
   if (!q) return { kind: 'single_agent' }
 
   const isForceDirector = input?.force_director === true
-  const shouldInvokeGate = isForceDirector || q.length >= 20
-  if (!shouldInvokeGate) return { kind: 'single_agent' }
 
   const domain = detectMissionDomain(q) as GateDomain
   let gate: ExecutiveGateResult
