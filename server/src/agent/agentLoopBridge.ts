@@ -19,10 +19,14 @@ import { decideHighValue, buildDomainHint } from "./triggerDetection.js"
 import { callOpenAI, callGemini } from "../adapters/wrappers.js"
 
 // ─── single_agent cross-provider fallback chain ─────────────────────────────
-// 2026-04-24 (Session 4 Phase 1): Opus → Sonnet → GPT-5.4-pro → Gemini 2.5 Pro.
-// Opus/Sonnet 는 full agent loop (tool use 유지), GPT/Gemini 는 tool 없는 단순
-// 텍스트 호출 (emergency answer). Anthropic 전체 장애 시에도 응답 확보.
-const SONNET_TIMEOUT_MS = 120_000
+// 2026-04-24 Session 4 Phase 1 (initial): Opus → Sonnet → GPT-5.4-pro → Gemini 2.5 Pro.
+// 2026-04-24 (cost-critical update): Opus 완전 제거. Opus 가 일일 비용의 98.4% 점유.
+//   Sonnet 으로 single_agent 품질 충분. Opus 는 추후 Classifier 완성 후 전략급
+//   복잡 질문에만 선택적 사용. 신 체인:
+//     Primary  : Claude Sonnet 4.6  (180s, full agent loop with tool use)
+//     Fallback1: GPT-5.4-pro        (60s, emergency text-only)
+//     Fallback2: Gemini 2.5 Pro     (45s, emergency text-only)
+const SONNET_PRIMARY_TIMEOUT_MS = 180_000
 const GPT_FALLBACK_TIMEOUT_MS = 60_000
 const GEMINI_FALLBACK_TIMEOUT_MS = 45_000
 
@@ -321,8 +325,9 @@ export async function runAgentLoopRuntimeResult(
     onToolCall: liveToolCall,
   }
 
-  // ── Fallback chain: Opus → Sonnet → GPT-5.4-pro → Gemini 2.5 Pro ──────
+  // ── Fallback chain: Sonnet → GPT-5.4-pro → Gemini 2.5 Pro ──────────────
   // 2026-04-23 인시던트: Anthropic 크레딧 소진 시 single_agent 전체 실패.
+  // 2026-04-24 비용 최적화: Opus 제거 (전체 비용의 98.4% 점유). Sonnet 으로 충분.
   // CLAUDE.md 규칙 #6 (MAX_DEPTS) 와 무관 — 이건 부서가 아닌 단일 에이전트 경로.
   const emitFallback = async (from: { provider: string; model: string }, to: { provider: string; model: string }, reason: string) => {
     if (!onEvent) return
@@ -367,23 +372,14 @@ export async function runAgentLoopRuntimeResult(
     }
   }
 
-  // Primary: Claude Opus 4.6
-  let loopResult: AgentLoopResult = await runAnthropicAttempt("claude-opus-4-6", 180_000)
+  // Primary: Claude Sonnet 4.6 (full agent loop, tool use 유지)
+  // Opus 는 의도적으로 제거 — 비용 critical. 추후 Classifier 에서 strategic 만 escalate.
+  let loopResult: AgentLoopResult = await runAnthropicAttempt(
+    "claude-sonnet-4-6",
+    SONNET_PRIMARY_TIMEOUT_MS,
+  )
 
-  // Fallback 1: Claude Sonnet 4.6 (같은 agent loop, tool use 유지)
-  if (loopFailureIsRetryable(loopResult)) {
-    logger.warn("[agentLoopRuntime] Opus failed → Sonnet fallback", {
-      stop_reason: loopResult.stop_reason, error: loopResult.error,
-    })
-    await emitFallback(
-      { provider: "anthropic", model: "claude-opus-4-6" },
-      { provider: "anthropic", model: "claude-sonnet-4-6" },
-      String(loopResult.stop_reason || loopResult.error || "opus_failed"),
-    )
-    loopResult = await runAnthropicAttempt("claude-sonnet-4-6", SONNET_TIMEOUT_MS)
-  }
-
-  // Fallback 2: GPT-5.4-pro (도구 없는 단순 텍스트)
+  // Fallback 1: GPT-5.4-pro (도구 없는 단순 텍스트, emergency answer)
   if (loopFailureIsRetryable(loopResult)) {
     logger.warn("[agentLoopRuntime] Sonnet failed → GPT fallback", {
       stop_reason: loopResult.stop_reason, error: loopResult.error,
@@ -415,7 +411,7 @@ export async function runAgentLoopRuntimeResult(
     }
   }
 
-  // Fallback 3: Gemini 2.5 Pro
+  // Fallback 2: Gemini 2.5 Pro
   if (loopFailureIsRetryable(loopResult)) {
     logger.warn("[agentLoopRuntime] GPT failed → Gemini fallback", {
       stop_reason: loopResult.stop_reason, error: loopResult.error,
@@ -448,7 +444,7 @@ export async function runAgentLoopRuntimeResult(
   }
 
   if (!loopResult.ok) {
-    logger.error("[agentLoopRuntime] all 4 providers failed", {
+    logger.error("[agentLoopRuntime] all 3 providers failed", {
       stop_reason: loopResult.stop_reason, error: loopResult.error,
     })
   }

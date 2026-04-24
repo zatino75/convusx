@@ -1,5 +1,5 @@
 # CORVUS X — CLAUDE.md
-> 최종 업데이트: 2026-04-24 (Session 4 Phase 1-4: single_agent fallback, creditGuard 트래커, 비용 대시보드, Phase 0 체크리스트)
+> 최종 업데이트: 2026-04-24 (Session 4 Phase 1-4 + 비용 critical 후속: legal Opus→Sonnet, single_agent Opus 제거)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
 
 ## 프로젝트 개요
@@ -244,6 +244,9 @@ server/src/
 - 2026-04-23: startSingleAgentStreamInto에서 스트리밍 완료 후 renderMarkdown 미적용 → raw 마크다운 표시 → 수정 완료
 - 2026-04-23 Session 3: Perplexity `insufficient_quota` 확인. `* 표시` 부서(compete/legal/sns) 의 serper→perplexity 강등은 결제 충전 전까지 유지. Claude Code 처리 불가 (결제 이슈)
 - 2026-04-24 Session 4 Phase 1: single_agent SPOF 제거 — agent loop 가 Claude Opus 4.6 → Sonnet 4.6 → GPT-5.4-pro → Gemini 2.5 Pro 체인으로 자동 폴백. Opus/Sonnet 은 tool use 유지, GPT/Gemini 는 emergency 텍스트 전용. SSE 이벤트 `single_agent_fallback` 발행. `agentLoopBridge.ts` 구현 — 2026-04-23 Anthropic 크레딧 소진 시 single_agent 전체 실패 재발 방지
+- 2026-04-24 비용 critical: 검증 결과 Opus 가 일일 비용의 98.4% 점유 → 두 가지 후속 조치
+  1. **legal 부서**: primary `claude-opus-4-6` → `claude-sonnet-4-6`, fallback chain `[gpt-5.4-pro, gemini-2.5-pro]` (DepartmentRegistry/Agent 에 fallbackChain 옵셔널 필드 도입)
+  2. **single_agent**: agentLoopBridge 의 Opus 슬롯 완전 제거. 신 체인 = Sonnet (primary, 180s, tool use) → GPT-5.4-pro (60s, emergency) → Gemini 2.5 Pro (45s, emergency). Opus 는 추후 Classifier 완성 후 strategic 질문에만 선택적 사용 예정
 
 ## 비용 관측 (2026-04-23 추가)
 - 모든 provider 어댑터 성공 호출 시 `[adapter:usage]` 구조화 로그 emit
