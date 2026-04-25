@@ -194,6 +194,22 @@ async function runConnector(connectorId: string, query: string): Promise<string>
           const { callSupabase } = await import('../connectors/supabase.js');
           return await callSupabase(query);
         }
+        case 'mfds_rss': {
+          const { callMfdsRss } = await import('../connectors/mfdsRss.js');
+          return await callMfdsRss(query);
+        }
+        case 'notion': {
+          const { callNotion } = await import('../connectors/notion.js');
+          return await callNotion(query);
+        }
+        case 'naver_news': {
+          const { callNaverNews } = await import('../connectors/naverNews.js');
+          return await callNaverNews(query);
+        }
+        case 'google': {
+          const { callGoogle } = await import('../connectors/google.js');
+          return await callGoogle(query);
+        }
         default:
           return `[${connectorId} 커넥터: 데이터 수집 완료]`;
       }

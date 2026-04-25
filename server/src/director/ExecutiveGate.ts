@@ -14,6 +14,7 @@
 import type { DeptId } from './TaskDecomposer.js';
 import { logger } from '../observability/logger.js';
 import { classify } from './Classifier.js';
+import { planDepartments } from './Planner.js';
 
 export type GateDomain = 'ecig' | 'food' | 'cosmetic' | 'general';
 
@@ -322,10 +323,30 @@ export async function runExecutiveGate(
     };
   }
 
-  // ── Step 2: Planner (Sonnet → GPT → Gemini 3단계 폴백) ──────────────────
-  // intent 기반 maxDepts cap (operational=2, research=3, strategic=4).
-  // CLAUDE.md 규칙 #6: 모든 cap ≤ MAX_DEPTS=4.
+  // ── Step 2: Planner (2026-04-25 Phase 10 — 키워드+Flash 하이브리드) ─────
+  // 기존 Sonnet/GPT/Gemini 3단계보다 먼저 시도. 실패 시 자동 폴백.
+  // 비용 ~$0.001 (Sonnet Planner 의 1/30~1/50). 키워드 가드는 폴백 경로에서만.
   const maxDeptsForIntent = Math.min(MAX_DEPTS, classification.maxDepts);
+  const plannerResult = await planDepartments(trimmed, domain, maxDeptsForIntent);
+  if (plannerResult && plannerResult.departments.length > 0) {
+    const guarded = applyKeywordGuards(trimmed, plannerResult.departments);
+    if (guarded.length > 0) {
+      logger.info('[ExecutiveGate] planner 사용', {
+        source: plannerResult.source,
+        count: guarded.length,
+        ids: guarded.map((d) => d.id),
+      });
+      return {
+        complexity: 'complex',
+        action: 'director',
+        departments: guarded,
+        reason: `planner_${plannerResult.source}: ${plannerResult.reason}`,
+      };
+    }
+    logger.info('[ExecutiveGate] planner 결과 키워드 가드로 비워짐 → Sonnet 폴백');
+  }
+
+  // ── Step 3: 기존 Sonnet → GPT → Gemini 3단계 폴백 ──────────────────────
   const systemPrompt = buildSystemPrompt(maxDeptsForIntent);
   const userPrompt = buildUserPrompt(trimmed, domain);
 

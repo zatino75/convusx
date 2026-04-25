@@ -5,6 +5,7 @@
 // 도구 호출 시 빠르게 조회할 수 있게 한다.
 
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import crypto from "node:crypto"
 import { logger } from "../observability/logger.js"
@@ -24,9 +25,33 @@ export type RegulationSnapshot = {
 }
 
 // ── 저장 경로 ─────────────────────────────────────────────────────────────
-const CACHE_DIR = process.env.CORVUS_REGULATION_CACHE_DIR
-  ?? path.join(process.cwd(), ".cache", "regulation")
+// 2026-04-25 Phase 3: cwd 기반 .cache 가 EACCES 로 실패하는 환경(서버 systemd) 대응.
+// 우선순위: env var → cwd/.cache → /tmp/corvusx/regulation. 첫 mkdir 성공 경로를 사용.
+const CACHE_DIR = resolveCacheDir()
 const CACHE_FILE = path.join(CACHE_DIR, "regulation_cache.json")
+
+function resolveCacheDir(): string {
+  const envOverride = String(process.env.CORVUS_REGULATION_CACHE_DIR ?? "").trim()
+  const candidates = [
+    envOverride || null,
+    path.join(process.cwd(), ".cache", "regulation"),
+    path.join(os.tmpdir(), "corvusx", "regulation"),
+  ].filter((p): p is string => !!p)
+
+  for (const dir of candidates) {
+    try {
+      fs.mkdirSync(dir, { recursive: true })
+      return dir
+    } catch (error: any) {
+      logger.warn("[regulationCache] mkdir 실패, 다음 경로 시도", {
+        dir,
+        error: String(error?.message ?? error),
+      })
+    }
+  }
+  // 모든 후보 실패 시 tmpdir 반환 (이후 fs 작업이 다시 실패해도 catch 됨)
+  return path.join(os.tmpdir(), "corvusx", "regulation")
+}
 
 // ── 메모리 캐시 ────────────────────────────────────────────────────────────
 const memoryCache = new Map<string, RegulationSnapshot>()

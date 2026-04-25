@@ -18,8 +18,14 @@ export function estimateCostUsd(modelName: string | null | undefined, usage: Mod
   const pricing = MODEL_PRICING_USD_PER_1K_TOKENS[modelName];
   if (!pricing) return 0;
 
-  const inputTokens = numberOrZero(usage.input_tokens ?? usage.prompt_tokens);
-  const outputTokens = numberOrZero(usage.output_tokens ?? usage.completion_tokens);
+  // 2026-04-25 Phase 2 결함 수정: Gemini usageMetadata 키 추가.
+  //   Anthropic: input_tokens / output_tokens
+  //   OpenAI:    prompt_tokens / completion_tokens
+  //   Gemini:    promptTokenCount / candidatesTokenCount
+  // 이전에는 Gemini 키 누락 → 토큰 0 → cost_usd 0 으로 로그됨.
+  const u = usage as any;
+  const inputTokens = numberOrZero(u.input_tokens ?? u.prompt_tokens ?? u.promptTokenCount);
+  const outputTokens = numberOrZero(u.output_tokens ?? u.completion_tokens ?? u.candidatesTokenCount);
   if (inputTokens === 0 && outputTokens === 0) return 0;
 
   const cost = (inputTokens / 1000) * pricing.input + (outputTokens / 1000) * pricing.output;

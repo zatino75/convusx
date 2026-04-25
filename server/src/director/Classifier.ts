@@ -39,8 +39,8 @@ const VALID_INTENTS: ReadonlySet<string> = new Set(Object.keys(INTENT_MAX_DEPTS)
 const VALID_DOMAINS: ReadonlySet<string> = new Set(["food", "ecig", "cosmetic", "general"])
 
 const FLASH_TIMEOUT_MS = 5_000
-const HAIKU_TIMEOUT_MS = 8_000
-const MAX_TOKENS = 200
+const HAIKU_TIMEOUT_MS = 15_000
+const MAX_TOKENS = 400
 
 const CLASSIFIER_SYSTEM = `당신은 비즈니스 질문 분류기입니다. 아래 기준으로 분류하세요.
 

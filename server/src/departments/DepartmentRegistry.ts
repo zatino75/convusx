@@ -65,7 +65,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 3) 주요 플레이어 점유율: 상위 3~5개 기업 + 점유율(%) 표 형식
 4) 출처 인용: 통계 출처를 [출처: 식약처 2024 / Statista 2025 / Mintel 2024] 형식으로 명시
 5) 추정·가정 표기: 추정치는 "(추정)" 표시, 가정 전제는 별도 단락으로 명시`,
-    connectorPriority: ['serper', 'perplexity'],
+    // 2026-04-25: 네이버 뉴스 추가 (한국 시장 최신 뉴스)
+    connectorPriority: ['naver_news', 'serper', 'perplexity'],
     analysisFramework: 'TAM/SAM/SOM + Porter 5 Forces',
   },
 
@@ -93,7 +94,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 4) 차별화 기회 Top 3 (구체적 액션 가능 수준)
 5) 출처: [출처: DART / 공시정보 / 브랜드 공식 / 업계 보고서] 형식 인용`,
     // Perplexity quota 고갈로 임시 강등 (serper 우선). 충전 후 원복 예정 — 2026-04-19
-    connectorPriority: ['serper', 'perplexity'],
+    // 2026-04-25: 네이버 뉴스 추가 (경쟁사 최신 동향)
+    connectorPriority: ['naver_news', 'serper', 'perplexity'],
     analysisFramework: 'Porter 5 Forces + Competitive Benchmarking',
   },
 
@@ -128,7 +130,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 5) 최근 3년 개정 이력 + 예정 개정 일정 (관보 번호 또는 공포일자)
 6) 출처: [출처: 법제처 국가법령정보센터 / 식약처 / 기재부 고시] 형식 인용`,
     // Perplexity quota 고갈로 임시 강등 (serper 우선). 충전 후 원복 예정 — 2026-04-19
-    connectorPriority: ['serper', 'perplexity'],
+    // 2026-04-25: 식약처 RSS + Notion (사내 법무 자료) 추가
+    connectorPriority: ['mfds_rss', 'notion', 'serper', 'perplexity'],
     analysisFramework: 'Legal Risk Matrix + Regulatory Compliance',
   },
 
@@ -163,7 +166,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 4) ROI / NPV / IRR / Payback 4개 지표 모두 수치 산출
 5) 출처: [출처: 통계청 / 한국은행 / 업계 평균 / 자체 가정] 인용
 6) 모든 단위는 일관: 매출은 "억원", 비용은 "백만원" 식 혼용 금지`,
-    connectorPriority: ['supabase', 'serper'],
+    // 2026-04-25: Google Sheets 추가 (재무 데이터 시트)
+    connectorPriority: ['google', 'supabase', 'serper'],
     analysisFramework: '3-Scenario P&L + ROI/BEP Analysis',
   },
 
@@ -227,7 +231,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
    | M+1 | M+2 | M+3 | M+4 | M+5 | M+6 |
 4) 특허/IP: 관련 등록 특허 번호 또는 회피 설계 포인트 명시
 5) 출처: [출처: PubMed / 식약처 / INCI Dictionary / 특허청 KIPRIS] 인용`,
-    connectorPriority: ['pubmed', 'perplexity', 'serper'],
+    // 2026-04-25: 식약처 RSS + Notion (R&D 노트) 추가
+    connectorPriority: ['pubmed', 'mfds_rss', 'notion', 'perplexity', 'serper'],
     analysisFramework: 'Product Concept + R&D Roadmap + IP Analysis',
   },
 
@@ -246,7 +251,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 - 구매 패턴 및 전환율 분석
 - 코호트 분석 및 LTV 예측
 출력 형식: 핵심 지표 요약, 트렌드 분석, 데이터 기반 권고사항 포함`,
-    connectorPriority: ['posthog', 'supabase', 'serper'],
+    // 2026-04-25: Notion + Google Drive (사내 데이터 자료) 추가
+    connectorPriority: ['posthog', 'supabase', 'notion', 'google', 'serper'],
     analysisFramework: 'Consumer Behavior + Trend Analysis + Sentiment Mining',
   },
 
@@ -296,7 +302,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
 실제 에셋 제작은 디자인팀 브리프로 전달하세요.
 출력 형식: 채널별 전략, 주간 게시 계획, KPI(팔로워/인게이지먼트율), 디자인팀 브리프 포함`,
     // Perplexity quota 고갈로 임시 강등 (serper 우선). 충전 후 원복 예정 — 2026-04-19
-    connectorPriority: ['serper', 'perplexity'],
+    // 2026-04-25: 네이버 뉴스 추가 (소셜 트렌드 시드)
+    connectorPriority: ['naver_news', 'serper', 'perplexity'],
     analysisFramework: 'Channel Strategy + Content Mix + Growth KPI',
   },
 
