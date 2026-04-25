@@ -14,13 +14,20 @@ export default defineConfig(({ mode }) => ({
     port: 5173,
     strictPort: true,
     proxy: {
+      // [TEMP] 로컬 dev → production 백엔드 (SSE/cookie 검증용)
+      // 검증 끝나면 원래 localhost:8000 프록시로 원복할 것
       "/api": {
-        target: `http://localhost:${process.env.VITE_API_PORT ?? 8000}`,
-        changeOrigin: true
+        target: "https://app.cloudcookie.co.kr",
+        changeOrigin: true,
+        secure: true,
+        // production cookie domain (cloudcookie.co.kr) 을 localhost 로 재작성하여
+        // 브라우저가 5173 origin 에 corvus_session 쿠키를 저장하도록 함
+        cookieDomainRewrite: "localhost"
       },
       "/health": {
-        target: `http://localhost:${process.env.VITE_API_PORT ?? 8000}`,
-        changeOrigin: true
+        target: "https://app.cloudcookie.co.kr",
+        changeOrigin: true,
+        secure: true
       }
     }
   },

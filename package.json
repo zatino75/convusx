@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "benchmark": "npx tsx scripts/run-benchmark.ts",
-    "smoke-test": "npx tsx server/scripts/smoke-test.ts"
+    "smoke-test": "npx tsx server/scripts/smoke-test.ts",
+    "backup-session6": "npx tsx server/scripts/backup-session6.ts"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",

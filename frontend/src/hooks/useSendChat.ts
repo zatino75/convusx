@@ -2,6 +2,21 @@ import { useRef, useState } from "react";
 import { sendChatStream } from "../api/stream";
 import { extractDebugMeta } from "../api/chat";
 import {
+  startDirectorStream,
+  type CeoBriefing,
+  type CriticReview,
+  type DirectorEvent,
+  type PmoTask,
+} from "../api/director";
+import {
+  resetDirectorSession,
+  updateDirectorSession,
+  updateDeptStatus,
+  addToolCall,
+  getDirectorSession,
+  type DeptState,
+} from "../store/directorStore";
+import {
   startAgentTurn,
   handleAgentSSEEvent,
   finishAgentTurn,
@@ -48,6 +63,81 @@ function mapErrorCodeToMessage(raw: string): string {
   return raw ? t("chat.errorPrefix").replace("{message}", raw) : t("chat.unknownError")
 }
 
+// 부서 ID → 한글 표시 이름 매핑 (UI 라벨용)
+const DEPT_LABEL: Record<string, string> = {
+  market: "시장조사",
+  compete: "경쟁분석",
+  legal: "법률검토",
+  finance: "재무분석",
+  marketing: "브랜드/마케팅",
+  rnd: "R&D",
+  data: "데이터/감성",
+  content: "콘텐츠",
+  sns: "채널전략",
+  design: "디자인",
+};
+
+function deptName(deptId: string): string {
+  return DEPT_LABEL[deptId] ?? deptId;
+}
+
+// CEO 브리핑 + 부서 결과 → 채팅 메시지용 마크다운 변환
+function buildDirectorBriefingMarkdown(
+  briefing: CeoBriefing | null,
+  critic: CriticReview | null,
+  deptDoneCount: number,
+  deptTotal: number,
+  elapsedSec: number,
+  topic: string,
+): string {
+  const parts: string[] = [];
+  parts.push(`## 📋 CEO BRIEFING — ${topic || "신규 미션"}`);
+
+  if (briefing?.summary) {
+    parts.push("");
+    parts.push("### 핵심 요약");
+    parts.push(briefing.summary.trim());
+  }
+
+  if (briefing?.opportunities?.length) {
+    parts.push("");
+    parts.push("### 기회");
+    for (const item of briefing.opportunities) parts.push(`- ${String(item).trim()}`);
+  }
+
+  if (briefing?.risks?.length) {
+    parts.push("");
+    parts.push("### 리스크");
+    for (const item of briefing.risks) parts.push(`- ${String(item).trim()}`);
+  }
+
+  if (briefing?.recommendations?.length) {
+    parts.push("");
+    parts.push("### 즉시 실행 권고");
+    for (const item of briefing.recommendations) parts.push(`- ${String(item).trim()}`);
+  }
+
+  parts.push("");
+  parts.push("---");
+  const confidencePct =
+    typeof briefing?.overallConfidence === "number"
+      ? Math.round(Math.max(0, Math.min(1, briefing.overallConfidence)) * 100)
+      : null;
+  const footMeta: string[] = [];
+  footMeta.push(`**부서 실행**: ${deptDoneCount}/${deptTotal}`);
+  if (confidencePct != null) footMeta.push(`**통합 신뢰도**: ${confidencePct}%`);
+  if (critic?.verdict) footMeta.push(`**Critic**: ${critic.verdict}`);
+  if (elapsedSec > 0) footMeta.push(`**소요**: ${elapsedSec.toFixed(0)}s`);
+  parts.push(footMeta.join(" · "));
+
+  if (critic?.summary) {
+    parts.push("");
+    parts.push(`> ${critic.summary.trim()}`);
+  }
+
+  return parts.join("\n");
+}
+
 export type SendTarget = {
   threadId: string;
   projectId: string;
@@ -56,6 +146,8 @@ export type SendTarget = {
 
 export type RetryOptions = {
   replaceFromMessageId?: string | null;
+  /** 이번 한 번만 mode 강제 (HomeView 퀵 액션이 chatMode 토글 없이 Director 실행) */
+  modeOverride?: ChatMode;
 };
 
 type ActiveStreamState = {
@@ -114,6 +206,9 @@ export function useSendChat({
     const files = attachedFilesRef.current;
     const trimmed = text.trim();
     if (!trimmed && files.length === 0) return;
+
+    // 이번 호출에 한해 적용할 모드 (HomeView Director 퀵 액션 등)
+    const effectiveMode: ChatMode = options?.modeOverride ?? chatMode;
 
     // 새 메시지 전송 시 패널 탭 리셋 (코드탭 고정 방지)
     setPanelPage(0);
@@ -273,6 +368,280 @@ export function useSendChat({
     setDebugMeta(createDefaultDebugMeta());
     resetEditingState();
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Director 모드 분기 — /api/director/stream SSE 연결 (10부서 병렬)
+    // 일반 sendChatStream 과 별도 경로. SSE 이벤트는 directorStore 로 브릿지하고
+    // 최종 CEO 브리핑은 채팅 메시지로 합성한다.
+    // ─────────────────────────────────────────────────────────────────────
+    if (effectiveMode === "director") {
+      try {
+        const startedAt = Date.now();
+        resetDirectorSession(target.threadId);
+        updateDirectorSession({
+          running: true,
+          startTime: startedAt,
+          topic: trimmed.slice(0, 80),
+        });
+
+        const directorStatus: string[] = [];
+        const pushStatus = (text: string) => {
+          if (!text) return;
+          directorStatus.push(text);
+          workspace.updateThreadById(target.threadId, (thread: Thread) => ({
+            ...thread,
+            messages: updateMessageStatus(thread.messages, assistantPlaceholder.id, (msg: Message) => ({
+              ...msg,
+              statusText: text,
+              statusHistory: [...directorStatus],
+              status: "pending" as const,
+            })),
+          }));
+        };
+
+        let lastBriefing: CeoBriefing | null = null;
+        let lastCritic: CriticReview | null = null;
+        let deptTotal = 0;
+        let directorDone = false;
+
+        // AbortController abort → SSE close
+        const directorHandle = startDirectorStream(
+          trimmed,
+          {
+            onEvent: (event: DirectorEvent) => {
+              if (activeStreamRef.current?.placeholderId !== assistantPlaceholder.id) return;
+
+              switch (event.type) {
+                case "mission_start": {
+                  const sid = (event as any).sessionId ?? (event as any).missionId ?? null;
+                  const dc = (event as any).deptCount;
+                  if (typeof dc === "number") deptTotal = dc;
+                  updateDirectorSession({
+                    sessionId: sid,
+                    topic: String((event as any).topic ?? trimmed.slice(0, 80)),
+                    domain: String((event as any).domain ?? ""),
+                  });
+                  pushStatus(`미션 시작 — 부서 ${dc ?? "?"}개 선정`);
+                  break;
+                }
+                case "pmo_plan": {
+                  const plan = (event as any).plan;
+                  if (plan) {
+                    updateDirectorSession({ pmoPlan: plan });
+                    const tasks: PmoTask[] = Array.isArray(plan.taskChecklist) ? plan.taskChecklist : [];
+                    if (tasks.length > 0) deptTotal = Math.max(deptTotal, tasks.length);
+                    pushStatus(`PMO 계획 수립 — 작업 ${tasks.length}개`);
+                  }
+                  break;
+                }
+                case "dept_start": {
+                  const deptId = String((event as any).deptId ?? "");
+                  updateDeptStatus(deptId, {
+                    state: "thinking",
+                    objective: (event as any).objective,
+                    model: (event as any).model,
+                    percent: 0,
+                  });
+                  pushStatus(`▸ ${deptName(deptId)} 시작`);
+                  break;
+                }
+                case "dept_progress": {
+                  const deptId = String((event as any).deptId ?? "");
+                  const msg = String((event as any).message ?? "");
+                  updateDeptStatus(deptId, {
+                    state: "working",
+                    percent: typeof (event as any).percent === "number" ? (event as any).percent : undefined,
+                    lastMessage: msg,
+                  });
+                  // 도구 호출 휴리스틱 추출
+                  const lower = msg.toLowerCase();
+                  if (lower.includes("perplexity") || lower.includes("검색")) addToolCall(deptId, "perplexity");
+                  else if (lower.includes("법규") || lower.includes("regulation")) addToolCall(deptId, "regulation");
+                  else if (lower.includes("pubmed")) addToolCall(deptId, "pubmed");
+                  else if (lower.includes("serper")) addToolCall(deptId, "serper");
+                  break;
+                }
+                case "dept_done": {
+                  const deptId = String((event as any).deptId ?? "");
+                  updateDeptStatus(deptId, {
+                    state: "done" as DeptState,
+                    percent: 100,
+                    model: (event as any).model,
+                    durationMs: (event as any).durationMs,
+                    connectors: (event as any).connectors,
+                  });
+                  pushStatus(`✓ ${deptName(deptId)} 완료`);
+                  break;
+                }
+                case "dept_error": {
+                  const deptId = String((event as any).deptId ?? "");
+                  const err = String((event as any).error ?? "오류");
+                  updateDeptStatus(deptId, { state: "error", error: err });
+                  pushStatus(`✗ ${deptName(deptId)} 실패 — ${err.slice(0, 80)}`);
+                  break;
+                }
+                case "critic_review": {
+                  const review = (event as any).review;
+                  if (review) {
+                    lastCritic = review;
+                    updateDirectorSession({ criticReview: review });
+                    pushStatus(`Critic ${review.verdict ?? "review"}`);
+                  }
+                  break;
+                }
+                case "ceo_briefing": {
+                  const briefing = (event as any).briefing;
+                  if (briefing) {
+                    lastBriefing = briefing;
+                    updateDirectorSession({ ceoBriefing: briefing });
+                    pushStatus("상무 브리핑 작성");
+                  }
+                  break;
+                }
+                case "all_done": {
+                  directorDone = true;
+                  const round = Number((event as any).roundNumber ?? 0);
+                  const briefing = (event as any).briefing ?? lastBriefing;
+                  const critic = (event as any).critic ?? lastCritic;
+                  if (briefing) lastBriefing = briefing;
+                  if (critic) lastCritic = critic;
+                  updateDirectorSession({
+                    running: false,
+                    endTime: Date.now(),
+                    roundNumber: round,
+                    ceoBriefing: briefing ?? lastBriefing,
+                    criticReview: critic ?? lastCritic,
+                  });
+                  break;
+                }
+                case "error": {
+                  pushStatus(`오류 — ${String((event as any).message ?? "")}`);
+                  break;
+                }
+              }
+            },
+            onError: (err) => {
+              if (activeStreamRef.current?.placeholderId !== assistantPlaceholder.id) return;
+              const msg = mapErrorCodeToMessage(err.message);
+              workspace.updateThreadById(target.threadId, (thread: Thread) => {
+                const nextMessages = updateMessageStatus(thread.messages, assistantPlaceholder.id, (item: Message) => ({
+                  ...item,
+                  content: item.content?.trim() ? `${item.content}\n\n${msg}` : msg,
+                  status: "error" as const,
+                }));
+                const nextThread = { ...thread, updatedAt: nowIso(), messages: nextMessages };
+                saveMessages(target.threadId, nextMessages);
+                saveThread(nextThread);
+                return nextThread;
+              });
+              workspace.touchProject(target.projectId);
+              setLastError(msg);
+              updateDirectorSession({ running: false, endTime: Date.now() });
+              if (activeStreamRef.current?.placeholderId === assistantPlaceholder.id) {
+                activeStreamRef.current = null;
+              }
+              setIsSending(false);
+              finishAgentTurn();
+            },
+          },
+          { projectName: trimmed.slice(0, 40) },
+        );
+
+        // 사용자가 stop 누르면 controller.signal 발화 → SSE close
+        const onAbort = () => {
+          directorHandle.close();
+        };
+        controller.signal.addEventListener("abort", onAbort);
+
+        // 스트림 종료(all_done / error / abort) 대기
+        await new Promise<void>((resolve) => {
+          const timer = setInterval(() => {
+            const ses = getDirectorSession();
+            if (controller.signal.aborted) {
+              clearInterval(timer);
+              resolve();
+              return;
+            }
+            if (!ses.running && (directorDone || ses.endTime > 0)) {
+              clearInterval(timer);
+              resolve();
+            }
+          }, 200);
+        });
+
+        controller.signal.removeEventListener("abort", onAbort);
+
+        // 사용자가 stop 으로 중단한 경우 — placeholder finalize 만 수행
+        if (controller.signal.aborted) {
+          workspace.updateThreadById(target.threadId, (thread: Thread) => {
+            const nextMessages = updateMessageStatus(thread.messages, assistantPlaceholder.id, (item: Message) => ({
+              ...item,
+              content: item.content?.trim() ? item.content : t("chat.generationCancelled"),
+              status: "done" as const,
+            }));
+            const nextThread = { ...thread, updatedAt: nowIso(), messages: nextMessages };
+            saveMessages(target.threadId, nextMessages);
+            saveThread(nextThread);
+            return nextThread;
+          });
+          workspace.touchProject(target.projectId);
+          return;
+        }
+
+        // 정상 종료 — CEO 브리핑 마크다운 합성 후 메시지 finalize
+        const ses = getDirectorSession();
+        const deptStatuses = Object.values(ses.deptStatuses);
+        const doneCount = deptStatuses.filter((d) => d.state === "done").length;
+        const total = deptTotal || deptStatuses.length;
+        const elapsed = (Date.now() - startedAt) / 1000;
+        const briefingMd = buildDirectorBriefingMarkdown(
+          ses.ceoBriefing,
+          ses.criticReview,
+          doneCount,
+          total,
+          elapsed,
+          ses.topic,
+        );
+
+        workspace.updateThreadById(target.threadId, (thread: Thread) => {
+          const nextMessages = updateMessageStatus(thread.messages, assistantPlaceholder.id, (msg: Message) => ({
+            ...msg,
+            content: briefingMd,
+            status: "done" as const,
+            statusHistory: [...directorStatus],
+          }));
+          const nextThread = { ...thread, updatedAt: nowIso(), messages: nextMessages };
+          saveMessages(target.threadId, nextMessages);
+          saveThread(nextThread);
+          return nextThread;
+        });
+        workspace.touchProject(target.projectId);
+      } catch (err) {
+        const rawMessage = err instanceof Error ? err.message : t("chat.unknownError");
+        const friendly = mapErrorCodeToMessage(rawMessage);
+        workspace.updateThreadById(target.threadId, (thread: Thread) => {
+          const nextMessages = updateMessageStatus(thread.messages, assistantPlaceholder.id, (item: Message) => ({
+            ...item,
+            content: item.content ? `${item.content}\n\n${friendly}` : friendly,
+            status: "error" as const,
+          }));
+          const nextThread = { ...thread, updatedAt: nowIso(), messages: nextMessages };
+          saveMessages(target.threadId, nextMessages);
+          saveThread(nextThread);
+          return nextThread;
+        });
+        workspace.touchProject(target.projectId);
+        setLastError(friendly);
+        setAttachedFiles(files);
+      } finally {
+        if (activeStreamRef.current?.placeholderId === assistantPlaceholder.id) {
+          activeStreamRef.current = null;
+        }
+        finishAgentTurn();
+        setIsSending(false);
+      }
+      return;
+    }
+
     try {
       // 현재 요청 직전의 스레드 메시지 수집 (현재 user/placeholder 제외)
       // ✅ status === "error" 메시지 제외: 이전 실패한 응답이 컨텍스트에 남아 오답을 유발하는 버그 수정
@@ -406,8 +775,8 @@ export function useSendChat({
           project_instruction: workspace.activeProject?.meta?.instruction?.trim() || null,
           domain_profile: localStorage.getItem("corvus-x.domain-profile") ?? "general",
           // Phase 3 — 모드 토글. auto 일 때는 force 플래그 없이 서버 휴리스틱에 맡김.
-          ...(chatMode === "director" ? { force_director: true } : {}),
-          ...(chatMode === "agent" ? { force_single_agent: true } : {}),
+          // (director 모드는 위에서 별도 SSE 경로로 분기 → 여기까지 도달하지 않음)
+          ...(effectiveMode === "agent" ? { force_single_agent: true } : {}),
           ...(files.length > 0 ? {
             attached_files: files.map((f: { name: string; type: string; base64: string; size: number }) => ({
               name: f.name,
@@ -908,7 +1277,7 @@ export function useSendChat({
     });
   }
 
-  async function handleHomeSubmit(text: string) {
+  async function handleHomeSubmit(text: string, options?: { mode?: ChatMode }) {
     const trimmed = text.trim();
     if ((!trimmed && attachedFilesRef.current.length === 0) || isSending) return;
 
@@ -918,7 +1287,7 @@ export function useSendChat({
         threadId,
         projectId: GENERAL_PROJECT_ID,
         currentTitle: ""
-      });
+      }, { modeOverride: options?.mode });
       return;
     }
 
@@ -929,7 +1298,7 @@ export function useSendChat({
       threadId,
       projectId,
       currentTitle: ""
-    });
+    }, { modeOverride: options?.mode });
   }
 
   async function handleSubmitEditMessage(messageId: string) {

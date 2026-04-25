@@ -1,6 +1,17 @@
 # CORVUS X — CLAUDE.md
-> 최종 업데이트: 2026-04-25 (Session 6 — 자동 Opus 호출 차단, 금지패턴 #19/20/21 추가, 비용 대시보드 도입)
+> 최종 업데이트: 2026-04-25 (Session 6 — 비용 차단 / 6 프로바이더 크레딧 / SQLite 영구 저장 / 신규 커넥터)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
+
+## Session 6 (2026-04-25) 핵심 변경
+- **DEFAULT_MODEL**: `claude-opus-4-6` → `claude-sonnet-4-6` (영구). 자동 Opus 호출 차단으로 일일 비용 $25 누수 종결 (Opus 점유율 98.4% → 0%).
+- **`startBenchmarkScheduler`**: 영구 no-op. setTimeout/setInterval 자동 트리거 제거. `/api/benchmark/run` 수동만 허용.
+- **`backgroundScheduler`**: LLM API 호출 전부 제거. `checkProviderHealth` 는 env key 존재 검사만 (HTTP 200 등가). billing/잔액 endpoint(LLM 아님) 호출은 허용 → `creditFetcher.backgroundRefresh` 5분 주기.
+- **6 프로바이더 크레딧 시스템**: Anthropic / OpenAI / Google / DeepSeek / Perplexity / fal. 카드 6 + 충전 모달 + 충전하러가기 새 탭. DeepSeek 만 자동 잔액 조회 (`/user/balance`), 나머지 5개는 수동 관리.
+- **SQLite 영구 저장**: `server/data/corvusx.db` (WAL). `cost_entries` + `credit_entries`. 서버 재시작해도 today/이번 달 통계 보존. `costStore`/`creditStore` 모두 SQLite 백엔드.
+- **대시보드 우측 패널 분리**: `dashboard`/`gallery` 뷰에서 `aside.panel` 강제 숨김 (CSS `.app[data-view] .panel` + JS `_setRightPanelVisible` 이중 보강).
+- **신규 커넥터**: 식약처 RSS / Notion / 네이버 뉴스 / Google.
+- **Planner 신규**: `director/Planner.ts`.
+- **금지패턴 #19~23 추가**: 자동 LLM 호출 영구 차단 + SQLite 회귀 금지 + 우측 패널 토글.
 
 ## 프로젝트 개요
 CORVUS X는 10개 부서 기반 Director Multi-Agent 시스템.

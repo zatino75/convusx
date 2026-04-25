@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { t } from "../../i18n";
-import OfficeWorld from "./OfficeWorld";
 
 type Props = {
   sidebar: ReactNode | ((options: { onCloseSidebar: () => void }) => ReactNode);
@@ -218,9 +217,12 @@ export default function AppShell({
     "--shell-left": isMobile ? "8px" : `${leftInsetDesktop}px`
   } as CSSProperties;
 
+  // sceneMode/sceneDirective 는 더 이상 게임 배경에 사용하지 않음 — 호환을 위해 보존
+  void sceneMode;
+  void sceneDirective;
+
   return (
     <div className="game-shell" style={shellInsets}>
-      <OfficeWorld mode={sceneMode} directive={sceneDirective} />
       <div className="game-shell__overlay" />
 
       <div className="game-shell__topbar-wrap" role="banner">

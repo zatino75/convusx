@@ -71,7 +71,7 @@ export function isSafeUrl(url: string): boolean {
 }
 
 // ── 조건부 로깅 (dev 환경에서만 출력) ──
-const IS_DEV = (import.meta as any).env?.DEV ?? (typeof process !== "undefined" && process.env?.NODE_ENV !== "production")
+const IS_DEV = (import.meta as any).env?.DEV ?? ((globalThis as any).process?.env?.NODE_ENV !== "production")
 
 export const devLog = {
   log: (...args: unknown[]) => { if (IS_DEV) console.log(...args) },

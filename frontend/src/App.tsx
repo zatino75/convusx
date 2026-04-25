@@ -10,8 +10,6 @@ import { useScrollBehavior } from "./hooks/useScrollBehavior";
 import ChatView from "./components/chat/ChatView";
 import HomeView from "./components/chat/HomeView";
 import AppShell from "./components/layout/AppShell";
-import OfficeHudPanel from "./components/layout/OfficeHudPanel";
-import MissionStudioPanel from "./components/layout/MissionStudioPanel";
 import QuickJumpBar from "./components/layout/QuickJumpBar";
 import OrchestrationPanel from "./components/ops/OrchestrationPanel";
 import Sidebar from "./components/layout/Sidebar";
@@ -237,6 +235,7 @@ export default function App() {
     lastError,
     debugMeta,
     handleSend,
+    handleHomeSubmit,
     handleStopGenerating,
   } = useSendChat({
     workspace,
@@ -338,6 +337,11 @@ export default function App() {
     startMissionRuntime(nextDirective, "hq");
     setPendingWorkforceMission(nextDirective, "hq");
     handleOpenWorkforce();
+  }
+  function handleLaunchDirectorAnalysis(directive: string) {
+    const nextDirective = String(directive ?? "").trim();
+    if (!nextDirective) return;
+    void handleHomeSubmit(nextDirective, { mode: "director" });
   }
   function handleResetMission() {
     resetMissionRuntimeState();
@@ -615,30 +619,6 @@ export default function App() {
         ) : (mode === "thread-chat" ? (
           <OrchestrationPanel debugMeta={debugMeta} artifactList={artifactList} />
         ) : undefined)}
-        hud={
-          <div className="game-shell__hud-stack">
-            <OfficeHudPanel
-              mode={sceneMode}
-              directive={sceneDirective}
-              projectTitle={resolvedProjectTitle}
-              threadTitle={workspace.activeThread?.title ?? undefined}
-              missionPhase={missionRuntime.phase}
-            />
-            <MissionStudioPanel
-              mode={sceneMode}
-              latestDirective={sceneDirective}
-              workflowNotes={missionRuntime.workflowNotes}
-              onLaunchMission={handleLaunchWorkforceMission}
-              onResetMission={handleResetMission}
-              onOpenWorkforce={handleOpenWorkforce}
-              onOpenStoreOps={handleOpenStoreOps}
-              onOpenPos={handleOpenPos}
-              onOpenSales={handleOpenSales}
-              activeProjects={runningProjects}
-              totalProjects={totalProjects}
-            />
-          </div>
-        }
         topbar={
           <Topbar
             mode={mode}
@@ -721,6 +701,8 @@ export default function App() {
                   onToggleThreadPinned={workspace.toggleThreadPinned}
                   projectGroups={workspace.projectGroups}
                   onLaunchWorkforceMission={handleLaunchWorkforceMission}
+                  onLaunchDirectorAnalysis={handleLaunchDirectorAnalysis}
+                  onSubmitPrompt={(text) => void handleHomeSubmit(text)}
                   onOpenStoreOps={handleOpenStoreOps}
                   onOpenPos={handleOpenPos}
                   onOpenSales={handleOpenSales}

@@ -16,7 +16,12 @@ type Props = {
   onRemoveFromProject?: (threadId: string) => void;
   onDeleteThread?: (threadId: string) => void;
   onToggleThreadPinned?: (threadId: string) => void;
+  /** Workforce 미션 시작 — 호환을 위해 보존 (현재 GeneralHome 에서 직접 사용 안 함) */
   onLaunchWorkforceMission?: (directive: string) => void;
+  /** Director 모드(10부서 분석) — 입력값을 새 스레드로 보내고 SSE 시작 */
+  onLaunchDirectorAnalysis?: (directive: string) => void;
+  /** 일반 입력 → 채팅 스레드 시작 (자동/단일에이전트 모드) */
+  onSubmitPrompt?: (text: string) => void;
   onOpenStoreOps?: () => void;
   onOpenPos?: () => void;
   onOpenSales?: () => void;
@@ -167,124 +172,264 @@ function ImagesPlaceholder() {
   );
 }
 
-function homePhaseLabel(mode: "idle" | "dispatch" | "working" | "meeting") {
-  if (mode === "dispatch") return "지시 전달";
-  if (mode === "working") return "부서 실행";
-  if (mode === "meeting") return "상무 보고";
-  return "대기";
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// GeneralHome — 4월 7일 원본 베이스 + 10부서 분석 퀵 액션 추가
+// 크림/골드 라이트 테마. 까마귀 로고 + 입력창 + 6개 퀵 액션.
+// ─────────────────────────────────────────────────────────────────────────────
 
-function clipHomeDirective(value: string) {
-  const normalized = value.trim();
-  if (!normalized) return "아직 실행 중인 지시가 없습니다. 새 업무를 생성하면 부서 아바타가 즉시 움직입니다.";
-  return normalized.length > 92 ? `${normalized.slice(0, 92)}...` : normalized;
-}
+type QuickAction = {
+  id: string;
+  icon: string;
+  label: string;
+  color: string;
+  prompt?: string;
+  director?: boolean;
+};
+
+const QUICK_ACTIONS: QuickAction[] = [
+  { id: "research", icon: "🔭", label: "심층 리서치", color: "#f59e0b", prompt: "심층 리서치: " },
+  { id: "legal",    icon: "⚖️",  label: "법률 검토",   color: "#6366f1", prompt: "법률 검토: " },
+  { id: "finance",  icon: "📊", label: "재무 분석",   color: "#14b8a6", prompt: "재무 분석: " },
+  { id: "code",     icon: "💻", label: "코드 작성",   color: "#d97706", prompt: "코드 작성: " },
+  { id: "image",    icon: "🎨", label: "이미지 생성", color: "#10a37f", prompt: "이미지 생성: " },
+  { id: "director", icon: "🏢", label: "10부서 분석", color: "#c96442", director: true },
+];
 
 function GeneralHome({
-  onLaunchWorkforceMission,
-  onOpenStoreOps,
-  onOpenPos,
-  onOpenSales,
-  sceneMode = "idle",
-  sceneDirective = ""
+  isSending,
+  onSubmitPrompt,
+  onLaunchDirectorAnalysis,
 }: {
-  onLaunchWorkforceMission?: (directive: string) => void;
-  onOpenStoreOps?: () => void;
-  onOpenPos?: () => void;
-  onOpenSales?: () => void;
-  sceneMode?: "idle" | "dispatch" | "working" | "meeting";
-  sceneDirective?: string;
+  isSending: boolean;
+  onSubmitPrompt?: (value: string) => void;
+  onLaunchDirectorAnalysis?: (directive: string) => void;
 }) {
-  const [missionModalOpen, setMissionModalOpen] = useState(false);
-  const [missionDirective, setMissionDirective] = useState("신규 시즌 매출 확대, 매장 운영 리스크 완화, POS KPI 재정렬 계획을 오늘 18시까지 보고");
+  const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // 한글 IME 조합 중 Enter 무시용 — compositionStart/End 로 정확히 추적
+  const composingRef = useRef(false);
 
-  function launchMission() {
-    const nextDirective = missionDirective.trim();
-    if (!nextDirective) return;
-    onLaunchWorkforceMission?.(nextDirective);
-    setMissionModalOpen(false);
+  // textarea 자동 높이 조절 (1~6줄)
+  function autoSize(el: HTMLTextAreaElement | null) {
+    if (!el) return;
+    el.style.height = "auto";
+    const max = 6 * 24 + 16; // 6줄 + padding
+    el.style.height = Math.min(el.scrollHeight, max) + "px";
+  }
+
+  function submit() {
+    const trimmed = value.trim();
+    if (!trimmed || isSending) return;
+    onSubmitPrompt?.(trimmed);
+    setValue("");
+    if (inputRef.current) inputRef.current.style.height = "auto";
+  }
+
+  function handleQuickAction(action: QuickAction) {
+    if (isSending) return;
+    if (action.director) {
+      const directive = value.trim();
+      if (!directive) {
+        inputRef.current?.focus();
+        return;
+      }
+      onLaunchDirectorAnalysis?.(directive);
+      setValue("");
+      if (inputRef.current) inputRef.current.style.height = "auto";
+      return;
+    }
+    if (action.prompt) {
+      const next = action.prompt + value.trim();
+      setValue(next);
+      inputRef.current?.focus();
+      // autoSize 는 다음 paint 에서 동작하도록
+      requestAnimationFrame(() => autoSize(inputRef.current));
+    }
   }
 
   return (
-    <div className="general-home general-home--simple">
-      <div className="general-home__center">
-        <section className="general-home__hero general-home__hero--simple">
-          <span className={`general-home__phase is-${sceneMode}`}>
-            {homePhaseLabel(sceneMode)}
+    // 컨테이너: viewport 높이 채우는 flex column.
+    // 상단(로고+제목)은 가운데 정렬, 하단(composer+퀵액션)은 sticky bottom.
+    <div
+      className="general-home"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        minHeight: "100%",
+        padding: 0,
+        alignItems: "stretch",
+        justifyContent: "stretch",
+      }}
+    >
+      {/* 상단/중앙 — 로고 + 제목 */}
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "40px 24px 20px",
+          minHeight: 0,
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 20 }}>
+          <img
+            src="/corvus-logo.png"
+            alt="CORVUS X"
+            style={{ width: 56, height: 56, objectFit: "contain", marginBottom: 10, opacity: 0.9 }}
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+          />
+          <span style={{ fontSize: 24, fontWeight: 800, letterSpacing: "0.08em", color: "var(--text-main)" }}>
+            CORVUS X
           </span>
-          <h1>오피스를 게임처럼 운영하세요.</h1>
-          <p>핵심만 남긴 HQ 화면입니다. 업무 생성 후 부서 실행과 상무 보고가 자동으로 이어집니다.</p>
-        </section>
-
-        <section className="general-home__status-card" aria-label="현재 상태">
-          <article>
-            <span>현재 단계</span>
-            <strong>{homePhaseLabel(sceneMode)}</strong>
-          </article>
-          <article>
-            <span>현재 지시</span>
-            <p>{clipHomeDirective(sceneDirective || missionDirective)}</p>
-          </article>
-        </section>
-
-        <div className="general-home__actions">
-          <button
-            type="button"
-            className="general-home__launch-btn"
-            onClick={() => setMissionModalOpen(true)}
-          >
-            업무 생성
-          </button>
+          <span style={{ fontSize: 11, color: "var(--text-sub)", letterSpacing: "0.20em", fontWeight: 500, marginTop: 6 }}>
+            SEE · CHOOSE · GO
+          </span>
         </div>
-
-        <section className="general-home__ops-board general-home__ops-board--simple" aria-label="운영 이동">
-          <button type="button" onClick={onOpenStoreOps}>
-            <span>STOREOPS</span>
-            <strong>매장 이슈 대응실</strong>
-          </button>
-          <button type="button" onClick={onOpenPos}>
-            <span>POS</span>
-            <strong>결제 현장 관제</strong>
-          </button>
-          <button type="button" onClick={onOpenSales}>
-            <span>SALES</span>
-            <strong>매출 집계 대시보드</strong>
-          </button>
-        </section>
-
-        <p className="general-home__ops-note">
-          지금 화면은 최소 조작 모드입니다. 상세 분석은 각 운영 화면으로 이동해 진행하세요.
-        </p>
+        <h1 className="general-home__title" style={{ margin: 0 }}>
+          무엇을 도와드릴까요?
+        </h1>
       </div>
 
-      {missionModalOpen ? (
-        <div className="mission-modal-overlay" role="dialog" aria-modal="true" aria-label="업무 생성">
-          <article className="mission-modal">
-            <header>
-              <strong>업무 생성</strong>
-              <button type="button" onClick={() => setMissionModalOpen(false)} aria-label="닫기">닫기</button>
-            </header>
-            <p>지시문을 작성하면 Workforce 모드에서 부서 아바타가 즉시 실행 루프를 시작합니다.</p>
-            <textarea
-              value={missionDirective}
-              onChange={(event) => setMissionDirective(event.target.value)}
-              rows={5}
-              placeholder="예: 매장별 이익률 개선안과 운영 리스크 대응안을 오늘 18시까지 보고"
-            />
-            <div className="mission-modal__templates">
-              <button type="button" onClick={() => setMissionDirective("오프라인 매장 전환율 개선, 재고 회전율 최적화, POS 결제 병목 해소안을 오늘 18시까지 보고")}>매장 운영</button>
-              <button type="button" onClick={() => setMissionDirective("신규 캠페인 ROI 개선, 부서별 KPI 재배치, 주간 실행 우선순위를 오늘 18시까지 보고")}>매출 성장</button>
-              <button type="button" onClick={() => setMissionDirective("법무·재무·운영 리스크를 우선순위화하고 즉시 실행안과 보완안을 오늘 18시까지 보고")}>리스크 대응</button>
+      {/* 하단 고정 — composer + 퀵 액션 */}
+      <div
+        style={{
+          flexShrink: 0,
+          padding: "16px 24px 28px",
+          background: "linear-gradient(to top, rgba(250, 247, 242, 0.92), rgba(250, 247, 242, 0.0))",
+          backdropFilter: "blur(2px)",
+        }}
+      >
+        <div style={{ maxWidth: 720, margin: "0 auto", width: "100%" }}>
+          {/* 입력창 (textarea: Enter 전송, Shift+Enter 줄바꿈) */}
+          <div
+            className="launcher-composer"
+            style={{ marginTop: 0, maxWidth: "none" }}
+          >
+            <div
+              className="launcher-composer__input-wrap"
+              style={{ gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "end" }}
+            >
+              <textarea
+                ref={inputRef}
+                rows={1}
+                value={value}
+                onChange={(e) => {
+                  setValue(e.target.value);
+                  autoSize(e.currentTarget);
+                }}
+                onCompositionStart={() => { composingRef.current = true; }}
+                onCompositionEnd={() => { composingRef.current = false; }}
+                onKeyDown={(e) => {
+                  // [DEBUG] 진단용 — Enter 가 도달하는지/IME 상태/onSubmitPrompt 유무 확인
+                  if (e.key === "Enter") {
+                    // eslint-disable-next-line no-console
+                    console.log("[HomeView Enter]", {
+                      key: e.key,
+                      shift: e.shiftKey,
+                      composingRef: composingRef.current,
+                      nativeIsComposing: (e.nativeEvent as any).isComposing,
+                      keyCode: e.keyCode,
+                      hasOnSubmitPrompt: typeof onSubmitPrompt === "function",
+                      isSending,
+                      domValue: e.currentTarget.value,
+                      stateValue: value,
+                    });
+                  }
+                  // 1) 한글 IME 조합 중인 Enter 는 무시 (composingRef + nativeEvent.isComposing + keyCode 229 모두 체크)
+                  const ime =
+                    composingRef.current ||
+                    (e.nativeEvent as any).isComposing === true ||
+                    e.keyCode === 229 ||
+                    e.key === "Process";
+                  if (ime) return;
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    const domVal = e.currentTarget.value;
+                    const v = (domVal || value).trim();
+                    if (!v) return;
+                    if (typeof onSubmitPrompt === "function") {
+                      onSubmitPrompt(v);
+                    } else {
+                      // eslint-disable-next-line no-console
+                      console.warn("[HomeView Enter] onSubmitPrompt is not a function — wiring 누락");
+                    }
+                    setValue("");
+                    e.currentTarget.value = "";
+                    e.currentTarget.style.height = "auto";
+                  }
+                }}
+                placeholder="무엇이든 물어보세요  ·  Enter 전송, Shift+Enter 줄바꿈"
+                className="launcher-composer__input"
+                style={{ resize: "none", minHeight: 24 }}
+              />
+              <div className="launcher-composer__actions">
+                <button
+                  type="button"
+                  className="launcher-composer__submit"
+                  onClick={submit}
+                  disabled={isSending || !value.trim()}
+                  aria-label="전송"
+                  title="전송 (Enter)"
+                >
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                    <rect x="4" y="10" width="2" height="4" rx="1" />
+                    <rect x="8" y="8" width="2" height="8" rx="1" />
+                    <rect x="12" y="6" width="2" height="12" rx="1" />
+                    <rect x="16" y="8" width="2" height="8" rx="1" />
+                  </svg>
+                </button>
+              </div>
             </div>
-            <footer>
-              <button type="button" className="is-ghost" onClick={onOpenStoreOps}>StoreOps 열기</button>
-              <button type="button" className="is-ghost" onClick={onOpenPos}>POS 열기</button>
-              <button type="button" className="is-ghost" onClick={() => setMissionModalOpen(false)}>취소</button>
-              <button type="button" onClick={launchMission}>Workforce 실행</button>
-            </footer>
-          </article>
+          </div>
+
+          {/* 퀵 액션 — 6개 */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+              gap: 8,
+              marginTop: 12,
+            }}
+          >
+            {QUICK_ACTIONS.map((action) => (
+              <button
+                key={action.id}
+                type="button"
+                onClick={() => handleQuickAction(action)}
+                disabled={isSending}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1px solid var(--border)",
+                  background: "var(--bg-surface, #fefefe)",
+                  cursor: isSending ? "not-allowed" : "pointer",
+                  textAlign: "left" as const,
+                  transition: "border-color 0.15s, background 0.15s",
+                  opacity: isSending ? 0.6 : 1,
+                }}
+                onMouseEnter={(e) => {
+                  if (isSending) return;
+                  (e.currentTarget as HTMLElement).style.borderColor = action.color;
+                  (e.currentTarget as HTMLElement).style.background = action.color + "0d";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
+                  (e.currentTarget as HTMLElement).style.background = "var(--bg-surface, #fefefe)";
+                }}
+              >
+                <span style={{ fontSize: 18, lineHeight: 1, flexShrink: 0 }}>{action.icon}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)" }}>{action.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
@@ -303,16 +448,12 @@ export default function HomeView({
   onDeleteThread,
   onToggleThreadPinned,
   projectGroups,
-  onLaunchWorkforceMission,
-  onOpenStoreOps,
-  onOpenPos,
-  onOpenSales,
-  sceneMode = "idle",
-  sceneDirective = ""
+  onSubmitPrompt,
+  onLaunchDirectorAnalysis,
 }: Props) {
   if (sidebarView === "search") {
     return (
-      <div className="home-view office-stage-view">
+      <div className="home-view">
         <div className="home-view__scroll" style={{ display: "flex", flexDirection: "column" }}>
           <SearchView threads={[...generalThreads, ...projectThreads]} projectGroups={projectGroups} onOpenThread={onOpenThread} />
         </div>
@@ -322,7 +463,7 @@ export default function HomeView({
 
   if (sidebarView === "images") {
     return (
-      <div className="home-view office-stage-view">
+      <div className="home-view">
         <div className="home-view__scroll">
           <div className="home-view__inner utility-view__inner"><ImagesPlaceholder /></div>
         </div>
@@ -348,15 +489,12 @@ export default function HomeView({
 
   if (workspaceKind === "general") {
     return (
-      <div className="home-view office-stage-view">
+      <div className="home-view">
         <div className="home-view__scroll">
           <GeneralHome
-            onLaunchWorkforceMission={onLaunchWorkforceMission}
-            onOpenStoreOps={onOpenStoreOps}
-            onOpenPos={onOpenPos}
-            onOpenSales={onOpenSales}
-            sceneMode={sceneMode}
-            sceneDirective={sceneDirective}
+            isSending={isSending}
+            onSubmitPrompt={onSubmitPrompt}
+            onLaunchDirectorAnalysis={onLaunchDirectorAnalysis}
           />
         </div>
       </div>

@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect } from "react";
 import { t } from "../../i18n";
 import type { UsageSummaryResponse } from "../../api/chat";
+import { useDirectorSession, type DeptStatus } from "../../store/directorStore";
 
 type DebugMeta = {
   winnerProvider: string | null;
@@ -66,7 +67,32 @@ const SYNTHESIS_ROLE_LABEL: Record<string, { label: string; color: string }> = {
   critique:  { label: t("orchestration.synthCritique"),   color: "#ef4444" }
 };
 
-const PAGES = [t("orchestration.tabFlow"), t("orchestration.tabCompare"), t("orchestration.tabCode")];
+const PAGES = [t("orchestration.tabFlow"), t("orchestration.tabCompare"), t("orchestration.tabCode"), "DIRECTOR"];
+
+// 부서 ID → UI 표시 라벨
+const DIRECTOR_DEPT_LABEL: Record<string, string> = {
+  market: "시장조사",
+  compete: "경쟁분석",
+  legal: "법률검토",
+  finance: "재무분석",
+  marketing: "마케팅",
+  rnd: "R&D",
+  data: "데이터/감성",
+  content: "콘텐츠",
+  sns: "채널전략",
+  design: "디자인",
+};
+const DIRECTOR_DEPT_ORDER = [
+  "market", "compete", "legal", "finance", "marketing", "rnd", "data", "content", "sns", "design",
+];
+
+const STATE_COLOR: Record<string, string> = {
+  idle: "#9ca3af",
+  thinking: "#3b82f6",
+  working: "#f59e0b",
+  done: "#10b981",
+  error: "#ef4444",
+};
 
 function pLabel(p: string | null | undefined) {
   const k = String(p ?? "").trim().toLowerCase();
@@ -696,6 +722,223 @@ function PagePreviews({ debugMeta }: { debugMeta: DebugMeta }) {
   );
 }
 
+function DirectorDeptCard({ deptId, status }: { deptId: string; status?: DeptStatus }) {
+  const state = status?.state ?? "idle";
+  const color = STATE_COLOR[state] ?? "#9ca3af";
+  const pct = typeof status?.percent === "number" ? Math.max(0, Math.min(100, status.percent)) : 0;
+  const label = DIRECTOR_DEPT_LABEL[deptId] ?? deptId;
+  return (
+    <div style={{
+      padding: "8px 10px",
+      borderRadius: 8,
+      border: "1px solid var(--border)",
+      background: state === "done" ? color + "10" : state === "error" ? color + "12" : "var(--surface-1, #fff)",
+      display: "flex",
+      flexDirection: "column" as const,
+      gap: 4,
+      minHeight: 64,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, flexShrink: 0 }} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)" }}>{label}</span>
+        {status?.model && (
+          <span style={{ marginLeft: "auto", fontSize: 9, color: "var(--text-soft)", fontFamily: "monospace" }}>
+            {String(status.model).split("-").slice(-1)[0]}
+          </span>
+        )}
+      </div>
+      {(state === "working" || state === "thinking") && (
+        <div style={{ height: 3, borderRadius: 2, background: "var(--border)", overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${pct || 5}%`, background: color, transition: "width 0.3s" }} />
+        </div>
+      )}
+      {status?.objective && (
+        <div style={{ fontSize: 10, color: "var(--text-sub)", lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>
+          {status.objective}
+        </div>
+      )}
+      {state === "done" && typeof status?.durationMs === "number" && (
+        <div style={{ fontSize: 9, color: "var(--text-soft)" }}>
+          {(status.durationMs / 1000).toFixed(1)}s
+        </div>
+      )}
+      {state === "error" && status?.error && (
+        <div style={{ fontSize: 10, color: "#ef4444", lineHeight: 1.4 }}>{status.error.slice(0, 80)}</div>
+      )}
+    </div>
+  );
+}
+
+function PageDirector() {
+  const ses = useDirectorSession();
+  const hasSession = ses.sessionId || ses.running || Object.keys(ses.deptStatuses).length > 0 || ses.ceoBriefing;
+
+  if (!hasSession) {
+    return (
+      <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-soft)", fontSize: 13 }}>
+        Director 세션이 없습니다. 모드를 <strong>Director</strong> 로 두고 메시지를 보내면 10부서 병렬 실행이 시작됩니다.
+      </div>
+    );
+  }
+
+  const tasks = (ses.pmoPlan?.taskChecklist ?? []) as Array<Record<string, any>>;
+  const briefing = ses.ceoBriefing;
+  const critic = ses.criticReview;
+
+  return (
+    <>
+      {/* 미션 헤더 */}
+      <Section title="MISSION">
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-main)", marginBottom: 4 }}>
+          {ses.topic || "(주제 없음)"}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const, fontSize: 11, color: "var(--text-sub)" }}>
+          {ses.domain && <span>도메인: {ses.domain}</span>}
+          <span style={{ color: ses.running ? "#f59e0b" : "#10b981", fontWeight: 600 }}>
+            {ses.running ? "● 실행 중" : "● 완료"}
+          </span>
+          {ses.roundNumber > 0 && <span>round {ses.roundNumber}</span>}
+        </div>
+      </Section>
+
+      {/* 부서 상태 그리드 */}
+      <Section title="DEPARTMENT STATUS">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+          {DIRECTOR_DEPT_ORDER.map((deptId) => (
+            <DirectorDeptCard key={deptId} deptId={deptId} status={ses.deptStatuses[deptId]} />
+          ))}
+        </div>
+      </Section>
+
+      {/* PMO 체크리스트 */}
+      {tasks.length > 0 && (
+        <Section title="PMO CHECKLIST">
+          {tasks.map((task, i) => {
+            const did = String(task?.deptId ?? "");
+            const dstate = ses.deptStatuses[did]?.state ?? "idle";
+            const c = STATE_COLOR[dstate] ?? "#9ca3af";
+            return (
+              <div key={i} style={{ display: "flex", gap: 8, padding: "5px 0", borderBottom: "1px solid var(--border)" }}>
+                <span style={{ width: 6, height: 6, marginTop: 6, borderRadius: "50%", background: c, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-main)" }}>
+                    {DIRECTOR_DEPT_LABEL[did] ?? did}
+                    {task?.priority && <span style={{ marginLeft: 6, fontSize: 9, color: "var(--text-sub)" }}>P{task.priority}</span>}
+                  </div>
+                  {task?.objective && (
+                    <div style={{ fontSize: 11, color: "var(--text-sub)", lineHeight: 1.5 }}>{String(task.objective)}</div>
+                  )}
+                  {task?.deliverable && (
+                    <div style={{ fontSize: 10, color: "var(--text-soft)", marginTop: 2 }}>→ {String(task.deliverable)}</div>
+                  )}
+                </div>
+                {typeof task?.etaMinutes === "number" && (
+                  <span style={{ fontSize: 10, color: "var(--text-soft)", flexShrink: 0 }}>{task.etaMinutes}m</span>
+                )}
+              </div>
+            );
+          })}
+        </Section>
+      )}
+
+      {/* Critic 결과 */}
+      {critic && (
+        <Section title="CRITIC REVIEW">
+          <div style={{ padding: 10, borderRadius: 8, background: critic.verdict === "pass" ? "#f0fdf4" : "#fffbeb", border: `1px solid ${critic.verdict === "pass" ? "#86efac" : "#fde68a"}` }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: critic.verdict === "pass" ? "#10b981" : "#f59e0b", color: "#fff" }}>
+                {critic.verdict ?? "review"}
+              </span>
+              {typeof critic.confidence === "number" && (
+                <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-sub)" }}>
+                  신뢰도 {Math.round(critic.confidence * 100)}%
+                </span>
+              )}
+            </div>
+            {critic.summary && (
+              <div style={{ fontSize: 12, color: "var(--text-main)", lineHeight: 1.6, marginBottom: 6 }}>{critic.summary}</div>
+            )}
+            {Array.isArray(critic.keyIssues) && critic.keyIssues.length > 0 && (
+              <div style={{ marginTop: 4 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-soft)", marginBottom: 3 }}>주요 이슈</div>
+                {critic.keyIssues.slice(0, 5).map((issue, i) => (
+                  <div key={i} style={{ fontSize: 11, color: "var(--text-sub)", lineHeight: 1.5 }}>· {issue}</div>
+                ))}
+              </div>
+            )}
+            {Array.isArray(critic.contradictions) && critic.contradictions.length > 0 && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#92400e", marginBottom: 3 }}>모순</div>
+                {critic.contradictions.slice(0, 5).map((c, i) => (
+                  <div key={i} style={{ fontSize: 11, color: "#92400e", lineHeight: 1.5 }}>· {c}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Section>
+      )}
+
+      {/* CEO 브리핑 */}
+      {briefing && (
+        <Section title="CEO BRIEFING">
+          {briefing.summary && (
+            <div style={{ fontSize: 12, color: "var(--text-main)", lineHeight: 1.65, marginBottom: 8 }}>
+              {briefing.summary}
+            </div>
+          )}
+          {Array.isArray(briefing.opportunities) && briefing.opportunities.length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#15803d", marginBottom: 4 }}>기회</div>
+              {briefing.opportunities.slice(0, 5).map((it, i) => (
+                <div key={i} style={{ fontSize: 11, color: "var(--text-sub)", lineHeight: 1.5 }}>· {it}</div>
+              ))}
+            </div>
+          )}
+          {Array.isArray(briefing.risks) && briefing.risks.length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#b91c1c", marginBottom: 4 }}>리스크</div>
+              {briefing.risks.slice(0, 5).map((it, i) => (
+                <div key={i} style={{ fontSize: 11, color: "var(--text-sub)", lineHeight: 1.5 }}>· {it}</div>
+              ))}
+            </div>
+          )}
+          {Array.isArray(briefing.recommendations) && briefing.recommendations.length > 0 && (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#1d4ed8", marginBottom: 4 }}>실행 권고</div>
+              {briefing.recommendations.slice(0, 5).map((it, i) => (
+                <div key={i} style={{ fontSize: 11, color: "var(--text-sub)", lineHeight: 1.5 }}>· {it}</div>
+              ))}
+            </div>
+          )}
+          {typeof briefing.overallConfidence === "number" && (
+            <div style={{ marginTop: 10 }}>
+              <ConfidenceBar value={briefing.overallConfidence} />
+            </div>
+          )}
+        </Section>
+      )}
+
+      {/* 도구 호출 타임라인 */}
+      {ses.toolCallLog.length > 0 && (
+        <Section title="TOOL CALLS">
+          <div style={{ maxHeight: 180, overflowY: "auto" as const }}>
+            {ses.toolCallLog.slice(-30).reverse().map((entry, i) => (
+              <div key={i} style={{ display: "flex", gap: 8, padding: "3px 0", borderBottom: "1px solid var(--border)", fontSize: 11 }}>
+                <span style={{ color: "var(--text-soft)", fontFamily: "monospace", flexShrink: 0 }}>
+                  {new Date(entry.time).toLocaleTimeString().slice(0, 8)}
+                </span>
+                <span style={{ color: "var(--text-sub)", flex: 1 }}>
+                  {DIRECTOR_DEPT_LABEL[entry.deptId] ?? entry.deptId} → <strong>{entry.tool}</strong>
+                </span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+    </>
+  );
+}
+
 export default function OrchestrationPanel({ debugMeta, artifactList = [], initialPage = 0 }: Props & { initialPage?: number }) {
   const [pageIndex, setPageIndex] = useState(initialPage);
 
@@ -735,7 +978,9 @@ export default function OrchestrationPanel({ debugMeta, artifactList = [], initi
           ? <PageOrchestration debugMeta={debugMeta} />
           : pageIndex === 1
             ? <PageComparison debugMeta={debugMeta} />
-            : <PageCodeFiles artifactList={artifactList} />}
+            : pageIndex === 2
+              ? <PageCodeFiles artifactList={artifactList} />
+              : <PageDirector />}
       </div>
     </div>
   );

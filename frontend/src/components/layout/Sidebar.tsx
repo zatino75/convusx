@@ -328,9 +328,74 @@ export default function Sidebar({
           <div className="sidebar-v3__system-actions">
             <button type="button" onClick={() => withClose(onOpenSearch)}><SearchIcon /><span>{t("nav.search")}</span></button>
             <button type="button" onClick={() => withClose(onOpenBenchmark)}><BenchmarkIcon /><span>{t("nav.benchmark")}</span></button>
-            <button type="button" onClick={() => onOpenSettings?.()}><SettingsIcon /><span>{t("nav.settings")}</span></button>
           </div>
         </section>
+      </div>
+
+      {/* 사이드바 최하단 — 사용자 정보 + 설정 (4월 7일 원본 패턴) */}
+      <div
+        className="sidebar-v3__user-footer"
+        style={{
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "10px 14px",
+          borderTop: "1px solid var(--border, rgba(140,130,115,0.25))",
+          background: "rgba(255, 253, 248, 0.6)",
+        }}
+      >
+        <div
+          aria-hidden
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: "50%",
+            background: "linear-gradient(135deg, #c96442, #a04830)",
+            color: "#fefefe",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 13,
+            fontWeight: 700,
+            flexShrink: 0,
+          }}
+        >
+          T
+        </div>
+        <div style={{ flex: 1, minWidth: 0, lineHeight: 1.3 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)" }}>Mr.T</div>
+          <div style={{ fontSize: 11, color: "var(--text-sub)" }}>Pro Plan</div>
+        </div>
+        <button
+          type="button"
+          onClick={() => onOpenSettings?.()}
+          aria-label={t("nav.settings")}
+          title={t("nav.settings")}
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            border: "1px solid var(--border, rgba(140,130,115,0.25))",
+            background: "transparent",
+            color: "var(--text-sub)",
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            transition: "background 0.15s, color 0.15s",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.background = "rgba(140,130,115,0.10)";
+            (e.currentTarget as HTMLElement).style.color = "var(--text-main)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background = "transparent";
+            (e.currentTarget as HTMLElement).style.color = "var(--text-sub)";
+          }}
+        >
+          <SettingsIcon />
+        </button>
       </div>
     </div>
   );
