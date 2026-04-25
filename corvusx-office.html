@@ -160,6 +160,10 @@
   .bubble-menu .sub{position:absolute;left:100%;top:0;margin-left:2px}
 
   /* ─ main column ─ */
+  /* 2026-04-25: 메인 컬럼을 flex 컨테이너로 — chat / dashboard view 가 height 100% 채우도록 */
+  .main-col{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
+  .main-col > .chat,
+  .main-col > .dashboard-view{flex:1;min-height:0}
 
   /* ─── 채팅 패널 — 아이보리 (Phase A: 다크 테마 제거) ─────────────────── */
   .chat{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:var(--chat);position:relative}
@@ -369,10 +373,10 @@
         <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1"/><circle cx="6" cy="7" r="1.5"/><path d="M2 11l4-4 3 3 5-5"/></svg>
         이미지
       </a>
-      <a href="/?view=dashboard" class="nav-btn">
+      <button class="nav-btn" id="navDashboard" type="button">
         <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="5" height="5"/><rect x="9" y="3" width="5" height="5"/><rect x="2" y="10" width="5" height="3"/><rect x="9" y="10" width="5" height="3"/></svg>
         대시보드
-      </a>
+      </button>
       <div class="sidebar-scroll" id="sidebarScroll">
         <div class="nav-divider">프로젝트 <span class="add" id="newProject" title="새 프로젝트">+</span></div>
         <div id="projectList"></div>
@@ -386,7 +390,12 @@
   <!-- main -->
   <div class="main-col">
 
-    <section class="chat">
+    <!-- Dashboard view (사이드바 '대시보드' 클릭 시 표시) -->
+    <section class="dashboard-view" id="dashboardView" style="display:none;flex-direction:column;height:100%;overflow:auto;background:#0f0f0f;color:#e5e7eb;padding:24px 28px;">
+      <div id="dashboardBody"></div>
+    </section>
+
+    <section class="chat" id="chatView">
       <div class="chat-header">
         <span class="chat-title" id="chatTitle">신규 대화</span>
         <button id="logout-btn" type="button" style="margin-left:auto;padding:3px 12px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--text-soft);font-size:11px;cursor:pointer;letter-spacing:0.5px;transition:border-color .15s,color .15s" onmouseover="this.style.borderColor='#E24B4A';this.style.color='#E24B4A'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-soft)'" title="로그아웃">LOGOUT</button>
@@ -427,7 +436,6 @@
         <button class="tab-btn" data-tab="sales">매출</button>
         <button class="tab-btn" data-tab="pos">POS</button>
         <button class="tab-btn" data-tab="report">보고</button>
-        <button class="tab-btn" data-tab="cost">💰 비용</button>
         <button class="tab-btn panel-tab-toggle" id="togglePanel" title="패널 여닫기">▶</button>
       </div>
       <div class="panel-body" id="panelBody"></div>
@@ -515,7 +523,9 @@
     activeThreadId:localStorage.getItem(LS.ACTIVE_THREAD) || null,
     activeProjectId:GENERAL,
     collapsedProjects:new Set(loadLS(LS.COLLAPSED, [])),
-    currentTab:localStorage.getItem(LS.TAB) || 'depts',
+    // 2026-04-25: 'cost' 탭 폐지 → 사이드바 대시보드로 이전. localStorage 'cost' 값은 'depts'로 마이그레이션.
+    currentTab:(localStorage.getItem(LS.TAB) === 'cost' ? 'depts' : (localStorage.getItem(LS.TAB) || 'depts')),
+    activeView:'chat',  // 'chat' | 'dashboard' (사이드바 메뉴 전환용)
     deptStates:{},
     missionDeptCount:9,
     deptCompletedCount:0,
@@ -539,7 +549,8 @@
     app:$('app'),
     toggleSidebar:$('toggleSidebar'), togglePanel:$('togglePanel'),
     sbToggleCollapse:$('sbToggleCollapse'),
-    navNewChat:$('navNewChat'), newProject:$('newProject'),
+    navNewChat:$('navNewChat'), navDashboard:$('navDashboard'), newProject:$('newProject'),
+    dashboardView:$('dashboardView'), dashboardBody:$('dashboardBody'), chatView:$('chatView'),
     generalThreads:$('generalThreads'), projectList:$('projectList'),
     chatTitle:$('chatTitle'), chatLog:$('chatLog'),
     directive:$('directive'), sendBtn:$('sendBtn'),
@@ -1733,8 +1744,8 @@
         break;
       case 'all_done':
         finishRun(threadId);
-        // Phase 3: 실행 완료 시 비용 탭 열려있으면 자동 갱신
-        if (state.currentTab === 'cost' && dom.panelBody) loadCostData(dom.panelBody);
+        // 대시보드 뷰가 활성화돼 있으면 즉시 갱신
+        if (state.activeView === 'dashboard' && dom.dashboardBody) loadCostData(dom.dashboardBody, true);
         break;
       case 'stream_end': if (run.running) finishRun(threadId, false); break;
       case 'error':
@@ -2022,12 +2033,29 @@
 
   // ─── Panel ──────────────────────────────────────────────────────
   function switchTab(tab){
-    // 비용 탭에서 다른 탭으로 이동 시 폴링 정지
-    if (state.currentTab === 'cost' && tab !== 'cost' && typeof stopCostPolling === 'function') stopCostPolling();
     state.currentTab = tab;
     localStorage.setItem(LS.TAB, tab);
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     renderPanel();
+  }
+
+  // ─── View Switch (chat ↔ dashboard) ──────────────────────────────
+  // 사이드바 '대시보드' 클릭 시 메인 영역을 채팅에서 대시보드로 교체.
+  function showDashboard() {
+    state.activeView = 'dashboard';
+    if (dom.chatView) dom.chatView.style.display = 'none';
+    if (dom.dashboardView) dom.dashboardView.style.display = 'flex';
+    if (dom.navNewChat) dom.navNewChat.classList.remove('active');
+    if (dom.navDashboard) dom.navDashboard.classList.add('active');
+    if (dom.dashboardBody) loadCostData(dom.dashboardBody, false);
+  }
+  function showChat() {
+    state.activeView = 'chat';
+    if (typeof stopCostPolling === 'function') stopCostPolling();
+    if (dom.dashboardView) dom.dashboardView.style.display = 'none';
+    if (dom.chatView) dom.chatView.style.display = '';
+    if (dom.navDashboard) dom.navDashboard.classList.remove('active');
+    if (dom.navNewChat) dom.navNewChat.classList.add('active');
   }
   document.querySelectorAll('.tab-btn').forEach(b => {
     if (b.classList.contains('panel-tab-toggle')) return;  // 토글 버튼은 tab 전환 대상 아님
@@ -2168,9 +2196,6 @@
           sec.appendChild(card); body.appendChild(sec);
         }
       } else body.innerHTML = '<div class="panel-empty">실행 완료 후 상무 브리핑과 Critic 검토가 여기에 표시됩니다.</div>';
-    } else if (state.currentTab === 'cost') {
-      body.innerHTML = '<div class="panel-empty">비용 데이터 로딩중...</div>';
-      loadCostData(body);
     }
   }
 
@@ -2228,19 +2253,19 @@
   function startCostPolling(body) {
     stopCostPolling();
     costPollTimer = setInterval(() => {
-      if (state.currentTab !== 'cost') { stopCostPolling(); return; }
+      if (state.activeView !== 'dashboard') { stopCostPolling(); return; }
       loadCostData(body, true);
     }, 30000);
   }
 
   async function loadCostData(body, isPoll) {
-    if (!isPoll) body.innerHTML = '<div class="panel-empty" style="color:#94a3b8;">대시보드 로딩중...</div>';
+    if (!isPoll) body.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:40px;">대시보드 로딩중...</div>';
     try {
       const r = await fetch(API_BASE + '/api/cost/stats', { credentials: 'include' });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
       if (d && d.ok === false) throw new Error(d.error || 'unknown');
-      if (state.currentTab !== 'cost') return;
+      if (state.activeView !== 'dashboard') return;
 
       const total = Number(d.todayTotal ?? 0);
       const alert = d.alertLevel || 'normal';
@@ -2256,14 +2281,15 @@
 
       const last7Bars = last7.map(item => {
         const v = Number(item.total) || 0;
-        const h = Math.max(2, Math.round((v / max7) * 80));
+        const h = Math.max(3, Math.round((v / max7) * 120));
         const day = String(item.date).slice(5).replace('-', '/');
         const isToday = item.date === d.date;
         return `
-          <div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:24px;">
-            <div title="${escapeHtml(item.date)}: $${v.toFixed(6)}"
-                 style="background:${isToday ? COST_GOLD : '#475569'};width:80%;height:${h}px;border-radius:2px 2px 0 0;transition:height .5s ease;"></div>
-            <div style="font-size:9px;color:#94a3b8;margin-top:3px;">${escapeHtml(day)}</div>
+          <div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:30px;height:100%;justify-content:flex-end;">
+            <div style="font-size:9px;color:#64748b;margin-bottom:2px;">${v > 0 ? '\$' + v.toFixed(2) : ''}</div>
+            <div title="${escapeHtml(item.date)}: \$${v.toFixed(6)}"
+                 style="background:${isToday ? COST_GOLD : '#475569'};width:80%;height:${h}px;border-radius:3px 3px 0 0;transition:height .5s ease;"></div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:4px;">${escapeHtml(day)}</div>
           </div>`;
       }).join('');
 
@@ -2286,53 +2312,54 @@
             </tr>`).join('');
 
       body.innerHTML = `
-        <div style="background:#0f0f0f;color:#e5e7eb;padding:12px;margin:-8px;border-radius:6px;font-family:inherit;">
-          <div style="background:#181818;border:2px solid ${alertColor};border-radius:8px;padding:14px;text-align:center;margin-bottom:12px;box-shadow:0 0 20px ${alertColor}22;">
-            <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">오늘 총 비용 (KST ${escapeHtml(d.date || '')})</div>
-            <div style="font-size:28px;font-weight:700;color:${alertColor};font-family:monospace;letter-spacing:-1px;">${costFmt(total)}</div>
-            <div style="font-size:10px;color:#64748b;margin-top:4px;">
-              경고 $${d.thresholds?.warning ?? 5} · 위험 $${d.thresholds?.danger ?? 10}
-              <span style="float:right;">↻ ${escapeHtml(updatedAt)}</span>
+        <div style="max-width:1200px;margin:0 auto;font-family:inherit;">
+          <div style="background:#181818;border:2px solid ${alertColor};border-radius:12px;padding:24px;text-align:center;margin-bottom:18px;box-shadow:0 0 30px ${alertColor}33;">
+            <div style="font-size:12px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">오늘 총 비용 · KST ${escapeHtml(d.date || '')}</div>
+            <div style="font-size:56px;font-weight:700;color:${alertColor};font-family:monospace;letter-spacing:-2px;line-height:1;">${costFmt(total)}</div>
+            <div style="font-size:11px;color:#64748b;margin-top:10px;display:flex;justify-content:space-between;align-items:center;">
+              <span>경고 \$${d.thresholds?.warning ?? 5} · 위험 \$${d.thresholds?.danger ?? 10}</span>
+              <span>↻ ${escapeHtml(updatedAt)} (30s 자동 갱신)</span>
             </div>
           </div>
 
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:12px;">
-            <div style="background:#181818;border:1px solid #1f2937;border-radius:6px;padding:10px;">
-              <div style="font-size:11px;color:${COST_GOLD};font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;">모델별</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:14px;">
+            <div style="background:#181818;border:1px solid #1f2937;border-radius:10px;padding:16px;">
+              <div style="font-size:12px;color:${COST_GOLD};font-weight:600;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px;">모델별 비용</div>
               ${modelRows}
             </div>
-            <div style="background:#181818;border:1px solid #1f2937;border-radius:6px;padding:10px;">
-              <div style="font-size:11px;color:${COST_GOLD};font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;">부서별</div>
+            <div style="background:#181818;border:1px solid #1f2937;border-radius:10px;padding:16px;">
+              <div style="font-size:12px;color:${COST_GOLD};font-weight:600;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px;">부서별 비용</div>
               ${deptRows}
             </div>
           </div>
 
-          <div style="background:#181818;border:1px solid #1f2937;border-radius:6px;padding:10px;margin-bottom:12px;">
-            <div style="font-size:11px;color:${COST_GOLD};font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;">최근 7일</div>
-            <div style="display:flex;align-items:flex-end;gap:4px;height:90px;padding:0 4px;">
-              ${last7Bars}
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;">
+            <div style="background:#181818;border:1px solid #1f2937;border-radius:10px;padding:16px;">
+              <div style="font-size:12px;color:${COST_GOLD};font-weight:600;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px;">최근 7일 트렌드</div>
+              <div style="display:flex;align-items:flex-end;gap:6px;height:140px;padding:0 6px;">
+                ${last7Bars}
+              </div>
             </div>
-          </div>
-
-          <div style="background:#181818;border:1px solid #1f2937;border-radius:6px;padding:10px;">
-            <div style="font-size:11px;color:${COST_GOLD};font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;">최근 호출 (10건)</div>
-            <table style="width:100%;border-collapse:collapse;">
-              <thead>
-                <tr style="border-bottom:1px solid #334155;">
-                  <th style="text-align:left;padding:4px 6px;font-size:10px;color:#94a3b8;font-weight:500;">시각</th>
-                  <th style="text-align:left;padding:4px 6px;font-size:10px;color:#94a3b8;font-weight:500;">모델</th>
-                  <th style="text-align:left;padding:4px 6px;font-size:10px;color:#94a3b8;font-weight:500;">부서</th>
-                  <th style="text-align:right;padding:4px 6px;font-size:10px;color:#94a3b8;font-weight:500;">비용</th>
-                </tr>
-              </thead>
-              <tbody>${recentRows}</tbody>
-            </table>
+            <div style="background:#181818;border:1px solid #1f2937;border-radius:10px;padding:16px;">
+              <div style="font-size:12px;color:${COST_GOLD};font-weight:600;margin-bottom:10px;text-transform:uppercase;letter-spacing:1px;">최근 호출 (10건)</div>
+              <table style="width:100%;border-collapse:collapse;">
+                <thead>
+                  <tr style="border-bottom:1px solid #334155;">
+                    <th style="text-align:left;padding:6px 8px;font-size:11px;color:#94a3b8;font-weight:500;">시각</th>
+                    <th style="text-align:left;padding:6px 8px;font-size:11px;color:#94a3b8;font-weight:500;">모델</th>
+                    <th style="text-align:left;padding:6px 8px;font-size:11px;color:#94a3b8;font-weight:500;">부서</th>
+                    <th style="text-align:right;padding:6px 8px;font-size:11px;color:#94a3b8;font-weight:500;">비용</th>
+                  </tr>
+                </thead>
+                <tbody>${recentRows}</tbody>
+              </table>
+            </div>
           </div>
         </div>`;
 
-      if (!isPoll && state.currentTab === 'cost') startCostPolling(body);
+      if (!isPoll && state.activeView === 'dashboard') startCostPolling(body);
     } catch (err) {
-      body.innerHTML = `<div class="panel-empty" style="color:#ef4444;">비용 대시보드 로드 실패: ${escapeHtml(String(err.message || err))}</div>`;
+      body.innerHTML = `<div style="color:#ef4444;text-align:center;padding:40px;">비용 대시보드 로드 실패: ${escapeHtml(String(err.message || err))}</div>`;
       stopCostPolling();
     }
   }
@@ -2456,7 +2483,8 @@
       renderMainArea();
     }
 
-    dom.navNewChat.addEventListener('click', (e) => { e.preventDefault(); newChat(); });
+    dom.navNewChat.addEventListener('click', (e) => { e.preventDefault(); showChat(); newChat(); });
+    if (dom.navDashboard) dom.navDashboard.addEventListener('click', (e) => { e.preventDefault(); showDashboard(); });
     dom.newProject.addEventListener('click', (e) => { e.stopPropagation(); newProject(); });
 
     setTimeout(() => { dom.directive.focus(); autoSize(); }, 200);
