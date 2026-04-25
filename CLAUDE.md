@@ -1,5 +1,5 @@
 # CORVUS X — CLAUDE.md
-> 최종 업데이트: 2026-04-24 (Session 5 — Opus 완전 제거, Classifier 신규, 2단계 처리, agentLoop 비용 추적 수정)
+> 최종 업데이트: 2026-04-25 (Session 6 — 자동 Opus 호출 차단, 금지패턴 #19/20/21 추가, 비용 대시보드 도입)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
 
 ## 프로젝트 개요
@@ -251,6 +251,9 @@ server/src/
 16. recordProviderMetric 의 ctx.model/ctx.usage 인자 제거 금지 — 2026-04-23 비용 관측 인프라 전제. 제거 시 cost_usd 로그 사라짐
 17. 로컬 PC 에 `ANTHROPIC_API_KEY` 환경변수 설정 금지 — Claude Code 가 Max 구독 대신 API 크레딧 소비. 2026-04-23 인시던트: $200 소진. 서버 키는 `/etc/corvusx/.env` 에만, 로컬에는 절대 설정하지 말 것
 18. **Claude Opus 를 single_agent / 부서 / ExecutiveGate Primary 로 사용 금지** — 2026-04-24 검증: 일일 $25 중 Opus 가 $24.78 (98.4%). Classifier 가 strategic 으로 라우팅한 2단계 심화에서만 선택적 escalation 예정 (현재 미구현). 우회 도입 금지.
+19. **`startBenchmarkScheduler` 자동 실행 재활성화 금지** — 2026-04-25 인시던트: 1시간 후 자동 발동 → 12 케이스 × 5 호출 = 60 LLM 호출, 분당 Opus 호출 ~$0.30~$0.65 누수. `routes/benchmark.ts::startBenchmarkScheduler` 는 영구 no-op 유지. 수동 트리거 (`/api/benchmark/run`) 만 허용. setTimeout/setInterval 추가 금지.
+20. **`agent/agentLoop.ts::DEFAULT_MODEL` 을 claude-opus-* 로 설정 금지** — 2026-04-25 인시던트의 근본 원인. `claude-sonnet-4-6` 고정. Opus 가 필요한 호출은 명시적 `model_override` 로만 활성화. 어떤 환경변수/조건문으로도 DEFAULT_MODEL 자체를 Opus 로 분기 금지 (규칙 #18 보강).
+21. **백그라운드 스케줄러에서 LLM API 직접 호출 금지** — health check / snapshot / cron 류 자동 실행 코드는 anthropic/openai/gemini/perplexity 호출 절대 금지. 헬스 검증은 env key 존재 확인만 (HTTP 200 등가). 진짜 가용성은 실제 채팅 호출 시점에 검증된다. 위반 사례: 2026-04-25 이전 `checkProviderHealth` 가 30분마다 Anthropic/Perplexity POST 호출 → 누적 비용 발생.
 
 ## 알려진 이슈
 - GPT-5.4-pro 60s 타임아웃 → fallback 빈번할 수 있음 (의도적 — 느린 GPT 보다 빠른 fallback 선호)
