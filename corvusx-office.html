@@ -608,6 +608,8 @@
     panelResize:$('panelResize'),
     officeStatusDot:document.createElement('span'), officeStatusText:document.createElement('span'),
     panelBody:$('panelBody'), toast:$('toast'),
+    panel: document.querySelector('aside.panel'),
+    mainCol: document.querySelector('.main-col'),
   };
 
   // ─── Toast ──────────────────────────────────────────────────────
@@ -635,6 +637,10 @@
     const next = dom.app.dataset.sidebar === 'open' ? 'closed' : 'open';
     dom.app.dataset.sidebar = next;
     localStorage.setItem(LS.SIDEBAR, next);
+    // 대시보드/갤러리 뷰에서는 inline gridTemplateColumns가 걸려 있어 데이터속성만으론 반영 안 됨 → 재적용
+    if (state.activeView !== 'chat' && typeof _setRightPanelVisible === 'function') {
+      _setRightPanelVisible(false);
+    }
   });
   dom.sbToggleCollapse.addEventListener('click', () => dom.toggleSidebar.click());
   dom.togglePanel.addEventListener('click', (ev) => {
@@ -2088,6 +2094,22 @@
 
   // ─── View Switch (chat ↔ dashboard ↔ gallery) ──────────────────
   // 사이드바 메뉴 클릭 시 메인 영역의 view를 교체.
+  // 부서 패널은 채팅 뷰 전용 위젯 → 대시보드/갤러리 진입 시 강제 숨김.
+  // CSS(.app[data-view=dashboard])가 캐시 등으로 미적용되는 케이스 대비 inline style로도 보강.
+  function _setRightPanelVisible(visible) {
+    if (!dom.panel) return;
+    if (visible) {
+      dom.panel.style.display = '';
+      if (dom.app) dom.app.style.gridTemplateColumns = '';  // CSS 규칙으로 복원
+    } else {
+      dom.panel.style.display = 'none';
+      if (dom.app) {
+        // sidebar 상태 보존하면서 우측 컬럼만 0으로
+        const sb = dom.app.dataset.sidebar === 'closed' ? '0' : 'var(--sidebar-w,260px)';
+        dom.app.style.gridTemplateColumns = sb + ' 1fr 0';
+      }
+    }
+  }
   function _hideAllViews() {
     if (dom.chatView) dom.chatView.style.display = 'none';
     if (dom.dashboardView) dom.dashboardView.style.display = 'none';
@@ -2101,6 +2123,7 @@
     _hideAllViews();
     state.activeView = 'dashboard';
     if (dom.app) dom.app.dataset.view = 'dashboard';
+    _setRightPanelVisible(false);
     if (dom.dashboardView) dom.dashboardView.style.display = 'flex';
     if (dom.navDashboard) dom.navDashboard.classList.add('active');
     if (dom.dashboardBody) loadCostData(dom.dashboardBody, false);
@@ -2109,6 +2132,7 @@
     _hideAllViews();
     state.activeView = 'chat';
     if (dom.app) dom.app.dataset.view = 'chat';
+    _setRightPanelVisible(true);
     if (dom.chatView) dom.chatView.style.display = '';
     if (dom.navNewChat) dom.navNewChat.classList.add('active');
   }
@@ -2116,6 +2140,7 @@
     _hideAllViews();
     state.activeView = 'gallery';
     if (dom.app) dom.app.dataset.view = 'gallery';
+    _setRightPanelVisible(false);
     if (dom.galleryView) dom.galleryView.style.display = 'flex';
     if (dom.navImages) dom.navImages.classList.add('active');
     if (dom.galleryBody && typeof loadGallery === 'function') loadGallery();
