@@ -1,5 +1,5 @@
 # CORVUS X — CLAUDE.md
-> 최종 업데이트: 2026-04-24 (Session 5: Classifier 라우팅, 부서 2단계 처리, 비용 추적 결함 수정, Opus 전 사용처 제거)
+> 최종 업데이트: 2026-04-24 (Session 5 — Opus 완전 제거, Classifier 신규, 2단계 처리, agentLoop 비용 추적 수정)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
 
 ## 프로젝트 개요
@@ -79,11 +79,11 @@ git add -A && git commit -m "feat: 내용" && git push origin main
 ```
 
 ## 아키텍처 — 의도 분류 + 게이트키퍼 (2026-04-24 Session 5)
-유저 메시지
-  → **Classifier (Gemini 2.5 Flash, ~5s, ~$0.001)**
-    → simple_qa → single_agent (Sonnet 단독, ~$0.05)
-    → operational/research/strategic → ExecutiveGate Planner
-        → director: 부서 선별 + 맞춤 지시 → 부서 병렬 실행 (2단계) → CEO 브리핑
+유저 메시지 (20자 이상)
+  → Classifier (Gemini Flash, 5초, $0.001)
+    → simple_qa: Sonnet 단독 처리 ($0.05)
+    → research/strategic: ExecutiveGate (Sonnet, 15초)
+        → 부서 2단계: Flash 초안(15초) → Primary 심화 → CEO 브리핑
 
 ## Director 플로우 (속도 + 비용 우선, 2026-04-20~24)
 1. **Classifier (Gemini Flash)** — intent + maxDepts 결정. simple_qa 면 Planner 우회.
@@ -136,7 +136,7 @@ JSON 스키마 강제 폐지 → 마크다운 자유 출력.
 | CriticReview | DeepSeek V3.2 | Claude Haiku → Gemini Flash | 3단계 폴백 (현재 bypass 중) |
 | CeoBriefing | Claude Haiku | Claude Sonnet → Gemini Pro | 3단계 폴백 |
 
-- 모델 분포 (Primary 기준, 2026-04-24 Session 5): **Opus 0** / Sonnet 3 (legal/marketing/design) / Haiku 1 / GPT-5.4 3 / Gemini 4 (Pro) + Flash (Classifier+부서 1단계) / DeepSeek 1(Critic)
+- 모델 분포 (Primary 기준, 2026-04-24 Session 5): **Opus 0** / Sonnet 4 (single_agent + legal/marketing/design) / Haiku 1 / GPT-5.4 3 / Gemini 4 (Pro) + Flash (Classifier+부서 1단계) / DeepSeek 1(Critic)
 - Anthropic ~30% / Google ~40% (+Flash 보조) / OpenAI ~30%
 - **Opus 완전 제거** — 2026-04-24 검증: 일일 $25 중 $24.78 (98.4%) 가 Opus. Classifier 완성 후 strategic 2단계에만 선택적 복귀 예정.
 - Fallback: Cross-provider (다른 회사 모델)
@@ -269,6 +269,12 @@ server/src/
   2. **부서 2단계 처리 (`DepartmentAgent.ts`)**: 사전조사 다음에 Gemini Flash 초안 (15s, ~$0.003), 그 다음 Primary 가 초안을 보강·심화. 1단계 실패는 non-fatal (2단계 단독 진행).
   3. **GEMINI_FLASH_MODEL_ID**: `gemini-2.0-flash` → `gemini-2.5-flash` 업그레이드 (CriticReview/TaskDecomposer 도 자동 적용).
   4. ExecutiveGate Planner 가 intent.maxDepts 기반 동적 cap 적용 (operational=2, research=3, strategic=4). 기존 hardcoded `slice(0,4)` 제거 (모두 ≤ MAX_DEPTS=4 유지).
+- 2026-04-25 미해결 (Session 5 후속):
+  - Classifier `max_tokens=200` 부족 → 400 으로 수정 예정
+  - Classifier Haiku fallback timeout 8s → 15s 수정 예정
+  - Test B director 미진입 → 위 수정 후 재확인 예정
+  - Gemini `cost_usd` 0 표시 → round 이슈 또는 가격 키 매핑 디버그 필요
+  - regulationCache `mkdir EACCES` → chown 수정 필요
 
 ## 비용 관측 (2026-04-23 추가)
 - 모든 provider 어댑터 성공 호출 시 `[adapter:usage]` 구조화 로그 emit
