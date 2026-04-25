@@ -503,6 +503,23 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
         usage: { input_tokens: usage.input_tokens ?? 0, output_tokens: usage.output_tokens ?? 0 },
       })
     } catch { /* 비용 로깅 실패 무시 */ }
+    // 2026-04-25: 대시보드용 entry 저장 — dept='single_agent'
+    try {
+      const [{ estimateCostUsd }, costStore] = await Promise.all([
+        import("../cost/costCalc.js"),
+        import("../costStore.js"),
+      ])
+      const inputTokens = Number(usage.input_tokens ?? 0) || 0
+      const outputTokens = Number(usage.output_tokens ?? 0) || 0
+      const costUsd = estimateCostUsd(activeModel, { input_tokens: inputTokens, output_tokens: outputTokens } as any)
+      costStore.record({
+        model: activeModel,
+        department: "single_agent",
+        inputTokens,
+        outputTokens,
+        costUsd,
+      })
+    } catch { /* costStore 실패 무시 */ }
   }
 
   return result

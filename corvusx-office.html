@@ -2022,6 +2022,8 @@
 
   // ─── Panel ──────────────────────────────────────────────────────
   function switchTab(tab){
+    // 비용 탭에서 다른 탭으로 이동 시 폴링 정지
+    if (state.currentTab === 'cost' && tab !== 'cost' && typeof stopCostPolling === 'function') stopCostPolling();
     state.currentTab = tab;
     localStorage.setItem(LS.TAB, tab);
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
@@ -2172,86 +2174,166 @@
     }
   }
 
-  // ─── Cost Dashboard (Phase 3 2026-04-24) ─────────────────────────
-  // 한도/차단 없음 (Phase 2 축소 스펙). 순수 실시간 금액 표시만.
-  const COST_PROVIDER_LABELS = {
-    claude: 'Anthropic', anthropic: 'Anthropic',
-    openai: 'OpenAI',
-    gemini: 'Google',
-    perplexity: 'Perplexity',
-    deepseek: 'DeepSeek',
-    fal: 'fal.ai',
+  // ─── Cost Dashboard (Phase 5 2026-04-25) ─────────────────────────
+  // 실시간 비용 대시보드. /api/cost/stats 폴링.
+  // 색상: Claude=보라, Gemini=파랑, GPT=초록, DeepSeek=주황, Perplexity=인디고, fal=바이올렛
+  const COST_GOLD = '#c9a84c';
+  function costColorForModel(model) {
+    const m = String(model || '').toLowerCase();
+    if (m.includes('claude') || m.includes('opus') || m.includes('sonnet') || m.includes('haiku')) return '#a855f7';
+    if (m.includes('gemini')) return '#3b82f6';
+    if (m.includes('gpt') || m.startsWith('o') || m.includes('openai')) return '#22c55e';
+    if (m.includes('deepseek')) return '#f97316';
+    if (m.includes('sonar') || m.includes('perplex')) return '#6366f1';
+    if (m.includes('fal') || m.includes('imagen') || m.includes('nano')) return '#7c3aed';
+    return '#94a3b8';
+  }
+  const COST_DEPT_LABELS = {
+    market: '시장', compete: '경쟁', legal: '법무', finance: '재무',
+    marketing: '마케팅', rnd: 'R&D', data: '데이터', content: '콘텐츠',
+    sns: 'SNS', design: '디자인', single_agent: '단일 에이전트',
+    classifier: '분류', planner: 'Planner', critic: 'Critic', briefing: '브리핑',
+    unknown: '기타',
   };
-  const COST_PROVIDER_COLORS = {
-    claude: '#d97706', anthropic: '#d97706',
-    openai: '#10a37f',
-    gemini: '#4285f4',
-    perplexity: '#6366f1',
-    deepseek: '#e11d48',
-    fal: '#7c3aed',
-  };
-  function renderCostRow(provider, todayUsd, monthlyUsd, maxToday) {
-    const label = COST_PROVIDER_LABELS[provider] || provider;
-    const color = COST_PROVIDER_COLORS[provider] || '#888';
-    const pct = maxToday > 0 ? Math.min((todayUsd / maxToday) * 100, 100) : 0;
+  function costDeptLabel(d) { return COST_DEPT_LABELS[d] || d; }
+  function costAlertColor(level) {
+    if (level === 'danger') return '#ef4444';
+    if (level === 'warning') return '#f97316';
+    return COST_GOLD;
+  }
+  function costFmt(n) {
+    const v = Number(n) || 0;
+    if (v >= 1) return '$' + v.toFixed(4);
+    return '$' + v.toFixed(6);
+  }
+  function costBarRow(label, value, total, color) {
+    const pct = total > 0 ? Math.min((value / total) * 100, 100) : 0;
+    const percent = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
     return `
-      <div style="margin-bottom:10px;">
-        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
-          <span style="color:var(--text);font-weight:500;">${escapeHtml(label)}</span>
-          <span style="color:var(--text-dim);">오늘 $${todayUsd.toFixed(4)}</span>
+      <div style="margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;color:#e5e7eb;">
+          <span style="font-weight:500;">${escapeHtml(label)}</span>
+          <span style="color:#94a3b8;">${costFmt(value)} <span style="opacity:.6">· ${percent}%</span></span>
         </div>
-        <div style="background:var(--border-soft);border-radius:3px;height:5px;">
-          <div style="background:${color};width:${pct}%;height:100%;border-radius:3px;transition:width .3s;"></div>
-        </div>
-        <div style="font-size:10px;color:var(--text-dim);margin-top:2px;text-align:right;">
-          이번 달: $${monthlyUsd.toFixed(4)}
+        <div style="background:#1f2937;border-radius:3px;height:6px;overflow:hidden;">
+          <div style="background:${color};width:${pct}%;height:100%;border-radius:3px;transition:width .5s ease;"></div>
         </div>
       </div>`;
   }
-  async function loadCostData(body) {
+
+  let costPollTimer = null;
+  function stopCostPolling() {
+    if (costPollTimer) { clearInterval(costPollTimer); costPollTimer = null; }
+  }
+  function startCostPolling(body) {
+    stopCostPolling();
+    costPollTimer = setInterval(() => {
+      if (state.currentTab !== 'cost') { stopCostPolling(); return; }
+      loadCostData(body, true);
+    }, 30000);
+  }
+
+  async function loadCostData(body, isPoll) {
+    if (!isPoll) body.innerHTML = '<div class="panel-empty" style="color:#94a3b8;">대시보드 로딩중...</div>';
     try {
-      const r = await fetch(API_BASE + '/api/usage/summary', { credentials: 'include' });
+      const r = await fetch(API_BASE + '/api/cost/stats', { credentials: 'include' });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
-      if (!d.ok && d.ok !== undefined) throw new Error(d.error || 'unknown');
-      if (state.currentTab !== 'cost') return; // 탭 바뀌면 중단
+      if (d && d.ok === false) throw new Error(d.error || 'unknown');
+      if (state.currentTab !== 'cost') return;
 
-      const today = d.today || {};
-      const monthly = d.monthly || {};
-      const providers = Array.from(new Set([...Object.keys(today), ...Object.keys(monthly)])).sort();
-      const maxToday = Math.max(0.0001, ...Object.values(today).map(Number));
+      const total = Number(d.todayTotal ?? 0);
+      const alert = d.alertLevel || 'normal';
+      const alertColor = costAlertColor(alert);
+      const updatedAt = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-      body.innerHTML = '';
-      const head = document.createElement('div'); head.className = 'panel-sec';
-      head.innerHTML = `<h4>크레딧 사용 현황</h4>
-        <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">
-          ${escapeHtml(d.date || '')} · 실시간
-          <button id="costReload" style="float:right;font-size:10px;background:none;border:1px solid var(--border-soft);border-radius:3px;padding:1px 6px;cursor:pointer;color:var(--text-dim);">↻</button>
+      const byModel = Array.isArray(d.todayByModel) ? d.todayByModel : [];
+      const byDept = Array.isArray(d.todayByDept) ? d.todayByDept : [];
+      const last7 = Array.isArray(d.last7Days) ? d.last7Days : [];
+      const recent = Array.isArray(d.recentCalls) ? d.recentCalls : [];
+
+      const max7 = Math.max(0.000001, ...last7.map(x => Number(x.total) || 0));
+
+      const last7Bars = last7.map(item => {
+        const v = Number(item.total) || 0;
+        const h = Math.max(2, Math.round((v / max7) * 80));
+        const day = String(item.date).slice(5).replace('-', '/');
+        const isToday = item.date === d.date;
+        return `
+          <div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:24px;">
+            <div title="${escapeHtml(item.date)}: $${v.toFixed(6)}"
+                 style="background:${isToday ? COST_GOLD : '#475569'};width:80%;height:${h}px;border-radius:2px 2px 0 0;transition:height .5s ease;"></div>
+            <div style="font-size:9px;color:#94a3b8;margin-top:3px;">${escapeHtml(day)}</div>
+          </div>`;
+      }).join('');
+
+      const modelRows = byModel.length === 0
+        ? '<div class="panel-empty" style="color:#64748b;font-size:11px;">데이터 없음</div>'
+        : byModel.map(r => costBarRow(r.model, Number(r.cost), total, costColorForModel(r.model))).join('');
+
+      const deptRows = byDept.length === 0
+        ? '<div class="panel-empty" style="color:#64748b;font-size:11px;">데이터 없음</div>'
+        : byDept.map(r => costBarRow(costDeptLabel(r.dept), Number(r.cost), total, COST_GOLD)).join('');
+
+      const recentRows = recent.length === 0
+        ? '<tr><td colspan="4" style="text-align:center;color:#64748b;font-size:11px;padding:8px;">호출 기록 없음</td></tr>'
+        : recent.map(c => `
+            <tr style="border-bottom:1px solid #1f2937;">
+              <td style="padding:4px 6px;color:#94a3b8;font-family:monospace;font-size:10px;">${escapeHtml(c.time)}</td>
+              <td style="padding:4px 6px;color:${costColorForModel(c.model)};font-size:10px;font-weight:500;">${escapeHtml(c.model)}</td>
+              <td style="padding:4px 6px;color:#cbd5e1;font-size:10px;">${escapeHtml(costDeptLabel(c.dept))}</td>
+              <td style="padding:4px 6px;text-align:right;color:#e5e7eb;font-size:10px;font-family:monospace;">${costFmt(c.cost)}</td>
+            </tr>`).join('');
+
+      body.innerHTML = `
+        <div style="background:#0f0f0f;color:#e5e7eb;padding:12px;margin:-8px;border-radius:6px;font-family:inherit;">
+          <div style="background:#181818;border:2px solid ${alertColor};border-radius:8px;padding:14px;text-align:center;margin-bottom:12px;box-shadow:0 0 20px ${alertColor}22;">
+            <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">오늘 총 비용 (KST ${escapeHtml(d.date || '')})</div>
+            <div style="font-size:28px;font-weight:700;color:${alertColor};font-family:monospace;letter-spacing:-1px;">${costFmt(total)}</div>
+            <div style="font-size:10px;color:#64748b;margin-top:4px;">
+              경고 $${d.thresholds?.warning ?? 5} · 위험 $${d.thresholds?.danger ?? 10}
+              <span style="float:right;">↻ ${escapeHtml(updatedAt)}</span>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:12px;">
+            <div style="background:#181818;border:1px solid #1f2937;border-radius:6px;padding:10px;">
+              <div style="font-size:11px;color:${COST_GOLD};font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;">모델별</div>
+              ${modelRows}
+            </div>
+            <div style="background:#181818;border:1px solid #1f2937;border-radius:6px;padding:10px;">
+              <div style="font-size:11px;color:${COST_GOLD};font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;">부서별</div>
+              ${deptRows}
+            </div>
+          </div>
+
+          <div style="background:#181818;border:1px solid #1f2937;border-radius:6px;padding:10px;margin-bottom:12px;">
+            <div style="font-size:11px;color:${COST_GOLD};font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;">최근 7일</div>
+            <div style="display:flex;align-items:flex-end;gap:4px;height:90px;padding:0 4px;">
+              ${last7Bars}
+            </div>
+          </div>
+
+          <div style="background:#181818;border:1px solid #1f2937;border-radius:6px;padding:10px;">
+            <div style="font-size:11px;color:${COST_GOLD};font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;">최근 호출 (10건)</div>
+            <table style="width:100%;border-collapse:collapse;">
+              <thead>
+                <tr style="border-bottom:1px solid #334155;">
+                  <th style="text-align:left;padding:4px 6px;font-size:10px;color:#94a3b8;font-weight:500;">시각</th>
+                  <th style="text-align:left;padding:4px 6px;font-size:10px;color:#94a3b8;font-weight:500;">모델</th>
+                  <th style="text-align:left;padding:4px 6px;font-size:10px;color:#94a3b8;font-weight:500;">부서</th>
+                  <th style="text-align:right;padding:4px 6px;font-size:10px;color:#94a3b8;font-weight:500;">비용</th>
+                </tr>
+              </thead>
+              <tbody>${recentRows}</tbody>
+            </table>
+          </div>
         </div>`;
-      if (providers.length === 0) {
-        head.innerHTML += '<div class="panel-empty">사용 내역 없음</div>';
-      } else {
-        const rows = providers.map(p => renderCostRow(p, Number(today[p] ?? 0), Number(monthly[p] ?? 0), maxToday)).join('');
-        const wrap = document.createElement('div'); wrap.innerHTML = rows; head.appendChild(wrap);
-      }
-      body.appendChild(head);
 
-      const totals = document.createElement('div'); totals.className = 'panel-sec'; totals.style.marginTop = '10px';
-      totals.innerHTML = `<h4>합계</h4>
-        <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;">
-          <span style="color:var(--text-dim);">오늘</span>
-          <span style="color:var(--text);font-weight:600;">$${Number(d.total_today ?? 0).toFixed(4)}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;">
-          <span style="color:var(--text-dim);">이번 달</span>
-          <span style="color:var(--text);font-weight:600;">$${Number(d.total_monthly ?? 0).toFixed(4)}</span>
-        </div>`;
-      body.appendChild(totals);
-
-      const reloadBtn = document.getElementById('costReload');
-      if (reloadBtn) reloadBtn.onclick = () => loadCostData(body);
+      if (!isPoll && state.currentTab === 'cost') startCostPolling(body);
     } catch (err) {
-      body.innerHTML = `<div class="panel-empty" style="color:#e74c3c;">비용 데이터 로드 실패: ${escapeHtml(String(err.message || err))}</div>`;
+      body.innerHTML = `<div class="panel-empty" style="color:#ef4444;">비용 대시보드 로드 실패: ${escapeHtml(String(err.message || err))}</div>`;
+      stopCostPolling();
     }
   }
 

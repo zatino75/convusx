@@ -524,10 +524,25 @@ export async function runDepartmentAgent(
   const costUsd = estimateCostUsd(modelIdForPricing, usage);
 
   // tokensUsed 는 usage 실측값(있으면) 우선, 없으면 문자 길이 기반 추정
-  const actualTokens =
-    (usage.input_tokens ?? usage.prompt_tokens ?? 0) +
-    (usage.output_tokens ?? usage.completion_tokens ?? 0);
+  const u = usage as any;
+  const inputTokensActual =
+    Number(u.input_tokens ?? u.prompt_tokens ?? u.promptTokenCount ?? 0) || 0;
+  const outputTokensActual =
+    Number(u.output_tokens ?? u.completion_tokens ?? u.candidatesTokenCount ?? 0) || 0;
+  const actualTokens = inputTokensActual + outputTokensActual;
   const tokensUsed = actualTokens > 0 ? actualTokens : estimateTokens(userPrompt + rawOutput);
+
+  // 2026-04-25: 대시보드용 entry 저장 — dept = 부서 ID
+  try {
+    const costStore = await import('../costStore.js');
+    costStore.record({
+      model: modelIdForPricing,
+      department: task.deptId,
+      inputTokens: inputTokensActual,
+      outputTokens: outputTokensActual,
+      costUsd,
+    });
+  } catch { /* costStore 실패 무시 */ }
 
   onProgress?.(task.deptId, '완료', 100);
 
