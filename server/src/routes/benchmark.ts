@@ -309,12 +309,14 @@ async function runAutoBenchmark() {
   }
 }
 
+// 2026-04-25 긴급 비활성: 자동 벤치마크가 1시간 후부터 12케이스 × 5호출 = 60 Opus 호출
+// (분당 $0.30~$0.65). `runAgentLoop` 가 model_override 없이 호출되어 DEFAULT_MODEL=Opus 적용됨.
+// 수동 트리거 (/api/benchmark/run) 는 유지. 자동 실행만 영구 차단.
 export function startBenchmarkScheduler() {
-  const firstDelay = 60 * 60 * 1000
-  setTimeout(() => {
-    runAutoBenchmark()
-    autoScheduler = setInterval(runAutoBenchmark, AUTO_BENCHMARK_INTERVAL_MS)
-  }, firstDelay)
+  logger.info("[BENCHMARK] auto-scheduler permanently disabled (cost guard, 2026-04-25)")
+  void autoScheduler
+  void AUTO_BENCHMARK_INTERVAL_MS
+  void runAutoBenchmark
 }
 
 export const benchmarkHistoryRoute = {

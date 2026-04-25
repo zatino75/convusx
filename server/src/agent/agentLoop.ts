@@ -28,7 +28,9 @@ import { getSnapshotsByCategory } from "../regulation/regulationCache.js"
 import type { RegulationCategory } from "../regulation/regulationSources.js"
 
 // ── 상수 ──────────────────────────────────────────────────────────────────
-const DEFAULT_MODEL = "claude-opus-4-6"  // CLAUDE.md 기준 최상위 모델 고정
+// 2026-04-25 긴급: Opus → Sonnet 강제 (CLAUDE.md 규칙 #18 — single_agent Opus 금지).
+// 자동 벤치마크 스케줄러가 model_override 없이 호출하면서 분당 Opus 비용 발생 → 차단.
+const DEFAULT_MODEL = "claude-sonnet-4-6"
 const DEFAULT_MAX_TOKENS = 8000
 const DEFAULT_THINKING_BUDGET = 16000
 const MAX_ITER = 6

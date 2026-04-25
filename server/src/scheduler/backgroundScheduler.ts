@@ -69,98 +69,33 @@ interface HealthResult {
 
 const healthState: Record<string, HealthResult> = {}
 
+// 2026-04-25 긴급: LLM 호출 제거. env key 존재만 검사 (HTTP 200 등가).
+// 이전엔 anthropic/perplexity POST 가 30분마다 토큰 소비 → 누적 비용.
+// 진짜 API 가용성은 실제 채팅 호출 시점에 검증되므로 여기 ping 은 불필요.
 async function checkProviderHealth() {
-  const providers = [
-    { name: "openai", envKey: "OPENAI_API_KEY", url: "https://api.openai.com/v1/models", authHeader: "Bearer" },
-    { name: "anthropic", envKey: "ANTHROPIC_API_KEY", url: "https://api.anthropic.com/v1/messages", authHeader: "x-api-key" },
-    { name: "gemini", envKey: "GEMINI_API_KEY", url: "", authHeader: "" },
-    { name: "perplexity", envKey: "PERPLEXITY_API_KEY", url: "https://api.perplexity.ai/chat/completions", authHeader: "Bearer" }
-  ]
-
-  for (const p of providers) {
-    const key = process.env[p.envKey]
-    if (!key || key.trim().length === 0) {
-      healthState[p.name] = { provider: p.name, healthy: false, latency_ms: 0, error: "no_api_key" }
-      continue
-    }
-
-    // Gemini은 key-in-URL 방식 — 별도 처리
-    if (p.name === "gemini") {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`
-      const start = Date.now()
-      try {
-        const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(10000) })
-        healthState[p.name] = {
-          provider: p.name,
-          healthy: resp.ok,
-          latency_ms: Date.now() - start,
-          ...(resp.ok ? {} : { error: `status_${resp.status}` })
-        }
-      } catch (e) {
-        healthState[p.name] = {
-          provider: p.name,
-          healthy: false,
-          latency_ms: Date.now() - start,
-          error: e instanceof Error ? e.message : String(e)
-        }
-      }
-      continue
-    }
-
-    // OpenAI / Anthropic / Perplexity — 헤더 기반 인증
-    const headers: Record<string, string> = { "Content-Type": "application/json" }
-    if (p.authHeader === "Bearer") {
-      headers["Authorization"] = `Bearer ${key}`
-    } else if (p.authHeader === "x-api-key") {
-      headers["x-api-key"] = key
-      headers["anthropic-version"] = "2023-06-01"
-    }
-
-    const start = Date.now()
-    try {
-      // Perplexity / Anthropic은 POST, OpenAI는 GET (모델 목록)
-      const method = (p.name === "anthropic" || p.name === "perplexity") ? "POST" : "GET"
-      const body = p.name === "anthropic"
-        ? JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1, messages: [{ role: "user", content: "ping" }] })
-        : p.name === "perplexity"
-          ? JSON.stringify({ model: "sonar", messages: [{ role: "user", content: "hi" }], max_tokens: 1 })
-          : undefined
-
-      const resp = await fetch(p.url, {
-        method,
-        headers,
-        body,
-        signal: AbortSignal.timeout(10000)
-      })
-
-      // Anthropic: 401=invalid key / Perplexity: 200 or 400 = healthy / OpenAI: resp.ok
-      const healthy = p.name === "anthropic"
-        ? resp.status !== 401
-        : p.name === "perplexity"
-          ? resp.status === 200 || resp.status === 400
-          : resp.ok
-      healthState[p.name] = {
-        provider: p.name,
-        healthy,
-        latency_ms: Date.now() - start,
-        ...(healthy ? {} : { error: `status_${resp.status}` })
-      }
-    } catch (e) {
-      healthState[p.name] = {
-        provider: p.name,
-        healthy: false,
-        latency_ms: Date.now() - start,
-        error: e instanceof Error ? e.message : String(e)
-      }
+  const providers = ["openai", "anthropic", "gemini", "perplexity"] as const
+  const envMap: Record<string, string> = {
+    openai: "OPENAI_API_KEY",
+    anthropic: "ANTHROPIC_API_KEY",
+    gemini: "GEMINI_API_KEY",
+    perplexity: "PERPLEXITY_API_KEY",
+  }
+  for (const name of providers) {
+    const key = process.env[envMap[name]]
+    const present = !!(key && key.trim().length > 0)
+    healthState[name] = {
+      provider: name,
+      healthy: present,
+      latency_ms: 0,
+      ...(present ? {} : { error: "no_api_key" }),
     }
   }
-
   const summary = Object.values(healthState)
   const healthyCount = summary.filter(h => h.healthy).length
-  logger.info("[scheduler] provider health check completed", {
+  logger.info("[scheduler] provider health check (env-only, no LLM call)", {
     healthy: healthyCount,
     total: summary.length,
-    details: summary.map(h => `${h.provider}:${h.healthy ? "ok" : h.error}(${h.latency_ms}ms)`).join(", ")
+    details: summary.map(h => `${h.provider}:${h.healthy ? "key_set" : "missing"}`).join(", "),
   })
 }
 
