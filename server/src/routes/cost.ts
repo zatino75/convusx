@@ -10,8 +10,14 @@
  *     last7Days:     [{ date,  total }],
  *     recentCalls:   [{ time, model, dept, cost }],   // 최근 10건 (오늘 외 포함)
  *     alertLevel:    'normal' | 'warning' | 'danger', // $5 / $10 임계
- *     thresholds:    { warning: 5, danger: 10 }
+ *     thresholds:    { warning: 5, danger: 10 },
+ *     credit: {
+ *       balance, totalCharged, totalUsed,
+ *       history: [{ date, amount, memo, balance }]
+ *     }
  *   }
+ *
+ * POST /api/cost/credit  { amount, memo? }   →  크레딧 충전
  *
  * /api/* 전역 인증 미들웨어로 보호됨 (index.ts).
  */
@@ -24,6 +30,7 @@ import {
   getByModel,
   getByDepartment,
 } from "../costStore.js"
+import { addCredit, getSummary as getCreditSummary } from "../creditStore.js"
 
 const ALERT_WARNING_USD = 5
 const ALERT_DANGER_USD = 10
@@ -84,6 +91,7 @@ export async function runCostStatsRoute(_req: any, res: any) {
       recentCalls,
       alertLevel: alertLevelFor(todayTotal),
       thresholds: { warning: ALERT_WARNING_USD, danger: ALERT_DANGER_USD },
+      credit: getCreditSummary(10),
     })
   } catch (err: any) {
     res.status?.(500)
@@ -94,4 +102,35 @@ export async function runCostStatsRoute(_req: any, res: any) {
 export const costStatsRoute = {
   path: "/api/cost/stats",
   handler: runCostStatsRoute,
+}
+
+// ── POST /api/cost/credit — 크레딧 충전 ─────────────────────────────
+export async function runCostCreditRoute(req: any, res: any) {
+  try {
+    const body = (req?.body ?? {}) as Record<string, unknown>
+    const amountRaw = body.amount
+    const memoRaw = body.memo
+
+    const amount = Number(typeof amountRaw === "string" ? amountRaw.replace(/,/g, "") : amountRaw)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      res.status?.(400)
+      return res.json({ ok: false, error: "amount must be a positive number" })
+    }
+    const memo = typeof memoRaw === "string" ? memoRaw.slice(0, 200) : undefined
+
+    const entry = addCredit(amount, memo)
+    return res.json({
+      ok: true,
+      entry,
+      summary: getCreditSummary(10),
+    })
+  } catch (err: any) {
+    res.status?.(500)
+    res.json({ ok: false, error: String(err?.message ?? err) })
+  }
+}
+
+export const costCreditRoute = {
+  path: "/api/cost/credit",
+  handler: runCostCreditRoute,
 }

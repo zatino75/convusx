@@ -534,7 +534,10 @@ export async function runDepartmentAgent(
 
   // 2026-04-25: 대시보드용 entry 저장 — dept = 부서 ID
   try {
-    const costStore = await import('../costStore.js');
+    const [costStore, creditStore] = await Promise.all([
+      import('../costStore.js'),
+      import('../creditStore.js'),
+    ]);
     costStore.record({
       model: modelIdForPricing,
       department: task.deptId,
@@ -542,6 +545,7 @@ export async function runDepartmentAgent(
       outputTokens: outputTokensActual,
       costUsd,
     });
+    creditStore.recordUsage(costUsd, `${task.deptId} · ${modelIdForPricing}`);
   } catch { /* costStore 실패 무시 */ }
 
   onProgress?.(task.deptId, '완료', 100);

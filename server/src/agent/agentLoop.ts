@@ -507,9 +507,10 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
     } catch { /* 비용 로깅 실패 무시 */ }
     // 2026-04-25: 대시보드용 entry 저장 — dept='single_agent'
     try {
-      const [{ estimateCostUsd }, costStore] = await Promise.all([
+      const [{ estimateCostUsd }, costStore, creditStore] = await Promise.all([
         import("../cost/costCalc.js"),
         import("../costStore.js"),
+        import("../creditStore.js"),
       ])
       const inputTokens = Number(usage.input_tokens ?? 0) || 0
       const outputTokens = Number(usage.output_tokens ?? 0) || 0
@@ -521,6 +522,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
         outputTokens,
         costUsd,
       })
+      creditStore.recordUsage(costUsd, `single_agent · ${activeModel}`)
     } catch { /* costStore 실패 무시 */ }
   }
 

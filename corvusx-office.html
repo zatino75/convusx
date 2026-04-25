@@ -2360,14 +2360,49 @@
       const sectionTitle = (label) => `<div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:14px;text-transform:uppercase;letter-spacing:1.2px;">${label}</div>`;
       const cardStyle = `background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;padding:18px;`;
 
+      // ── 크레딧 잔액 카드 ──
+      const credit = d.credit || { balance: 0, totalCharged: 0, totalUsed: 0, history: [] };
+      const balance = Number(credit.balance ?? 0);
+      let creditColor = 'var(--text)';
+      let creditWarn = '';
+      if (balance < 0) { creditColor = 'var(--red)'; creditWarn = '잔액 음수 — 즉시 충전 필요'; }
+      else if (balance < 5) { creditColor = 'var(--accent)'; creditWarn = '잔액 \$5 미만'; }
+
+      const chargeRows = (credit.history || []).length === 0
+        ? '<tr><td colspan="4" style="text-align:center;color:var(--text-dim);font-size:12px;padding:14px;">충전 기록 없음</td></tr>'
+        : credit.history.map(h => {
+            const dt = new Date(h.date);
+            const dateStr = isNaN(dt.getTime()) ? String(h.date) :
+              dt.toLocaleString('ko-KR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+            return `
+              <tr style="border-bottom:1px solid var(--border-soft);">
+                <td style="padding:6px 8px;color:var(--text-soft);font-family:monospace;font-size:11px;">${escapeHtml(dateStr)}</td>
+                <td style="padding:6px 8px;color:var(--text);font-size:11px;font-family:monospace;">+\$${Number(h.amount).toFixed(2)}</td>
+                <td style="padding:6px 8px;color:var(--text-soft);font-size:11px;">${escapeHtml(h.memo || '-')}</td>
+                <td style="padding:6px 8px;text-align:right;color:var(--text);font-size:11px;font-family:monospace;font-weight:500;">\$${Number(h.balance).toFixed(2)}</td>
+              </tr>`;
+          }).join('');
+
       body.innerHTML = `
         <div style="max-width:1200px;margin:0 auto;font-family:inherit;color:var(--text);">
-          <div style="${cardStyle}border-color:${alertVar};border-width:2px;text-align:center;margin-bottom:18px;">
-            <div style="font-size:11px;color:var(--text-soft);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px;">오늘 총 비용 · KST ${escapeHtml(d.date || '')}</div>
-            <div style="font-size:54px;font-weight:700;color:${alertVar};font-family:monospace;letter-spacing:-2px;line-height:1;">${costFmt(total)}</div>
-            <div style="font-size:11px;color:var(--text-dim);margin-top:14px;display:flex;justify-content:space-between;align-items:center;">
-              <span>경고 \$${d.thresholds?.warning ?? 5} · 위험 \$${d.thresholds?.danger ?? 10}</span>
-              <span>↻ ${escapeHtml(updatedAt)} · 30s 자동 갱신</span>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:18px;">
+            <div style="${cardStyle}border-color:${alertVar};border-width:2px;text-align:center;">
+              <div style="font-size:11px;color:var(--text-soft);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px;">오늘 총 비용 · KST ${escapeHtml(d.date || '')}</div>
+              <div style="font-size:48px;font-weight:700;color:${alertVar};font-family:monospace;letter-spacing:-2px;line-height:1;">${costFmt(total)}</div>
+              <div style="font-size:11px;color:var(--text-dim);margin-top:14px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+                <span>경고 \$${d.thresholds?.warning ?? 5} · 위험 \$${d.thresholds?.danger ?? 10}</span>
+                <span>↻ ${escapeHtml(updatedAt)} · 30s</span>
+              </div>
+            </div>
+            <div style="${cardStyle}border-color:${creditColor === 'var(--text)' ? 'var(--border-soft)' : creditColor};border-width:2px;text-align:center;">
+              <div style="font-size:11px;color:var(--text-soft);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px;">현재 크레딧 잔액</div>
+              <div style="font-size:48px;font-weight:700;color:${creditColor};font-family:monospace;letter-spacing:-2px;line-height:1;">\$${balance.toFixed(2)}</div>
+              <div style="font-size:11px;color:var(--text-dim);margin-top:10px;">
+                총 충전 <span style="color:var(--text-soft);font-family:monospace;">\$${Number(credit.totalCharged).toFixed(2)}</span>
+                · 총 사용 <span style="color:var(--text-soft);font-family:monospace;">\$${Number(credit.totalUsed).toFixed(4)}</span>
+              </div>
+              ${creditWarn ? `<div style="font-size:11px;color:${creditColor};margin-top:6px;font-weight:600;">⚠ ${escapeHtml(creditWarn)}</div>` : ''}
+              <button id="creditChargeBtn" type="button" style="margin-top:14px;background:var(--accent);color:#fff;border:none;border-radius:6px;padding:8px 18px;font-size:12px;font-weight:600;cursor:pointer;letter-spacing:.5px;">충전 입력</button>
             </div>
           </div>
 
@@ -2382,7 +2417,7 @@
             </div>
           </div>
 
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:14px;">
             <div style="${cardStyle}">
               ${sectionTitle('최근 7일 트렌드')}
               <div style="display:flex;align-items:flex-end;gap:6px;height:150px;padding:0 6px;">
@@ -2404,13 +2439,89 @@
               </table>
             </div>
           </div>
+
+          <div style="${cardStyle}">
+            ${sectionTitle('충전 내역 (최근 10건)')}
+            <table style="width:100%;border-collapse:collapse;">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border);">
+                  <th style="text-align:left;padding:6px 8px;font-size:11px;color:var(--text-soft);font-weight:500;text-transform:uppercase;letter-spacing:.5px;">날짜</th>
+                  <th style="text-align:left;padding:6px 8px;font-size:11px;color:var(--text-soft);font-weight:500;text-transform:uppercase;letter-spacing:.5px;">충전금액</th>
+                  <th style="text-align:left;padding:6px 8px;font-size:11px;color:var(--text-soft);font-weight:500;text-transform:uppercase;letter-spacing:.5px;">메모</th>
+                  <th style="text-align:right;padding:6px 8px;font-size:11px;color:var(--text-soft);font-weight:500;text-transform:uppercase;letter-spacing:.5px;">잔액</th>
+                </tr>
+              </thead>
+              <tbody>${chargeRows}</tbody>
+            </table>
+          </div>
         </div>`;
+
+      const chargeBtn = body.querySelector('#creditChargeBtn');
+      if (chargeBtn) chargeBtn.onclick = () => openCreditChargeModal(body);
 
       if (!isPoll && state.activeView === 'dashboard') startCostPolling(body);
     } catch (err) {
       body.innerHTML = `<div style="color:var(--red);text-align:center;padding:40px;font-size:13px;">비용 대시보드 로드 실패: ${escapeHtml(String(err.message || err))}</div>`;
       stopCostPolling();
     }
+  }
+
+  // ─── 크레딧 충전 모달 ────────────────────────────────────────────
+  function openCreditChargeModal(dashBody) {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML = `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:22px;width:340px;max-width:92vw;color:var(--text);box-shadow:0 8px 32px rgba(0,0,0,.25);">
+        <div style="font-size:13px;color:var(--accent);font-weight:600;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:16px;">크레딧 충전</div>
+        <label style="display:block;font-size:11px;color:var(--text-soft);margin-bottom:6px;">충전 금액 (USD)</label>
+        <input id="creditAmtInput" type="number" min="0.01" step="0.01" placeholder="예: 33"
+               style="width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface-hi);color:var(--text);font-family:monospace;font-size:14px;margin-bottom:14px;box-sizing:border-box;">
+        <label style="display:block;font-size:11px;color:var(--text-soft);margin-bottom:6px;">메모 (선택)</label>
+        <input id="creditMemoInput" type="text" maxlength="200" placeholder="예: 4월 25일 충전"
+               style="width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface-hi);color:var(--text);font-size:13px;margin-bottom:18px;box-sizing:border-box;">
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button type="button" data-action="cancel" style="background:transparent;color:var(--text-soft);border:1px solid var(--border);border-radius:6px;padding:8px 16px;font-size:12px;cursor:pointer;">취소</button>
+          <button type="button" data-action="confirm" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:8px 18px;font-size:12px;font-weight:600;cursor:pointer;">확인</button>
+        </div>
+      </div>`;
+    const close = () => { if (overlay.parentNode) document.body.removeChild(overlay); };
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector('[data-action="cancel"]').onclick = close;
+
+    const amtInput = overlay.querySelector('#creditAmtInput');
+    const memoInput = overlay.querySelector('#creditMemoInput');
+    setTimeout(() => amtInput.focus(), 30);
+
+    const submit = async () => {
+      const amount = Number(amtInput.value);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        toast('금액은 0보다 큰 숫자여야 합니다');
+        amtInput.focus();
+        return;
+      }
+      const memo = memoInput.value.trim();
+      try {
+        const r = await fetch(API_BASE + '/api/cost/credit', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount, memo: memo || undefined }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || j.ok === false) throw new Error(j.error || ('HTTP ' + r.status));
+        close();
+        toast(`크레딧 +$${amount.toFixed(2)} 충전됨`);
+        if (dashBody && state.activeView === 'dashboard') loadCostData(dashBody, true);
+      } catch (err) {
+        toast('충전 실패: ' + (err.message || err));
+      }
+    };
+
+    overlay.querySelector('[data-action="confirm"]').onclick = submit;
+    [amtInput, memoInput].forEach(el => {
+      el.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    });
+
+    document.body.appendChild(overlay);
   }
 
   // ─── Gallery (사이드바 '이미지') ─────────────────────────────────

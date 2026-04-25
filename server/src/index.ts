@@ -42,7 +42,7 @@ import { runFeedbackRoute } from "./routes/feedback.js"
 import { runSlidesGenerateRoute as generateSlidesRoute } from "./routes/slides.js"
 import { chatRoute, chatStreamRoute } from "./routes/chat.js"
 import { usageRoute, scoreboardRoute, usageResetRoute, usageSummaryRoute } from "./routes/usage.js"
-import { costStatsRoute } from "./routes/cost.js"
+import { costStatsRoute, costCreditRoute } from "./routes/cost.js"
 import { mediaListRoute, mediaDeleteRoute, mediaFileRoute } from "./routes/media.js"
 import { dashboardRoute } from "./routes/dashboard.js"
 import { getSalesRoute, addSalesRoute, deleteSalesRoute } from "./routes/sales.js"
@@ -197,6 +197,7 @@ router.post("/api/slides/generate", async (req: IncomingMessage, res: ServerResp
 router.post("/api/usage/reset", async (req: ParsedRequest, res: ExpressLikeResponse) => { await usageResetRoute.handler(req, res) })
 router.get("/api/usage/summary", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await usageSummaryRoute.handler({}, res) })
 router.get("/api/cost/stats", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await costStatsRoute.handler({}, res) })
+router.post("/api/cost/credit", async (req: ParsedRequest, res: ExpressLikeResponse) => { await costCreditRoute.handler(req, res) })
 router.get("/api/media/list", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await mediaListRoute.handler({}, res) })
 router.delete("/api/media/delete", async (req: ParsedRequest, res: ExpressLikeResponse) => { await mediaDeleteRoute.handler(req, res) })
 router.get("/api/media/file/*", async (req: ParsedRequest, res: ExpressLikeResponse) => { await mediaFileRoute.handler(req, res) }, true)
