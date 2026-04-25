@@ -1,20 +1,24 @@
 /**
- * creditStore.ts — 프로바이더별 크레딧 충전/사용 추적 (영구 저장).
+ * creditStore.ts — provider 별 크레딧 충전/사용 추적 (SQLite 영구 저장).
  *
- * 2026-04-25 신규 + Phase 7 확장 (provider 분리).
- *
- * 저장: server/data/credits.json
+ * 2026-04-25 Phase 8: JSON 파일 → SQLite 전환.
+ * 진실 소스(source of truth) = `corvusx.db` 의 credit_entries 테이블.
  *
  * 모델:
- *   - entries: append-only [charge|usage] 거래.
- *   - 각 entry 는 provider 를 포함 → 프로바이더별 잔액 집계.
+ *   - credit_entries: append-only [charge|usage] 거래.
+ *   - 각 entry 에 provider 포함 → provider 별 잔액 = SUM(charge) - SUM(usage).
  *   - 레거시 entry(provider 없음)는 "unknown" 으로 분류.
  *
- * 동시성: 단일 노드 프로세스 + 동기 fs. LLM 호출 빈도엔 충분.
+ * 마이그레이션:
+ *   서버 시작 시 server/data/credits.json 또는
+ *   server/server/data/credits.json (구 버그 경로) 가 있으면 자동 import 후 .bak 으로 보관.
+ *
+ * ⚠️ CLAUDE.md 규칙 #22 — in-memory/JSON 회귀 금지. SQLite 만 진실.
  */
 
 import fs from "node:fs"
 import path from "node:path"
+import { corvusxDb } from "./db/corvusxDb.js"
 import { logger } from "./observability/logger.js"
 
 export type CreditEntryType = "charge" | "usage"
@@ -31,111 +35,87 @@ export const PROVIDER_IDS = [
 export type ProviderId = typeof PROVIDER_IDS[number]
 
 export interface CreditEntry {
-  id: string
+  id: number
   type: CreditEntryType
-  provider: string      // ProviderId 권장. 레거시는 "unknown" 가능.
-  amount: number        // USD, 항상 양수. 차감은 type 으로 구분.
+  provider: string
+  amount: number      // USD, 항상 양수.
   memo?: string
-  timestamp: number     // unix ms
-  balanceAfter: number  // 해당 provider 의 누적 잔액(charge - usage)
+  timestamp: number   // unix ms
+  /** SQL view: SUM(charge) - SUM(usage) WHERE id <= 자기. (조회 시 계산) */
+  balanceAfter: number
 }
 
 export interface CreditChargeView {
-  date: string
+  date: string        // ISO
   amount: number
   memo: string
-  balance: number
+  balance: number     // 해당 충전 시점의 누적 잔액 (계산값)
   provider: string
 }
 
 export interface ProviderCreditSummary {
   provider: string
-  /** 수동 충전 - 사용 누적. (= 충전 fallback 잔액) */
   balance: number
   totalCharged: number
   totalUsed: number
-  /** 해당 provider 충전 내역 (최신순, 최대 historyLimit) */
   history: CreditChargeView[]
 }
 
-const STORE_PATH = "server/data/credits.json"
+// ── prepared statements ──────────────────────────────────────────
+const stmtInsert = corvusxDb.prepare(`
+  INSERT INTO credit_entries (provider, type, amount, memo, timestamp)
+  VALUES (?, ?, ?, ?, ?)
+`)
 
-interface FileShape {
-  entries: CreditEntry[]
-}
+const stmtAggProvider = corvusxDb.prepare(`
+  SELECT
+    COALESCE(SUM(CASE WHEN type='charge' THEN amount ELSE 0 END), 0) AS charged,
+    COALESCE(SUM(CASE WHEN type='usage'  THEN amount ELSE 0 END), 0) AS used
+  FROM credit_entries
+  WHERE provider = ?
+`)
 
-let cache: FileShape | null = null
+const stmtAggAll = corvusxDb.prepare(`
+  SELECT
+    COALESCE(SUM(CASE WHEN type='charge' THEN amount ELSE 0 END), 0) AS charged,
+    COALESCE(SUM(CASE WHEN type='usage'  THEN amount ELSE 0 END), 0) AS used
+  FROM credit_entries
+`)
 
-function ensureDataDir(): void {
-  const dir = path.dirname(STORE_PATH)
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-}
+/** provider 충전 history (최신순). balanceAfter 는 조회 시 누적 합산해서 계산. */
+const stmtChargesByProvider = corvusxDb.prepare(`
+  SELECT id, amount, memo, timestamp
+  FROM credit_entries
+  WHERE provider = ? AND type='charge'
+  ORDER BY id DESC
+  LIMIT ?
+`)
 
-function load(): FileShape {
-  if (cache) return cache
-  try {
-    if (fs.existsSync(STORE_PATH)) {
-      const raw = fs.readFileSync(STORE_PATH, "utf-8")
-      const parsed = JSON.parse(raw) as FileShape
-      if (parsed && Array.isArray(parsed.entries)) {
-        cache = { entries: parsed.entries.map(e => ({ ...e, provider: e.provider ?? "unknown" })) }
-        return cache
-      }
-    }
-  } catch (e) {
-    logger.warn("[creditStore] load failed, starting empty", { error: String(e) })
-  }
-  cache = { entries: [] }
-  return cache
-}
+/** provider 의 N번째 entry 까지 누적 잔액. (history 의 balanceAfter 계산용) */
+const stmtBalanceUpToId = corvusxDb.prepare(`
+  SELECT
+    COALESCE(SUM(CASE WHEN type='charge' THEN amount ELSE 0 END), 0)
+    -
+    COALESCE(SUM(CASE WHEN type='usage'  THEN amount ELSE 0 END), 0) AS bal
+  FROM credit_entries
+  WHERE provider = ? AND id <= ?
+`)
 
-function persist(): void {
-  if (!cache) return
-  try {
-    ensureDataDir()
-    fs.writeFileSync(STORE_PATH, JSON.stringify(cache, null, 2), "utf-8")
-  } catch (e) {
-    logger.warn("[creditStore] persist failed", { error: String(e) })
-  }
-}
+/** 전체 충전 history (모든 provider). */
+const stmtAllCharges = corvusxDb.prepare(`
+  SELECT id, provider, amount, memo, timestamp
+  FROM credit_entries
+  WHERE type='charge'
+  ORDER BY id DESC
+  LIMIT ?
+`)
 
-function nextId(): string {
-  return `cr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-}
+/** 전체 entry 수 — 마이그레이션 idempotent 판정용. */
+const stmtCount = corvusxDb.prepare(`SELECT COUNT(*) AS n FROM credit_entries`)
 
-/** provider 별 직전 잔액 = 같은 provider 의 마지막 entry.balanceAfter. */
-function lastBalanceFor(provider: string): number {
-  const data = load()
-  for (let i = data.entries.length - 1; i >= 0; i--) {
-    if (data.entries[i].provider === provider) return data.entries[i].balanceAfter
-  }
-  return 0
-}
-
-function append(type: CreditEntryType, provider: string, amount: number, memo?: string): CreditEntry {
-  const data = load()
-  const sign = type === "charge" ? 1 : -1
-  const prevBal = lastBalanceFor(provider)
-  const balanceAfter = +(prevBal + sign * amount).toFixed(6)
-  const entry: CreditEntry = {
-    id: nextId(),
-    type,
-    provider,
-    amount: +amount.toFixed(6),
-    memo: memo?.trim() || undefined,
-    timestamp: Date.now(),
-    balanceAfter,
-  }
-  data.entries.push(entry)
-  persist()
-  return entry
-}
+const stmtDeleteAll = corvusxDb.prepare(`DELETE FROM credit_entries`)
 
 // ── 모델 → provider 매핑 ──────────────────────────────────────────
-/**
- * adapter 레벨에서 provider 가 명시 안 된 경우 모델 ID prefix 로 추론.
- * 매핑 누락 시 "unknown".
- */
 export function providerFromModel(modelId: string | undefined | null): ProviderId | "unknown" {
   const m = String(modelId ?? "").toLowerCase()
   if (!m) return "unknown"
@@ -150,60 +130,59 @@ export function providerFromModel(modelId: string | undefined | null): ProviderI
 
 // ── 공개 API ─────────────────────────────────────────────────────
 
-/** 수동 충전. provider 가 PROVIDER_IDS 외면 그대로 저장하되 UI 는 무시. */
-export function addCredit(provider: string, amount: number, memo?: string): CreditEntry {
+/** 수동 충전. */
+export function addCredit(provider: string, amount: number, memo?: string): { id: number; balanceAfter: number } {
   const v = Number(amount)
   if (!Number.isFinite(v) || v <= 0) {
     throw new Error("amount must be a positive number")
   }
   const p = String(provider || "").toLowerCase().trim() || "unknown"
-  const entry = append("charge", p, v, memo)
-  logger.info("[creditStore] charge", {
-    provider: p, amount: entry.amount, memo: entry.memo, balance: entry.balanceAfter,
-  })
-  return entry
+  const memoStr = memo?.trim() || null
+  const ts = Date.now()
+  const result = stmtInsert.run(p, "charge", +v.toFixed(6), memoStr, ts)
+  const id = Number(result.lastInsertRowid)
+  const bal = (stmtBalanceUpToId.get(p, id) as { bal: number })?.bal ?? 0
+  logger.info("[creditStore] charge", { provider: p, amount: v, memo: memoStr, balance: bal })
+  return { id, balanceAfter: +Number(bal).toFixed(6) }
 }
 
-/**
- * LLM 호출 cost_usd 차감.
- * provider 미지정 시 model ID 로부터 추론 (둘 다 없으면 "unknown").
- */
+/** LLM 호출 cost_usd 차감. provider 미지정 시 model ID 로부터 추론. */
 export function recordUsage(amount: number, opts?: { provider?: string; model?: string; memo?: string }): void {
   const v = Number(amount)
   if (!Number.isFinite(v) || v <= 0) return
   const explicit = String(opts?.provider ?? "").toLowerCase().trim()
   const inferred = providerFromModel(opts?.model)
   const p = explicit || inferred
-  append("usage", p, v, opts?.memo)
+  const memo = opts?.memo?.trim() || null
+  stmtInsert.run(p, "usage", +v.toFixed(6), memo, Date.now())
 }
 
-/** 단일 provider 의 잔액(누적 charge - usage). 없으면 0. */
+/** 단일 provider 잔액. */
 export function getBalance(provider: string): number {
-  return lastBalanceFor(String(provider || "").toLowerCase())
+  const p = String(provider || "").toLowerCase()
+  const r = stmtAggProvider.get(p) as { charged: number; used: number }
+  return +(Number(r?.charged ?? 0) - Number(r?.used ?? 0)).toFixed(6)
 }
 
 /** 단일 provider 요약 (history 포함). */
 export function getProviderSummary(provider: string, historyLimit = 10): ProviderCreditSummary {
-  const data = load()
   const p = String(provider || "").toLowerCase()
-  let charged = 0
-  let used = 0
-  for (const e of data.entries) {
-    if (e.provider !== p) continue
-    if (e.type === "charge") charged += e.amount
-    else if (e.type === "usage") used += e.amount
-  }
-  const history = data.entries
-    .filter(e => e.provider === p && e.type === "charge")
-    .slice(-historyLimit)
-    .reverse()
-    .map(e => ({
-      date: new Date(e.timestamp).toISOString(),
-      amount: e.amount,
-      memo: e.memo ?? "",
-      balance: e.balanceAfter,
-      provider: e.provider,
-    }))
+  const agg = stmtAggProvider.get(p) as { charged: number; used: number }
+  const charged = Number(agg?.charged ?? 0)
+  const used = Number(agg?.used ?? 0)
+  const charges = stmtChargesByProvider.all(p, historyLimit) as Array<{
+    id: number; amount: number; memo: string | null; timestamp: number
+  }>
+  const history: CreditChargeView[] = charges.map(c => {
+    const balRow = stmtBalanceUpToId.get(p, c.id) as { bal: number }
+    return {
+      date: new Date(Number(c.timestamp)).toISOString(),
+      amount: Number(c.amount),
+      memo: c.memo ?? "",
+      balance: +Number(balRow?.bal ?? 0).toFixed(6),
+      provider: p,
+    }
+  })
   return {
     provider: p,
     balance: +(charged - used).toFixed(6),
@@ -213,14 +192,14 @@ export function getProviderSummary(provider: string, historyLimit = 10): Provide
   }
 }
 
-/** PROVIDER_IDS 전체에 대한 요약. UI 카드 6개에 매핑. */
+/** PROVIDER_IDS 전체 요약. UI 카드 6 개에 매핑. */
 export function getAllProviderSummaries(historyLimit = 10): Record<ProviderId, ProviderCreditSummary> {
   const out = {} as Record<ProviderId, ProviderCreditSummary>
   for (const p of PROVIDER_IDS) out[p] = getProviderSummary(p, historyLimit)
   return out
 }
 
-/** 전체(모든 provider 합산) 요약 — 기존 stats 응답 호환용. */
+/** 전체 합산 요약 (후방 호환). */
 export interface GlobalCreditSummary {
   balance: number
   totalCharged: number
@@ -228,24 +207,20 @@ export interface GlobalCreditSummary {
   history: CreditChargeView[]
 }
 export function getSummary(historyLimit = 10): GlobalCreditSummary {
-  const data = load()
-  let charged = 0
-  let used = 0
-  for (const e of data.entries) {
-    if (e.type === "charge") charged += e.amount
-    else if (e.type === "usage") used += e.amount
-  }
-  const history = data.entries
-    .filter(e => e.type === "charge")
-    .slice(-historyLimit)
-    .reverse()
-    .map(e => ({
-      date: new Date(e.timestamp).toISOString(),
-      amount: e.amount,
-      memo: e.memo ?? "",
-      balance: e.balanceAfter,
-      provider: e.provider,
-    }))
+  const agg = stmtAggAll.get() as { charged: number; used: number }
+  const charged = Number(agg?.charged ?? 0)
+  const used = Number(agg?.used ?? 0)
+  const charges = stmtAllCharges.all(historyLimit) as Array<{
+    id: number; provider: string; amount: number; memo: string | null; timestamp: number
+  }>
+  // 전역 history 의 balance 는 누적 의미가 모호 → 0 으로 둠 (UI 가 provider 별을 우선).
+  const history: CreditChargeView[] = charges.map(c => ({
+    date: new Date(Number(c.timestamp)).toISOString(),
+    amount: Number(c.amount),
+    memo: c.memo ?? "",
+    balance: 0,
+    provider: String(c.provider),
+  }))
   return {
     balance: +(charged - used).toFixed(6),
     totalCharged: +charged.toFixed(6),
@@ -254,8 +229,63 @@ export function getSummary(historyLimit = 10): GlobalCreditSummary {
   }
 }
 
-/** 테스트용 — 캐시/파일 모두 초기화. */
+/** 디버그/테스트용 — 모든 entry 삭제. */
 export function _reset(): void {
-  cache = { entries: [] }
-  persist()
+  stmtDeleteAll.run()
 }
+
+// ── credits.json 마이그레이션 (1회) ──────────────────────────────
+/**
+ * 서버 시작 시 1회 실행.
+ * 후보 경로:
+ *   - server/data/credits.json (이상)
+ *   - server/server/data/credits.json (이전 cwd 버그 경로)
+ * 발견되면 entries 를 SQLite 에 import 한 뒤 파일을 .bak 으로 rename.
+ * 이미 SQLite 에 데이터가 있으면 import 건너뜀(idempotent).
+ */
+function migrateJsonOnce(): void {
+  try {
+    const count = (stmtCount.get() as { n: number })?.n ?? 0
+    if (count > 0) return  // 이미 데이터 있음 → 스킵
+
+    const candidates = [
+      path.resolve(process.cwd(), "data", "credits.json"),     // cwd=/opt/corvusx/server
+      path.resolve(process.cwd(), "server", "data", "credits.json"),  // 구 버그 경로
+    ]
+    for (const p of candidates) {
+      if (!fs.existsSync(p)) continue
+      try {
+        const raw = fs.readFileSync(p, "utf-8")
+        const parsed = JSON.parse(raw) as { entries?: any[] }
+        const entries = Array.isArray(parsed?.entries) ? parsed.entries : []
+        if (entries.length === 0) {
+          fs.renameSync(p, p + ".bak")
+          continue
+        }
+        const tx = corvusxDb.transaction((rows: any[]) => {
+          for (const e of rows) {
+            const type = e.type === "usage" ? "usage" : "charge"
+            const amount = Number(e.amount)
+            if (!Number.isFinite(amount) || amount <= 0) continue
+            const provider = String(e.provider ?? "unknown").toLowerCase()
+            const memo = e.memo ? String(e.memo).slice(0, 200) : null
+            const ts = Number(e.timestamp ?? Date.now())
+            stmtInsert.run(provider, type, amount, memo, ts)
+          }
+        })
+        tx(entries)
+        fs.renameSync(p, p + ".bak")
+        logger.info("[creditStore] migrated credits.json → SQLite", {
+          from: p, imported: entries.length,
+        })
+        return
+      } catch (e) {
+        logger.warn("[creditStore] migration failed", { path: p, error: String(e) })
+      }
+    }
+  } catch (e) {
+    logger.warn("[creditStore] migrateJsonOnce error", { error: String(e) })
+  }
+}
+
+migrateJsonOnce()

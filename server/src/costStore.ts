@@ -1,24 +1,29 @@
 /**
- * costStore.ts — 실시간 비용 대시보드용 in-memory entry 저장소.
+ * costStore.ts — LLM 호출 단위 비용 entry 저장소 (SQLite).
  *
- * 2026-04-25 신규. creditGuard.ts (provider 별 today 누적) 와 별개:
- *   - creditGuard: 가벼운 provider 합계만, 외부 시스템(usage summary) 호환
- *   - costStore : entry 단위 (model + department + tokens + cost) — 대시보드 전용
+ * 2026-04-25 Phase 8: in-memory → SQLite 영구 저장 전환.
+ * 진실 소스(source of truth) = `corvusx.db` 의 cost_entries 테이블.
+ * journalctl `[adapter:usage]` 는 이중 백업으로만 유지.
  *
- * 진실 소스(source of truth)는 여전히 journalctl `[adapter:usage]` 로그.
- * 이 모듈은 휘발성 캐시 — 서버 재시작 시 today 통계가 초기화될 수 있으나
- * journalctl 로 복구 가능하므로 허용.
+ * 인터페이스는 기존과 호환:
+ *   record(), getAll(), getToday(), getTodayTotal(), getLast7Days(),
+ *   getByModel(source?), getByDepartment(source?), reset(), _kstDate()
  *
- * FIFO 1000건 한도. 자정 KST 마다 7일 이상 된 entry 자동 제거.
+ * 신규: provider 컬럼 추가. 미지정 시 모델 ID 로 추론(creditStore.providerFromModel).
+ *
+ * ⚠️ CLAUDE.md 규칙 #22 — in-memory 회귀 금지.
  */
 
-import { logger } from "./observability/logger.js"
+import { corvusxDb } from "./db/corvusxDb.js"
+import { providerFromModel } from "./creditStore.js"
 
 export interface CostEntry {
   /** Unix epoch ms */
   timestamp: number
-  /** API 호출 모델 ID (claude-sonnet-4-6, gemini-2.5-pro 등) */
+  /** API 호출 모델 ID */
   model: string
+  /** provider — 'anthropic'|'openai'|'google'|'deepseek'|'perplexity'|'fal'|'unknown' */
+  provider: string
   /** 부서 또는 'single_agent' / 'classifier' / 'planner' / 'critic' / 'briefing' */
   department: string
   inputTokens: number
@@ -26,12 +31,8 @@ export interface CostEntry {
   costUsd: number
 }
 
-const MAX_ENTRIES = 1000
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
-const RETENTION_DAYS = 7
-
-const entries: CostEntry[] = []
 
 function kstDateString(ts: number): string {
   const kst = new Date(ts + KST_OFFSET_MS)
@@ -41,109 +42,123 @@ function kstDateString(ts: number): string {
   return `${y}-${m}-${d}`
 }
 
-function todayKst(): string {
-  return kstDateString(Date.now())
-}
-
-/** 자정 KST 기준 N 일 전 엔트리를 삭제. 1000건 FIFO 한도도 동시 적용. */
-function pruneOldEntries(): void {
-  const cutoff = Date.now() - RETENTION_DAYS * ONE_DAY_MS
-  let removed = 0
-  while (entries.length > 0 && entries[0].timestamp < cutoff) {
-    entries.shift()
-    removed++
-  }
-  while (entries.length > MAX_ENTRIES) {
-    entries.shift()
-    removed++
-  }
-  if (removed > 0) {
-    logger.info("[costStore] pruned old entries", { removed, remaining: entries.length })
-  }
-}
-
-/** 다음 KST 자정까지의 ms */
-function msUntilNextKstMidnight(): number {
+/** KST 자정(UTC 시각) 반환 — getToday/getLast7Days 의 timestamp >= 비교용 */
+function startOfKstDayUtcMs(daysAgo = 0): number {
   const now = Date.now()
-  const todayKstStart = now - ((now + KST_OFFSET_MS) % ONE_DAY_MS)
-  const nextMidnight = todayKstStart + ONE_DAY_MS
-  return Math.max(60_000, nextMidnight - now)
+  const kstNow = now + KST_OFFSET_MS
+  const kstMidnight = kstNow - (kstNow % ONE_DAY_MS)
+  return kstMidnight - KST_OFFSET_MS - daysAgo * ONE_DAY_MS
 }
 
-let midnightTimer: ReturnType<typeof setTimeout> | null = null
-function scheduleMidnightReset(): void {
-  if (midnightTimer) clearTimeout(midnightTimer)
-  midnightTimer = setTimeout(() => {
-    pruneOldEntries()
-    logger.info("[costStore] midnight rollover", { remaining: entries.length })
-    scheduleMidnightReset()
-  }, msUntilNextKstMidnight())
+// ── prepared statements (모듈 로드 시 1회) ───────────────────────
+const stmtInsert = corvusxDb.prepare(`
+  INSERT INTO cost_entries
+    (timestamp, model, provider, department, input_tokens, output_tokens, cost_usd)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+`)
+
+const stmtAll = corvusxDb.prepare(`
+  SELECT timestamp, model, provider, department, input_tokens, output_tokens, cost_usd
+  FROM cost_entries
+  ORDER BY timestamp ASC
+`)
+
+const stmtSinceMs = corvusxDb.prepare(`
+  SELECT timestamp, model, provider, department, input_tokens, output_tokens, cost_usd
+  FROM cost_entries
+  WHERE timestamp >= ?
+  ORDER BY timestamp ASC
+`)
+
+const stmtTotalSince = corvusxDb.prepare(`
+  SELECT COALESCE(SUM(cost_usd), 0) AS total
+  FROM cost_entries
+  WHERE timestamp >= ?
+`)
+
+const stmtDeleteAll = corvusxDb.prepare(`DELETE FROM cost_entries`)
+
+// ── row → CostEntry ──────────────────────────────────────────────
+function rowToEntry(r: any): CostEntry {
+  return {
+    timestamp: Number(r.timestamp),
+    model: String(r.model),
+    provider: String(r.provider ?? "unknown"),
+    department: String(r.department),
+    inputTokens: Number(r.input_tokens ?? 0),
+    outputTokens: Number(r.output_tokens ?? 0),
+    costUsd: Number(r.cost_usd),
+  }
 }
-scheduleMidnightReset()
 
 // ── 기록 ─────────────────────────────────────────────────────────
-export function record(entry: Omit<CostEntry, "timestamp"> & { timestamp?: number }): void {
+export function record(entry: Omit<CostEntry, "timestamp" | "provider"> & {
+  timestamp?: number
+  provider?: string
+}): void {
   const cost = Number(entry.costUsd)
   if (!Number.isFinite(cost) || cost < 0) return
-  const final: CostEntry = {
-    timestamp: entry.timestamp ?? Date.now(),
-    model: String(entry.model || "unknown"),
-    department: String(entry.department || "unknown"),
-    inputTokens: Number(entry.inputTokens) || 0,
-    outputTokens: Number(entry.outputTokens) || 0,
-    costUsd: cost,
-  }
-  entries.push(final)
-  if (entries.length > MAX_ENTRIES) entries.shift()
+  const provider = String(entry.provider ?? providerFromModel(entry.model) ?? "unknown")
+  stmtInsert.run(
+    entry.timestamp ?? Date.now(),
+    String(entry.model || "unknown"),
+    provider,
+    String(entry.department || "unknown"),
+    Number(entry.inputTokens) || 0,
+    Number(entry.outputTokens) || 0,
+    cost,
+  )
 }
 
 // ── 조회 ─────────────────────────────────────────────────────────
 export function getAll(): CostEntry[] {
-  return [...entries]
+  return (stmtAll.all() as any[]).map(rowToEntry)
 }
 
 export function getToday(): CostEntry[] {
-  const day = todayKst()
-  return entries.filter((e) => kstDateString(e.timestamp) === day)
+  return (stmtSinceMs.all(startOfKstDayUtcMs(0)) as any[]).map(rowToEntry)
 }
 
 export function getTodayTotal(): number {
-  return getToday().reduce((s, e) => s + e.costUsd, 0)
+  const r = stmtTotalSince.get(startOfKstDayUtcMs(0)) as { total: number }
+  return Number(r?.total ?? 0)
 }
 
 export function getLast7Days(): { date: string; total: number }[] {
+  const since = startOfKstDayUtcMs(6)  // 6 일 전 자정 ~ 오늘 (총 7 buckets)
+  const rows = stmtSinceMs.all(since) as any[]
   const buckets = new Map<string, number>()
-  // 최근 7일 자리 미리 채워서 0 인 날도 표시
   for (let i = 6; i >= 0; i--) {
-    const d = kstDateString(Date.now() - i * ONE_DAY_MS)
-    buckets.set(d, 0)
+    buckets.set(kstDateString(Date.now() - i * ONE_DAY_MS), 0)
   }
-  for (const e of entries) {
-    const d = kstDateString(e.timestamp)
-    if (buckets.has(d)) buckets.set(d, (buckets.get(d) ?? 0) + e.costUsd)
+  for (const r of rows) {
+    const d = kstDateString(Number(r.timestamp))
+    if (buckets.has(d)) buckets.set(d, (buckets.get(d) ?? 0) + Number(r.cost_usd))
   }
   return [...buckets.entries()].map(([date, total]) => ({ date, total: +total.toFixed(6) }))
 }
 
-export function getByModel(source: CostEntry[] = entries): { model: string; cost: number }[] {
+export function getByModel(source?: CostEntry[]): { model: string; cost: number }[] {
+  const entries = source ?? getAll()
   const map = new Map<string, number>()
-  for (const e of source) map.set(e.model, (map.get(e.model) ?? 0) + e.costUsd)
+  for (const e of entries) map.set(e.model, (map.get(e.model) ?? 0) + e.costUsd)
   return [...map.entries()]
     .map(([model, cost]) => ({ model, cost: +cost.toFixed(6) }))
     .sort((a, b) => b.cost - a.cost)
 }
 
-export function getByDepartment(source: CostEntry[] = entries): { dept: string; cost: number }[] {
+export function getByDepartment(source?: CostEntry[]): { dept: string; cost: number }[] {
+  const entries = source ?? getAll()
   const map = new Map<string, number>()
-  for (const e of source) map.set(e.department, (map.get(e.department) ?? 0) + e.costUsd)
+  for (const e of entries) map.set(e.department, (map.get(e.department) ?? 0) + e.costUsd)
   return [...map.entries()]
     .map(([dept, cost]) => ({ dept, cost: +cost.toFixed(6) }))
     .sort((a, b) => b.cost - a.cost)
 }
 
-/** 디버그/테스트용 — 모든 엔트리 삭제. */
+/** 디버그/테스트용 — 모든 entry 삭제. */
 export function reset(): void {
-  entries.length = 0
+  stmtDeleteAll.run()
 }
 
 export function _kstDate(ts: number): string {

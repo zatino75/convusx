@@ -13,7 +13,8 @@
     "start": "npx tsx server/src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "benchmark": "npx tsx scripts/run-benchmark.ts"
+    "benchmark": "npx tsx scripts/run-benchmark.ts",
+    "smoke-test": "npx tsx server/scripts/smoke-test.ts"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",

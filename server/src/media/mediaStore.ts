@@ -1,15 +1,14 @@
 /**
- * mediaStore.ts — CORVUS X 생성 미디어 영속 저장소
+ * mediaStore.ts — CORVUS X 생성 미디어 영속 저장소.
  *
- * 2026-04-25 신규.
- * 생성된 이미지/동영상을 디스크에 저장하고 갤러리(/api/media/list)에서 조회할 수 있게 한다.
+ * 2026-04-25 신규 + Phase 8 확장:
+ *   - 저장 경로(쓰기): MEDIA_DIR 단일 (env CORVUS_MEDIA_DIR > server/uploads/media > tmp)
+ *   - 조회 경로(읽기): MEDIA_DIR + 추가 후보(server/uploads, server/public/generated, server/data/media)
+ *     중 존재하는 모든 디렉토리를 스캔, 결과 병합.
  *
- * 저장 위치 우선순위:
- *   1. env CORVUS_MEDIA_DIR
- *   2. /opt/corvusx/server/uploads/media (server 가동 위치 기준)
- *   3. os.tmpdir()/corvusx/media (모든 mkdir 실패 시)
+ * URL 형식: /api/media/file/<filename>
+ * 동일 파일명 충돌 시 첫번째 후보 디렉토리 우선.
  *
- * 파일명: <ISO timestamp>-<short uuid>.<ext>  (예: 2026-04-25T12-30-00Z-a1b2c3.png)
  * 사이드카: <filename>.meta.json — { prompt, model, chatId, createdAt, type, mimeType }
  */
 
@@ -19,7 +18,11 @@ import path from "node:path"
 import crypto from "node:crypto"
 import { logger } from "../observability/logger.js"
 
-const MEDIA_DIR = resolveMediaDir()
+// ── 디렉토리 결정 ─────────────────────────────────────────────────
+const SUPPORTED_EXTS = new Set([
+  "png", "jpg", "jpeg", "webp", "gif",
+  "mp4", "webm", "mov",
+])
 
 function resolveMediaDir(): string {
   const envOverride = String(process.env.CORVUS_MEDIA_DIR ?? "").trim()
@@ -40,11 +43,32 @@ function resolveMediaDir(): string {
   return path.join(os.tmpdir(), "corvusx", "media")
 }
 
-export function getMediaDir(): string {
-  return MEDIA_DIR
+const MEDIA_DIR = resolveMediaDir()
+
+/** 모든 조회 후보 디렉토리. 중복 제거 + 존재하는 것만. */
+function listSearchDirs(): string[] {
+  const candidates = [
+    MEDIA_DIR,
+    path.join(process.cwd(), "uploads"),
+    path.join(process.cwd(), "public", "generated"),
+    path.join(process.cwd(), "data", "media"),
+  ]
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const c of candidates) {
+    let real: string
+    try { real = fs.realpathSync(c) } catch { continue }
+    if (seen.has(real)) continue
+    seen.add(real)
+    out.push(c)
+  }
+  return out
 }
 
-// ── 타입 ────────────────────────────────────────────────────────
+export function getMediaDir(): string { return MEDIA_DIR }
+export function getSearchDirs(): string[] { return listSearchDirs() }
+
+// ── 타입 ─────────────────────────────────────────────────────────
 export type MediaType = "image" | "video"
 
 export interface MediaMeta {
@@ -52,26 +76,25 @@ export interface MediaMeta {
   model?: string
   chatId?: string
   threadId?: string
-  createdAt: string  // ISO
+  createdAt: string
   type: MediaType
   mimeType: string
 }
 
 export interface MediaItem extends MediaMeta {
-  id: string         // filename (확장자 포함)
+  id: string
   filename: string
-  size: number       // bytes
-  url: string        // /api/media/file/<filename>
+  size: number
+  url: string
+  /** 어느 디렉토리에서 발견됐는지 (디버그/삭제용). */
+  sourceDir: string
 }
 
-// ── 파일명 생성 ──────────────────────────────────────────────────
+// ── 파일명 / mime 헬퍼 ───────────────────────────────────────────
 function timestampSlug(): string {
   return new Date().toISOString().replace(/[:.]/g, "-").replace(/Z$/, "Z")
 }
-
-function shortUuid(): string {
-  return crypto.randomBytes(4).toString("hex")
-}
+function shortUuid(): string { return crypto.randomBytes(4).toString("hex") }
 
 function extFromMime(mime: string, fallback = "bin"): string {
   const m = String(mime || "").toLowerCase()
@@ -84,42 +107,41 @@ function extFromMime(mime: string, fallback = "bin"): string {
   if (m.includes("quicktime") || m.includes("mov")) return "mov"
   return fallback
 }
-
 function typeFromMime(mime: string): MediaType {
   return String(mime || "").toLowerCase().startsWith("video/") ? "video" : "image"
 }
+function mimeFromExt(ext: string): string {
+  const e = ext.toLowerCase()
+  if (e === "png") return "image/png"
+  if (e === "jpg" || e === "jpeg") return "image/jpeg"
+  if (e === "webp") return "image/webp"
+  if (e === "gif") return "image/gif"
+  if (e === "mp4") return "video/mp4"
+  if (e === "webm") return "video/webm"
+  if (e === "mov") return "video/quicktime"
+  return "application/octet-stream"
+}
 
-// ── 저장 ────────────────────────────────────────────────────────
+// ── 저장 (변경 없음) ──────────────────────────────────────────────
 export interface SaveMediaInput {
   url?: string
-  dataUri?: string         // data:image/png;base64,xxxx
-  base64?: string          // raw base64 (no data: prefix)
-  mimeType?: string        // raw base64 일 때 필수
+  dataUri?: string
+  base64?: string
+  mimeType?: string
   prompt?: string
   model?: string
   chatId?: string
   threadId?: string
-  filenameHint?: string    // 확장자 기준 추정용
+  filenameHint?: string
 }
+export interface SaveMediaResult { ok: boolean; filename?: string; url?: string; error?: string }
 
-export interface SaveMediaResult {
-  ok: boolean
-  filename?: string
-  url?: string             // /api/media/file/<filename>
-  error?: string
-}
-
-/**
- * 외부 URL 다운로드 또는 base64 디코드 후 디스크 저장.
- * 생성 핸들러에서 호출. 실패는 non-fatal — 호출 측은 결과만 로깅하고 채팅엔 영향 없음.
- */
 export async function saveMedia(input: SaveMediaInput): Promise<SaveMediaResult> {
   try {
     let buffer: Buffer
     let mimeType = String(input.mimeType ?? "").trim()
 
     if (input.dataUri) {
-      // data:image/png;base64,xxxx
       const m = input.dataUri.match(/^data:([^;]+);base64,(.+)$/)
       if (!m) return { ok: false, error: "invalid_data_uri" }
       mimeType = mimeType || m[1]
@@ -135,10 +157,7 @@ export async function saveMedia(input: SaveMediaInput): Promise<SaveMediaResult>
       mimeType = mimeType || res.headers.get("content-type") || ""
       if (!mimeType && input.filenameHint) {
         const e = path.extname(input.filenameHint).toLowerCase().slice(1)
-        if (e === "png") mimeType = "image/png"
-        else if (e === "jpg" || e === "jpeg") mimeType = "image/jpeg"
-        else if (e === "webp") mimeType = "image/webp"
-        else if (e === "mp4") mimeType = "video/mp4"
+        mimeType = mimeFromExt(e)
       }
       if (!mimeType) mimeType = "application/octet-stream"
     } else {
@@ -171,75 +190,81 @@ export async function saveMedia(input: SaveMediaInput): Promise<SaveMediaResult>
   }
 }
 
-// ── 조회 ────────────────────────────────────────────────────────
+// ── 조회 (다중 디렉토리 스캔) ─────────────────────────────────────
 export function listMedia(): MediaItem[] {
-  let entries: string[] = []
-  try { entries = fs.readdirSync(MEDIA_DIR) } catch { return [] }
-
+  const dirs = listSearchDirs()
   const items: MediaItem[] = []
-  for (const name of entries) {
-    if (name.endsWith(".meta.json")) continue
-    const filePath = path.join(MEDIA_DIR, name)
-    let stat: fs.Stats
-    try { stat = fs.statSync(filePath) } catch { continue }
-    if (!stat.isFile()) continue
+  const seenFilenames = new Set<string>()
 
-    const metaPath = `${filePath}.meta.json`
-    let meta: MediaMeta | null = null
-    if (fs.existsSync(metaPath)) {
-      try { meta = JSON.parse(fs.readFileSync(metaPath, "utf-8")) } catch { meta = null }
+  for (const dir of dirs) {
+    let entries: string[] = []
+    try { entries = fs.readdirSync(dir) } catch { continue }
+    for (const name of entries) {
+      if (name.endsWith(".meta.json")) continue
+      const ext = path.extname(name).slice(1).toLowerCase()
+      if (!SUPPORTED_EXTS.has(ext)) continue
+      if (seenFilenames.has(name)) continue
+      seenFilenames.add(name)
+
+      const filePath = path.join(dir, name)
+      let stat: fs.Stats
+      try { stat = fs.statSync(filePath) } catch { continue }
+      if (!stat.isFile()) continue
+
+      const metaPath = `${filePath}.meta.json`
+      let meta: MediaMeta | null = null
+      if (fs.existsSync(metaPath)) {
+        try { meta = JSON.parse(fs.readFileSync(metaPath, "utf-8")) } catch { meta = null }
+      }
+      const inferredType: MediaType = ["mp4", "webm", "mov"].includes(ext) ? "video" : "image"
+      const inferredMime = meta?.mimeType || mimeFromExt(ext)
+
+      items.push({
+        id: name,
+        filename: name,
+        size: stat.size,
+        url: `/api/media/file/${encodeURIComponent(name)}`,
+        prompt: meta?.prompt,
+        model: meta?.model,
+        chatId: meta?.chatId,
+        threadId: meta?.threadId,
+        createdAt: meta?.createdAt ?? stat.mtime.toISOString(),
+        type: meta?.type ?? inferredType,
+        mimeType: inferredMime,
+        sourceDir: dir,
+      })
     }
-    const ext = path.extname(name).slice(1).toLowerCase()
-    const inferredType: MediaType = ["mp4", "webm", "mov"].includes(ext) ? "video" : "image"
-    const inferredMime = meta?.mimeType || (
-      ext === "png" ? "image/png" :
-      ext === "jpg" || ext === "jpeg" ? "image/jpeg" :
-      ext === "webp" ? "image/webp" :
-      ext === "gif" ? "image/gif" :
-      ext === "mp4" ? "video/mp4" :
-      ext === "webm" ? "video/webm" :
-      "application/octet-stream"
-    )
-
-    items.push({
-      id: name,
-      filename: name,
-      size: stat.size,
-      url: `/api/media/file/${encodeURIComponent(name)}`,
-      prompt: meta?.prompt,
-      model: meta?.model,
-      chatId: meta?.chatId,
-      threadId: meta?.threadId,
-      createdAt: meta?.createdAt ?? stat.mtime.toISOString(),
-      type: meta?.type ?? inferredType,
-      mimeType: inferredMime,
-    })
   }
-  // 최신순 정렬
   items.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
   return items
 }
 
-// ── 삭제 ────────────────────────────────────────────────────────
-/**
- * 파일명 안전 검증: 디렉터리 traversal 방지.
- * MEDIA_DIR 내 일반 파일만 삭제 허용. .meta.json 도 같이 제거.
- */
+// ── 헬퍼: 파일명 → 실제 경로 (search dirs 순회) ───────────────────
+function findFilePath(filename: string): { filePath: string; dir: string } | null {
+  const safe = path.basename(String(filename ?? ""))
+  if (!safe || safe.includes("..") || safe.includes("/") || safe.includes("\\")) return null
+  for (const dir of listSearchDirs()) {
+    const filePath = path.join(dir, safe)
+    if (!fs.existsSync(filePath)) continue
+    const realDir = path.resolve(dir)
+    const realFile = path.resolve(filePath)
+    if (!realFile.startsWith(realDir + path.sep) && realFile !== realDir) continue
+    return { filePath, dir }
+  }
+  return null
+}
+
+// ── 삭제 ─────────────────────────────────────────────────────────
 export function deleteMedia(filename: string): { ok: boolean; error?: string } {
   const safe = path.basename(String(filename ?? ""))
   if (!safe || safe.includes("..") || safe.includes("/") || safe.includes("\\")) {
     return { ok: false, error: "invalid_filename" }
   }
-  const filePath = path.join(MEDIA_DIR, safe)
-  // 절대 경로 검증
-  const realDir = path.resolve(MEDIA_DIR)
-  const realFile = path.resolve(filePath)
-  if (!realFile.startsWith(realDir + path.sep) && realFile !== realDir) {
-    return { ok: false, error: "path_escape" }
-  }
+  const found = findFilePath(safe)
+  if (!found) return { ok: false, error: "not_found" }
   try {
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
-    const metaPath = `${filePath}.meta.json`
+    fs.unlinkSync(found.filePath)
+    const metaPath = `${found.filePath}.meta.json`
     if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath)
     return { ok: true }
   } catch (err: any) {
@@ -247,39 +272,23 @@ export function deleteMedia(filename: string): { ok: boolean; error?: string } {
   }
 }
 
-/**
- * 파일 데이터 + mime 반환 (route handler 가 응답 본문에 쓰기 위함).
- */
+// ── 바이너리 읽기 ─────────────────────────────────────────────────
 export function readMediaFile(filename: string): { ok: boolean; data?: Buffer; mimeType?: string; error?: string } {
   const safe = path.basename(String(filename ?? ""))
   if (!safe || safe.includes("..") || safe.includes("/") || safe.includes("\\")) {
     return { ok: false, error: "invalid_filename" }
   }
-  const filePath = path.join(MEDIA_DIR, safe)
-  const realDir = path.resolve(MEDIA_DIR)
-  const realFile = path.resolve(filePath)
-  if (!realFile.startsWith(realDir + path.sep) && realFile !== realDir) {
-    return { ok: false, error: "path_escape" }
-  }
-  if (!fs.existsSync(filePath)) return { ok: false, error: "not_found" }
+  const found = findFilePath(safe)
+  if (!found) return { ok: false, error: "not_found" }
   try {
-    const data = fs.readFileSync(filePath)
+    const data = fs.readFileSync(found.filePath)
     const ext = path.extname(safe).slice(1).toLowerCase()
     let mime = "application/octet-stream"
-    const metaPath = `${filePath}.meta.json`
+    const metaPath = `${found.filePath}.meta.json`
     if (fs.existsSync(metaPath)) {
       try { mime = JSON.parse(fs.readFileSync(metaPath, "utf-8"))?.mimeType ?? mime } catch { /* ignore */ }
     }
-    if (mime === "application/octet-stream") {
-      mime = ext === "png" ? "image/png"
-        : ext === "jpg" || ext === "jpeg" ? "image/jpeg"
-        : ext === "webp" ? "image/webp"
-        : ext === "gif" ? "image/gif"
-        : ext === "mp4" ? "video/mp4"
-        : ext === "webm" ? "video/webm"
-        : ext === "mov" ? "video/quicktime"
-        : "application/octet-stream"
-    }
+    if (mime === "application/octet-stream") mime = mimeFromExt(ext)
     return { ok: true, data, mimeType: mime }
   } catch (err: any) {
     return { ok: false, error: String(err?.message ?? err) }

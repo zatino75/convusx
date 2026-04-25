@@ -254,6 +254,8 @@ server/src/
 19. **`startBenchmarkScheduler` 자동 실행 재활성화 금지** — 2026-04-25 인시던트: 1시간 후 자동 발동 → 12 케이스 × 5 호출 = 60 LLM 호출, 분당 Opus 호출 ~$0.30~$0.65 누수. `routes/benchmark.ts::startBenchmarkScheduler` 는 영구 no-op 유지. 수동 트리거 (`/api/benchmark/run`) 만 허용. setTimeout/setInterval 추가 금지.
 20. **`agent/agentLoop.ts::DEFAULT_MODEL` 을 claude-opus-* 로 설정 금지** — 2026-04-25 인시던트의 근본 원인. `claude-sonnet-4-6` 고정. Opus 가 필요한 호출은 명시적 `model_override` 로만 활성화. 어떤 환경변수/조건문으로도 DEFAULT_MODEL 자체를 Opus 로 분기 금지 (규칙 #18 보강).
 21. **백그라운드 스케줄러에서 LLM API 직접 호출 금지** — health check / snapshot / cron 류 자동 실행 코드는 anthropic/openai/gemini/perplexity 호출 절대 금지. 헬스 검증은 env key 존재 확인만 (HTTP 200 등가). 진짜 가용성은 실제 채팅 호출 시점에 검증된다. 위반 사례: 2026-04-25 이전 `checkProviderHealth` 가 30분마다 Anthropic/Perplexity POST 호출 → 누적 비용 발생.
+22. **`costStore` / `creditStore` 를 in-memory / JSON 파일 전용으로 회귀 금지** — 2026-04-25 Phase 8 부터 `server/data/corvusx.db` (SQLite) 가 진실 소스. 서버 재시작 시 today/이번 달 통계가 0으로 초기화되는 버그 재발 방지. 두 모듈은 반드시 `db/corvusxDb.ts` 의 `corvusxDb` 인스턴스를 사용해야 한다. 휘발성 캐시(Map/배열)를 module-level state 로 두지 말 것 — prepared statement 만 캐시 허용. 마이그레이션 자동 import (credits.json → SQLite) 는 idempotent (`stmtCount > 0` 가드).
+23. **우측 부서 패널을 `dashboard` / `gallery` 뷰에서 표시 금지** — `aside.panel` 은 채팅 전용 위젯(부서/매출/POS/보고). `state.activeView !== 'chat'` 이면 `display:none` + `.app` grid 우측 컬럼 0. CSS(`.app[data-view="dashboard"] .panel`) 와 JS(`_setRightPanelVisible`) 양쪽 모두 유지 — 한쪽만 두면 사이드바 토글/캐시 케이스에서 드러남. 사이드바 토글 핸들러도 dashboard 뷰에서 inline grid 재적용 필요.
 
 ## 알려진 이슈
 - GPT-5.4-pro 60s 타임아웃 → fallback 빈번할 수 있음 (의도적 — 느린 GPT 보다 빠른 fallback 선호)
