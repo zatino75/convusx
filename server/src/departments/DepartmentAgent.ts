@@ -545,7 +545,7 @@ export async function runDepartmentAgent(
       outputTokens: outputTokensActual,
       costUsd,
     });
-    creditStore.recordUsage(costUsd, `${task.deptId} · ${modelIdForPricing}`);
+    creditStore.recordUsage(costUsd, { model: modelIdForPricing, memo: `${task.deptId} · ${modelIdForPricing}` });
   } catch { /* costStore 실패 무시 */ }
 
   onProgress?.(task.deptId, '완료', 100);

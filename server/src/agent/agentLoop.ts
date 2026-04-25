@@ -522,7 +522,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
         outputTokens,
         costUsd,
       })
-      creditStore.recordUsage(costUsd, `single_agent · ${activeModel}`)
+      creditStore.recordUsage(costUsd, { provider: "anthropic", model: activeModel, memo: `single_agent · ${activeModel}` })
     } catch { /* costStore 실패 무시 */ }
   }
 

@@ -2266,6 +2266,101 @@
     unknown: '기타',
   };
   function costDeptLabel(d) { return COST_DEPT_LABELS[d] || d; }
+
+  // 6 프로바이더 메타. label/icon/topup URL은 백엔드에서도 오지만 UI 폴백 용도로 보관.
+  const PROVIDER_ORDER = ['anthropic', 'openai', 'google', 'deepseek', 'perplexity', 'fal'];
+  const PROVIDER_META = {
+    anthropic:  { label: 'Anthropic',       icon: 'A', url: 'https://console.anthropic.com/settings/billing' },
+    openai:     { label: 'OpenAI',          icon: 'O', url: 'https://platform.openai.com/settings/organization/billing' },
+    google:     { label: 'Google · Gemini', icon: 'G', url: 'https://console.cloud.google.com/billing' },
+    deepseek:   { label: 'DeepSeek',        icon: 'D', url: 'https://platform.deepseek.com/top_up' },
+    perplexity: { label: 'Perplexity',      icon: 'P', url: 'https://www.perplexity.ai/settings/api' },
+    fal:        { label: 'fal.ai',          icon: 'F', url: 'https://fal.ai/dashboard/billing' },
+  };
+
+  // 잔액별 색상 (카드 강조선/숫자 색).
+  function balanceTone(bal) {
+    if (bal == null || isNaN(bal)) return { color: 'var(--text-dim)', border: 'var(--border-soft)', glow: '' };
+    if (bal < 1) return { color: '#f87171', border: '#f87171', glow: '0 0 16px rgba(248,113,113,.35)' };
+    if (bal < 10) return { color: '#fb923c', border: '#fb923c', glow: '' };
+    return { color: 'var(--text)', border: 'var(--border-soft)', glow: '' };
+  }
+
+  function fmtUsd(n) {
+    if (n == null || isNaN(n)) return '—';
+    const v = Number(n);
+    if (Math.abs(v) >= 100) return '\$' + v.toFixed(0);
+    if (Math.abs(v) >= 10) return '\$' + v.toFixed(1);
+    return '\$' + v.toFixed(2);
+  }
+
+  function renderProviderCard(pid, p) {
+    const meta = PROVIDER_META[pid] || { label: pid, icon: '?', url: '#' };
+    const safe = p || { displayBalance: 0, apiBalance: null, apiSupported: false, totalCharged: 0, totalUsed: 0, lastApiFetch: null, topupUrl: meta.url };
+    const tone = balanceTone(safe.displayBalance);
+    const isApi = !!safe.apiSupported;
+    const apiOk = isApi && safe.apiBalance != null;
+    const dotColor = apiOk ? '#22c55e' : (isApi ? '#fb923c' : 'var(--text-dim)');
+    const labelText = apiOk ? 'API 실시간' : (isApi ? 'API 조회 실패 — 수동' : '수동 관리');
+    const lastFetchTxt = safe.lastApiFetch
+      ? new Date(safe.lastApiFetch).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' })
+      : null;
+    const topupUrl = safe.topupUrl || meta.url;
+
+    return `
+      <div style="background:var(--surface);border:2px solid ${tone.border};border-radius:10px;padding:16px;${tone.glow ? 'box-shadow:' + tone.glow + ';' : ''}">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <div style="width:24px;height:24px;border-radius:6px;background:var(--surface-hi);border:1px solid var(--border-soft);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--text-soft);font-family:monospace;">${meta.icon}</div>
+          <div style="flex:1;font-size:13px;font-weight:600;color:var(--text);">${escapeHtml(meta.label)}</div>
+          <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${dotColor};"></span>
+          <span style="font-size:10px;color:var(--text-dim);">${escapeHtml(labelText)}</span>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">
+          <div style="font-size:32px;font-weight:700;color:${tone.color};font-family:monospace;letter-spacing:-1px;line-height:1;">${fmtUsd(safe.displayBalance)}</div>
+          ${isApi ? `<button type="button" data-credit-action="refresh" data-provider="${pid}" title="API 강제 재조회" style="background:transparent;color:var(--text-soft);border:1px solid var(--border-soft);border-radius:5px;padding:2px 7px;font-size:11px;cursor:pointer;line-height:1;">↻</button>` : ''}
+        </div>
+        ${lastFetchTxt ? `<div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">갱신 ${escapeHtml(lastFetchTxt)}</div>` : '<div style="height:14px;"></div>'}
+        <div style="border-top:1px solid var(--border-soft);padding-top:8px;font-size:11px;color:var(--text-soft);display:flex;justify-content:space-between;margin-bottom:12px;">
+          <span>사용 <span style="color:var(--text);font-family:monospace;">\$${Number(safe.totalUsed || 0).toFixed(2)}</span></span>
+          <span>충전 <span style="color:var(--text);font-family:monospace;">\$${Number(safe.totalCharged || 0).toFixed(2)}</span></span>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button type="button" data-credit-action="manual" data-provider="${pid}" style="flex:1;background:transparent;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:11px;cursor:pointer;font-weight:500;">수동 입력</button>
+          <button type="button" data-credit-action="topup" data-provider="${pid}" data-url="${escapeHtml(topupUrl)}" style="flex:1;background:var(--accent);color:#fff;border:none;border-radius:6px;padding:7px 10px;font-size:11px;cursor:pointer;font-weight:600;">충전하러가기 →</button>
+        </div>
+      </div>`;
+  }
+
+  async function refreshOneProvider(body, provider) {
+    try {
+      const r = await fetch(API_BASE + '/api/cost/credit/refresh', {
+        method:'POST', credentials:'include',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ provider }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.ok === false) throw new Error(j.error || ('HTTP ' + r.status));
+      toast(provider + ' 잔액 갱신');
+      if (state.activeView === 'dashboard') loadCostData(body, true);
+    } catch (err) {
+      toast('재조회 실패: ' + (err.message || err));
+    }
+  }
+  async function refreshAllProviders(body) {
+    try {
+      const r = await fetch(API_BASE + '/api/cost/credit/refresh', {
+        method:'POST', credentials:'include',
+        headers:{'Content-Type':'application/json'},
+        body: '{}',
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.ok === false) throw new Error(j.error || ('HTTP ' + r.status));
+      toast('전체 잔액 갱신');
+      if (state.activeView === 'dashboard') loadCostData(body, true);
+    } catch (err) {
+      toast('전체 재조회 실패: ' + (err.message || err));
+    }
+  }
   function costAlertCssVar(level) {
     if (level === 'danger') return 'var(--red)';        // #b94141
     if (level === 'warning') return 'var(--accent)';    // #C96442
@@ -2360,49 +2455,28 @@
       const sectionTitle = (label) => `<div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:14px;text-transform:uppercase;letter-spacing:1.2px;">${label}</div>`;
       const cardStyle = `background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;padding:18px;`;
 
-      // ── 크레딧 잔액 카드 ──
-      const credit = d.credit || { balance: 0, totalCharged: 0, totalUsed: 0, history: [] };
-      const balance = Number(credit.balance ?? 0);
-      let creditColor = 'var(--text)';
-      let creditWarn = '';
-      if (balance < 0) { creditColor = 'var(--red)'; creditWarn = '잔액 음수 — 즉시 충전 필요'; }
-      else if (balance < 5) { creditColor = 'var(--accent)'; creditWarn = '잔액 \$5 미만'; }
-
-      const chargeRows = (credit.history || []).length === 0
-        ? '<tr><td colspan="4" style="text-align:center;color:var(--text-dim);font-size:12px;padding:14px;">충전 기록 없음</td></tr>'
-        : credit.history.map(h => {
-            const dt = new Date(h.date);
-            const dateStr = isNaN(dt.getTime()) ? String(h.date) :
-              dt.toLocaleString('ko-KR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
-            return `
-              <tr style="border-bottom:1px solid var(--border-soft);">
-                <td style="padding:6px 8px;color:var(--text-soft);font-family:monospace;font-size:11px;">${escapeHtml(dateStr)}</td>
-                <td style="padding:6px 8px;color:var(--text);font-size:11px;font-family:monospace;">+\$${Number(h.amount).toFixed(2)}</td>
-                <td style="padding:6px 8px;color:var(--text-soft);font-size:11px;">${escapeHtml(h.memo || '-')}</td>
-                <td style="padding:6px 8px;text-align:right;color:var(--text);font-size:11px;font-family:monospace;font-weight:500;">\$${Number(h.balance).toFixed(2)}</td>
-              </tr>`;
-          }).join('');
+      // ── 6 프로바이더 카드 ──
+      const providers = d.providers || {};
+      const providerCardsHtml = PROVIDER_ORDER.map(pid => renderProviderCard(pid, providers[pid])).join('');
 
       body.innerHTML = `
         <div style="max-width:1200px;margin:0 auto;font-family:inherit;color:var(--text);">
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:18px;">
-            <div style="${cardStyle}border-color:${alertVar};border-width:2px;text-align:center;">
-              <div style="font-size:11px;color:var(--text-soft);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px;">오늘 총 비용 · KST ${escapeHtml(d.date || '')}</div>
-              <div style="font-size:48px;font-weight:700;color:${alertVar};font-family:monospace;letter-spacing:-2px;line-height:1;">${costFmt(total)}</div>
-              <div style="font-size:11px;color:var(--text-dim);margin-top:14px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
-                <span>경고 \$${d.thresholds?.warning ?? 5} · 위험 \$${d.thresholds?.danger ?? 10}</span>
-                <span>↻ ${escapeHtml(updatedAt)} · 30s</span>
-              </div>
+          <div style="${cardStyle}border-color:${alertVar};border-width:2px;text-align:center;margin-bottom:18px;">
+            <div style="font-size:11px;color:var(--text-soft);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px;">오늘 총 비용 · KST ${escapeHtml(d.date || '')}</div>
+            <div style="font-size:48px;font-weight:700;color:${alertVar};font-family:monospace;letter-spacing:-2px;line-height:1;">${costFmt(total)}</div>
+            <div style="font-size:11px;color:var(--text-dim);margin-top:14px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span>경고 \$${d.thresholds?.warning ?? 5} · 위험 \$${d.thresholds?.danger ?? 10}</span>
+              <span>↻ ${escapeHtml(updatedAt)} · 30s</span>
             </div>
-            <div style="${cardStyle}border-color:${creditColor === 'var(--text)' ? 'var(--border-soft)' : creditColor};border-width:2px;text-align:center;">
-              <div style="font-size:11px;color:var(--text-soft);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px;">현재 크레딧 잔액</div>
-              <div style="font-size:48px;font-weight:700;color:${creditColor};font-family:monospace;letter-spacing:-2px;line-height:1;">\$${balance.toFixed(2)}</div>
-              <div style="font-size:11px;color:var(--text-dim);margin-top:10px;">
-                총 충전 <span style="color:var(--text-soft);font-family:monospace;">\$${Number(credit.totalCharged).toFixed(2)}</span>
-                · 총 사용 <span style="color:var(--text-soft);font-family:monospace;">\$${Number(credit.totalUsed).toFixed(4)}</span>
-              </div>
-              ${creditWarn ? `<div style="font-size:11px;color:${creditColor};margin-top:6px;font-weight:600;">⚠ ${escapeHtml(creditWarn)}</div>` : ''}
-              <button id="creditChargeBtn" type="button" style="margin-top:14px;background:var(--accent);color:#fff;border:none;border-radius:6px;padding:8px 18px;font-size:12px;font-weight:600;cursor:pointer;letter-spacing:.5px;">충전 입력</button>
+          </div>
+
+          <div style="margin-bottom:18px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+              <div style="font-size:11px;color:var(--accent);font-weight:600;text-transform:uppercase;letter-spacing:1.2px;">프로바이더 크레딧 (6)</div>
+              <button id="creditRefreshAllBtn" type="button" style="background:transparent;color:var(--text-soft);border:1px solid var(--border);border-radius:6px;padding:5px 12px;font-size:11px;cursor:pointer;">↻ 전체 새로고침</button>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;">
+              ${providerCardsHtml}
             </div>
           </div>
 
@@ -2417,7 +2491,7 @@
             </div>
           </div>
 
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:14px;">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;">
             <div style="${cardStyle}">
               ${sectionTitle('최근 7일 트렌드')}
               <div style="display:flex;align-items:flex-end;gap:6px;height:150px;padding:0 6px;">
@@ -2439,25 +2513,25 @@
               </table>
             </div>
           </div>
-
-          <div style="${cardStyle}">
-            ${sectionTitle('충전 내역 (최근 10건)')}
-            <table style="width:100%;border-collapse:collapse;">
-              <thead>
-                <tr style="border-bottom:1px solid var(--border);">
-                  <th style="text-align:left;padding:6px 8px;font-size:11px;color:var(--text-soft);font-weight:500;text-transform:uppercase;letter-spacing:.5px;">날짜</th>
-                  <th style="text-align:left;padding:6px 8px;font-size:11px;color:var(--text-soft);font-weight:500;text-transform:uppercase;letter-spacing:.5px;">충전금액</th>
-                  <th style="text-align:left;padding:6px 8px;font-size:11px;color:var(--text-soft);font-weight:500;text-transform:uppercase;letter-spacing:.5px;">메모</th>
-                  <th style="text-align:right;padding:6px 8px;font-size:11px;color:var(--text-soft);font-weight:500;text-transform:uppercase;letter-spacing:.5px;">잔액</th>
-                </tr>
-              </thead>
-              <tbody>${chargeRows}</tbody>
-            </table>
-          </div>
         </div>`;
 
-      const chargeBtn = body.querySelector('#creditChargeBtn');
-      if (chargeBtn) chargeBtn.onclick = () => openCreditChargeModal(body);
+      // 카드 버튼 핸들러 위임
+      body.querySelectorAll('[data-credit-action]').forEach(btn => {
+        btn.onclick = (e) => {
+          e.preventDefault();
+          const action = btn.getAttribute('data-credit-action');
+          const provider = btn.getAttribute('data-provider');
+          if (action === 'manual') openCreditChargeModal(body, provider);
+          else if (action === 'topup') {
+            const url = btn.getAttribute('data-url');
+            if (url) window.open(url, '_blank', 'noopener');
+          } else if (action === 'refresh') {
+            refreshOneProvider(body, provider);
+          }
+        };
+      });
+      const refreshAllBtn = body.querySelector('#creditRefreshAllBtn');
+      if (refreshAllBtn) refreshAllBtn.onclick = () => refreshAllProviders(body);
 
       if (!isPoll && state.activeView === 'dashboard') startCostPolling(body);
     } catch (err) {
@@ -2466,13 +2540,15 @@
     }
   }
 
-  // ─── 크레딧 충전 모달 ────────────────────────────────────────────
-  function openCreditChargeModal(dashBody) {
+  // ─── 크레딧 충전 모달 (provider별) ───────────────────────────────
+  function openCreditChargeModal(dashBody, provider) {
+    const meta = PROVIDER_META[provider] || { label: provider || '크레딧' };
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;';
     overlay.innerHTML = `
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:22px;width:340px;max-width:92vw;color:var(--text);box-shadow:0 8px 32px rgba(0,0,0,.25);">
-        <div style="font-size:13px;color:var(--accent);font-weight:600;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:16px;">크레딧 충전</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:22px;width:360px;max-width:92vw;color:var(--text);box-shadow:0 8px 32px rgba(0,0,0,.25);">
+        <div style="font-size:13px;color:var(--accent);font-weight:600;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:6px;">크레딧 수동 입력</div>
+        <div style="font-size:14px;color:var(--text);font-weight:600;margin-bottom:16px;">${escapeHtml(meta.label)}</div>
         <label style="display:block;font-size:11px;color:var(--text-soft);margin-bottom:6px;">충전 금액 (USD)</label>
         <input id="creditAmtInput" type="number" min="0.01" step="0.01" placeholder="예: 33"
                style="width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface-hi);color:var(--text);font-family:monospace;font-size:14px;margin-bottom:14px;box-sizing:border-box;">
@@ -2499,17 +2575,21 @@
         amtInput.focus();
         return;
       }
+      if (!provider) {
+        toast('provider 누락');
+        return;
+      }
       const memo = memoInput.value.trim();
       try {
         const r = await fetch(API_BASE + '/api/cost/credit', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ amount, memo: memo || undefined }),
+          body: JSON.stringify({ provider, amount, memo: memo || undefined }),
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok || j.ok === false) throw new Error(j.error || ('HTTP ' + r.status));
         close();
-        toast(`크레딧 +$${amount.toFixed(2)} 충전됨`);
+        toast(`${meta.label} +$${amount.toFixed(2)} 충전됨`);
         if (dashBody && state.activeView === 'dashboard') loadCostData(dashBody, true);
       } catch (err) {
         toast('충전 실패: ' + (err.message || err));

@@ -21,6 +21,7 @@ const DATA_DIR = resolve(__dirname, "../../data")
 const LOG_ROTATION_INTERVAL_MS = 6 * 60 * 60 * 1000  // 6시간
 const HEALTH_CHECK_INTERVAL_MS = 30 * 60 * 1000       // 30분
 const RETAIL_SNAPSHOT_INTERVAL_MS = 60 * 60 * 1000    // 1시간
+const CREDIT_REFRESH_INTERVAL_MS = 5 * 60 * 1000      // 5분 — billing endpoints만, LLM 호출 없음
 const LOG_MAX_LINES = 2000
 const LOG_KEEP_LINES = 1500
 
@@ -163,6 +164,10 @@ export function startScheduler() {
     } catch {
       // ignore snapshot bootstrap error
     }
+    // billing 잔액 초기 채움 (LLM 호출 아님 — 규칙 #21 준수)
+    import("../connectors/creditFetcher.js")
+      .then(m => m.backgroundRefresh())
+      .catch(() => {})
   }, 10_000)
 
   // 주기적 실행
@@ -177,6 +182,12 @@ export function startScheduler() {
       })
     }
   }, RETAIL_SNAPSHOT_INTERVAL_MS))
+  // 5분마다 모든 API 가능 provider 잔액 캐시 갱신 (billing endpoints 만)
+  timers.push(setInterval(() => {
+    import("../connectors/creditFetcher.js")
+      .then(m => m.backgroundRefresh())
+      .catch(() => {})
+  }, CREDIT_REFRESH_INTERVAL_MS))
 
   // .unref() — 프로세스 종료 방해 안 함
   for (const t of timers) t.unref()
@@ -194,7 +205,8 @@ export function startScheduler() {
   logger.info("[scheduler] background scheduler started", {
     log_rotation: `${LOG_ROTATION_INTERVAL_MS / 3600000}h`,
     health_check: `${HEALTH_CHECK_INTERVAL_MS / 60000}min`,
-    retail_snapshot: `${RETAIL_SNAPSHOT_INTERVAL_MS / 60000}min`
+    retail_snapshot: `${RETAIL_SNAPSHOT_INTERVAL_MS / 60000}min`,
+    credit_refresh: `${CREDIT_REFRESH_INTERVAL_MS / 60000}min`,
   })
 }
 
