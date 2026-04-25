@@ -7,6 +7,17 @@ import { generateVideoRunway } from "../adapters/runway.js"
 import { generateVideoVeo } from "../adapters/veo.js"
 import { generateImage as generateImageNanoBanana } from "../adapters/nanoBanana.js"
 import { logger } from "../observability/logger.js"
+import { saveMedia } from "../media/mediaStore.js"
+
+/**
+ * 2026-04-25: 생성 결과를 mediaStore 에 fire-and-forget 저장 (갤러리용).
+ * 실패해도 채팅 응답엔 영향 없음. URL/dataUri/base64 어떤 형태든 받음.
+ */
+function persistMedia(input: Parameters<typeof saveMedia>[0]): void {
+  saveMedia(input).catch((err) => {
+    logger.warn("[chatMediaGen] saveMedia 실패 (non-fatal)", { error: String(err?.message ?? err) })
+  })
+}
 
 // ── OpenAI DALL-E ──
 export const IMAGE_PATTERNS = ["이미지 만들어줘","이미지 그려줘","그림 그려줘","그림 만들어줘","이미지 생성해줘","사진 만들어줘","이미지로 만들어줘","그려줘","일러스트 만들어줘","generate image","create image","draw","make an image","make a picture"]
@@ -38,6 +49,7 @@ export async function handleImageCommand(rawMessage: string): Promise<{ ok: bool
       logger.warn("DALL-E image generation failed", { error: result.error })
       return { ok: false, message: `이미지 생성 실패: ${result.error ?? "알 수 없는 오류"}` }
     }
+    persistMedia({ url: result.url, prompt, model: "dall-e-3" })
     return { ok: true, url: result.url, revised_prompt: result.revised_prompt, message: `🎨 이미지가 생성됐습니다.` }
   } catch (e) {
     logger.error("DALL-E image generation exception", { error: e })
@@ -56,6 +68,8 @@ export async function handleGeminiImageCommand(rawMessage: string): Promise<{ ok
       logger.warn("Gemini Imagen generation failed", { error: result.error })
       return { ok: false, message: `Gemini 이미지 생성 실패: ${result.error ?? "알 수 없는 오류"}`, provider: "gemini" }
     }
+    // result.url 은 data:image/...;base64,... 형식 (gemini.ts::generateImageImagen)
+    persistMedia({ dataUri: result.url, prompt, model: "imagen-4" })
     return { ok: true, url: result.url, message: "🎨 Gemini Imagen으로 이미지가 생성됐습니다.", provider: "gemini" }
   } catch (e) {
     logger.error("Gemini Imagen generation exception", { error: e })
@@ -86,6 +100,10 @@ export async function handleMidjourneyCommand(rawMessage: string): Promise<{ ok:
     if (!result.ok) {
       logger.warn("Midjourney generation failed", { error: result.error })
       return { ok: false, message: `Midjourney 생성 실패: ${result.error ?? "알 수 없는 오류"}` }
+    }
+    if (result.image_url) persistMedia({ url: result.image_url, prompt, model: "midjourney" })
+    if (Array.isArray(result.image_urls)) {
+      for (const u of result.image_urls) persistMedia({ url: u, prompt, model: "midjourney" })
     }
     return { ok: true, url: result.image_url, image_urls: result.image_urls, message: "🎨 Midjourney로 이미지가 생성됐습니다." }
   } catch (e) {
@@ -118,6 +136,7 @@ export async function handleRunwayCommand(rawMessage: string): Promise<{ ok: boo
       logger.warn("Runway video generation failed", { error: result.error })
       return { ok: false, message: `Runway 비디오 생성 실패: ${result.error ?? "알 수 없는 오류"}` }
     }
+    if (result.video_url) persistMedia({ url: result.video_url, prompt, model: "runway-gen4-turbo" })
     return { ok: true, video_url: result.video_url, message: "🎬 Runway Gen4 Turbo로 비디오가 생성됐습니다." }
   } catch (e) {
     logger.error("Runway video generation exception", { error: e })
@@ -148,6 +167,7 @@ export async function handleVeoCommand(rawMessage: string): Promise<{ ok: boolea
       logger.warn("Veo video generation failed", { error: result.error })
       return { ok: false, message: `Veo 비디오 생성 실패: ${result.error ?? "알 수 없는 오류"}` }
     }
+    if (result.video_url) persistMedia({ url: result.video_url, prompt, model: "gemini-veo-3.1" })
     return { ok: true, video_url: result.video_url, message: "🎬 Gemini Veo 3.1로 비디오가 생성됐습니다." }
   } catch (e) {
     logger.error("Veo video generation exception", { error: e })
@@ -180,6 +200,7 @@ export async function handleNanoBananaCommand(rawMessage: string): Promise<{ ok:
       logger.warn("Nano Banana generation failed", { error: result.error })
       return { ok: false, message: `Nano Banana 이미지 생성 실패: ${result.error ?? "알 수 없는 오류"}` }
     }
+    for (const img of result.images) persistMedia({ base64: img.base64, mimeType: img.mimeType, prompt, model: "nano-banana" })
     return { ok: true, images: result.images, message: "🎨 Nano Banana 2 (Gemini Flash)로 이미지가 생성됐습니다." }
   } catch (e) {
     logger.error("Nano Banana generation exception", { error: e })

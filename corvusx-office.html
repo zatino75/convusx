@@ -160,10 +160,47 @@
   .bubble-menu .sub{position:absolute;left:100%;top:0;margin-left:2px}
 
   /* ─ main column ─ */
-  /* 2026-04-25: 메인 컬럼을 flex 컨테이너로 — chat / dashboard view 가 height 100% 채우도록 */
+  /* 2026-04-25: 메인 컬럼을 flex 컨테이너로 — chat / dashboard / gallery view 가 height 100% 채우도록 */
   .main-col{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
   .main-col > .chat,
-  .main-col > .dashboard-view{flex:1;min-height:0}
+  .main-col > .dashboard-view,
+  .main-col > .gallery-view{flex:1;min-height:0}
+
+  /* ─ Gallery 라이트박스 (전체화면 미리보기) ─ */
+  .gallery-lightbox{position:fixed;inset:0;background:rgba(20,18,15,0.92);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px}
+  .gallery-lightbox-media{max-width:min(90vw, 1200px);max-height:75vh;object-fit:contain;border-radius:6px;background:#000}
+  .gallery-lightbox-nav{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#fff;width:48px;height:48px;border-radius:50%;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s}
+  .gallery-lightbox-nav:hover{background:rgba(255,255,255,.18)}
+  .gallery-lightbox-nav.prev{left:24px}
+  .gallery-lightbox-nav.next{right:24px}
+  .gallery-lightbox-close{position:absolute;top:20px;right:24px;background:none;border:none;color:#fff;font-size:28px;cursor:pointer;opacity:.7}
+  .gallery-lightbox-close:hover{opacity:1}
+  .gallery-lightbox-info{margin-top:18px;color:#e8e6e0;text-align:center;max-width:900px;font-size:13px}
+  .gallery-lightbox-info .prompt{color:#fff;line-height:1.5;margin-bottom:8px;font-size:14px}
+  .gallery-lightbox-info .meta{color:#a8a39a;font-size:11px;display:flex;gap:16px;justify-content:center;align-items:center}
+  .gallery-lightbox-info button{background:transparent;border:1px solid var(--accent);color:var(--accent);padding:5px 14px;border-radius:5px;font-size:11px;cursor:pointer;transition:background .15s,color .15s;margin-left:12px}
+  .gallery-lightbox-info button:hover{background:var(--accent);color:#fff}
+
+  /* ─ 삭제 확인 모달 ─ */
+  .gallery-modal{position:fixed;inset:0;background:rgba(20,18,15,0.6);z-index:10000;display:flex;align-items:center;justify-content:center}
+  .gallery-modal-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px;min-width:320px;max-width:420px;box-shadow:0 12px 40px rgba(0,0,0,.25)}
+  .gallery-modal-title{font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px}
+  .gallery-modal-msg{font-size:13px;color:var(--text-soft);margin-bottom:20px;line-height:1.5}
+  .gallery-modal-actions{display:flex;justify-content:flex-end;gap:8px}
+  .gallery-modal-btn{padding:7px 16px;border-radius:5px;font-size:13px;cursor:pointer;border:1px solid var(--border);background:var(--surface-hi);color:var(--text);transition:background .15s}
+  .gallery-modal-btn:hover{background:var(--input)}
+  .gallery-modal-btn.danger{background:var(--accent);border-color:var(--accent);color:#fff}
+  .gallery-modal-btn.danger:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+
+  /* ─ Gallery card 호버 효과 ─ */
+  .gallery-card{position:relative;background:var(--surface);border:2px solid var(--border-soft);border-radius:8px;overflow:hidden;cursor:pointer;transition:border-color .15s,transform .15s}
+  .gallery-card:hover{border-color:var(--border)}
+  .gallery-card.selected{border-color:var(--accent)}
+  .gallery-card .check{position:absolute;top:8px;left:8px;width:22px;height:22px;border-radius:5px;background:rgba(255,255,255,.85);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .15s;z-index:2}
+  .gallery-card:hover .check,
+  .gallery-card.selected .check{opacity:1}
+  .gallery-card.selected .check{background:var(--accent);border-color:var(--accent);color:#fff}
+  .gallery-card .play-overlay{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:48px;height:48px;border-radius:50%;background:rgba(0,0,0,.5);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;pointer-events:none}
 
   /* ─── 채팅 패널 — 아이보리 (Phase A: 다크 테마 제거) ─────────────────── */
   .chat{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:var(--chat);position:relative}
@@ -369,10 +406,10 @@
         <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
         새 채팅
       </button>
-      <a href="/?view=images" class="nav-btn">
+      <button class="nav-btn" id="navImages" type="button">
         <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1"/><circle cx="6" cy="7" r="1.5"/><path d="M2 11l4-4 3 3 5-5"/></svg>
         이미지
-      </a>
+      </button>
       <button class="nav-btn" id="navDashboard" type="button">
         <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="5" height="5"/><rect x="9" y="3" width="5" height="5"/><rect x="2" y="10" width="5" height="3"/><rect x="9" y="10" width="5" height="3"/></svg>
         대시보드
@@ -393,6 +430,11 @@
     <!-- Dashboard view (사이드바 '대시보드' 클릭 시 표시) -->
     <section class="dashboard-view" id="dashboardView" style="display:none;flex-direction:column;height:100%;overflow:auto;background:var(--bg);color:var(--text);padding:24px 28px;">
       <div id="dashboardBody"></div>
+    </section>
+
+    <!-- Gallery view (사이드바 '이미지' 클릭 시 표시) -->
+    <section class="gallery-view" id="galleryView" style="display:none;flex-direction:column;height:100%;overflow:auto;background:var(--bg);color:var(--text);padding:24px 28px;">
+      <div id="galleryBody"></div>
     </section>
 
     <section class="chat" id="chatView">
@@ -549,8 +591,9 @@
     app:$('app'),
     toggleSidebar:$('toggleSidebar'), togglePanel:$('togglePanel'),
     sbToggleCollapse:$('sbToggleCollapse'),
-    navNewChat:$('navNewChat'), navDashboard:$('navDashboard'), newProject:$('newProject'),
+    navNewChat:$('navNewChat'), navDashboard:$('navDashboard'), navImages:$('navImages'), newProject:$('newProject'),
     dashboardView:$('dashboardView'), dashboardBody:$('dashboardBody'), chatView:$('chatView'),
+    galleryView:$('galleryView'), galleryBody:$('galleryBody'),
     generalThreads:$('generalThreads'), projectList:$('projectList'),
     chatTitle:$('chatTitle'), chatLog:$('chatLog'),
     directive:$('directive'), sendBtn:$('sendBtn'),
@@ -2039,23 +2082,36 @@
     renderPanel();
   }
 
-  // ─── View Switch (chat ↔ dashboard) ──────────────────────────────
-  // 사이드바 '대시보드' 클릭 시 메인 영역을 채팅에서 대시보드로 교체.
-  function showDashboard() {
-    state.activeView = 'dashboard';
+  // ─── View Switch (chat ↔ dashboard ↔ gallery) ──────────────────
+  // 사이드바 메뉴 클릭 시 메인 영역의 view를 교체.
+  function _hideAllViews() {
     if (dom.chatView) dom.chatView.style.display = 'none';
-    if (dom.dashboardView) dom.dashboardView.style.display = 'flex';
+    if (dom.dashboardView) dom.dashboardView.style.display = 'none';
+    if (dom.galleryView) dom.galleryView.style.display = 'none';
     if (dom.navNewChat) dom.navNewChat.classList.remove('active');
+    if (dom.navDashboard) dom.navDashboard.classList.remove('active');
+    if (dom.navImages) dom.navImages.classList.remove('active');
+    if (typeof stopCostPolling === 'function') stopCostPolling();
+  }
+  function showDashboard() {
+    _hideAllViews();
+    state.activeView = 'dashboard';
+    if (dom.dashboardView) dom.dashboardView.style.display = 'flex';
     if (dom.navDashboard) dom.navDashboard.classList.add('active');
     if (dom.dashboardBody) loadCostData(dom.dashboardBody, false);
   }
   function showChat() {
+    _hideAllViews();
     state.activeView = 'chat';
-    if (typeof stopCostPolling === 'function') stopCostPolling();
-    if (dom.dashboardView) dom.dashboardView.style.display = 'none';
     if (dom.chatView) dom.chatView.style.display = '';
-    if (dom.navDashboard) dom.navDashboard.classList.remove('active');
     if (dom.navNewChat) dom.navNewChat.classList.add('active');
+  }
+  function showGallery() {
+    _hideAllViews();
+    state.activeView = 'gallery';
+    if (dom.galleryView) dom.galleryView.style.display = 'flex';
+    if (dom.navImages) dom.navImages.classList.add('active');
+    if (dom.galleryBody && typeof loadGallery === 'function') loadGallery();
   }
   document.querySelectorAll('.tab-btn').forEach(b => {
     if (b.classList.contains('panel-tab-toggle')) return;  // 토글 버튼은 tab 전환 대상 아님
@@ -2357,6 +2413,256 @@
     }
   }
 
+  // ─── Gallery (사이드바 '이미지') ─────────────────────────────────
+  // 기존 CSS 변수만 사용. /api/media/list 로드 → 그리드 + 라이트박스 + 삭제 모달.
+  const galleryState = {
+    items: [],
+    selected: new Set(),
+    sort: 'newest',  // 'newest' | 'oldest'
+    lightboxIndex: -1,
+  };
+
+  function fmtBytes(n) {
+    n = Number(n) || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+  }
+  function fmtDate(iso) {
+    if (!iso) return '-';
+    try { return new Date(iso).toLocaleString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }); }
+    catch { return iso; }
+  }
+  function gallerySorted() {
+    const arr = [...galleryState.items];
+    arr.sort((a, b) => galleryState.sort === 'newest'
+      ? (a.createdAt < b.createdAt ? 1 : -1)
+      : (a.createdAt > b.createdAt ? 1 : -1));
+    return arr;
+  }
+
+  async function loadGallery() {
+    const body = dom.galleryBody;
+    if (!body) return;
+    body.innerHTML = '<div style="color:var(--text-dim);text-align:center;padding:60px;font-size:13px;">불러오는 중...</div>';
+    try {
+      const r = await fetch(API_BASE + '/api/media/list', { credentials:'include' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      if (d && d.ok === false) throw new Error(d.error || 'unknown');
+      if (state.activeView !== 'gallery') return;
+      galleryState.items = Array.isArray(d.items) ? d.items : [];
+      galleryState.selected.clear();
+      renderGallery();
+    } catch (err) {
+      body.innerHTML = `<div style="color:var(--red);text-align:center;padding:60px;font-size:13px;">갤러리 로드 실패: ${escapeHtml(String(err.message || err))}</div>`;
+    }
+  }
+
+  function renderGallery() {
+    const body = dom.galleryBody;
+    if (!body) return;
+    const items = gallerySorted();
+    const total = items.length;
+    const totalSize = items.reduce((s, it) => s + (Number(it.size) || 0), 0);
+    const selCount = galleryState.selected.size;
+    const allChecked = total > 0 && selCount === total;
+    const deleteEnabled = selCount > 0;
+
+    if (total === 0) {
+      body.innerHTML = `
+        <div style="max-width:1200px;margin:0 auto;">
+          <div style="background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;padding:80px 24px;text-align:center;color:var(--text-dim);">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" style="opacity:.5;margin-bottom:14px;"><rect x="3" y="5" width="18" height="14" rx="1.5"/><circle cx="8" cy="11" r="2"/><path d="M3 17l5-5 4 4 4-3 5 4"/></svg>
+            <div style="font-size:14px;color:var(--text-soft);">아직 생성된 이미지가 없습니다</div>
+            <div style="font-size:12px;margin-top:6px;">채팅에서 이미지/동영상을 생성하면 여기에 자동 저장됩니다</div>
+          </div>
+        </div>`;
+      return;
+    }
+
+    const gridCards = items.map((it) => {
+      const sel = galleryState.selected.has(it.id);
+      const isVideo = it.type === 'video';
+      const media = isVideo
+        ? `<video src="${escapeHtml(it.url)}" preload="metadata" style="width:100%;aspect-ratio:1/1;object-fit:cover;background:#000;display:block;"></video>
+           <div class="play-overlay">▶</div>`
+        : `<img src="${escapeHtml(it.url)}" alt="" loading="lazy" style="width:100%;aspect-ratio:1/1;object-fit:cover;background:var(--surface-hi);display:block;" />`;
+      return `
+        <div class="gallery-card${sel ? ' selected' : ''}" data-id="${escapeHtml(it.id)}">
+          <div class="check" data-action="toggle" title="선택">${sel ? '✓' : ''}</div>
+          <div data-action="open">${media}</div>
+          <div style="padding:8px 10px;border-top:1px solid var(--border-soft);">
+            <div style="font-size:11px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(it.filename)}">${escapeHtml(it.filename)}</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:3px;display:flex;justify-content:space-between;">
+              <span>${escapeHtml(fmtDate(it.createdAt))}</span>
+              <span>${fmtBytes(it.size)}</span>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+    body.innerHTML = `
+      <div style="max-width:1200px;margin:0 auto;">
+        <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;margin-bottom:16px;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text);">
+            <input type="checkbox" id="gallerySelectAll" ${allChecked ? 'checked' : ''} style="cursor:pointer;accent-color:var(--accent);" />
+            전체선택
+          </label>
+          <button id="galleryDeleteBtn" type="button" ${deleteEnabled ? '' : 'disabled'}
+            style="padding:6px 14px;border-radius:5px;font-size:12px;cursor:${deleteEnabled ? 'pointer' : 'not-allowed'};border:1px solid ${deleteEnabled ? 'var(--accent)' : 'var(--border-soft)'};background:${deleteEnabled ? 'var(--accent)' : 'transparent'};color:${deleteEnabled ? '#fff' : 'var(--text-dim)'};transition:background .15s;">
+            선택삭제 ${deleteEnabled ? `(${selCount})` : ''}
+          </button>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:14px;font-size:12px;color:var(--text-soft);">
+            <span>${total}개 · ${fmtBytes(totalSize)}</span>
+            <select id="gallerySort" style="background:var(--input);border:1px solid var(--border-soft);border-radius:5px;padding:4px 8px;color:var(--text);font-size:12px;cursor:pointer;">
+              <option value="newest" ${galleryState.sort === 'newest' ? 'selected' : ''}>최신순</option>
+              <option value="oldest" ${galleryState.sort === 'oldest' ? 'selected' : ''}>오래된순</option>
+            </select>
+          </div>
+        </div>
+        <div id="galleryGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;">
+          ${gridCards}
+        </div>
+      </div>`;
+
+    // Wire toolbar
+    const selectAll = document.getElementById('gallerySelectAll');
+    if (selectAll) selectAll.addEventListener('change', () => {
+      if (selectAll.checked) items.forEach(it => galleryState.selected.add(it.id));
+      else galleryState.selected.clear();
+      renderGallery();
+    });
+    const sortSel = document.getElementById('gallerySort');
+    if (sortSel) sortSel.addEventListener('change', () => { galleryState.sort = sortSel.value; renderGallery(); });
+    const delBtn = document.getElementById('galleryDeleteBtn');
+    if (delBtn) delBtn.addEventListener('click', () => {
+      if (galleryState.selected.size === 0) return;
+      openGalleryDeleteModal([...galleryState.selected]);
+    });
+
+    // Wire grid card actions (event delegation)
+    const grid = document.getElementById('galleryGrid');
+    if (grid) grid.addEventListener('click', (e) => {
+      const card = e.target.closest('.gallery-card');
+      if (!card) return;
+      const id = card.dataset.id;
+      const action = e.target.closest('[data-action]')?.dataset.action;
+      if (action === 'toggle') {
+        if (galleryState.selected.has(id)) galleryState.selected.delete(id);
+        else galleryState.selected.add(id);
+        renderGallery();
+      } else if (action === 'open') {
+        const sortedItems = gallerySorted();
+        const idx = sortedItems.findIndex(it => it.id === id);
+        if (idx >= 0) openLightbox(idx);
+      }
+    });
+  }
+
+  // ─── Lightbox ───────────────────────────────────────────────────
+  let lightboxKeyHandler = null;
+  function openLightbox(index) {
+    const items = gallerySorted();
+    if (index < 0 || index >= items.length) return;
+    galleryState.lightboxIndex = index;
+    renderLightbox();
+    lightboxKeyHandler = (e) => {
+      if (e.key === 'Escape') closeLightbox();
+      else if (e.key === 'ArrowLeft') navLightbox(-1);
+      else if (e.key === 'ArrowRight') navLightbox(1);
+    };
+    document.addEventListener('keydown', lightboxKeyHandler);
+  }
+  function closeLightbox() {
+    galleryState.lightboxIndex = -1;
+    const lb = document.getElementById('galleryLightbox');
+    if (lb) lb.remove();
+    if (lightboxKeyHandler) { document.removeEventListener('keydown', lightboxKeyHandler); lightboxKeyHandler = null; }
+  }
+  function navLightbox(delta) {
+    const items = gallerySorted();
+    if (items.length === 0) return;
+    const next = (galleryState.lightboxIndex + delta + items.length) % items.length;
+    galleryState.lightboxIndex = next;
+    renderLightbox();
+  }
+  function renderLightbox() {
+    const items = gallerySorted();
+    const it = items[galleryState.lightboxIndex];
+    if (!it) { closeLightbox(); return; }
+    let lb = document.getElementById('galleryLightbox');
+    if (!lb) {
+      lb = document.createElement('div');
+      lb.id = 'galleryLightbox';
+      lb.className = 'gallery-lightbox';
+      lb.addEventListener('click', (e) => { if (e.target === lb) closeLightbox(); });
+      document.body.appendChild(lb);
+    }
+    const isVideo = it.type === 'video';
+    const mediaTag = isVideo
+      ? `<video class="gallery-lightbox-media" src="${escapeHtml(it.url)}" controls autoplay></video>`
+      : `<img class="gallery-lightbox-media" src="${escapeHtml(it.url)}" alt="" />`;
+    lb.innerHTML = `
+      <button class="gallery-lightbox-close" type="button" title="닫기 (ESC)">×</button>
+      <button class="gallery-lightbox-nav prev" type="button" title="이전 (←)">‹</button>
+      ${mediaTag}
+      <button class="gallery-lightbox-nav next" type="button" title="다음 (→)">›</button>
+      <div class="gallery-lightbox-info">
+        ${it.prompt ? `<div class="prompt">${escapeHtml(it.prompt)}</div>` : ''}
+        <div class="meta">
+          <span>${escapeHtml(it.filename)}</span>
+          <span>${escapeHtml(fmtDate(it.createdAt))}</span>
+          <span>${fmtBytes(it.size)}</span>
+          ${it.model ? `<span>${escapeHtml(it.model)}</span>` : ''}
+          <button type="button" id="lightboxDelete">삭제</button>
+        </div>
+      </div>`;
+    lb.querySelector('.gallery-lightbox-close').onclick = closeLightbox;
+    lb.querySelector('.gallery-lightbox-nav.prev').onclick = (e) => { e.stopPropagation(); navLightbox(-1); };
+    lb.querySelector('.gallery-lightbox-nav.next').onclick = (e) => { e.stopPropagation(); navLightbox(1); };
+    const delBtn = lb.querySelector('#lightboxDelete');
+    if (delBtn) delBtn.onclick = (e) => { e.stopPropagation(); openGalleryDeleteModal([it.id], true); };
+  }
+
+  // ─── Delete Confirm Modal ───────────────────────────────────────
+  function openGalleryDeleteModal(ids, fromLightbox) {
+    const overlay = document.createElement('div');
+    overlay.className = 'gallery-modal';
+    overlay.innerHTML = `
+      <div class="gallery-modal-card">
+        <div class="gallery-modal-title">파일 삭제</div>
+        <div class="gallery-modal-msg">${ids.length}개 파일을 삭제하시겠습니까?<br><span style="color:var(--text-dim);font-size:12px;">삭제된 파일은 복구할 수 없습니다.</span></div>
+        <div class="gallery-modal-actions">
+          <button type="button" class="gallery-modal-btn" data-action="cancel">취소</button>
+          <button type="button" class="gallery-modal-btn danger" data-action="confirm">삭제</button>
+        </div>
+      </div>`;
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) document.body.removeChild(overlay);
+    });
+    overlay.querySelector('[data-action="cancel"]').onclick = () => document.body.removeChild(overlay);
+    overlay.querySelector('[data-action="confirm"]').onclick = async () => {
+      document.body.removeChild(overlay);
+      try {
+        const r = await fetch(API_BASE + '/api/media/delete', {
+          method: 'DELETE', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids })
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || d.ok === false) throw new Error(d.error || ('HTTP ' + r.status));
+        toast(`${d.deleted || ids.length}개 파일 삭제됨`);
+        if (fromLightbox) closeLightbox();
+        await loadGallery();
+      } catch (err) {
+        toast('삭제 실패: ' + (err.message || err));
+      }
+    };
+    document.body.appendChild(overlay);
+  }
+
   // ─── API ─────────────────────────────────────────────────────────
   async function apiLoadWorkspace(){
     try {
@@ -2478,6 +2784,7 @@
 
     dom.navNewChat.addEventListener('click', (e) => { e.preventDefault(); showChat(); newChat(); });
     if (dom.navDashboard) dom.navDashboard.addEventListener('click', (e) => { e.preventDefault(); showDashboard(); });
+    if (dom.navImages) dom.navImages.addEventListener('click', (e) => { e.preventDefault(); showGallery(); });
     dom.newProject.addEventListener('click', (e) => { e.stopPropagation(); newProject(); });
 
     setTimeout(() => { dom.directive.focus(); autoSize(); }, 200);
