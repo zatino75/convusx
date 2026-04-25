@@ -96,6 +96,10 @@
   .app.is-resizing{transition:none;user-select:none;-webkit-user-select:none}
   .app.is-resizing iframe{pointer-events:none}
   .app[data-sidebar="closed"]{grid-template-columns:0 1fr var(--panel-w,300px)}
+  /* 대시보드/갤러리 뷰: 우측 부서 패널 숨김 (채팅 전용 위젯) */
+  .app[data-view="dashboard"]{grid-template-columns:var(--sidebar-w,260px) 1fr 0}
+  .app[data-view="dashboard"][data-sidebar="closed"]{grid-template-columns:0 1fr 0}
+  .app[data-view="dashboard"] .panel{display:none}
   .app[data-panel="closed"]{grid-template-columns:var(--sidebar-w,260px) 1fr 34px}
   .app[data-sidebar="closed"][data-panel="closed"]{grid-template-columns:0 1fr 34px}
 
@@ -2096,6 +2100,7 @@
   function showDashboard() {
     _hideAllViews();
     state.activeView = 'dashboard';
+    if (dom.app) dom.app.dataset.view = 'dashboard';
     if (dom.dashboardView) dom.dashboardView.style.display = 'flex';
     if (dom.navDashboard) dom.navDashboard.classList.add('active');
     if (dom.dashboardBody) loadCostData(dom.dashboardBody, false);
@@ -2103,12 +2108,14 @@
   function showChat() {
     _hideAllViews();
     state.activeView = 'chat';
+    if (dom.app) dom.app.dataset.view = 'chat';
     if (dom.chatView) dom.chatView.style.display = '';
     if (dom.navNewChat) dom.navNewChat.classList.add('active');
   }
   function showGallery() {
     _hideAllViews();
     state.activeView = 'gallery';
+    if (dom.app) dom.app.dataset.view = 'gallery';
     if (dom.galleryView) dom.galleryView.style.display = 'flex';
     if (dom.navImages) dom.navImages.classList.add('active');
     if (dom.galleryBody && typeof loadGallery === 'function') loadGallery();
@@ -2271,8 +2278,8 @@
   const PROVIDER_ORDER = ['anthropic', 'openai', 'google', 'deepseek', 'perplexity', 'fal'];
   const PROVIDER_META = {
     anthropic:  { label: 'Anthropic',       icon: 'A', url: 'https://console.anthropic.com/settings/billing' },
-    openai:     { label: 'OpenAI',          icon: 'O', url: 'https://platform.openai.com/settings/organization/billing' },
-    google:     { label: 'Google · Gemini', icon: 'G', url: 'https://console.cloud.google.com/billing' },
+    openai:     { label: 'OpenAI',          icon: 'O', url: 'https://platform.openai.com/settings/organization/billing/overview' },
+    google:     { label: 'Google · Gemini', icon: 'G', url: 'https://aistudio.google.com/app/apikey' },
     deepseek:   { label: 'DeepSeek',        icon: 'D', url: 'https://platform.deepseek.com/top_up' },
     perplexity: { label: 'Perplexity',      icon: 'P', url: 'https://www.perplexity.ai/settings/api' },
     fal:        { label: 'fal.ai',          icon: 'F', url: 'https://fal.ai/dashboard/billing' },

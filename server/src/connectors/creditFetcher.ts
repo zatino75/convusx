@@ -28,21 +28,25 @@ const cache = new Map<ProviderId, CacheEntry>()
 /** 각 provider 의 결제/충전 페이지 URL. UI "충전하러가기" 버튼이 새 탭으로 오픈. */
 export const TOPUP_URLS: Record<ProviderId, string> = {
   anthropic: "https://console.anthropic.com/settings/billing",
-  openai: "https://platform.openai.com/settings/organization/billing",
-  google: "https://console.cloud.google.com/billing",
+  openai: "https://platform.openai.com/settings/organization/billing/overview",
+  google: "https://aistudio.google.com/app/apikey",
   deepseek: "https://platform.deepseek.com/top_up",
   perplexity: "https://www.perplexity.ai/settings/api",
   fal: "https://fal.ai/dashboard/billing",
 }
 
-/** 어떤 provider 가 잔액 API 를 지원하는가. UI 라벨/새로고침 버튼 표시 분기. */
+/** 어떤 provider 가 잔액 API 를 지원하는가. UI 라벨/새로고침 버튼 표시 분기.
+ * 2026-04-25 정밀 조정:
+ *  - OpenAI: /credit_grants 는 deprecated, /usage 는 잔액 아님 → 수동
+ *  - fal.ai: 공식 잔액 endpoint 미공개 → 수동
+ *  - DeepSeek 만 자동 조회 유지. */
 export const API_SUPPORTED: Record<ProviderId, boolean> = {
   anthropic: false,    // Admin API 부재
-  openai: true,        // /v1/dashboard/billing/credit_grants — 보통 personal 계정에선 deprecated, 일단 시도
+  openai: false,       // 잔액 조회 공식 API 미제공 (credit_grants deprecated)
   google: false,       // Cloud Billing API 복잡 — 수동
   deepseek: true,      // /user/balance 정상 동작
   perplexity: false,   // 잔액 API 없음
-  fal: true,           // /billing/user/balance
+  fal: false,          // 공식 잔액 endpoint 미공개
 }
 
 // ── 개별 fetcher ──────────────────────────────────────────────────
