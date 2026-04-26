@@ -2319,11 +2319,10 @@
   }
 
   function fmtUsd(n) {
+    // 카드 잔액/충전/사용 금액은 모두 소수점 2자리로 통일 (2026-04-26).
+    // 이전엔 >=10 일 때 toFixed(1) 로 잘려서 $59.55 → $59.5 처럼 표시되는 문제 있었음.
     if (n == null || isNaN(n)) return '—';
-    const v = Number(n);
-    if (Math.abs(v) >= 100) return '\$' + v.toFixed(0);
-    if (Math.abs(v) >= 10) return '\$' + v.toFixed(1);
-    return '\$' + v.toFixed(2);
+    return '\$' + Number(n).toFixed(2);
   }
 
   function renderProviderCard(pid, p) {
