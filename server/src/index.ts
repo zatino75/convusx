@@ -42,7 +42,17 @@ import { runFeedbackRoute } from "./routes/feedback.js"
 import { runSlidesGenerateRoute as generateSlidesRoute } from "./routes/slides.js"
 import { chatRoute, chatStreamRoute } from "./routes/chat.js"
 import { usageRoute, scoreboardRoute, usageResetRoute, usageSummaryRoute } from "./routes/usage.js"
-import { costStatsRoute, costCreditRoute, costCreditsRoute, costCreditRefreshRoute } from "./routes/cost.js"
+import {
+  costStatsRoute,
+  costCreditRoute,
+  costCreditsRoute,
+  costCreditRefreshRoute,
+  costCreditSetBalanceRoute,
+  costCreditResetUsageRoute,
+  costCreditUpdateRoute,
+  costCreditDeleteRoute,
+  costCreditHistoryRoute,
+} from "./routes/cost.js"
 import { mediaListRoute, mediaDeleteRoute, mediaFileRoute } from "./routes/media.js"
 import { dashboardRoute } from "./routes/dashboard.js"
 import { getSalesRoute, addSalesRoute, deleteSalesRoute } from "./routes/sales.js"
@@ -200,6 +210,11 @@ router.get("/api/cost/stats", async (_req: ParsedRequest, res: ExpressLikeRespon
 router.get("/api/cost/credits", async (req: ParsedRequest, res: ExpressLikeResponse) => { await costCreditsRoute.handler(req, res) })
 router.post("/api/cost/credit", async (req: ParsedRequest, res: ExpressLikeResponse) => { await costCreditRoute.handler(req, res) })
 router.post("/api/cost/credit/refresh", async (req: ParsedRequest, res: ExpressLikeResponse) => { await costCreditRefreshRoute.handler(req, res) })
+router.post("/api/cost/credit/set-balance", async (req: ParsedRequest, res: ExpressLikeResponse) => { await costCreditSetBalanceRoute.handler(req, res) })
+router.post("/api/cost/credit/reset-usage", async (req: ParsedRequest, res: ExpressLikeResponse) => { await costCreditResetUsageRoute.handler(req, res) })
+router.get("/api/cost/credit/history/*", async (req: ParsedRequest, res: ExpressLikeResponse) => { await costCreditHistoryRoute.handler(req, res) })
+router.put("/api/cost/credit/*", async (req: ParsedRequest, res: ExpressLikeResponse) => { await costCreditUpdateRoute.handler(req, res) })
+router.delete("/api/cost/credit/*", async (req: ParsedRequest, res: ExpressLikeResponse) => { await costCreditDeleteRoute.handler(req, res) })
 router.get("/api/media/list", async (_req: ParsedRequest, res: ExpressLikeResponse) => { await mediaListRoute.handler({}, res) })
 router.delete("/api/media/delete", async (req: ParsedRequest, res: ExpressLikeResponse) => { await mediaDeleteRoute.handler(req, res) })
 router.get("/api/media/file/*", async (req: ParsedRequest, res: ExpressLikeResponse) => { await mediaFileRoute.handler(req, res) }, true)

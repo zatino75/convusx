@@ -2,12 +2,20 @@
  * creditStore.ts — provider 별 크레딧 충전/사용 추적 (SQLite 영구 저장).
  *
  * 2026-04-25 Phase 8: JSON 파일 → SQLite 전환.
+ * 2026-04-26: 잔액 직접 설정(set_balance) / 사용량 리셋(reset) / entry 수정·삭제 도입.
  * 진실 소스(source of truth) = `corvusx.db` 의 credit_entries 테이블.
  *
  * 모델:
- *   - credit_entries: append-only [charge|usage] 거래.
- *   - 각 entry 에 provider 포함 → provider 별 잔액 = SUM(charge) - SUM(usage).
+ *   - credit_entries: append-only(+ 개별 수정/삭제 가능) 거래.
+ *     type: charge | usage | set_balance | reset
+ *   - 각 entry 에 provider 포함 → provider 별 잔액 = 가장 최근 set_balance 이후의 차감 합산.
  *   - 레거시 entry(provider 없음)는 "unknown" 으로 분류.
+ *
+ * 잔액 계산 anchor 방식:
+ *   - balance anchor = 가장 최근 set_balance entry. 그 이후 charge/usage 만 합산.
+ *     없으면 모든 charge - 모든 usage.
+ *   - usage display anchor = 가장 최근 set_balance OR reset (둘 중 timestamp 가 더 큰 것).
+ *     이 anchor 이후의 usage 합계만 "사용" 으로 표시.
  *
  * 마이그레이션:
  *   서버 시작 시 server/data/credits.json 또는
@@ -21,7 +29,7 @@ import path from "node:path"
 import { corvusxDb } from "./db/corvusxDb.js"
 import { logger } from "./observability/logger.js"
 
-export type CreditEntryType = "charge" | "usage"
+export type CreditEntryType = "charge" | "usage" | "set_balance" | "reset"
 
 /** 정식 프로바이더 ID. fetcher / UI 와 동일한 키 셋. */
 export const PROVIDER_IDS = [
@@ -38,11 +46,9 @@ export interface CreditEntry {
   id: number
   type: CreditEntryType
   provider: string
-  amount: number      // USD, 항상 양수.
+  amount: number      // USD
   memo?: string
   timestamp: number   // unix ms
-  /** SQL view: SUM(charge) - SUM(usage) WHERE id <= 자기. (조회 시 계산) */
-  balanceAfter: number
 }
 
 export interface CreditChargeView {
@@ -67,7 +73,35 @@ const stmtInsert = corvusxDb.prepare(`
   VALUES (?, ?, ?, ?, ?)
 `)
 
-const stmtAggProvider = corvusxDb.prepare(`
+/** 가장 최근 set_balance entry (provider 별). */
+const stmtLatestSetBalance = corvusxDb.prepare(`
+  SELECT id, amount, timestamp
+  FROM credit_entries
+  WHERE provider = ? AND type='set_balance'
+  ORDER BY id DESC
+  LIMIT 1
+`)
+
+/** 가장 최근 reset entry (provider 별). */
+const stmtLatestReset = corvusxDb.prepare(`
+  SELECT id, timestamp
+  FROM credit_entries
+  WHERE provider = ? AND type='reset'
+  ORDER BY id DESC
+  LIMIT 1
+`)
+
+/** 특정 entry id 이후 (id > anchorId) 의 charge/usage 합계. */
+const stmtAggAfterId = corvusxDb.prepare(`
+  SELECT
+    COALESCE(SUM(CASE WHEN type='charge' THEN amount ELSE 0 END), 0) AS charged,
+    COALESCE(SUM(CASE WHEN type='usage'  THEN amount ELSE 0 END), 0) AS used
+  FROM credit_entries
+  WHERE provider = ? AND id > ?
+`)
+
+/** anchor 없을 때 — 전체 charge/usage 합계. */
+const stmtAggAllForProvider = corvusxDb.prepare(`
   SELECT
     COALESCE(SUM(CASE WHEN type='charge' THEN amount ELSE 0 END), 0) AS charged,
     COALESCE(SUM(CASE WHEN type='usage'  THEN amount ELSE 0 END), 0) AS used
@@ -75,6 +109,7 @@ const stmtAggProvider = corvusxDb.prepare(`
   WHERE provider = ?
 `)
 
+/** 전역 합산 (모든 provider, 모든 type) — 후방 호환 getSummary 용. */
 const stmtAggAll = corvusxDb.prepare(`
   SELECT
     COALESCE(SUM(CASE WHEN type='charge' THEN amount ELSE 0 END), 0) AS charged,
@@ -82,8 +117,17 @@ const stmtAggAll = corvusxDb.prepare(`
   FROM credit_entries
 `)
 
-/** provider 충전 history (최신순). balanceAfter 는 조회 시 누적 합산해서 계산. */
-const stmtChargesByProvider = corvusxDb.prepare(`
+/** provider 충전 history (set_balance anchor 이후 charge 만, 최신순). */
+const stmtChargesAfterId = corvusxDb.prepare(`
+  SELECT id, amount, memo, timestamp
+  FROM credit_entries
+  WHERE provider = ? AND type='charge' AND id > ?
+  ORDER BY id DESC
+  LIMIT ?
+`)
+
+/** anchor 없을 때 — 모든 charge entry. */
+const stmtChargesAll = corvusxDb.prepare(`
   SELECT id, amount, memo, timestamp
   FROM credit_entries
   WHERE provider = ? AND type='charge'
@@ -91,18 +135,30 @@ const stmtChargesByProvider = corvusxDb.prepare(`
   LIMIT ?
 `)
 
-/** provider 의 N번째 entry 까지 누적 잔액. (history 의 balanceAfter 계산용) */
-const stmtBalanceUpToId = corvusxDb.prepare(`
-  SELECT
-    COALESCE(SUM(CASE WHEN type='charge' THEN amount ELSE 0 END), 0)
-    -
-    COALESCE(SUM(CASE WHEN type='usage'  THEN amount ELSE 0 END), 0) AS bal
+/** provider 의 모든 entry (수정/삭제 UI용). */
+const stmtAllEntries = corvusxDb.prepare(`
+  SELECT id, provider, type, amount, memo, timestamp
   FROM credit_entries
-  WHERE provider = ? AND id <= ?
+  WHERE provider = ?
+  ORDER BY id DESC
 `)
 
-/** 전체 충전 history (모든 provider). */
-const stmtAllCharges = corvusxDb.prepare(`
+/** 단일 entry 조회 (id). */
+const stmtEntryById = corvusxDb.prepare(`
+  SELECT id, provider, type, amount, memo, timestamp
+  FROM credit_entries
+  WHERE id = ?
+`)
+
+const stmtUpdateEntry = corvusxDb.prepare(`
+  UPDATE credit_entries SET amount = ?, memo = ? WHERE id = ?
+`)
+
+const stmtDeleteById = corvusxDb.prepare(`
+  DELETE FROM credit_entries WHERE id = ?
+`)
+
+const stmtAllChargesGlobal = corvusxDb.prepare(`
   SELECT id, provider, amount, memo, timestamp
   FROM credit_entries
   WHERE type='charge'
@@ -128,6 +184,61 @@ export function providerFromModel(modelId: string | undefined | null): ProviderI
   return "unknown"
 }
 
+// ── 내부 헬퍼: anchor 기반 잔액/사용 계산 ─────────────────────────
+interface SummaryParts {
+  balance: number
+  totalCharged: number
+  totalUsed: number
+  setBalanceAnchorId: number | null
+  setBalanceAmount: number
+  usageAnchorId: number   // 0 이면 anchor 없음
+}
+
+function computeSummary(provider: string): SummaryParts {
+  const p = String(provider || "").toLowerCase()
+  const sb = stmtLatestSetBalance.get(p) as { id: number; amount: number; timestamp: number } | undefined
+  const rs = stmtLatestReset.get(p) as { id: number; timestamp: number } | undefined
+
+  // 1) balance: set_balance anchor 기준
+  let balance: number
+  let totalCharged: number
+  if (sb) {
+    const after = stmtAggAfterId.get(p, sb.id) as { charged: number; used: number }
+    const charged = Number(after?.charged ?? 0)
+    const used = Number(after?.used ?? 0)
+    balance = Number(sb.amount) + charged - used
+    totalCharged = Number(sb.amount) + charged
+  } else {
+    const agg = stmtAggAllForProvider.get(p) as { charged: number; used: number }
+    const charged = Number(agg?.charged ?? 0)
+    const used = Number(agg?.used ?? 0)
+    balance = charged - used
+    totalCharged = charged
+  }
+
+  // 2) totalUsed: set_balance OR reset 중 더 최근 anchor 이후 usage 만
+  const sbId = sb?.id ?? 0
+  const rsId = rs?.id ?? 0
+  const usageAnchorId = Math.max(sbId, rsId)
+  let totalUsed: number
+  if (usageAnchorId > 0) {
+    const after = stmtAggAfterId.get(p, usageAnchorId) as { charged: number; used: number }
+    totalUsed = Number(after?.used ?? 0)
+  } else {
+    const agg = stmtAggAllForProvider.get(p) as { charged: number; used: number }
+    totalUsed = Number(agg?.used ?? 0)
+  }
+
+  return {
+    balance: +balance.toFixed(6),
+    totalCharged: +totalCharged.toFixed(6),
+    totalUsed: +totalUsed.toFixed(6),
+    setBalanceAnchorId: sbId || null,
+    setBalanceAmount: sb ? Number(sb.amount) : 0,
+    usageAnchorId,
+  }
+}
+
 // ── 공개 API ─────────────────────────────────────────────────────
 
 /** 수동 충전. */
@@ -141,9 +252,89 @@ export function addCredit(provider: string, amount: number, memo?: string): { id
   const ts = Date.now()
   const result = stmtInsert.run(p, "charge", +v.toFixed(6), memoStr, ts)
   const id = Number(result.lastInsertRowid)
-  const bal = (stmtBalanceUpToId.get(p, id) as { bal: number })?.bal ?? 0
-  logger.info("[creditStore] charge", { provider: p, amount: v, memo: memoStr, balance: bal })
-  return { id, balanceAfter: +Number(bal).toFixed(6) }
+  const parts = computeSummary(p)
+  logger.info("[creditStore] charge", { provider: p, amount: v, memo: memoStr, balance: parts.balance })
+  return { id, balanceAfter: parts.balance }
+}
+
+/**
+ * 현재 잔액을 newBalance 로 강제 설정.
+ * 누적 차감 결과를 무시하고 입력값을 새 baseline 으로 만든다.
+ * (이후 잔액 = newBalance + (이후 charge) - (이후 usage))
+ */
+export function setBalance(provider: string, newBalance: number, memo?: string): { id: number; balance: number } {
+  const v = Number(newBalance)
+  if (!Number.isFinite(v) || v < 0) {
+    throw new Error("balance must be a non-negative number")
+  }
+  const p = String(provider || "").toLowerCase().trim() || "unknown"
+  const memoStr = memo?.trim() || null
+  const ts = Date.now()
+  const result = stmtInsert.run(p, "set_balance", +v.toFixed(6), memoStr, ts)
+  const id = Number(result.lastInsertRowid)
+  logger.info("[creditStore] set_balance", { provider: p, balance: v, memo: memoStr })
+  return { id, balance: +v.toFixed(6) }
+}
+
+/**
+ * 사용량 카운터 리셋. 충전 기록은 유지.
+ * 이 시점 이후 usage 만 "사용"으로 표시되며, 잔액 계산에도 영향.
+ */
+export function resetUsage(provider: string, memo?: string): { id: number } {
+  const p = String(provider || "").toLowerCase().trim() || "unknown"
+  const memoStr = memo?.trim() || null
+  const ts = Date.now()
+  const result = stmtInsert.run(p, "reset", 0, memoStr, ts)
+  const id = Number(result.lastInsertRowid)
+  logger.info("[creditStore] reset_usage", { provider: p, memo: memoStr })
+  return { id }
+}
+
+/** entry 수정 (amount/memo). type/provider/timestamp 는 불변. */
+export function updateEntry(id: number, newAmount: number, newMemo?: string): { ok: boolean } {
+  const numericId = Number(id)
+  if (!Number.isFinite(numericId) || numericId <= 0) {
+    throw new Error("invalid entry id")
+  }
+  const v = Number(newAmount)
+  if (!Number.isFinite(v) || v < 0) {
+    throw new Error("amount must be a non-negative number")
+  }
+  const existing = stmtEntryById.get(numericId) as { id: number; type: string } | undefined
+  if (!existing) throw new Error("entry not found")
+  const memoStr = newMemo === undefined ? null : (String(newMemo).trim() || null)
+  stmtUpdateEntry.run(+v.toFixed(6), memoStr, numericId)
+  logger.info("[creditStore] update", { id: numericId, amount: v, memo: memoStr })
+  return { ok: true }
+}
+
+/** entry 삭제. */
+export function deleteEntry(id: number): { ok: boolean } {
+  const numericId = Number(id)
+  if (!Number.isFinite(numericId) || numericId <= 0) {
+    throw new Error("invalid entry id")
+  }
+  const existing = stmtEntryById.get(numericId) as { id: number } | undefined
+  if (!existing) throw new Error("entry not found")
+  stmtDeleteById.run(numericId)
+  logger.info("[creditStore] delete", { id: numericId })
+  return { ok: true }
+}
+
+/** 해당 provider 의 모든 entry (수정/삭제 UI용). */
+export function getAllEntries(provider: string): CreditEntry[] {
+  const p = String(provider || "").toLowerCase()
+  const rows = stmtAllEntries.all(p) as Array<{
+    id: number; provider: string; type: string; amount: number; memo: string | null; timestamp: number
+  }>
+  return rows.map(r => ({
+    id: r.id,
+    type: r.type as CreditEntryType,
+    provider: r.provider,
+    amount: Number(r.amount),
+    memo: r.memo ?? "",
+    timestamp: Number(r.timestamp),
+  }))
 }
 
 /** LLM 호출 cost_usd 차감. provider 미지정 시 model ID 로부터 추론. */
@@ -159,35 +350,52 @@ export function recordUsage(amount: number, opts?: { provider?: string; model?: 
 
 /** 단일 provider 잔액. */
 export function getBalance(provider: string): number {
-  const p = String(provider || "").toLowerCase()
-  const r = stmtAggProvider.get(p) as { charged: number; used: number }
-  return +(Number(r?.charged ?? 0) - Number(r?.used ?? 0)).toFixed(6)
+  return computeSummary(provider).balance
 }
 
 /** 단일 provider 요약 (history 포함). */
 export function getProviderSummary(provider: string, historyLimit = 10): ProviderCreditSummary {
   const p = String(provider || "").toLowerCase()
-  const agg = stmtAggProvider.get(p) as { charged: number; used: number }
-  const charged = Number(agg?.charged ?? 0)
-  const used = Number(agg?.used ?? 0)
-  const charges = stmtChargesByProvider.all(p, historyLimit) as Array<{
-    id: number; amount: number; memo: string | null; timestamp: number
-  }>
+  const parts = computeSummary(p)
+
+  // history: set_balance anchor 가 있으면 그 이후 charge 만 (이전 충전은 baseline 에 흡수됨).
+  const charges = parts.setBalanceAnchorId
+    ? (stmtChargesAfterId.all(p, parts.setBalanceAnchorId, historyLimit) as Array<{
+        id: number; amount: number; memo: string | null; timestamp: number
+      }>)
+    : (stmtChargesAll.all(p, historyLimit) as Array<{
+        id: number; amount: number; memo: string | null; timestamp: number
+      }>)
+
+  // 각 charge 시점 누적 잔액 = anchor baseline + (anchor 이후 ~ 이 charge 까지) charge - usage
   const history: CreditChargeView[] = charges.map(c => {
-    const balRow = stmtBalanceUpToId.get(p, c.id) as { bal: number }
+    const after = stmtAggAfterId.get(p, parts.setBalanceAnchorId ?? 0) as { charged: number; used: number }
+    // 위 stmtAggAfterId 는 anchor 이후 전체 합. 시점별 누적이 정확하려면 id <= c.id 로 좁혀야 함.
+    void after
+    const balRow = corvusxDb
+      .prepare(`
+        SELECT
+          COALESCE(SUM(CASE WHEN type='charge' THEN amount ELSE 0 END), 0)
+          - COALESCE(SUM(CASE WHEN type='usage' THEN amount ELSE 0 END), 0) AS bal
+        FROM credit_entries
+        WHERE provider = ? AND id > ? AND id <= ?
+      `)
+      .get(p, parts.setBalanceAnchorId ?? 0, c.id) as { bal: number }
+    const baselineBal = parts.setBalanceAnchorId ? parts.setBalanceAmount : 0
     return {
       date: new Date(Number(c.timestamp)).toISOString(),
       amount: Number(c.amount),
       memo: c.memo ?? "",
-      balance: +Number(balRow?.bal ?? 0).toFixed(6),
+      balance: +(baselineBal + Number(balRow?.bal ?? 0)).toFixed(6),
       provider: p,
     }
   })
+
   return {
     provider: p,
-    balance: +(charged - used).toFixed(6),
-    totalCharged: +charged.toFixed(6),
-    totalUsed: +used.toFixed(6),
+    balance: parts.balance,
+    totalCharged: parts.totalCharged,
+    totalUsed: parts.totalUsed,
     history,
   }
 }
@@ -207,13 +415,13 @@ export interface GlobalCreditSummary {
   history: CreditChargeView[]
 }
 export function getSummary(historyLimit = 10): GlobalCreditSummary {
+  // 전역 합산은 anchor 적용이 모호하므로 단순 SUM 으로 유지 (후방 호환).
   const agg = stmtAggAll.get() as { charged: number; used: number }
   const charged = Number(agg?.charged ?? 0)
   const used = Number(agg?.used ?? 0)
-  const charges = stmtAllCharges.all(historyLimit) as Array<{
+  const charges = stmtAllChargesGlobal.all(historyLimit) as Array<{
     id: number; provider: string; amount: number; memo: string | null; timestamp: number
   }>
-  // 전역 history 의 balance 는 누적 의미가 모호 → 0 으로 둠 (UI 가 provider 별을 우선).
   const history: CreditChargeView[] = charges.map(c => ({
     date: new Date(Number(c.timestamp)).toISOString(),
     amount: Number(c.amount),

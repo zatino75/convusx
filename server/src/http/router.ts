@@ -18,7 +18,7 @@ export interface ParsedRequest {
 export type RouteHandler = (req: any, res: any) => any
 
 export interface Route {
-  method: "GET" | "POST" | "PATCH" | "DELETE" | "OPTIONS"
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS"
   path: string
   handler: RouteHandler
   /** true = handler receives raw (req, res), false = wrapped with body parsing */
@@ -35,6 +35,7 @@ export class Router {
 
   get(path: string, handler: RouteHandler, raw = false) { return this.add("GET", path, handler, raw) }
   post(path: string, handler: RouteHandler, raw = false) { return this.add("POST", path, handler, raw) }
+  put(path: string, handler: RouteHandler, raw = false) { return this.add("PUT", path, handler, raw) }
   patch(path: string, handler: RouteHandler, raw = false) { return this.add("PATCH", path, handler, raw) }
   delete(path: string, handler: RouteHandler, raw = false) { return this.add("DELETE", path, handler, raw) }
   options(path: string, handler: RouteHandler, raw = false) { return this.add("OPTIONS", path, handler, raw) }

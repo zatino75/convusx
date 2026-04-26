@@ -53,7 +53,7 @@ corvusxDb.exec(`
   CREATE TABLE IF NOT EXISTS credit_entries (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     provider  TEXT NOT NULL,
-    type      TEXT NOT NULL CHECK(type IN ('charge','usage')),
+    type      TEXT NOT NULL CHECK(type IN ('charge','usage','set_balance','reset')),
     amount    REAL NOT NULL,
     memo      TEXT,
     timestamp INTEGER NOT NULL
@@ -61,6 +61,39 @@ corvusxDb.exec(`
   CREATE INDEX IF NOT EXISTS idx_credit_provider  ON credit_entries(provider);
   CREATE INDEX IF NOT EXISTS idx_credit_timestamp ON credit_entries(timestamp);
 `)
+
+// ── 마이그레이션: 기존 CHECK 제약(charge/usage 만 허용) → set_balance/reset 추가 ──
+// 2026-04-26: 잔액 직접 설정 / 사용량 리셋 entry 타입 도입.
+// SQLite 는 CHECK 제약 ALTER 를 지원하지 않으므로 테이블 재생성 방식으로 마이그레이션.
+try {
+  const tableInfo = corvusxDb
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='credit_entries'")
+    .get() as { sql?: string } | undefined
+  const sqlText = String(tableInfo?.sql ?? "")
+  if (sqlText && !sqlText.includes("set_balance")) {
+    logger.info("[corvusxDb] migrating credit_entries CHECK constraint (add set_balance/reset)")
+    corvusxDb.exec(`
+      BEGIN;
+      CREATE TABLE credit_entries_new (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        provider  TEXT NOT NULL,
+        type      TEXT NOT NULL CHECK(type IN ('charge','usage','set_balance','reset')),
+        amount    REAL NOT NULL,
+        memo      TEXT,
+        timestamp INTEGER NOT NULL
+      );
+      INSERT INTO credit_entries_new (id, provider, type, amount, memo, timestamp)
+        SELECT id, provider, type, amount, memo, timestamp FROM credit_entries;
+      DROP TABLE credit_entries;
+      ALTER TABLE credit_entries_new RENAME TO credit_entries;
+      CREATE INDEX IF NOT EXISTS idx_credit_provider  ON credit_entries(provider);
+      CREATE INDEX IF NOT EXISTS idx_credit_timestamp ON credit_entries(timestamp);
+      COMMIT;
+    `)
+  }
+} catch (e) {
+  logger.warn("[corvusxDb] credit_entries migration failed", { error: String(e) })
+}
 
 logger.info("[corvusxDb] opened", { path: DB_PATH })
 

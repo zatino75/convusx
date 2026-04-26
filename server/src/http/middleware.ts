@@ -47,7 +47,7 @@ export function setCorsHeaders(res: ServerResponse, req?: IncomingMessage) {
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization, X-Correlation-Id, X-Confirm-Reset, Cookie"
   )
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 }
 
 export function setSecurityHeaders(res: ServerResponse) {

@@ -19,6 +19,11 @@ import {
 } from "../costStore.js"
 import {
   addCredit,
+  setBalance,
+  resetUsage,
+  updateEntry,
+  deleteEntry,
+  getAllEntries,
   getSummary as getGlobalCreditSummary,
   getAllProviderSummaries,
   getProviderSummary,
@@ -217,4 +222,151 @@ export async function runCostCreditRefreshRoute(req: any, res: any) {
 export const costCreditRefreshRoute = {
   path: "/api/cost/credit/refresh",
   handler: runCostCreditRefreshRoute,
+}
+
+// ── POST /api/cost/credit/set-balance ─────────────────────────────
+/** 잔액 직접 설정 — 누적 차감 결과 무시하고 입력값으로 강제 덮어쓰기. */
+export async function runCostCreditSetBalanceRoute(req: any, res: any) {
+  try {
+    const body = (req?.body ?? {}) as Record<string, unknown>
+    const provider = String(body.provider ?? "").toLowerCase().trim()
+    if (!provider) {
+      res.status?.(400)
+      return res.json({ ok: false, error: "provider required" })
+    }
+    const balanceRaw = body.balance ?? body.amount
+    const balance = Number(typeof balanceRaw === "string" ? balanceRaw.replace(/,/g, "") : balanceRaw)
+    if (!Number.isFinite(balance) || balance < 0) {
+      res.status?.(400)
+      return res.json({ ok: false, error: "balance must be a non-negative number" })
+    }
+    const memo = typeof body.memo === "string" ? body.memo.slice(0, 200) : undefined
+    const entry = setBalance(provider, balance, memo)
+    return res.json({ ok: true, entry, summary: getProviderSummary(provider, 10) })
+  } catch (err: any) {
+    res.status?.(500)
+    res.json({ ok: false, error: String(err?.message ?? err) })
+  }
+}
+
+export const costCreditSetBalanceRoute = {
+  path: "/api/cost/credit/set-balance",
+  handler: runCostCreditSetBalanceRoute,
+}
+
+// ── POST /api/cost/credit/reset-usage ─────────────────────────────
+/** 사용량 카운터만 리셋. 충전 기록은 유지. */
+export async function runCostCreditResetUsageRoute(req: any, res: any) {
+  try {
+    const body = (req?.body ?? {}) as Record<string, unknown>
+    const provider = String(body.provider ?? "").toLowerCase().trim()
+    if (!provider) {
+      res.status?.(400)
+      return res.json({ ok: false, error: "provider required" })
+    }
+    const memo = typeof body.memo === "string" ? body.memo.slice(0, 200) : undefined
+    const entry = resetUsage(provider, memo)
+    return res.json({ ok: true, entry, summary: getProviderSummary(provider, 10) })
+  } catch (err: any) {
+    res.status?.(500)
+    res.json({ ok: false, error: String(err?.message ?? err) })
+  }
+}
+
+export const costCreditResetUsageRoute = {
+  path: "/api/cost/credit/reset-usage",
+  handler: runCostCreditResetUsageRoute,
+}
+
+// ── PUT /api/cost/credit/:id ──────────────────────────────────────
+/** entry 수정 (amount/memo). id 는 path 또는 body 에서 추출. */
+export async function runCostCreditUpdateRoute(req: any, res: any) {
+  try {
+    const body = (req?.body ?? {}) as Record<string, unknown>
+    const url = String(req?.url ?? "")
+    const pathPart = url.split("?")[0]
+    const tail = pathPart.replace(/^.*\/api\/cost\/credit\//, "")
+    const idFromPath = Number(tail)
+    const id = Number.isFinite(idFromPath) && idFromPath > 0 ? idFromPath : Number(body.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status?.(400)
+      return res.json({ ok: false, error: "valid entry id required" })
+    }
+    const amountRaw = body.amount
+    const amount = Number(typeof amountRaw === "string" ? amountRaw.replace(/,/g, "") : amountRaw)
+    if (!Number.isFinite(amount) || amount < 0) {
+      res.status?.(400)
+      return res.json({ ok: false, error: "amount must be a non-negative number" })
+    }
+    const memo = typeof body.memo === "string" ? body.memo.slice(0, 200) : undefined
+    updateEntry(id, amount, memo)
+    const provider = typeof body.provider === "string" ? body.provider.toLowerCase().trim() : ""
+    return res.json({
+      ok: true,
+      summary: provider ? getProviderSummary(provider, 10) : null,
+    })
+  } catch (err: any) {
+    res.status?.(500)
+    res.json({ ok: false, error: String(err?.message ?? err) })
+  }
+}
+
+export const costCreditUpdateRoute = {
+  path: "/api/cost/credit/:id",
+  handler: runCostCreditUpdateRoute,
+}
+
+// ── DELETE /api/cost/credit/:id ───────────────────────────────────
+export async function runCostCreditDeleteRoute(req: any, res: any) {
+  try {
+    const url = String(req?.url ?? "")
+    const pathPart = url.split("?")[0]
+    const tail = pathPart.replace(/^.*\/api\/cost\/credit\//, "")
+    const id = Number(tail)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status?.(400)
+      return res.json({ ok: false, error: "valid entry id required" })
+    }
+    deleteEntry(id)
+    // provider 는 query string 으로 받아 재조회 (있으면).
+    const qs = url.split("?")[1] ?? ""
+    const provider = new URLSearchParams(qs).get("provider")?.toLowerCase().trim() ?? ""
+    return res.json({
+      ok: true,
+      summary: provider ? getProviderSummary(provider, 10) : null,
+    })
+  } catch (err: any) {
+    res.status?.(500)
+    res.json({ ok: false, error: String(err?.message ?? err) })
+  }
+}
+
+export const costCreditDeleteRoute = {
+  path: "/api/cost/credit/:id",
+  handler: runCostCreditDeleteRoute,
+}
+
+// ── GET /api/cost/credit/history/:provider ────────────────────────
+/** 해당 프로바이더의 모든 entry (수정/삭제 UI용). */
+export async function runCostCreditHistoryRoute(req: any, res: any) {
+  try {
+    const url = String(req?.url ?? "")
+    const pathPart = url.split("?")[0]
+    const tail = pathPart.replace(/^.*\/api\/cost\/credit\/history\//, "")
+    const provider = decodeURIComponent(tail).toLowerCase().trim()
+    if (!provider) {
+      res.status?.(400)
+      return res.json({ ok: false, error: "provider required in path" })
+    }
+    const entries = getAllEntries(provider)
+    return res.json({ ok: true, provider, entries, summary: getProviderSummary(provider, 10) })
+  } catch (err: any) {
+    res.status?.(500)
+    res.json({ ok: false, error: String(err?.message ?? err) })
+  }
+}
+
+export const costCreditHistoryRoute = {
+  path: "/api/cost/credit/history/:provider",
+  handler: runCostCreditHistoryRoute,
 }
