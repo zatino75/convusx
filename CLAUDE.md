@@ -16,6 +16,12 @@
 - **agentLoop 시스템 프롬프트**: REAL-TIME DATA RULE 추가. `--- 실시간 데이터 ---` 블록을 우선 참고하고 ⚠️ 실패 소스는 답변에 명시하도록 지시.
 - **금지패턴 #28/#29 추가**.
 
+### Session 8 URL 정오표 (2026-04-29 검증 후)
+- **담배사업법 lsiSeq=1912** (기존 명세의 259299 는 "디지털의료제품법"). `tobacco_law_main` 으로 분리.
+- **자치법규정보시스템 elis 검색 URL** (`elis.go.kr/searchLglSltList.do`) 은 단종 → 404. `law.go.kr/ordinSc.do` 자치법규 검색 + Perplexity 로 분리 (`local_law_national` + `local_ordinance_search`).
+- **환경부 보도자료 게시판** read.do?menuId=286 → 404. `index.do?menuId=286` (목록 페이지) 로 정정 + Perplexity 보완 (`moe_ecig_fetch` + `moe_ecig_perplexity`).
+- 기존 3개 실패 소스 → 6개 소스로 재편 (각각 fetch + Perplexity 페어).
+
 ## Session 7 후속 (2026-04-29) 핵심 변경
 
 ### 자기소개 환각 회귀 차단 (#25 / #26 / #27)

@@ -54,29 +54,54 @@ export const DEPT_PREFETCH_SOURCES: Record<string, Record<string, PrefetchSource
       ttl: 3600,
       condition: (q) => /화장품|CGMP|기능성|코스메틱/.test(q),
     },
-    // 전자담배: 기재부 담배사업법 (법제처)
-    moef_tobacco_law: {
+    // 전자담배: 담배사업법 본문 (법제처, lsiSeq=1912)
+    // 2026-04-29 정정: 기존 lsiSeq=259299 는 "디지털의료제품법" 이었음 (#29 정오표).
+    tobacco_law_main: {
       type: "fetch",
-      url: "https://www.law.go.kr/lsInfoP.do?lsiSeq=259299",
+      url: "https://www.law.go.kr/lsInfoP.do?lsiSeq=1912",
       timeout: 10000,
       ttl: 7200,
       condition: (q) => /전자담배|액상|담배사업법|담배/.test(q),
     },
-    // 전자담배: 환경부 보도자료
-    moe_ecig: {
+    // 전자담배: 기재부 보도자료 / 합성니코틴 관련 — 정적 URL 변동성으로 Perplexity 대체
+    tobacco_mofe_news: {
+      type: "perplexity",
+      query: () => "담배사업법 개정 합성니코틴 액상전자담배 기재부 2025 2026",
+      timeout: 8000,
+      ttl: 3600,
+      condition: (q) => /전자담배|액상|담배사업법|합성니코틴|기재부/.test(q),
+    },
+    // 환경부 보도자료 게시판 (정적 목록 페이지) — read.do (404) → index.do 로 정정
+    moe_ecig_fetch: {
       type: "fetch",
-      url: "https://www.me.go.kr/home/web/board/read.do?menuId=286",
+      url: "https://www.me.go.kr/home/web/index.do?menuId=286",
       timeout: 10000,
       ttl: 3600,
       condition: (q) => /전자담배|액상|니코틴|폐기|환경/.test(q),
     },
-    // 전자담배: 지자체 조례 (자치법규정보시스템)
-    elis_local_ordinance: {
+    // 환경부 Perplexity 보완 — 화학물질 규제 / 폐액상 회수 등 게시판 검색 누락 보완
+    moe_ecig_perplexity: {
+      type: "perplexity",
+      query: () => "환경부 전자담배 액상 니코틴 화학물질 규제 2025 2026",
+      timeout: 8000,
+      ttl: 3600,
+      condition: (q) => /전자담배|액상|니코틴|폐기|환경/.test(q),
+    },
+    // 지자체 조례 — 자치법규정보시스템 elis 검색 URL 단종 → law.go.kr 자치법규 검색으로 대체
+    local_law_national: {
       type: "fetch",
-      url: "https://www.elis.go.kr/searchLglSltList.do?query=전자담배",
+      url: "https://www.law.go.kr/ordinSc.do?menuId=3&subMenuId=13&tabMenuId=81&query=전자담배",
       timeout: 10000,
       ttl: 7200,
       condition: (q) => /전자담배|액상|담배|흡연|판매/.test(q),
+    },
+    // 지자체 조례 Perplexity 보완 — 시군구별 흡연/판매 제한 조례 동향
+    local_ordinance_search: {
+      type: "perplexity",
+      query: () => "전자담배 액상 흡연 판매 조례 시군구 지자체 2025 2026",
+      timeout: 8000,
+      ttl: 7200,
+      condition: (q) => /전자담배|액상|담배|흡연|판매|조례/.test(q),
     },
     // FDA: 수출 키워드 있을 때만
     fda_ecig: {
