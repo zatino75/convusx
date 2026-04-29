@@ -70,7 +70,7 @@ export async function handleGeminiImageCommand(rawMessage: string): Promise<{ ok
     }
     // result.url 은 data:image/...;base64,... 형식 (gemini.ts::generateImageImagen)
     persistMedia({ dataUri: result.url, prompt, model: "imagen-4" })
-    return { ok: true, url: result.url, message: "🎨 Gemini Imagen으로 이미지가 생성됐습니다.", provider: "gemini" }
+    return { ok: true, url: result.url, message: "🎨 이미지가 생성됐습니다.", provider: "gemini" }
   } catch (e) {
     logger.error("Gemini Imagen generation exception", { error: e })
     return { ok: false, message: `Gemini 이미지 생성 실패: ${e instanceof Error ? e.message : "알 수 없는 오류"}`, provider: "gemini" }
@@ -105,7 +105,7 @@ export async function handleMidjourneyCommand(rawMessage: string): Promise<{ ok:
     if (Array.isArray(result.image_urls)) {
       for (const u of result.image_urls) persistMedia({ url: u, prompt, model: "midjourney" })
     }
-    return { ok: true, url: result.image_url, image_urls: result.image_urls, message: "🎨 Midjourney로 이미지가 생성됐습니다." }
+    return { ok: true, url: result.image_url, image_urls: result.image_urls, message: "🎨 이미지가 생성됐습니다." }
   } catch (e) {
     logger.error("Midjourney generation exception", { error: e })
     return { ok: false, message: `Midjourney 생성 실패: ${e instanceof Error ? e.message : "알 수 없는 오류"}` }
@@ -137,7 +137,7 @@ export async function handleRunwayCommand(rawMessage: string): Promise<{ ok: boo
       return { ok: false, message: `Runway 비디오 생성 실패: ${result.error ?? "알 수 없는 오류"}` }
     }
     if (result.video_url) persistMedia({ url: result.video_url, prompt, model: "runway-gen4-turbo" })
-    return { ok: true, video_url: result.video_url, message: "🎬 Runway Gen4 Turbo로 비디오가 생성됐습니다." }
+    return { ok: true, video_url: result.video_url, message: "🎬 비디오가 생성됐습니다." }
   } catch (e) {
     logger.error("Runway video generation exception", { error: e })
     return { ok: false, message: `Runway 비디오 생성 실패: ${e instanceof Error ? e.message : "알 수 없는 오류"}` }
@@ -168,7 +168,7 @@ export async function handleVeoCommand(rawMessage: string): Promise<{ ok: boolea
       return { ok: false, message: `Veo 비디오 생성 실패: ${result.error ?? "알 수 없는 오류"}` }
     }
     if (result.video_url) persistMedia({ url: result.video_url, prompt, model: "gemini-veo-3.1" })
-    return { ok: true, video_url: result.video_url, message: "🎬 Gemini Veo 3.1로 비디오가 생성됐습니다." }
+    return { ok: true, video_url: result.video_url, message: "🎬 비디오가 생성됐습니다." }
   } catch (e) {
     logger.error("Veo video generation exception", { error: e })
     return { ok: false, message: `Veo 비디오 생성 실패: ${e instanceof Error ? e.message : "알 수 없는 오류"}` }
@@ -201,7 +201,7 @@ export async function handleNanoBananaCommand(rawMessage: string): Promise<{ ok:
       return { ok: false, message: `Nano Banana 이미지 생성 실패: ${result.error ?? "알 수 없는 오류"}` }
     }
     for (const img of result.images) persistMedia({ base64: img.base64, mimeType: img.mimeType, prompt, model: "nano-banana" })
-    return { ok: true, images: result.images, message: "🎨 Nano Banana 2 (Gemini Flash)로 이미지가 생성됐습니다." }
+    return { ok: true, images: result.images, message: "🎨 이미지가 생성됐습니다." }
   } catch (e) {
     logger.error("Nano Banana generation exception", { error: e })
     return { ok: false, message: `Nano Banana 이미지 생성 실패: ${e instanceof Error ? e.message : "알 수 없는 오류"}` }

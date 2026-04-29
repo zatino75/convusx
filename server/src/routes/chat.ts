@@ -921,27 +921,27 @@ export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) 
       res.end?.(); return
     }
 
-    // ── Midjourney 이미지 ──
+    // ── Midjourney 백엔드 (키 보유 시) ──
     if (detectMidjourneyCommand(inboundQuery)) {
-      writeSse(res, { type: "chunk", content: "🎨 Midjourney로 이미지를 생성하고 있습니다...\n\n" })
+      writeSse(res, { type: "chunk", content: "🎨 이미지를 생성하고 있습니다...\n\n" })
       const r = await handleMidjourneyCommand(inboundQuery)
       for (const chunk of r.message.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
       writeSse(res, { type: "done", payload: makeDonePayload("midjourney", r.message, r.ok, "image_generate", "dialogue", ["midjourney"], { is_image: r.ok, image_url: r.url ?? null, image_urls: r.image_urls ?? null }) })
       res.end?.(); return
     }
 
-    // ── Runway Gen4 Turbo 비디오 ──
+    // ── Runway 비디오 백엔드 (키 보유 시) ──
     if (detectRunwayCommand(inboundQuery)) {
-      writeSse(res, { type: "chunk", content: "🎬 Runway Gen4 Turbo로 비디오를 생성하고 있습니다... (최대 3분 소요)\n\n" })
+      writeSse(res, { type: "chunk", content: "🎬 비디오를 생성하고 있습니다... (최대 3분 소요)\n\n" })
       const r = await handleRunwayCommand(inboundQuery)
       for (const chunk of r.message.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
       writeSse(res, { type: "done", payload: makeDonePayload("runway", r.message, r.ok, "video_generate", "dialogue", ["runway"], { is_video: r.ok, video_url: r.video_url ?? null }) })
       res.end?.(); return
     }
 
-    // ── Gemini Veo 3.1 비디오 ──
+    // ── Veo 비디오 백엔드 (Gemini 어댑터) ──
     if (detectVeoCommand(inboundQuery)) {
-      writeSse(res, { type: "chunk", content: "🎬 Gemini Veo 3.1로 비디오를 생성하고 있습니다... (최대 2분 소요)\n\n" })
+      writeSse(res, { type: "chunk", content: "🎬 비디오를 생성하고 있습니다... (최대 2분 소요)\n\n" })
       const r = await handleVeoCommand(inboundQuery)
       for (const chunk of r.message.split(/(\s+)/).filter((p: string) => p.length > 0)) { writeSse(res, { type: "chunk", content: chunk }); await sleep(12) }
       writeSse(res, { type: "done", payload: makeDonePayload("gemini", r.message, r.ok, "video_generate", "dialogue", ["gemini"], { is_video: r.ok, video_url: r.video_url ?? null }) })

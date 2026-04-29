@@ -16,11 +16,11 @@ import { ANTHROPIC_BASE, ADAPTER_TIMEOUT_MS } from "../config/defaults.js"
 import { logger } from "../observability/logger.js"
 import {
   invokeTool,
-  listTools,
   toAnthropicTools,
   type ToolCallRecord,
   type ToolContext,
 } from "./toolRegistry.js"
+import { listAvailableTools } from "./availableTools.js"
 import { buildFusionSystemBlock } from "../fusion/threadFusion.js"
 import { buildProjectFusionBlock } from "../fusion/projectFusion.js"
 import { buildUnifiedContextBlock } from "../fusion/unifiedRetrieval.js"
@@ -362,7 +362,10 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
   const system = buildSystemPrompt(input)
   const messages: any[] = buildInitialMessages(input)
 
-  const tools = input.disable_tools ? [] : toAnthropicTools(listTools())
+  // 2026-04-29 (CLAUDE.md #26): 환경변수 키가 채워진 도구만 system prompt 에 노출.
+  // 미연결 어댑터(MIDJOURNEY_API_KEY 빈값 등)가 description 만 뿌려져
+  // 모델이 "이 기능 가능합니다" 라고 거짓 자기소개하는 회귀 방지.
+  const tools = input.disable_tools ? [] : toAnthropicTools(listAvailableTools())
 
   const payloadBase: any = {
     model: activeModel,
