@@ -3,6 +3,15 @@
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
 
 ## Session 7 후속 (2026-04-29) 핵심 변경
+
+### 자기소개 환각 회귀 차단 (#25 / #26 / #27)
+- **agentLoop 시스템 프롬프트 / openai 어댑터 default**: Opus / GPT-5.4-pro / Gemini 3.1 Pro Ultra / DALL-E / Midjourney / Imagen / Runway / Veo 등 거짓·구식 모델·브랜드명 일괄 제거 → capability-only 자기소개 (옵션 C 정책).
+- **`agent/availableTools.ts` 신규**: 도구별 환경변수 의존성 매핑 + `listAvailableTools()`. agentLoop 가 listTools() → listAvailableTools() 로 전환 → 키 빈값 어댑터(MIDJOURNEY/RUNWAY) 자동 차단.
+- **`generate_image` / `generate_video` 동적 description**: 등록 시점 process.env 로 enum / 본문 빌드 → MIDJOURNEY_API_KEY 빈값이면 "midjourney" enum 에서 자동 제외.
+- **`parallel_ensemble` / `adversarial_critique` settings gate**: 신규 `ensembleEnabled` / `ensembleCritiqueEnabled` (기본 false). ⚙️ 설정 → 모델 설정 탭에서 토글. 비활성 시 system prompt 자체 미주입 → 호출 차단.
+- **금지패턴 #25/#26/#27 추가**: 정적 모델 ID 박제 / 미연결 어댑터 노출 / 고가 멀티 LLM 도구 settings-gate 누락 모두 회귀 금지.
+
+### OpenAI 부서 모델 교체
 - **OpenAI 부서 3개 primary 교체**:
   - `compete`: `gpt-5.4-pro` → `gpt-5` (구조화·표 생성, 60s timeout 안 응답)
   - `finance`: `gpt-5.4-pro` → `o3-mini` (reasoning 특화, P&L 다단계 추론, 14x 저렴)
@@ -285,6 +294,7 @@ server/src/
 24. **`config/defaults.ts::MODEL_PRICING_USD_PER_1K_TOKENS` 미등록 모델 호출 금지** — 2026-04-29: pricing entry 가 없으면 `estimateCostUsd` 가 0 반환 → cost_entries / journalctl 비용 추적 누락. 신모델 사용 전 반드시 가격 entry 추가 + 주석에 출처(OpenAI 공식 / 추정) 명시. `costCalc.ts` 가 미등록 모델 첫 호출 시 `console.warn` 으로 즉시 알림 — 운영자는 dashboard 에서 즉시 인지하고 가격 보정 필요.
 25. **시스템 프롬프트 / 도구 description / UI 라벨에 정적 모델 ID 박제 금지** — 2026-04-29 인시던트: agentLoop / openai 어댑터 / parallelEnsemble / claudeDraftAlt / geminiDraft / EnsembleRunner 의 시스템 프롬프트와 description 에 "Claude Opus 4.6", "GPT-5.4-pro", "Gemini 3.1 Pro Ultra" 등 거짓·구식 모델명이 박제되어 있어 사용자 자기소개 응답에 그대로 출력됨. 모델 ID 는 항상 `wrappers.ts` 의 `CLAUDE_MODEL_ID` / `OPENAI_MODEL_ID`, `gemini.ts` 의 `GEMINI_MODEL_ID`, `DepartmentRegistry`, `settingsStore` 에서 런타임 조회. 자기소개 요청 (예: "당신은 어떤 AI 모델로 동작하나요?") 에 모델명 노출 금지 — capability 만 안내. **예외 (정적 박제 허용)**: 디버그 로그 `logger.info`, 비용 추적 emit, `config/defaults.ts::MODEL_PRICING_USD_PER_1K_TOKENS` 가격표.
 26. **시스템 프롬프트 / 도구 description / 자기소개 응답에 미연결·미구현 도구 박제 금지** — 2026-04-29 인시던트: `generate_image` / `generate_video` description 에 "DALL-E 3 / Midjourney v7 / Imagen 4 / Gemini Flash 네이티브 / Runway Gen4 / Veo 3.1" 브랜드명이 박제. 환경변수가 비어있는 어댑터(`MIDJOURNEY_API_KEY`, `RUNWAY_API_KEY`)도 description 만으로 모델이 "이 기능 가능합니다" 라고 거짓 자기소개 → 호출 시 fail. 도구 노출은 **항상 `agent/availableTools.ts::listAvailableTools()` 를 거쳐** env 키 검증된 항목만 system prompt 에 주입. description 본문은 capability 위주(브랜드명 최소화). 어댑터 success 메시지에서도 브랜드명 제거 → "이미지가 생성됐습니다" 류 중립 표현. **예외**: 가격표, debug logger, 어댑터 내부 모델 ID 변수, 변경 이력 주석.
+27. **고가 멀티 LLM 도구 settings-gate 필수** — 2026-04-29: `parallel_ensemble` (호출당 $0.5~1.5) / `adversarial_critique` (호출당 $0.2~0.5) 는 항상 `settingsStore.AppSettings::ensembleEnabled` / `ensembleCritiqueEnabled` (기본 false) 를 통과해야 한다. `availableTools.isToolAvailable()` 이 settings + env 동시 체크. 사용자가 ⚙️ 설정 → 모델 설정 탭에서 명시적으로 토글하지 않는 한 비활성. CriticReview 의 `if (false)` bypass 와는 별개 — 이건 director 내부 자동화이고, 이 규칙은 agent loop 가 노출하는 도구에 적용. 설정 토글이 OFF 면 system prompt 자체에 도구가 등장하지 않아 모델이 호출 시도조차 못 함.
 
 ## 알려진 이슈
 - ~~GPT-5.4-pro 60s 타임아웃 → fallback 빈번~~ — 2026-04-29 Session 7 후속: 부서 primary 에서 제거. fallback chain 에만 잔존 (compete/legal). 87.5% abort 인시던트 종결.

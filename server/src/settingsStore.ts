@@ -54,6 +54,10 @@ export interface AppSettings {
   departments: Record<string, DepartmentSetting>
   connectors: Record<string, ConnectorSetting>
   notifications: NotificationSettings
+  /** 멀티 LLM 병렬 앙상블 도구 활성 (기본 false — 호출당 비용 ↑). */
+  ensembleEnabled: boolean
+  /** 적대적 비평 도구 활성 (기본 false — 앙상블 후 추가 호출). */
+  ensembleCritiqueEnabled: boolean
 }
 
 // ── 기본값 ────────────────────────────────────────────────────────
@@ -89,6 +93,8 @@ function buildDefaults(): AppSettings {
       alertOnLimit: true,
       alertOnError: false,
     },
+    ensembleEnabled: false,
+    ensembleCritiqueEnabled: false,
   }
 }
 
@@ -152,6 +158,8 @@ export function getAll(): AppSettings {
     departments:    { ...defaults.departments, ...(stored.departments as Record<string, DepartmentSetting> ?? {}) },
     connectors:     { ...defaults.connectors,  ...(stored.connectors  as Record<string, ConnectorSetting> ?? {}) },
     notifications:  { ...defaults.notifications, ...(stored.notifications as Partial<NotificationSettings> ?? {}) },
+    ensembleEnabled:        typeof stored.ensembleEnabled === "boolean" ? stored.ensembleEnabled : defaults.ensembleEnabled,
+    ensembleCritiqueEnabled:typeof stored.ensembleCritiqueEnabled === "boolean" ? stored.ensembleCritiqueEnabled : defaults.ensembleCritiqueEnabled,
   }
   return merged
 }
@@ -176,6 +184,8 @@ export function update(partial: Partial<AppSettings>): AppSettings {
     const current = (readKey<NotificationSettings>("notifications")) ?? buildDefaults().notifications
     writeKey("notifications", { ...current, ...partial.notifications })
   }
+  if (typeof partial.ensembleEnabled === "boolean") writeKey("ensembleEnabled", partial.ensembleEnabled)
+  if (typeof partial.ensembleCritiqueEnabled === "boolean") writeKey("ensembleCritiqueEnabled", partial.ensembleCritiqueEnabled)
   if (partial.defaultModel !== undefined && partial.defaultModel !== LOCKED_DEFAULT_MODEL) {
     logger.warn("[settingsStore] defaultModel 변경 시도 무시 — claude-sonnet-4-6 으로 잠금됨", { attempted: partial.defaultModel })
   }

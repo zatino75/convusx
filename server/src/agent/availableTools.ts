@@ -12,6 +12,7 @@
  */
 
 import { listTools, type ToolDefinition } from "./toolRegistry.js"
+import { getAll as getAllSettings } from "../settingsStore.js"
 
 /**
  * 도구별 환경변수 의존성 매핑.
@@ -77,8 +78,22 @@ function envRequirementMet(item: EnvAny): boolean {
   return envHas(item)
 }
 
-/** 도구의 모든 요구사항 (AND 조합) 검증. 매핑 없으면 항상 활성. */
+/**
+ * 도구의 모든 요구사항 (AND 조합) 검증. 매핑 없으면 항상 활성.
+ * 추가로 settings-gated 도구 (parallel_ensemble / adversarial_critique) 는
+ * AppSettings 의 ensembleEnabled / ensembleCritiqueEnabled 가 true 일 때만 활성.
+ * 비용 폭증 방지 — 기본값은 OFF, 사용자가 ⚙️ 설정 → 모델 설정에서 명시 활성.
+ */
 export function isToolAvailable(name: string): boolean {
+  // 1) settings 기반 gating 먼저
+  if (name === "parallel_ensemble" || name === "adversarial_critique") {
+    try {
+      const s = getAllSettings()
+      if (name === "parallel_ensemble"   && !s.ensembleEnabled)         return false
+      if (name === "adversarial_critique" && !s.ensembleCritiqueEnabled) return false
+    } catch { /* settings 미로드 시 비활성 (안전 default) */ return false }
+  }
+  // 2) env 키 요구사항
   const reqs = TOOL_ENV_REQUIREMENTS[name]
   if (!reqs) return true  // 매핑 미등록 = 키 무관 도구로 간주
   if (reqs.length === 0) return true
@@ -96,7 +111,15 @@ export function buildAvailableToolsList(): Array<{
   description: string
   available: boolean
   missingKeys: string[]
+  disabledBySettings?: boolean
 }> {
+  let settingsBlocked = new Set<string>()
+  try {
+    const s = getAllSettings()
+    if (!s.ensembleEnabled) settingsBlocked.add("parallel_ensemble")
+    if (!s.ensembleCritiqueEnabled) settingsBlocked.add("adversarial_critique")
+  } catch { /* fall through */ }
+
   return listTools().map(t => {
     const reqs = TOOL_ENV_REQUIREMENTS[t.name] ?? []
     const missing: string[] = []
@@ -106,11 +129,13 @@ export function buildAvailableToolsList(): Array<{
         else missing.push(item)
       }
     }
+    const disabled = settingsBlocked.has(t.name)
     return {
       name: t.name,
       description: t.description.slice(0, 160),
-      available: missing.length === 0,
+      available: missing.length === 0 && !disabled,
       missingKeys: missing,
+      disabledBySettings: disabled || undefined,
     }
   })
 }

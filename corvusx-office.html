@@ -3834,6 +3834,38 @@
           </div>
           <div class="field-hint">변경 시 즉시 적용됩니다. 빈 값을 선택하면 기본 부서 설정으로 복귀합니다.</div>
         </div>
+
+        <div class="settings-card" style="border-color:rgba(192,136,53,.45);background:rgba(232,200,90,.05)">
+          <div class="field-label" style="color:var(--gold)">⚠️ 멀티 AI 앙상블 (실험적)</div>
+          <div class="field-hint" style="color:var(--text-soft);line-height:1.55">
+            기본 OFF — 활성화 시 호출당 <b>$0.5~1.5 추가 비용</b> 발생.<br/>
+            고가치 task(법무 / 재무 / 계약서 / 사업계획) 에서 여러 LLM 프로바이더를 병렬 호출 후 종합합니다.
+          </div>
+          <div class="toggle-row" style="background:transparent;border:none;padding:8px 0">
+            <div class="label">
+              <span class="name">parallel_ensemble 활성화</span>
+              <span class="sub">3-AI 병렬 초안 + 통합 synthesis (호출당 $0.5~1.0)</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="ensembleToggle" ${s?.ensembleEnabled ? 'checked' : ''}/>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="toggle-row" style="background:transparent;border:none;padding:8px 0">
+            <div class="label">
+              <span class="name">adversarial_critique 활성화</span>
+              <span class="sub">앙상블 결과에 대한 비평 추가 호출 (앙상블 활성 시 권장, 호출당 $0.2~0.5)</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="critiqueToggle" ${s?.ensembleCritiqueEnabled ? 'checked' : ''}/>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="field-hint" style="color:var(--text-dim);font-size:11px">
+            토글 OFF 시 도구가 시스템 프롬프트에 노출되지 않아 모델이 호출 자체 불가 (CLAUDE.md #25/#27).
+            비용 가드(🛡️ 비용 안전장치) 도 함께 설정할 것을 권장합니다.
+          </div>
+        </div>
       </div>`;
 
     root.querySelectorAll('input[name="cls"]').forEach(r => {
@@ -3851,6 +3883,20 @@
         if (r.ok && r.data?.ok) { state.settingsCache = r.data.settings; settingsToast('저장됨 ✓'); }
       };
     });
+
+    // 앙상블 / 비평 토글
+    const ensembleEl = root.querySelector('#ensembleToggle');
+    const critiqueEl = root.querySelector('#critiqueToggle');
+    if (ensembleEl) ensembleEl.onchange = async (e) => {
+      const r = await settingsApi('PUT', '/api/settings', { ensembleEnabled: e.target.checked });
+      if (r.ok && r.data?.ok) { state.settingsCache = r.data.settings; settingsToast(e.target.checked ? '앙상블 활성화 ✓ (비용 증가 주의)' : '앙상블 비활성화 ✓'); }
+      else { e.target.checked = !e.target.checked; settingsToast('실패', 'err'); }
+    };
+    if (critiqueEl) critiqueEl.onchange = async (e) => {
+      const r = await settingsApi('PUT', '/api/settings', { ensembleCritiqueEnabled: e.target.checked });
+      if (r.ok && r.data?.ok) { state.settingsCache = r.data.settings; settingsToast('저장됨 ✓'); }
+      else { e.target.checked = !e.target.checked; settingsToast('실패', 'err'); }
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────
