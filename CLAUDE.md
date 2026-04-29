@@ -2,6 +2,30 @@
 > 최종 업데이트: 2026-04-29 (Session 8 — Pre-fetch 도입 / 부서 외부 데이터 병렬 수집 / SQLite prefetch_cache)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
 
+## Session 8 종합 (2026-04-29) 완료 사항
+실측 검증된 production 변경 (HEAD `e20191b`):
+
+| 영역 | 결과 |
+|---|---|
+| Pre-fetch 엔진 | ✅ live 동작 확인 (correlation_id 57eb7e69) — sourcesUsed=3, 21k → 8k 토큰으로 축소(소스 제한 후) |
+| ecig 규제 데이터 소스 | ✅ 식약처 RSS 완전 제외, 기재부(lsiSeq=1912) + 환경부 + 자치법규 + Perplexity 페어 |
+| FDA / EU TPD | ✅ userMessage 수출 키워드 condition 매칭 동작 |
+| Director 자동 앙상블 게이트 | ✅ ensembleEnabled OFF → runEnsemble skip (Director 우회 경로 차단) |
+| UI 라벨 중립화 | ✅ "3-AI 앙상블" → "종합 분석" |
+| gpt-5.4-pro 활성 경로 | ✅ wrappers / DEFAULT_MODELS / compete fallback / data fallback 모두 정리 |
+| Pre-fetch 크기 제한 | ✅ MAX_SOURCES_PER_DEPT=4, MAX_CHARS_PER_SOURCE=1000 |
+| Sonnet 133s orphan call | ✅ timeoutMs 어댑터 controller 까지 전파 — withTimeout + abort 동기화 |
+| EACCES (.cache/uploads) | ✅ chown 수정, 부팅 시 mkdir 경고 0건 |
+| read_attachment | ✅ 기존 base64 inline 방식 + /api/extract-text 라우트 (PDF/Excel/Word LLM 분석) — 정상 동작 |
+| recall_thread_history | ✅ threadMemory 모듈 기반 (SQLite messages 테이블도 별도 존재) |
+| messages 테이블 | ✅ `corvus.db` 에 4 rows (workspace 라우트가 이미 INSERT 중) |
+| Prefetch failures 로그 | ✅ failureSources / failureReasons 배열로 출력 |
+
+미완료 / 외부 자원 대기:
+- 비용 재측정: 평문 비밀번호 자동 로그인 불가 (.env 에 hash 만 저장) → 사용자가 브라우저로 동일 질문 1회 후 cost log 확인 권장
+- NOTION_INTEGRATION_TOKEN / NAVER_CLIENT_ID / GOOGLE_SERVICE_ACCOUNT_JSON: 키 미발급 → 해당 커넥터 비활성 상태 유지 (availableTools 가 자동 차단)
+- multer 기반 별도 /api/upload 라우트: 미구현 — 현재는 base64 inline 첨부 + /api/extract-text 가 실질 동일 기능 제공 (refactor 시 frontend 도 함께 수정 필요)
+
 ## Session 8 (2026-04-29) 핵심 변경 — Pre-fetch 도입
 - **`server/src/prefetch/`** 신규 모듈:
   - `prefetchSources.ts` — 부서별 소스 declarative 설정 (legal=7, market=5, compete=3, rnd=4, finance=1, marketing=2, data=1).
