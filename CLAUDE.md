@@ -340,7 +340,12 @@ server/src/
   - Classifier Haiku fallback timeout 8s → 15s 수정 예정
   - Test B director 미진입 → 위 수정 후 재확인 예정
   - Gemini `cost_usd` 0 표시 → round 이슈 또는 가격 키 매핑 디버그 필요
-  - regulationCache `mkdir EACCES` → chown 수정 필요
+
+## 해결 기록
+- 2026-04-29: `.cache/regulation` + `uploads/media` EACCES 해결
+  - `chown -R corvusx:corvusx /opt/corvusx/server/.cache`
+  - `chown -R corvusx:corvusx /opt/corvusx/server/uploads`
+  - `regulationWatcher` 캐시 영속화 + `mediaStore` 미디어 저장 정상화. 서비스 재시작 후 EACCES 로그 0건 확인.
 
 ## 비용 관측 (2026-04-23 추가)
 - 모든 provider 어댑터 성공 호출 시 `[adapter:usage]` 구조화 로그 emit
