@@ -96,10 +96,13 @@
   .app.is-resizing{transition:none;user-select:none;-webkit-user-select:none}
   .app.is-resizing iframe{pointer-events:none}
   .app[data-sidebar="closed"]{grid-template-columns:0 1fr var(--panel-w,300px)}
-  /* 대시보드/갤러리 뷰: 우측 부서 패널 숨김 (채팅 전용 위젯) */
+  /* 대시보드/갤러리/설정 뷰: 우측 부서 패널 숨김 (채팅 전용 위젯, CLAUDE.md #23) */
   .app[data-view="dashboard"]{grid-template-columns:var(--sidebar-w,260px) 1fr 0}
   .app[data-view="dashboard"][data-sidebar="closed"]{grid-template-columns:0 1fr 0}
   .app[data-view="dashboard"] .panel{display:none}
+  .app[data-view="settings"]{grid-template-columns:var(--sidebar-w,260px) 1fr 0}
+  .app[data-view="settings"][data-sidebar="closed"]{grid-template-columns:0 1fr 0}
+  .app[data-view="settings"] .panel{display:none}
   .app[data-panel="closed"]{grid-template-columns:var(--sidebar-w,260px) 1fr 34px}
   .app[data-sidebar="closed"][data-panel="closed"]{grid-template-columns:0 1fr 34px}
 
@@ -205,6 +208,103 @@
   .gallery-card.selected .check{opacity:1}
   .gallery-card.selected .check{background:var(--accent);border-color:var(--accent);color:#fff}
   .gallery-card .play-overlay{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:48px;height:48px;border-radius:50%;background:rgba(0,0,0,.5);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;pointer-events:none}
+
+  /* ─── Settings View (2026-04-29 신규) ───────────────────────────────────
+     좌측 수직 탭 + 우측 콘텐츠. 기존 토큰만 사용 (새 색상 없음). */
+  .settings-view{display:flex;flex-direction:row;height:100%;overflow:hidden;background:var(--bg);color:var(--text);min-height:0}
+  .settings-tabs{flex:0 0 220px;background:var(--surface-hi);border-right:1px solid var(--border-soft);display:flex;flex-direction:column;padding:18px 0;overflow-y:auto;min-width:0}
+  .settings-tabs .tab-title{padding:0 18px 10px;font-size:11px;color:var(--text-dim);font-weight:700;letter-spacing:.6px;text-transform:uppercase}
+  .settings-tab{display:flex;align-items:center;gap:9px;padding:9px 18px;border:none;background:transparent;color:var(--text-soft);cursor:pointer;font-size:14px;text-align:left;border-left:3px solid transparent;transition:background .12s,color .12s,border-color .12s}
+  .settings-tab:hover{background:rgba(0,0,0,.04);color:var(--text)}
+  .settings-tab.active{background:rgba(201,100,66,.10);color:var(--accent);border-left-color:var(--accent);font-weight:600}
+  .settings-content{flex:1;overflow-y:auto;padding:28px 36px;min-width:0}
+  .settings-content::-webkit-scrollbar{width:8px}
+  .settings-content::-webkit-scrollbar-thumb{background:rgba(140,130,115,.22);border-radius:4px}
+  .settings-section{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+  .settings-section h2{font-size:18px;font-weight:700;color:var(--text);margin:0;padding:0;display:flex;align-items:center;gap:8px}
+  .settings-section h2 .icon{font-size:20px}
+  .settings-section .desc{font-size:13px;color:var(--text-soft);margin:0;line-height:1.6}
+  .settings-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:14px}
+  .settings-card .field{display:flex;flex-direction:column;gap:6px}
+  .settings-card .field-label{font-size:12px;color:var(--text-soft);font-weight:600;letter-spacing:.4px}
+  .settings-card .field-hint{font-size:11px;color:var(--text-dim);line-height:1.5}
+  .settings-card input[type="text"],
+  .settings-card input[type="password"],
+  .settings-card input[type="email"],
+  .settings-card input[type="number"],
+  .settings-card textarea,
+  .settings-card select{
+    background:var(--input);border:1px solid var(--border-soft);border-radius:6px;
+    padding:8px 10px;font-size:13px;color:var(--text);outline:none;transition:border-color .12s;
+    font-family:inherit;
+  }
+  .settings-card input:focus,.settings-card textarea:focus,.settings-card select:focus{border-color:var(--accent)}
+  .settings-card textarea{resize:vertical;min-height:90px;line-height:1.5}
+  .settings-card .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .settings-card .row .field{flex:1;min-width:160px}
+  .settings-btn{padding:7px 16px;border-radius:6px;font-size:13px;cursor:pointer;border:1px solid var(--border);background:var(--surface-hi);color:var(--text);transition:background .12s,border-color .12s;font-weight:500}
+  .settings-btn:hover{background:var(--input)}
+  .settings-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .settings-btn.primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+  .settings-btn.danger{background:transparent;border-color:var(--red);color:var(--red)}
+  .settings-btn.danger:hover{background:var(--red);color:#fff}
+  .settings-btn.ghost{background:transparent;border-color:var(--border-soft);color:var(--text-soft)}
+  .settings-btn.ghost:hover{color:var(--text);border-color:var(--border)}
+  .settings-btn[disabled]{opacity:.55;cursor:not-allowed}
+  .settings-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+
+  /* ─ 토글 스위치 ─ */
+  .switch{position:relative;display:inline-flex;width:36px;height:20px;flex-shrink:0}
+  .switch input{opacity:0;width:0;height:0}
+  .switch .slider{position:absolute;inset:0;background:var(--border);border-radius:20px;transition:background .15s;cursor:pointer}
+  .switch .slider::before{content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;background:#fff;border-radius:50%;transition:transform .15s}
+  .switch input:checked + .slider{background:var(--accent)}
+  .switch input:checked + .slider::before{transform:translateX(16px)}
+
+  /* ─ 지침 카드 (글로벌 + 프로젝트 공용) ─ */
+  .instruction-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:8px;padding:12px 14px;display:flex;align-items:flex-start;gap:12px;transition:border-color .12s}
+  .instruction-card:hover{border-color:var(--border)}
+  .instruction-card.disabled{opacity:.55}
+  .instruction-card .body{flex:1;min-width:0}
+  .instruction-card .body .text{font-size:13px;color:var(--text);line-height:1.55;white-space:pre-wrap;word-break:break-word}
+  .instruction-card .body .meta{font-size:11px;color:var(--text-dim);margin-top:4px}
+  .instruction-card .actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+  .instruction-card .icon-btn{background:transparent;border:none;color:var(--text-soft);cursor:pointer;padding:4px 7px;border-radius:5px;font-size:12px}
+  .instruction-card .icon-btn:hover{background:rgba(0,0,0,.06);color:var(--text)}
+  .instruction-card .icon-btn.danger:hover{background:rgba(185,65,65,.12);color:var(--red)}
+
+  /* ─ API 키 카드 ─ */
+  .api-key-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px}
+  .api-key-card .head{display:flex;align-items:center;gap:10px}
+  .api-key-card .head .name{flex:1;font-size:14px;font-weight:600;color:var(--text)}
+  .api-key-card .head .badge{font-size:11px;padding:2px 8px;border-radius:10px;background:var(--surface-hi);color:var(--text-dim);border:1px solid var(--border-soft)}
+  .api-key-card .head .badge.ok{color:var(--green);border-color:var(--green)}
+  .api-key-card .head .badge.fail{color:var(--red);border-color:var(--red)}
+  .api-key-card .key-display{font-family:monospace;font-size:11.5px;color:var(--text-soft);background:var(--surface-hi);border:1px solid var(--border-soft);border-radius:5px;padding:7px 10px;letter-spacing:.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .api-key-card .actions{display:flex;gap:6px;flex-wrap:wrap}
+  .api-key-card .last-tested{font-size:10.5px;color:var(--text-dim)}
+
+  /* ─ 부서 / 커넥터 토글 행 ─ */
+  .toggle-row{display:flex;align-items:center;gap:14px;padding:10px 14px;background:var(--surface);border:1px solid var(--border-soft);border-radius:8px;transition:border-color .12s}
+  .toggle-row:hover{border-color:var(--border)}
+  .toggle-row .label{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+  .toggle-row .label .name{font-size:13.5px;color:var(--text);font-weight:500}
+  .toggle-row .label .sub{font-size:11.5px;color:var(--text-dim)}
+
+  /* ─ 슬라이더 + 값 표시 ─ */
+  .slider-field{display:flex;flex-direction:column;gap:6px}
+  .slider-field .head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .slider-field .head .name{font-size:12.5px;color:var(--text);font-weight:600}
+  .slider-field .head .val{font-size:13px;color:var(--accent);font-weight:600;font-family:monospace}
+  .slider-field input[type="range"]{accent-color:var(--accent);height:4px;width:100%}
+  .slider-field .stats{font-size:11px;color:var(--text-dim);display:flex;gap:14px}
+
+  /* ─ 모달 (settings 공용) — gallery-modal 변형 ─ */
+  .settings-modal{position:fixed;inset:0;background:rgba(20,18,15,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:24px}
+  .settings-modal-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;min-width:340px;max-width:540px;width:100%;box-shadow:0 14px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:14px;max-height:86vh;overflow-y:auto}
+  .settings-modal-title{font-size:15px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px}
+  .settings-modal-msg{font-size:13px;color:var(--text-soft);line-height:1.6}
+  .settings-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
 
   /* ─── 채팅 패널 — 아이보리 (Phase A: 다크 테마 제거) ─────────────────── */
   .chat{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:var(--chat);position:relative}
@@ -418,6 +518,10 @@
         <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="5" height="5"/><rect x="9" y="3" width="5" height="5"/><rect x="2" y="10" width="5" height="3"/><rect x="9" y="10" width="5" height="3"/></svg>
         대시보드
       </button>
+      <button class="nav-btn" id="navSettings" type="button">
+        <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.5 3.5l1.4 1.4M11.1 11.1l1.4 1.4M3.5 12.5l1.4-1.4M11.1 4.9l1.4-1.4"/></svg>
+        ⚙️ 설정
+      </button>
       <div class="sidebar-scroll" id="sidebarScroll">
         <div class="nav-divider">프로젝트 <span class="add" id="newProject" title="새 프로젝트">+</span></div>
         <div id="projectList"></div>
@@ -439,6 +543,23 @@
     <!-- Gallery view (사이드바 '이미지' 클릭 시 표시) -->
     <section class="gallery-view" id="galleryView" style="display:none;flex-direction:column;height:100%;overflow:auto;background:var(--bg);color:var(--text);padding:24px 28px;">
       <div id="galleryBody"></div>
+    </section>
+
+    <!-- Settings view (사이드바 '⚙️ 설정' 클릭 시 표시) -->
+    <section class="settings-view" id="settingsView" style="display:none;">
+      <nav class="settings-tabs" id="settingsTabs">
+        <div class="tab-title">설정</div>
+        <button class="settings-tab active" data-stab="profile">👤 프로필</button>
+        <button class="settings-tab" data-stab="instructions">📋 글로벌 지침</button>
+        <button class="settings-tab" data-stab="api-keys">🔑 API 키</button>
+        <button class="settings-tab" data-stab="models">🤖 모델 설정</button>
+        <button class="settings-tab" data-stab="cost-guard">🛡️ 비용 안전장치</button>
+        <button class="settings-tab" data-stab="departments">🏢 부서 활성화</button>
+        <button class="settings-tab" data-stab="connectors">🔌 커넥터</button>
+        <button class="settings-tab" data-stab="notifications">🔔 알림</button>
+        <button class="settings-tab" data-stab="data">💾 데이터 관리</button>
+      </nav>
+      <div class="settings-content" id="settingsContent"></div>
     </section>
 
     <section class="chat" id="chatView">
@@ -571,7 +692,12 @@
     collapsedProjects:new Set(loadLS(LS.COLLAPSED, [])),
     // 2026-04-25: 'cost' 탭 폐지 → 사이드바 대시보드로 이전. localStorage 'cost' 값은 'depts'로 마이그레이션.
     currentTab:(localStorage.getItem(LS.TAB) === 'cost' ? 'depts' : (localStorage.getItem(LS.TAB) || 'depts')),
-    activeView:'chat',  // 'chat' | 'dashboard' (사이드바 메뉴 전환용)
+    activeView:'chat',  // 'chat' | 'dashboard' | 'gallery' | 'settings' (사이드바 메뉴 전환용)
+    activeSettingsTab:'profile',
+    settingsCache:null,           // GET /api/settings 캐시
+    instructionsCache:{ global:[], project:{} },
+    apiKeysCache:[],
+    settingsToastTimer:null,
     deptStates:{},
     missionDeptCount:9,
     deptCompletedCount:0,
@@ -595,9 +721,10 @@
     app:$('app'),
     toggleSidebar:$('toggleSidebar'), togglePanel:$('togglePanel'),
     sbToggleCollapse:$('sbToggleCollapse'),
-    navNewChat:$('navNewChat'), navDashboard:$('navDashboard'), navImages:$('navImages'), newProject:$('newProject'),
+    navNewChat:$('navNewChat'), navDashboard:$('navDashboard'), navImages:$('navImages'), navSettings:$('navSettings'), newProject:$('newProject'),
     dashboardView:$('dashboardView'), dashboardBody:$('dashboardBody'), chatView:$('chatView'),
     galleryView:$('galleryView'), galleryBody:$('galleryBody'),
+    settingsView:$('settingsView'), settingsTabs:$('settingsTabs'), settingsContent:$('settingsContent'),
     generalThreads:$('generalThreads'), projectList:$('projectList'),
     chatTitle:$('chatTitle'), chatLog:$('chatLog'),
     directive:$('directive'), sendBtn:$('sendBtn'),
@@ -1150,8 +1277,12 @@
         <div class="project-home__title">${escapeHtml(displayName)}</div>
         <div class="project-home__desc">${threads.length ? '이 프로젝트의 대화를 이어가거나 새 스레드를 시작하세요.' : '이 프로젝트에 대화가 없습니다.<br>새 스레드를 시작하세요.'}</div>
         <button class="project-home__btn" type="button" data-act="new-thread">+ 새 스레드 시작하기</button>
+        <div id="projectInstructionsHost" style="width:100%;margin-top:14px"></div>
         ${threads.length ? `<div class="project-home__threads">${cardsHtml}</div>` : ''}
       </div>`;
+    if (typeof renderProjectInstructionsInline === 'function') {
+      renderProjectInstructionsInline().catch(() => {});
+    }
     const btn = dom.chatLog.querySelector('[data-act="new-thread"]');
     if (btn) btn.addEventListener('click', () => createThreadInProject(projectId));
     dom.chatLog.querySelectorAll('.project-thread-card').forEach(el => {
@@ -2114,9 +2245,11 @@
     if (dom.chatView) dom.chatView.style.display = 'none';
     if (dom.dashboardView) dom.dashboardView.style.display = 'none';
     if (dom.galleryView) dom.galleryView.style.display = 'none';
+    if (dom.settingsView) dom.settingsView.style.display = 'none';
     if (dom.navNewChat) dom.navNewChat.classList.remove('active');
     if (dom.navDashboard) dom.navDashboard.classList.remove('active');
     if (dom.navImages) dom.navImages.classList.remove('active');
+    if (dom.navSettings) dom.navSettings.classList.remove('active');
     if (typeof stopCostPolling === 'function') stopCostPolling();
   }
   function showDashboard() {
@@ -2144,6 +2277,15 @@
     if (dom.galleryView) dom.galleryView.style.display = 'flex';
     if (dom.navImages) dom.navImages.classList.add('active');
     if (dom.galleryBody && typeof loadGallery === 'function') loadGallery();
+  }
+  function showSettings() {
+    _hideAllViews();
+    state.activeView = 'settings';
+    if (dom.app) dom.app.dataset.view = 'settings';
+    _setRightPanelVisible(false);
+    if (dom.settingsView) dom.settingsView.style.display = 'flex';
+    if (dom.navSettings) dom.navSettings.classList.add('active');
+    if (typeof openSettingsTab === 'function') openSettingsTab(state.activeSettingsTab || 'profile');
   }
   document.querySelectorAll('.tab-btn').forEach(b => {
     if (b.classList.contains('panel-tab-toggle')) return;  // 토글 버튼은 tab 전환 대상 아님
@@ -3196,6 +3338,890 @@
     }, 500);
   }
 
+  // ─── Settings View (2026-04-29 신규) ─────────────────────────────
+  // 9 탭: profile / instructions / api-keys / models / cost-guard /
+  //       departments / connectors / notifications / data
+  // 자동 저장 + "저장됨 ✓" 토스트.
+  const SETTINGS_TABS = ['profile','instructions','api-keys','models','cost-guard','departments','connectors','notifications','data'];
+
+  function settingsToast(msg, tone='ok'){
+    let t = document.getElementById('settingsToast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'settingsToast';
+      t.style.cssText = 'position:fixed;top:18px;right:24px;z-index:9999;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.15);transition:opacity .25s;opacity:0';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.style.background = tone === 'err' ? 'rgba(185,65,65,.95)' : 'rgba(61,138,85,.95)';
+    t.style.color = '#fff';
+    t.style.opacity = '1';
+    if (state.settingsToastTimer) clearTimeout(state.settingsToastTimer);
+    state.settingsToastTimer = setTimeout(() => { t.style.opacity = '0'; }, 2000);
+  }
+
+  async function settingsApi(method, path, body){
+    const opts = { method, credentials:'include', headers:{'Content-Type':'application/json'} };
+    if (body !== undefined) opts.body = JSON.stringify(body);
+    const r = await fetch(API_BASE + path, opts);
+    let data = null;
+    try { data = await r.json(); } catch { /* ignore */ }
+    return { ok: r.ok, status: r.status, data };
+  }
+
+  async function loadSettingsCache(){
+    const r = await settingsApi('GET', '/api/settings');
+    if (r.ok && r.data?.ok && r.data.settings) state.settingsCache = r.data.settings;
+    return state.settingsCache;
+  }
+
+  async function loadInstructionsCache(scope){
+    const r = await settingsApi('GET', '/api/settings/instructions?scope=' + encodeURIComponent(scope));
+    if (r.ok && r.data?.ok) {
+      if (scope === 'global') state.instructionsCache.global = r.data.instructions || [];
+      else state.instructionsCache.project[scope] = r.data.instructions || [];
+    }
+    return r.data?.instructions || [];
+  }
+
+  async function loadApiKeysCache(){
+    const r = await settingsApi('GET', '/api/settings/api-keys');
+    if (r.ok && r.data?.ok) state.apiKeysCache = r.data.keys || [];
+    return state.apiKeysCache;
+  }
+
+  function openSettingsTab(name){
+    if (!SETTINGS_TABS.includes(name)) name = 'profile';
+    state.activeSettingsTab = name;
+    if (dom.settingsTabs) {
+      dom.settingsTabs.querySelectorAll('.settings-tab').forEach(b => {
+        b.classList.toggle('active', b.dataset.stab === name);
+      });
+    }
+    if (dom.settingsContent) {
+      dom.settingsContent.innerHTML = '<div style="color:var(--text-dim);text-align:center;padding:40px;font-size:13px;">로딩중...</div>';
+      Promise.resolve(renderSettingsTab(name)).catch(err => {
+        dom.settingsContent.innerHTML = '<div style="color:var(--red);padding:24px;">설정 로드 실패: ' + escapeHtml(String(err?.message ?? err)) + '</div>';
+      });
+    }
+  }
+
+  if (dom.settingsTabs) {
+    dom.settingsTabs.addEventListener('click', (e) => {
+      const btn = e.target.closest('.settings-tab');
+      if (!btn || !btn.dataset.stab) return;
+      openSettingsTab(btn.dataset.stab);
+    });
+  }
+
+  async function renderSettingsTab(name){
+    const root = dom.settingsContent;
+    if (!root) return;
+    if (name === 'profile')        return renderProfileTab(root);
+    if (name === 'instructions')   return renderInstructionsTab(root);
+    if (name === 'api-keys')       return renderApiKeysTab(root);
+    if (name === 'models')         return renderModelsTab(root);
+    if (name === 'cost-guard')     return renderCostGuardTab(root);
+    if (name === 'departments')    return renderDepartmentsTab(root);
+    if (name === 'connectors')     return renderConnectorsTab(root);
+    if (name === 'notifications')  return renderNotificationsTab(root);
+    if (name === 'data')           return renderDataTab(root);
+  }
+
+  // ── 비밀번호 재확인 모달 ──
+  function openPasswordConfirmModal(title, onOk){
+    const overlay = document.createElement('div');
+    overlay.className = 'settings-modal';
+    overlay.innerHTML = `
+      <div class="settings-modal-card">
+        <div class="settings-modal-title">🔒 ${escapeHtml(title)}</div>
+        <div class="settings-modal-msg">변경 사항을 적용하려면 현재 비밀번호를 입력하세요.</div>
+        <div class="field"><label class="field-label">현재 비밀번호</label>
+          <input type="password" id="pwConfirmInput" autocomplete="current-password" />
+        </div>
+        <div id="pwConfirmErr" style="color:var(--red);font-size:12px;display:none"></div>
+        <div class="settings-modal-actions">
+          <button type="button" class="settings-btn" data-act="cancel">취소</button>
+          <button type="button" class="settings-btn primary" data-act="ok">확인</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const input = overlay.querySelector('#pwConfirmInput');
+    const errEl = overlay.querySelector('#pwConfirmErr');
+    setTimeout(() => input?.focus(), 30);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector('[data-act="cancel"]').onclick = close;
+    overlay.querySelector('[data-act="ok"]').onclick = async () => {
+      const pw = String(input.value || '').trim();
+      if (!pw) { errEl.textContent = '비밀번호를 입력하세요.'; errEl.style.display = 'block'; return; }
+      // /api/auth/login 으로 비밀번호 재확인 — 통과 시 새 세션 쿠키가 다시 set 됨 (그대로 사용 가능)
+      const r = await settingsApi('POST', '/api/auth/login', { password: pw });
+      if (r.ok && r.data?.ok) { close(); try { await onOk(pw); } catch (e) { settingsToast('적용 실패: ' + (e?.message ?? e), 'err'); } }
+      else { errEl.textContent = '비밀번호가 일치하지 않습니다.'; errEl.style.display = 'block'; }
+    };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') overlay.querySelector('[data-act="ok"]').click(); });
+  }
+
+  // ── 일반 확인 모달 ──
+  function openConfirmModal({ title, message, confirmLabel='확인', danger=false, onOk }){
+    const overlay = document.createElement('div');
+    overlay.className = 'settings-modal';
+    overlay.innerHTML = `
+      <div class="settings-modal-card">
+        <div class="settings-modal-title">${escapeHtml(title)}</div>
+        <div class="settings-modal-msg">${message}</div>
+        <div class="settings-modal-actions">
+          <button type="button" class="settings-btn" data-act="cancel">취소</button>
+          <button type="button" class="settings-btn ${danger ? 'danger' : 'primary'}" data-act="ok">${escapeHtml(confirmLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector('[data-act="cancel"]').onclick = close;
+    overlay.querySelector('[data-act="ok"]').onclick = async () => { close(); try { await onOk(); } catch (e) { settingsToast('실패: ' + (e?.message ?? e), 'err'); } };
+  }
+
+  // ── 텍스트 입력 모달 ──
+  function openTextareaModal({ title, placeholder, initial='', okLabel='저장', onOk }){
+    const overlay = document.createElement('div');
+    overlay.className = 'settings-modal';
+    overlay.innerHTML = `
+      <div class="settings-modal-card">
+        <div class="settings-modal-title">${escapeHtml(title)}</div>
+        <textarea id="taModalInput" placeholder="${escapeAttr(placeholder || '')}" style="background:var(--input);border:1px solid var(--border-soft);border-radius:6px;padding:10px;font-size:13px;color:var(--text);min-height:140px;resize:vertical;font-family:inherit;line-height:1.55">${escapeHtml(initial)}</textarea>
+        <div class="settings-modal-actions">
+          <button type="button" class="settings-btn" data-act="cancel">취소</button>
+          <button type="button" class="settings-btn primary" data-act="ok">${escapeHtml(okLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const input = overlay.querySelector('#taModalInput');
+    setTimeout(() => input?.focus(), 30);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector('[data-act="cancel"]').onclick = close;
+    overlay.querySelector('[data-act="ok"]').onclick = async () => {
+      const v = String(input.value || '').trim();
+      if (!v) { settingsToast('내용이 비어있습니다', 'err'); return; }
+      close();
+      try { await onOk(v); } catch (e) { settingsToast('실패: ' + (e?.message ?? e), 'err'); }
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Tab: 👤 프로필
+  // ─────────────────────────────────────────────────────────────────
+  async function renderProfileTab(root){
+    const s = state.settingsCache || await loadSettingsCache();
+    const p = s?.profile || {};
+    root.innerHTML = `
+      <div class="settings-section">
+        <h2><span class="icon">👤</span>프로필</h2>
+        <p class="desc">사용자 정보와 비밀번호를 관리합니다. 모든 변경사항은 즉시 저장됩니다.</p>
+        <div class="settings-card">
+          <div class="field">
+            <label class="field-label">이름</label>
+            <input type="text" id="prfName" value="${escapeAttr(p.name || '')}" placeholder="홍길동" maxlength="60" />
+          </div>
+          <div class="field">
+            <label class="field-label">직업 / 역할</label>
+            <input type="text" id="prfRole" value="${escapeAttr(p.role || '')}" placeholder="제품 책임자, 변호사, 마케터..." maxlength="80" />
+          </div>
+          <div class="field">
+            <label class="field-label">전문 분야 (쉼표로 구분)</label>
+            <input type="text" id="prfExpertise" value="${escapeAttr((p.expertise || []).join(', '))}" placeholder="예: 법무, 식품, 재무 분석" maxlength="200" />
+          </div>
+          <div class="field-hint">이름·역할·전문 분야는 AI 응답 톤 조정에 활용됩니다.</div>
+          <div class="settings-actions">
+            <button type="button" class="settings-btn primary" id="prfSaveBtn">프로필 저장</button>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="field-label">🔐 비밀번호 변경</div>
+          <div class="field">
+            <label class="field-label">현재 비밀번호</label>
+            <input type="password" id="pwCurrent" autocomplete="current-password" />
+          </div>
+          <div class="field">
+            <label class="field-label">새 비밀번호</label>
+            <input type="password" id="pwNew" autocomplete="new-password" minlength="8" />
+          </div>
+          <div class="field">
+            <label class="field-label">새 비밀번호 확인</label>
+            <input type="password" id="pwConfirm" autocomplete="new-password" minlength="8" />
+          </div>
+          <div class="field-hint">8자 이상. 변경 후 모든 기기에서 다시 로그인이 필요할 수 있습니다.</div>
+          <div class="settings-actions">
+            <button type="button" class="settings-btn primary" id="pwChangeBtn">비밀번호 변경</button>
+          </div>
+        </div>
+      </div>`;
+
+    root.querySelector('#prfSaveBtn').onclick = () => {
+      openPasswordConfirmModal('프로필 변경', async () => {
+        const profile = {
+          name: root.querySelector('#prfName').value.trim() || undefined,
+          role: root.querySelector('#prfRole').value.trim() || undefined,
+          expertise: root.querySelector('#prfExpertise').value
+            .split(',').map(s => s.trim()).filter(Boolean).slice(0, 12),
+        };
+        const r = await settingsApi('PUT', '/api/settings', { profile });
+        if (r.ok && r.data?.ok) {
+          state.settingsCache = r.data.settings;
+          settingsToast('저장됨 ✓');
+        } else {
+          settingsToast('저장 실패', 'err');
+        }
+      });
+    };
+
+    root.querySelector('#pwChangeBtn').onclick = async () => {
+      const cur = root.querySelector('#pwCurrent').value;
+      const nw  = root.querySelector('#pwNew').value;
+      const cf  = root.querySelector('#pwConfirm').value;
+      if (!cur || !nw) return settingsToast('비밀번호를 입력하세요', 'err');
+      if (nw !== cf)   return settingsToast('새 비밀번호가 일치하지 않습니다', 'err');
+      if (nw.length < 8) return settingsToast('새 비밀번호는 8자 이상이어야 합니다', 'err');
+      const r = await settingsApi('POST', '/api/auth/change-password', { currentPassword: cur, newPassword: nw });
+      if (r.ok && r.data?.ok) {
+        settingsToast('비밀번호가 변경되었습니다 ✓');
+        root.querySelector('#pwCurrent').value = '';
+        root.querySelector('#pwNew').value = '';
+        root.querySelector('#pwConfirm').value = '';
+      } else {
+        settingsToast(r.data?.error === 'wrong_password' ? '현재 비밀번호가 일치하지 않습니다' : '변경 실패', 'err');
+      }
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Tab: 📋 글로벌 지침
+  // ─────────────────────────────────────────────────────────────────
+  async function renderInstructionsTab(root){
+    const list = await loadInstructionsCache('global');
+    root.innerHTML = `
+      <div class="settings-section">
+        <h2><span class="icon">📋</span>글로벌 지침</h2>
+        <p class="desc">모든 대화에 자동 적용되는 시스템 지침입니다. 활성화된 항목만 AI 시스템 프롬프트에 포함됩니다.</p>
+        <div style="display:flex;justify-content:flex-end">
+          <button type="button" class="settings-btn primary" id="addInstrBtn">+ 새 지침 추가</button>
+        </div>
+        <div id="instrList" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>`;
+    renderInstructionList(root.querySelector('#instrList'), list, 'global');
+
+    root.querySelector('#addInstrBtn').onclick = () => {
+      openTextareaModal({
+        title: '새 글로벌 지침',
+        placeholder: '예: 돌려 말하지 않고 있는 그대로 말합니다.\n실질적인 태도를 가장 중요시합니다.\n존댓말로 답합니다.',
+        onOk: async (content) => {
+          const r = await settingsApi('POST', '/api/settings/instructions', { scope:'global', content });
+          if (r.ok && r.data?.ok) { settingsToast('저장됨 ✓'); openSettingsTab('instructions'); }
+          else settingsToast('저장 실패: ' + (r.data?.error || ''), 'err');
+        },
+      });
+    };
+  }
+
+  function renderInstructionList(root, list, scope){
+    if (!list || list.length === 0) {
+      const empty = scope === 'global'
+        ? '글로벌 지침이 없습니다. 모든 대화에 적용될 지시사항을 추가하세요.'
+        : '이 프로젝트의 지침이 없습니다.';
+      root.innerHTML = `<div style="color:var(--text-dim);text-align:center;padding:30px;font-size:13px;border:1px dashed var(--border-soft);border-radius:8px;">${escapeHtml(empty)}</div>`;
+      return;
+    }
+    root.innerHTML = list.map(it => `
+      <div class="instruction-card${it.enabled ? '' : ' disabled'}" data-id="${it.id}">
+        <label class="switch" title="${it.enabled ? '비활성화' : '활성화'}">
+          <input type="checkbox" data-act="toggle" ${it.enabled ? 'checked' : ''} />
+          <span class="slider"></span>
+        </label>
+        <div class="body">
+          <div class="text">${escapeHtml(it.content)}</div>
+          <div class="meta">${escapeHtml(new Date(it.updatedAt).toLocaleString('ko-KR'))} · ${it.enabled ? '활성' : '비활성'}</div>
+        </div>
+        <div class="actions">
+          <button type="button" class="icon-btn" data-act="edit" title="편집">편집</button>
+          <button type="button" class="icon-btn danger" data-act="delete" title="삭제">삭제</button>
+        </div>
+      </div>`).join('');
+
+    root.querySelectorAll('.instruction-card').forEach(card => {
+      const id = Number(card.dataset.id);
+      const item = list.find(x => x.id === id);
+      card.querySelector('[data-act="toggle"]').onchange = async (e) => {
+        const enabled = e.target.checked;
+        const r = await settingsApi('POST', `/api/settings/instructions/${id}/toggle`, { enabled });
+        if (r.ok && r.data?.ok) { settingsToast('저장됨 ✓'); card.classList.toggle('disabled', !enabled); }
+        else { e.target.checked = !enabled; settingsToast('실패', 'err'); }
+      };
+      card.querySelector('[data-act="edit"]').onclick = () => {
+        openTextareaModal({
+          title: '지침 수정',
+          initial: item?.content || '',
+          onOk: async (content) => {
+            const r = await settingsApi('PUT', `/api/settings/instructions/${id}`, { content });
+            if (r.ok && r.data?.ok) {
+              settingsToast('저장됨 ✓');
+              if (scope === 'global') openSettingsTab('instructions');
+              else if (typeof renderProjectInstructionsInline === 'function') renderProjectInstructionsInline();
+            } else settingsToast('실패', 'err');
+          },
+        });
+      };
+      card.querySelector('[data-act="delete"]').onclick = () => {
+        openConfirmModal({
+          title: '지침 삭제',
+          message: '이 지침을 삭제하시겠습니까? 삭제된 지침은 복구할 수 없습니다.',
+          confirmLabel: '삭제',
+          danger: true,
+          onOk: async () => {
+            const r = await settingsApi('DELETE', `/api/settings/instructions/${id}`);
+            if (r.ok && r.data?.ok) {
+              settingsToast('삭제됨 ✓');
+              if (scope === 'global') openSettingsTab('instructions');
+              else if (typeof renderProjectInstructionsInline === 'function') renderProjectInstructionsInline();
+            } else settingsToast('실패', 'err');
+          },
+        });
+      };
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Tab: 🔑 API 키
+  // ─────────────────────────────────────────────────────────────────
+  const PROVIDER_LABELS = {
+    anthropic:  { name:'Anthropic',  icon:'🟣', topup:'https://console.anthropic.com/settings/billing' },
+    openai:     { name:'OpenAI',     icon:'⚪', topup:'https://platform.openai.com/account/billing' },
+    gemini:     { name:'Google Gemini', icon:'🔵', topup:'https://console.cloud.google.com/billing' },
+    deepseek:   { name:'DeepSeek',   icon:'🐳', topup:'https://platform.deepseek.com/usage' },
+    perplexity: { name:'Perplexity', icon:'🔍', topup:'https://www.perplexity.ai/settings/api' },
+    fal:        { name:'fal.ai',     icon:'🎨', topup:'https://fal.ai/dashboard/billing' },
+  };
+
+  async function renderApiKeysTab(root){
+    const keys = await loadApiKeysCache();
+    root.innerHTML = `
+      <div class="settings-section">
+        <h2><span class="icon">🔑</span>API 키</h2>
+        <p class="desc">실제 키는 서버 .env 파일에만 저장되며 브라우저로는 마스킹된 형태만 노출됩니다. 변경 시 비밀번호 재확인이 필요합니다.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px" id="keyGrid"></div>
+      </div>`;
+    const grid = root.querySelector('#keyGrid');
+    grid.innerHTML = keys.map(k => {
+      const meta = PROVIDER_LABELS[k.provider] || { name:k.provider, icon:'🔑' };
+      const lastTested = k.lastTested ? new Date(k.lastTested).toLocaleString('ko-KR') : '미실시';
+      const validBadge = k.isValid ? '<span class="badge ok">✓ 유효</span>' : (k.lastTested ? '<span class="badge fail">✗ 오류</span>' : '<span class="badge">미확인</span>');
+      return `
+        <div class="api-key-card" data-prov="${escapeAttr(k.provider)}">
+          <div class="head">
+            <span style="font-size:18px">${meta.icon}</span>
+            <span class="name">${escapeHtml(meta.name)}</span>
+            ${validBadge}
+          </div>
+          <div class="key-display">${k.hasKey ? escapeHtml(k.maskedKey) : '<span style="color:var(--text-dim)">미설정</span>'}</div>
+          <div class="last-tested">마지막 테스트: ${escapeHtml(lastTested)}</div>
+          <div class="actions">
+            <button type="button" class="settings-btn" data-act="change">변경</button>
+            <button type="button" class="settings-btn ghost" data-act="test" ${k.hasKey ? '' : 'disabled'}>테스트</button>
+            <button type="button" class="settings-btn danger" data-act="delete" ${k.hasKey ? '' : 'disabled'}>삭제</button>
+            <button type="button" class="settings-btn ghost" data-act="topup" style="margin-left:auto">충전 →</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    grid.querySelectorAll('.api-key-card').forEach(card => {
+      const prov = card.dataset.prov;
+      const meta = PROVIDER_LABELS[prov] || { topup:'#' };
+      card.querySelector('[data-act="change"]').onclick = () => {
+        openTextareaModal({
+          title: `${meta.name || prov} API 키 변경`,
+          placeholder: '여기에 새 API 키를 붙여넣으세요',
+          okLabel: '저장',
+          onOk: (newKey) => {
+            openPasswordConfirmModal('API 키 변경', async () => {
+              const r = await settingsApi('PUT', '/api/settings/api-keys', { provider: prov, key: newKey });
+              if (r.ok && r.data?.ok) { settingsToast('저장됨 ✓'); openSettingsTab('api-keys'); }
+              else settingsToast(r.data?.error || '저장 실패', 'err');
+            });
+          },
+        });
+      };
+      card.querySelector('[data-act="test"]').onclick = async () => {
+        const btn = card.querySelector('[data-act="test"]');
+        btn.disabled = true; btn.textContent = '테스트 중...';
+        const r = await settingsApi('POST', `/api/settings/api-keys/${prov}/test`);
+        btn.disabled = false; btn.textContent = '테스트';
+        if (r.ok && r.data?.valid) settingsToast('✅ 유효한 키');
+        else settingsToast('❌ ' + (r.data?.error || '키 검증 실패'), 'err');
+        openSettingsTab('api-keys');
+      };
+      card.querySelector('[data-act="delete"]').onclick = () => {
+        openConfirmModal({
+          title: 'API 키 삭제',
+          message: `${meta.name} 키를 .env 파일에서 제거합니다.<br><span style="color:var(--text-dim);font-size:12px">해당 프로바이더 호출이 즉시 실패하게 됩니다.</span>`,
+          confirmLabel: '삭제', danger:true,
+          onOk: () => {
+            openPasswordConfirmModal('API 키 삭제', async () => {
+              const r = await settingsApi('DELETE', `/api/settings/api-keys/${prov}`);
+              if (r.ok && r.data?.ok) { settingsToast('삭제됨 ✓'); openSettingsTab('api-keys'); }
+              else settingsToast('실패', 'err');
+            });
+          },
+        });
+      };
+      card.querySelector('[data-act="topup"]').onclick = () => {
+        if (meta.topup) window.open(meta.topup, '_blank', 'noopener');
+      };
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Tab: 🤖 모델 설정
+  // ─────────────────────────────────────────────────────────────────
+  async function renderModelsTab(root){
+    const s = state.settingsCache || await loadSettingsCache();
+    const depts = s?.departments || {};
+    const cls = s?.classifierModel || 'gemini-flash';
+    const DEPT_LIST = ['market','compete','legal','finance','marketing','rnd','data','content','sns','design'];
+    const MODEL_OPTIONS = ['claude-sonnet-4-6','claude-haiku-4-5-20251001','gpt-5.4-pro','gemini-2.5-pro','gemini-2.5-flash','deepseek-chat'];
+    root.innerHTML = `
+      <div class="settings-section">
+        <h2><span class="icon">🤖</span>모델 설정</h2>
+        <p class="desc">기본 모델 / Classifier / 부서별 Primary 모델을 관리합니다. Opus 시리즈는 보안 정책상 잠금됩니다.</p>
+
+        <div class="settings-card">
+          <div class="field">
+            <label class="field-label">DEFAULT_MODEL</label>
+            <input type="text" value="claude-sonnet-4-6 (잠금)" disabled style="opacity:.7;font-family:monospace" />
+            <div class="field-hint">CLAUDE.md 규칙 #20 — 자동 Opus 호출은 영구 차단됩니다.</div>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="field">
+            <label class="field-label">Classifier 모델</label>
+            <div class="row" style="gap:18px">
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="radio" name="cls" value="gemini-flash" ${cls==='gemini-flash'?'checked':''}/> Gemini Flash (권장)</label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="radio" name="cls" value="haiku" ${cls==='haiku'?'checked':''}/> Claude Haiku</label>
+            </div>
+            <div class="field-hint">메시지 의도 분류기. simple_qa 면 Planner 우회 → 부서 호출 절약.</div>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="field-label">부서별 Primary 모델</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+            ${DEPT_LIST.map(id => {
+              const v = depts[id]?.primaryModel || '';
+              return `<div class="field">
+                <label class="field-label">${escapeHtml(id)}</label>
+                <select data-dept-model="${id}">
+                  <option value="">기본값 (DepartmentRegistry)</option>
+                  ${MODEL_OPTIONS.map(m => `<option value="${m}" ${v===m?'selected':''}>${m}</option>`).join('')}
+                </select>
+              </div>`;
+            }).join('')}
+          </div>
+          <div class="field-hint">변경 시 즉시 적용됩니다. 빈 값을 선택하면 기본 부서 설정으로 복귀합니다.</div>
+        </div>
+      </div>`;
+
+    root.querySelectorAll('input[name="cls"]').forEach(r => {
+      r.onchange = async (e) => {
+        const r2 = await settingsApi('PUT', '/api/settings', { classifierModel: e.target.value });
+        if (r2.ok && r2.data?.ok) { state.settingsCache = r2.data.settings; settingsToast('저장됨 ✓'); }
+      };
+    });
+    root.querySelectorAll('select[data-dept-model]').forEach(sel => {
+      sel.onchange = async () => {
+        const id = sel.dataset.deptModel;
+        const departments = { ...(state.settingsCache?.departments || {}) };
+        departments[id] = { ...(departments[id] || { enabled:true }), primaryModel: sel.value || undefined };
+        const r = await settingsApi('PUT', '/api/settings', { departments });
+        if (r.ok && r.data?.ok) { state.settingsCache = r.data.settings; settingsToast('저장됨 ✓'); }
+      };
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Tab: 🛡️ 비용 안전장치
+  // ─────────────────────────────────────────────────────────────────
+  async function renderCostGuardTab(root){
+    const [s, summaryRes] = await Promise.all([
+      state.settingsCache || loadSettingsCache(),
+      settingsApi('GET', '/api/usage/summary'),
+    ]);
+    const cg = (state.settingsCache?.costGuard) || s?.costGuard || { dailyWarn:5, dailyLimit:10, dailyBlock:20, monthlyLimit:100 };
+    const today = Number(summaryRes?.data?.today?.total ?? 0);
+    const month = Number(summaryRes?.data?.month?.total ?? 0);
+
+    const sliderRow = (key, label, max, value, hint) => `
+      <div class="slider-field" data-cg="${key}">
+        <div class="head"><span class="name">${escapeHtml(label)}</span><span class="val">$<span class="cg-val">${value}</span></span></div>
+        <input type="range" min="1" max="${max}" step="1" value="${value}" />
+        <div class="stats">
+          <span>오늘 $${today.toFixed(2)}</span>
+          <span>이번달 $${month.toFixed(2)}</span>
+          <span style="color:var(--text-dim)">${escapeHtml(hint)}</span>
+        </div>
+      </div>`;
+
+    root.innerHTML = `
+      <div class="settings-section">
+        <h2><span class="icon">🛡️</span>비용 안전장치</h2>
+        <p class="desc">일/월 누적 비용이 임계값에 도달하면 자동으로 경고 또는 차단합니다. 자정(KST) 기준으로 일별 카운터가 리셋됩니다.</p>
+        <div class="settings-card">
+          ${sliderRow('dailyWarn',   '일별 경고',   50,  cg.dailyWarn,   '서버 로그에 경고 기록만 남깁니다')}
+          ${sliderRow('dailyLimit',  '일별 제한',   100, cg.dailyLimit,  'Director 모드 차단 — single_agent 만 허용')}
+          ${sliderRow('dailyBlock',  '일별 차단',   200, cg.dailyBlock,  '모든 LLM 호출 503 차단')}
+          ${sliderRow('monthlyLimit','월별 한도',   1000, cg.monthlyLimit, '이번 달 누적 도달 시 503 차단')}
+        </div>
+      </div>`;
+
+    root.querySelectorAll('.slider-field').forEach(field => {
+      const key = field.dataset.cg;
+      const input = field.querySelector('input[type="range"]');
+      const val = field.querySelector('.cg-val');
+      let saveTimer = null;
+      input.addEventListener('input', () => {
+        val.textContent = input.value;
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(async () => {
+          const cgPatch = {}; cgPatch[key] = Number(input.value);
+          const r = await settingsApi('PUT', '/api/settings', { costGuard: cgPatch });
+          if (r.ok && r.data?.ok) { state.settingsCache = r.data.settings; settingsToast('저장됨 ✓'); }
+        }, 350);
+      });
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Tab: 🏢 부서 활성화
+  // ─────────────────────────────────────────────────────────────────
+  async function renderDepartmentsTab(root){
+    const s = state.settingsCache || await loadSettingsCache();
+    const depts = s?.departments || {};
+    const DEPT_META = [
+      ['market','시장조사','Gemini 2.5 Pro'],
+      ['compete','경쟁분석','GPT-5.4-pro'],
+      ['legal','법무','Claude Sonnet 4.6'],
+      ['finance','재무','GPT-5.4-pro'],
+      ['marketing','마케팅','Claude Sonnet'],
+      ['rnd','R&D','Gemini 2.5 Pro'],
+      ['data','데이터','Gemini 2.5 Pro'],
+      ['content','콘텐츠','GPT-5.4-pro'],
+      ['sns','SNS','Gemini 2.5 Pro'],
+      ['design','디자인','Claude Sonnet'],
+    ];
+    let stats = {};
+    try {
+      const r = await settingsApi('GET', '/api/departments/stats');
+      if (r.ok && r.data?.ok) stats = r.data.byDept || r.data.stats || {};
+    } catch { /* ignore */ }
+
+    root.innerHTML = `
+      <div class="settings-section">
+        <h2><span class="icon">🏢</span>부서 활성화</h2>
+        <p class="desc">비활성화된 부서는 Planner 가 선별하지 않습니다. 이번 달 호출 수 / 비용은 SQLite 집계 기준입니다.</p>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${DEPT_META.map(([id, name, model]) => {
+            const enabled = depts[id]?.enabled !== false;
+            const st = stats[id] || {};
+            const calls = st.calls ?? st.count ?? 0;
+            const cost = Number(st.cost ?? 0);
+            return `
+              <div class="toggle-row" data-dept="${id}">
+                <div class="label">
+                  <span class="name">${escapeHtml(name)} <span style="color:var(--text-dim);font-weight:400">· ${escapeHtml(id)}</span></span>
+                  <span class="sub">Primary: ${escapeHtml(model)} · 이번달 ${calls}회 / $${cost.toFixed(2)}</span>
+                </div>
+                <label class="switch"><input type="checkbox" ${enabled?'checked':''} data-act="dept-toggle"/><span class="slider"></span></label>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+
+    root.querySelectorAll('[data-dept]').forEach(row => {
+      const id = row.dataset.dept;
+      const sw = row.querySelector('[data-act="dept-toggle"]');
+      sw.onchange = async (e) => {
+        const enabled = e.target.checked;
+        const departments = { ...(state.settingsCache?.departments || {}) };
+        departments[id] = { ...(departments[id] || {}), enabled };
+        const r = await settingsApi('PUT', '/api/settings', { departments });
+        if (r.ok && r.data?.ok) { state.settingsCache = r.data.settings; settingsToast('저장됨 ✓'); }
+        else { e.target.checked = !enabled; settingsToast('실패', 'err'); }
+      };
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Tab: 🔌 커넥터
+  // ─────────────────────────────────────────────────────────────────
+  async function renderConnectorsTab(root){
+    const s = state.settingsCache || await loadSettingsCache();
+    const conn = s?.connectors || {};
+    const CONNECTORS = [
+      { id:'mfds_rss',   name:'식약처 RSS', desc:'토큰 불필요. 식약처 공시 자동 수집.', fields:[] },
+      { id:'notion',     name:'Notion',     desc:'Integration Token 입력 후 활성화.', fields:[{ key:'token', label:'Integration Token', type:'text' }] },
+      { id:'naver_news', name:'네이버 뉴스', desc:'개발자센터 Open API 자격증명.', fields:[{ key:'clientId', label:'Client ID', type:'text' }, { key:'clientSecret', label:'Client Secret', type:'password' }] },
+      { id:'google',     name:'Google Workspace', desc:'Service Account JSON 전체 붙여넣기.', fields:[{ key:'serviceAccountJson', label:'Service Account JSON', type:'textarea' }] },
+    ];
+    root.innerHTML = `
+      <div class="settings-section">
+        <h2><span class="icon">🔌</span>커넥터</h2>
+        <p class="desc">외부 데이터 소스 연결. 활성화한 커넥터는 부서 사전조사 단계에서 자동으로 호출됩니다.</p>
+        ${CONNECTORS.map(c => {
+          const cur = conn[c.id] || { enabled:false, config:{} };
+          return `
+            <div class="settings-card" data-conn="${c.id}">
+              <div class="head" style="display:flex;align-items:center;gap:10px">
+                <div style="flex:1">
+                  <div style="font-size:14px;font-weight:600">${escapeHtml(c.name)}</div>
+                  <div style="font-size:11.5px;color:var(--text-dim);margin-top:2px">${escapeHtml(c.desc)}</div>
+                </div>
+                <label class="switch"><input type="checkbox" ${cur.enabled?'checked':''} data-act="conn-toggle"/><span class="slider"></span></label>
+              </div>
+              ${c.fields.map(f => `
+                <div class="field">
+                  <label class="field-label">${escapeHtml(f.label)}</label>
+                  ${f.type === 'textarea'
+                    ? `<textarea data-cfg="${f.key}" placeholder="${escapeAttr(f.label)}" style="min-height:120px;font-family:monospace;font-size:11.5px">${escapeHtml(cur.config?.[f.key] || '')}</textarea>`
+                    : `<input type="${f.type}" data-cfg="${f.key}" value="${escapeAttr(cur.config?.[f.key] || '')}" placeholder="${escapeAttr(f.label)}" />`}
+                </div>`).join('')}
+              <div class="settings-actions">
+                <button type="button" class="settings-btn" data-act="conn-test">테스트 호출</button>
+                <button type="button" class="settings-btn primary" data-act="conn-save">설정 저장</button>
+              </div>
+            </div>`;
+        }).join('')}
+      </div>`;
+
+    root.querySelectorAll('[data-conn]').forEach(card => {
+      const id = card.dataset.conn;
+      const sw = card.querySelector('[data-act="conn-toggle"]');
+      const collectConfig = () => {
+        const cfg = {};
+        card.querySelectorAll('[data-cfg]').forEach(el => { cfg[el.dataset.cfg] = el.value; });
+        return cfg;
+      };
+      const persist = async (enabled) => {
+        const connectors = { ...(state.settingsCache?.connectors || {}) };
+        connectors[id] = { enabled, config: collectConfig() };
+        const r = await settingsApi('PUT', '/api/settings', { connectors });
+        if (r.ok && r.data?.ok) { state.settingsCache = r.data.settings; settingsToast('저장됨 ✓'); }
+        else settingsToast('실패', 'err');
+      };
+      sw.onchange = (e) => persist(e.target.checked);
+      card.querySelector('[data-act="conn-save"]').onclick = () => persist(sw.checked);
+      card.querySelector('[data-act="conn-test"]').onclick = () => {
+        settingsToast('테스트 호출은 곧 추가됩니다 (서버 핸들러 준비 중)', 'err');
+      };
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Tab: 🔔 알림
+  // ─────────────────────────────────────────────────────────────────
+  async function renderNotificationsTab(root){
+    const s = state.settingsCache || await loadSettingsCache();
+    const n = s?.notifications || { alertOnLimit:true, alertOnError:false };
+    root.innerHTML = `
+      <div class="settings-section">
+        <h2><span class="icon">🔔</span>알림</h2>
+        <p class="desc">시스템 이벤트 발생 시 이메일 알림을 받습니다. (SMTP 서버 미설정 시 알림은 로그로만 남습니다)</p>
+        <div class="settings-card">
+          <div class="field">
+            <label class="field-label">알림 이메일</label>
+            <input type="email" id="notifEmail" value="${escapeAttr(n.email || '')}" placeholder="user@example.com" />
+          </div>
+          <div class="toggle-row" style="background:transparent;border:none;padding:8px 0">
+            <div class="label"><span class="name">비용 한도 도달 시 알림</span><span class="sub">dailyLimit / dailyBlock / monthlyLimit 발동 시</span></div>
+            <label class="switch"><input type="checkbox" id="notifLimit" ${n.alertOnLimit?'checked':''}/><span class="slider"></span></label>
+          </div>
+          <div class="toggle-row" style="background:transparent;border:none;padding:8px 0">
+            <div class="label"><span class="name">에러 발생 시 알림</span><span class="sub">api_error / timeout / 500 응답</span></div>
+            <label class="switch"><input type="checkbox" id="notifError" ${n.alertOnError?'checked':''}/><span class="slider"></span></label>
+          </div>
+          <div class="toggle-row" style="background:transparent;border:none;padding:8px 0">
+            <div class="label"><span class="name">일일 사용 리포트</span><span class="sub">매일 자정(KST) 어제 사용 요약</span></div>
+            <label class="switch"><input type="checkbox" id="notifDaily" ${n.dailyReport?'checked':''}/><span class="slider"></span></label>
+          </div>
+          <div class="settings-actions">
+            <button type="button" class="settings-btn" id="notifTestBtn">테스트 메일 보내기</button>
+            <button type="button" class="settings-btn primary" id="notifSaveBtn">저장</button>
+          </div>
+        </div>
+      </div>`;
+    root.querySelector('#notifSaveBtn').onclick = async () => {
+      const notifications = {
+        email: root.querySelector('#notifEmail').value.trim() || undefined,
+        alertOnLimit: root.querySelector('#notifLimit').checked,
+        alertOnError: root.querySelector('#notifError').checked,
+        dailyReport: root.querySelector('#notifDaily').checked,
+      };
+      const r = await settingsApi('PUT', '/api/settings', { notifications });
+      if (r.ok && r.data?.ok) { state.settingsCache = r.data.settings; settingsToast('저장됨 ✓'); }
+      else settingsToast('실패', 'err');
+    };
+    root.querySelector('#notifTestBtn').onclick = () => {
+      settingsToast('테스트 메일 발송은 SMTP 설정 후 가능합니다', 'err');
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Tab: 💾 데이터 관리
+  // ─────────────────────────────────────────────────────────────────
+  async function renderDataTab(root){
+    root.innerHTML = `
+      <div class="settings-section">
+        <h2><span class="icon">💾</span>데이터 관리</h2>
+        <p class="desc">대화·미디어·설정 백업과 위험한 일괄 삭제 작업을 모아둔 영역입니다.</p>
+
+        <div class="settings-card">
+          <div class="field-label">대화 내역 백업</div>
+          <div class="field-hint">SQLite 의 모든 thread/message 를 JSON 으로 다운로드합니다.</div>
+          <div class="settings-actions">
+            <button type="button" class="settings-btn" id="dataExportThreads">JSON 다운로드</button>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="field-label">미디어 파일 저장 경로</div>
+          <input type="text" value="/opt/corvusx/server/data/media (서버 측 — 수정 불가)" disabled style="font-family:monospace;font-size:11.5px;opacity:.7" />
+        </div>
+
+        <div class="settings-card">
+          <div class="field-label">전체 설정 백업</div>
+          <div class="field-hint">/api/settings/export — 프로필 / 지침 / costGuard / 부서·커넥터 토글 일괄 저장. API 키는 메타데이터(마스킹)만 포함됩니다.</div>
+          <div class="settings-actions">
+            <button type="button" class="settings-btn" id="dataExportSettings">설정 내보내기</button>
+            <label class="settings-btn primary" style="cursor:pointer">
+              설정 가져오기
+              <input type="file" id="dataImportSettings" accept="application/json" style="display:none" />
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-card" style="border-color:var(--red);background:rgba(185,65,65,.04)">
+          <div class="field-label" style="color:var(--red)">⚠️ 위험 영역</div>
+          <div class="field-hint">아래 작업은 되돌릴 수 없습니다. 비밀번호 + 확인 텍스트 입력이 필요합니다.</div>
+          <div class="settings-actions">
+            <button type="button" class="settings-btn danger" id="dataResetThreads">모든 대화 내역 삭제</button>
+            <button type="button" class="settings-btn danger" id="dataResetCosts">비용 데이터 리셋</button>
+          </div>
+        </div>
+      </div>`;
+
+    root.querySelector('#dataExportThreads').onclick = async () => {
+      try {
+        const r = await fetch(API_BASE + '/api/backup/export', { method:'POST', credentials:'include' });
+        if (!r.ok) throw new Error('export 실패');
+        const data = await r.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `corvusx-backup-${Date.now()}.json`; a.click();
+        URL.revokeObjectURL(url);
+        settingsToast('다운로드 시작 ✓');
+      } catch (e) { settingsToast('실패: ' + (e?.message ?? e), 'err'); }
+    };
+
+    root.querySelector('#dataExportSettings').onclick = async () => {
+      try {
+        const r = await fetch(API_BASE + '/api/settings/export', { credentials:'include' });
+        if (!r.ok) throw new Error('export 실패');
+        const data = await r.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `corvusx-settings-${Date.now()}.json`; a.click();
+        URL.revokeObjectURL(url);
+        settingsToast('다운로드 시작 ✓');
+      } catch (e) { settingsToast('실패: ' + (e?.message ?? e), 'err'); }
+    };
+
+    root.querySelector('#dataImportSettings').onchange = async (ev) => {
+      const file = ev.target.files?.[0]; if (!file) return;
+      try {
+        const txt = await file.text();
+        const json = JSON.parse(txt);
+        const r = await settingsApi('POST', '/api/settings/import', json);
+        if (r.ok && r.data?.ok) { settingsToast(`적용됨: 설정 ${r.data.appliedSettings?'O':'X'}, 지침 ${r.data.appliedInstructions||0}개`); state.settingsCache = null; openSettingsTab('profile'); }
+        else settingsToast('가져오기 실패: ' + (r.data?.error || ''), 'err');
+      } catch (e) { settingsToast('JSON 파싱 실패', 'err'); }
+      ev.target.value = '';
+    };
+
+    const dangerFlow = (title, msg, target) => {
+      // 2단계: 비밀번호 → 확인 텍스트(DELETE)
+      openPasswordConfirmModal(title, async () => {
+        openConfirmModal({
+          title, message: msg + '<br><br><b>확인을 위해 "DELETE" 라고 입력하세요.</b><br><input id="dangerConfirmText" type="text" style="margin-top:8px;width:100%;background:var(--input);border:1px solid var(--border-soft);border-radius:6px;padding:8px;font-family:monospace" />',
+          confirmLabel:'영구 삭제', danger:true,
+          onOk: async () => {
+            const overlay = document.querySelector('.settings-modal:last-child');
+            const txt = String(overlay?.querySelector('#dangerConfirmText')?.value || '').trim();
+            if (txt !== 'DELETE') { settingsToast('"DELETE" 를 정확히 입력하세요', 'err'); return; }
+            const r = await settingsApi('POST', '/api/settings/reset', { target }, { 'X-Confirm-Reset':'true' });
+            // settingsApi 는 추가 헤더 미지원 → 직접 fetch
+            const r2 = await fetch(API_BASE + '/api/settings/reset', {
+              method:'POST', credentials:'include',
+              headers:{ 'Content-Type':'application/json', 'X-Confirm-Reset':'true' },
+              body: JSON.stringify({ target }),
+            });
+            const data = await r2.json().catch(()=>({}));
+            if (r2.ok && data?.ok) settingsToast('삭제 완료 ✓');
+            else settingsToast('실패: ' + (data?.error || r2.status), 'err');
+            void r;
+          },
+        });
+      });
+    };
+
+    root.querySelector('#dataResetThreads').onclick = () =>
+      dangerFlow('모든 대화 내역 삭제', '서버의 모든 thread / message / 첨부 캐시가 삭제됩니다.', 'thread-memory');
+    root.querySelector('#dataResetCosts').onclick = () =>
+      dangerFlow('비용 데이터 리셋', 'cost_entries / credit_entries 가 모두 삭제됩니다.', 'all');
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // 프로젝트 홈 — "프로젝트 지침" 섹션 (상단 카드)
+  // ─────────────────────────────────────────────────────────────────
+  async function renderProjectInstructionsInline(){
+    if (!state.activeProjectId || state.activeProjectId === GENERAL) return;
+    const host = document.getElementById('projectInstructionsHost');
+    if (!host) return;
+    const projectId = state.activeProjectId;
+    const scope = 'project:' + projectId;
+    const list = await loadInstructionsCache(scope);
+    host.innerHTML = `
+      <div style="background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;padding:14px 16px;margin-bottom:14px;text-align:left">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-size:12px;color:var(--accent);font-weight:600;text-transform:uppercase;letter-spacing:1px">📋 프로젝트 지침</div>
+          <button type="button" class="settings-btn" id="addProjInstrBtn" style="padding:5px 12px;font-size:12px">+ 새 지침</button>
+        </div>
+        <div id="projInstrList" style="display:flex;flex-direction:column;gap:6px"></div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:8px">이 프로젝트에서 시작한 모든 대화에 자동 적용됩니다.</div>
+      </div>`;
+    renderInstructionList(host.querySelector('#projInstrList'), list, scope);
+    host.querySelector('#addProjInstrBtn').onclick = () => {
+      openTextareaModal({
+        title: '새 프로젝트 지침',
+        placeholder: '이 프로젝트에서만 적용할 지시사항',
+        onOk: async (content) => {
+          const r = await settingsApi('POST', '/api/settings/instructions', { scope, content });
+          if (r.ok && r.data?.ok) { settingsToast('저장됨 ✓'); renderProjectInstructionsInline(); }
+          else settingsToast('실패', 'err');
+        },
+      });
+    };
+  }
+
   // ─── Initial ────────────────────────────────────────────────────
   async function init(){
     applyToggles();
@@ -3244,6 +4270,7 @@
     dom.navNewChat.addEventListener('click', (e) => { e.preventDefault(); showChat(); newChat(); });
     if (dom.navDashboard) dom.navDashboard.addEventListener('click', (e) => { e.preventDefault(); showDashboard(); });
     if (dom.navImages) dom.navImages.addEventListener('click', (e) => { e.preventDefault(); showGallery(); });
+    if (dom.navSettings) dom.navSettings.addEventListener('click', (e) => { e.preventDefault(); showSettings(); });
     dom.newProject.addEventListener('click', (e) => { e.stopPropagation(); newProject(); });
 
     setTimeout(() => { dom.directive.focus(); autoSize(); }, 200);

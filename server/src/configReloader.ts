@@ -29,6 +29,7 @@ const RELOADABLE_KEYS = new Set<string>([
   "GOOGLE_API_KEY",
   "DEFAULT_MODEL",
   "GEMINI_DISPLAY_LABEL",
+  "CORVUS_ACCESS_PASSWORD_HASH",
 ])
 
 let watcher: fs.FSWatcher | null = null

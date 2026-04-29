@@ -21,7 +21,7 @@ import type { ExpressLikeResponse } from "./http/response.js"
 import { setCorsHeaders, setSecurityHeaders, handleOptions, readJsonBody, normalizePath, initCorsOrigins } from "./http/middleware.js"
 import { checkRateLimit, restoreBucketsFromDb, persistBucketsToDb } from "./http/rateLimiter.js"
 import { requireAuth, isAuthWhitelisted } from "./http/auth.js"
-import { authLoginRoute, authLogoutRoute, authMeRoute } from "./routes/auth.js"
+import { authLoginRoute, authLogoutRoute, authMeRoute, authChangePasswordRoute } from "./routes/auth.js"
 import { endJson, createExpressLikeResponse } from "./http/response.js"
 import { withCorrelationId } from "./http/correlationId.js"
 import { wrapWithCompression } from "./http/compression.js"
@@ -133,6 +133,10 @@ router.post("/api/auth/logout", async (req: IncomingMessage, res: ServerResponse
 }, true)
 router.get("/api/auth/me", async (req: IncomingMessage, res: ServerResponse) => {
   await authMeRoute(req, res)
+}, true)
+// change-password 는 인증된 세션 필수 → /api/* 가드 통과 후 라우터 진입 (raw)
+router.post("/api/auth/change-password", async (req: IncomingMessage, res: ServerResponse) => {
+  await authChangePasswordRoute(req, res)
 }, true)
 
 // ── Chat ──
