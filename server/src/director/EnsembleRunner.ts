@@ -347,7 +347,7 @@ export async function runEnsemble(opts: {
   send({
     type: "ensemble_start",
     deptId,
-    reason: reason ?? `${deptId} — 고가치 3-AI 앙상블 (${objective.slice(0, 40)})`,
+    reason: reason ?? `${deptId} — 고가치 멀티 LLM 종합 (${objective.slice(0, 40)})`,
   });
 
   // 3개 모델 병렬 호출 (전체 90s 상한)
@@ -401,7 +401,7 @@ export async function runEnsemble(opts: {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn({ err: msg, deptId }, "[Ensemble] 전체 타임아웃 — low_confidence");
-    const summary = `3-AI 앙상블 타임아웃 (${msg})`;
+    const summary = `멀티 LLM 종합 타임아웃 (${msg})`;
     send({ type: "ensemble_done", deptId, verdict: "low_confidence", summary });
     return {
       drafts: [
@@ -449,7 +449,7 @@ export async function runEnsemble(opts: {
   const headlineMatch = synthesis.match(/##\s*통합\s*결론\s*\n+([^\n#]+)/);
   const headline = headlineMatch
     ? headlineMatch[1].trim().slice(0, 120)
-    : `${deptId} 3-AI 앙상블 ${verdict} (sim=${similarity.toFixed(2)}, ${validDrafts.length}/${drafts.length})`;
+    : `${deptId} 멀티 LLM 종합 ${verdict} (sim=${similarity.toFixed(2)}, ${validDrafts.length}/${drafts.length})`;
 
   const summary = headline;
 

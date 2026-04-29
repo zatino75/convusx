@@ -240,13 +240,22 @@ export async function runDirector(
     };
 
     try {
-      // ─ 고가치 부서 → 3-AI 병렬 앙상블 사전 가시화 ─
-      if (detectHighValue(directive, task.deptId)) {
+      // ─ 고가치 부서 → 멀티 LLM 병렬 종합 사전 가시화 ─
+      // 2026-04-29 (CLAUDE.md #27 보강): settings 의 ensembleEnabled OFF 면 skip.
+      //   기존엔 detectHighValue(legal/finance) 만으로 무조건 발동 → 호출당 +$0.5~1.5
+      //   비용이 settings 토글과 무관하게 발생 (parallel_ensemble 도구 gating 우회 경로).
+      let ensembleEnabledRuntime = false
+      try {
+        const settings = await import('../settingsStore.js')
+        ensembleEnabledRuntime = Boolean(settings.getAll().ensembleEnabled)
+      } catch { /* settings 미로드 시 안전 default = false */ }
+
+      if (ensembleEnabledRuntime && detectHighValue(directive, task.deptId)) {
         try {
           const ensembleResult = await runEnsemble({
             deptId: task.deptId,
             objective: task.objective,
-            reason: `${task.deptId} — 고가치 3-AI 앙상블`,
+            reason: `${task.deptId} — 멀티 LLM 종합`,
             systemPrompt: `당신은 ${task.deptId} 부서 전문가입니다. CEO 지시: ${directive.slice(0,500)}`,
             userPrompt: `목표: ${task.objective}\n\n구체적 수치/근거를 포함한 5-8문장 분석을 작성하세요.`,
             onEvent: (e: EnsembleEvent) => {

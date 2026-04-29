@@ -1915,7 +1915,8 @@
         // 통합 synthesis 가 있으면 부서 메시지로 추가 (마크다운 그대로 렌더)
         if (p.synthesis && typeof p.synthesis === 'string' && p.synthesis.trim()) {
           const d = DEPT_BY_ID[p.deptId];
-          const nm = d ? `${d.kr}팀 · 3-AI 앙상블` : `${p.deptId} · 3-AI 앙상블`;
+          // CLAUDE.md #25: 내부 구현(3-AI / Claude+GPT+Gemini) 사용자 노출 금지 — 중립 표현
+          const nm = d ? `${d.kr}팀 · 종합 분석` : `${p.deptId} · 종합 분석`;
           const verdictBadge = p.verdict === 'consensus' ? '✓ 합의'
                             : p.verdict === 'split' ? '△ 분기'
                             : p.verdict === 'contradictory' ? '⚠ 충돌'
