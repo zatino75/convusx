@@ -60,9 +60,10 @@ const TOOL_ENV_REQUIREMENTS: Record<string, EnvAny[]> = {
   cosmetic_competitor_scan:   [["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]],
   cosmetic_recipe_design:     [["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]],
   cosmetic_manufacturing_check:[["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]],
-  general_market_analyze:     [["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]],
-  general_business_analyze:   [["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]],
-  general_finance_analyze:    [["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]],
+  // 'general' 도메인은 prefix 없이 등록됨 (market_analyze / business_analyze / finance_analyze)
+  market_analyze:             [["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]],
+  business_analyze:           [["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]],
+  finance_analyze:            [["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]],
 }
 
 function envHas(key: string): boolean {
