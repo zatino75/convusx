@@ -26,6 +26,7 @@ import { buildProjectFusionBlock } from "../fusion/projectFusion.js"
 import { buildUnifiedContextBlock } from "../fusion/unifiedRetrieval.js"
 import { getSnapshotsByCategory } from "../regulation/regulationCache.js"
 import type { RegulationCategory } from "../regulation/regulationSources.js"
+import { buildInstructionsBlock } from "../instructionsStore.js"
 
 // ── 상수 ──────────────────────────────────────────────────────────────────
 // 2026-04-25 긴급: Opus → Sonnet 강제 (CLAUDE.md 규칙 #18 — single_agent Opus 금지).
@@ -197,8 +198,15 @@ function buildSystemPrompt(input: AgentLoopInput): string {
     }
   } catch { /* ignore — regulation cache 실패가 루프를 막으면 안 됨 */ }
 
+  // 사용자 정의 지침 (글로벌 + 프로젝트) — settingsStore 와 동일 SQLite 진실 소스
+  let instructionsBlock = ""
+  try {
+    instructionsBlock = buildInstructionsBlock(projectId)
+  } catch { /* 지침 로드 실패 무시 — 시스템 프롬프트 자체를 막지 않음 */ }
+
   const fusionBlock = fusionParts.join("\n\n")
   const parts = [base]
+  if (instructionsBlock) parts.push(`=== 사용자 지침 ===\n${instructionsBlock}`)
   if (extra) parts.push(`=== Extra Instructions ===\n${extra}`)
   if (regulationBlock) parts.push(regulationBlock)
   if (fusionBlock) parts.push(fusionBlock)

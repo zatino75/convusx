@@ -230,6 +230,8 @@ export async function runDirector(
       sessionId: session.sessionId,
       roundNumber: round.roundNumber,
       availableConnectors: connectorSet,
+      // 부서 system prompt 에 사용자 지침을 주입할 때 사용 — sessionId 가 곧 프로젝트 식별자
+      projectId: options.sessionId ?? session.sessionId,
       onProgress: (deptId, message, percent) => {
         send({ type: 'dept_progress', deptId, message, percent });
       },
@@ -390,6 +392,7 @@ export async function runDirector(
               sessionId: session.sessionId,
               roundNumber: round.roundNumber,
               availableConnectors: connectorSet,
+              projectId: options.sessionId ?? session.sessionId,
               onProgress: (dId, message, percent) => {
                 send({ type: 'dept_progress', deptId: dId, message, percent });
               },

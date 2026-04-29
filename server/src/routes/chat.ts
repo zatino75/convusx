@@ -674,6 +674,16 @@ export async function runChatRoute(req: RouteRequest, res: RouteResponse) {
   const validationError = validateChatInput(req?.body ?? {})
   if (validationError) return res.json?.({ ok: false, error: validationError })
 
+  // ── 비용 가드 — dailyBlock / monthlyLimit 도달 시 모든 LLM 호출 차단 ──
+  {
+    const { evaluateGuard } = await import("../creditGuard.js")
+    const guard = evaluateGuard("any")
+    if (guard.level === "block") {
+      return res.json?.({ ok: false, error: "cost_guard_blocked", level: "block",
+        reason: guard.reason, dailyTotal: guard.dailyTotal, monthlyTotal: guard.monthlyTotal })
+    }
+  }
+
   const rawInput = normalizeMultipleAttachments(req?.body ?? {})
   const normalizedInput = normalizeChatRuntimeInput(rawInput)
   const startedAt = Date.now()
@@ -854,6 +864,19 @@ async function processPendingFiles(
 export async function runChatStreamRoute(req: RouteRequest, res: RouteResponse) {
   const validationError = validateChatInput(req?.body ?? {})
   if (validationError) { res.write?.(JSON.stringify({ ok: false, error: validationError })); res.end?.(); return }
+
+  // ── 비용 가드 — dailyBlock / monthlyLimit 도달 시 SSE 시작 전 차단 ──
+  {
+    const { evaluateGuard } = await import("../creditGuard.js")
+    const guard = evaluateGuard("any")
+    if (guard.level === "block") {
+      res.writeHead?.(503, { "Content-Type": "application/json" })
+      res.write?.(JSON.stringify({ ok: false, error: "cost_guard_blocked", level: "block",
+        reason: guard.reason, dailyTotal: guard.dailyTotal, monthlyTotal: guard.monthlyTotal }))
+      res.end?.()
+      return
+    }
+  }
 
   const rawInput = normalizeMultipleAttachments(req?.body ?? {})
   const abortController = new AbortController()

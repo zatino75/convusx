@@ -59,7 +59,15 @@ import { getSalesRoute, addSalesRoute, deleteSalesRoute } from "./routes/sales.j
 import { getPosRoute, checkoutPosRoute, refundPosRoute } from "./routes/pos.js"
 import { deleteExecutiveReportRoute, getExecutiveReportsKpiRoute, getExecutiveReportsRoute, saveExecutiveReportRoute } from "./routes/executiveReports.js"
 import { getRetailReportsLatestRoute, getRetailReportsRoute, refreshRetailReportsRoute } from "./routes/retailReports.js"
-import { getSettingsKeys, saveSettingsKeys, resetSettings, validateKey } from "./routes/settings.js"
+import {
+  getSettingsKeys, saveSettingsKeys, resetSettings, validateKey,
+  getAppSettingsRoute, updateAppSettingsRoute,
+  listInstructionsRoute, createInstructionRoute, updateInstructionRoute,
+  deleteInstructionRoute, toggleInstructionRoute,
+  listApiKeysRoute, updateApiKeyRoute, deleteApiKeyRoute, testApiKeyRoute,
+  exportSettingsRoute, importSettingsRoute,
+} from "./routes/settings.js"
+import { startConfigReloader, stopConfigReloader } from "./configReloader.js"
 import { exportThreadRoute } from "./routes/export.js"
 import { analyzePdfWithGemini, analyzeOfficeFileWithClaude, analyzeOfficeFileWithGemini } from "./routes/chatFileAnalysis.js"
 import {
@@ -412,13 +420,42 @@ router.post("/api/workspace/messages", messageSave)
 router.delete("/api/workspace/messages", messageDelete)
 router.post("/api/workspace/versions", versionsSave)
 
-// ── Settings ──
+// ── Settings (legacy: /api/settings/keys, /api/settings/reset, /api/settings/validate-key) ──
 router.get("/api/settings/keys", async (req: ParsedRequest, res: ExpressLikeResponse) => {
   await getSettingsKeys({ method: "GET", url: req.url, headers: req.headers, body: {} }, res)
 })
 router.post("/api/settings/keys", saveSettingsKeys)
 router.post("/api/settings/reset", resetSettings)
 router.post("/api/settings/validate-key", validateKey)
+
+// ── Settings (2026-04-29 신규: 통합 설정 시스템) ──
+//
+// 라우터 매칭 규칙:
+//   - 정확 매칭 우선
+//   - prefix 매칭(`/*`)은 정확 매칭이 없을 때만
+//   따라서 /api/settings/instructions/:id/toggle 같은 nested path 도
+//   /api/settings/instructions/* 한 줄로 충분 (handler 가 path 끝을 분기).
+router.get("/api/settings",        async (_req: ParsedRequest, res: ExpressLikeResponse) => { getAppSettingsRoute({} as any, res) })
+router.put("/api/settings",        async (req: ParsedRequest, res: ExpressLikeResponse) => { updateAppSettingsRoute(req, res) })
+
+router.get("/api/settings/instructions",  async (req: ParsedRequest, res: ExpressLikeResponse) => { listInstructionsRoute(req, res) })
+router.post("/api/settings/instructions", async (req: ParsedRequest, res: ExpressLikeResponse) => { createInstructionRoute(req, res) })
+// instruction 단일 작업 (id 기반): PUT /:id, DELETE /:id, POST /:id/toggle 분기
+router.put("/api/settings/instructions/*",    async (req: ParsedRequest, res: ExpressLikeResponse) => { updateInstructionRoute(req, res) })
+router.delete("/api/settings/instructions/*", async (req: ParsedRequest, res: ExpressLikeResponse) => { deleteInstructionRoute(req, res) })
+router.post("/api/settings/instructions/*",   async (req: ParsedRequest, res: ExpressLikeResponse) => {
+  // /api/settings/instructions/:id/toggle 만 허용 — 그 외 POST 는 위 정확 매칭이 가져감
+  if (String(req.url ?? "").includes("/toggle")) return toggleInstructionRoute(req, res)
+  res.json({ ok: false, error: "unknown_action" })
+})
+
+router.get("/api/settings/api-keys",     async (_req: ParsedRequest, res: ExpressLikeResponse) => { listApiKeysRoute({} as any, res) })
+router.put("/api/settings/api-keys",     async (req: ParsedRequest, res: ExpressLikeResponse) => { updateApiKeyRoute(req, res) })
+router.delete("/api/settings/api-keys/*", async (req: ParsedRequest, res: ExpressLikeResponse) => { deleteApiKeyRoute(req, res) })
+router.post("/api/settings/api-keys/*",   async (req: ParsedRequest, res: ExpressLikeResponse) => { await testApiKeyRoute(req, res) })
+
+router.get("/api/settings/export",  async (_req: ParsedRequest, res: ExpressLikeResponse) => { exportSettingsRoute({} as any, res) })
+router.post("/api/settings/import", async (req: ParsedRequest, res: ExpressLikeResponse) => { importSettingsRoute(req, res) })
 
 // ── Regulation Watcher (Phase 4-B) ──
 router.get("/api/regulation/status", async (_req: ParsedRequest, res: ExpressLikeResponse) => {
@@ -622,6 +659,9 @@ server.listen(SERVER_PORT, async () => {
   // 백그라운드 스케줄러 시작
   startScheduler()
 
+  // .env 핫리로드 워처 — apiKeysStore 가 갱신하면 fs.watch 로 process.env 즉시 반영
+  try { startConfigReloader() } catch (e) { logger.warn("[configReloader] start failed", { error: String(e) }) }
+
   // WebSocket keep-alive 시작
   startWsPing()
 
@@ -653,6 +693,7 @@ function shutdown(signal: string) {
   server.close(async () => {
     stopScheduler()
     stopRegulationWatcher()
+    stopConfigReloader()
     closeAllClients()
     await shutdownPlugins()
     try {

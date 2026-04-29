@@ -18,6 +18,8 @@ export interface AgentRunOptions {
   roundNumber: number;
   onProgress?: ProgressCallback;
   availableConnectors?: Set<string>;  // 현재 연결된 커넥터 ID 목록
+  /** 사용자 정의 지침 주입용 — 글로벌 + 해당 프로젝트 활성 지침을 system prompt 에 합친다. */
+  projectId?: string;
 }
 
 export interface AgentRunResult {
@@ -500,7 +502,16 @@ export async function runDepartmentAgent(
     ? `${baseUserPrompt}\n\n## 1단계 초안 (Gemini Flash, 빠른 구조화)\n${draftText}\n\n→ 위 초안을 보강·심화·근거 보완하여 최종 분석을 작성하세요.`
     : baseUserPrompt;
 
-  // ④ 주요 AI 모델 호출
+  // ④ 주요 AI 모델 호출 — 사용자 정의 지침(글로벌 + 프로젝트) system prompt 앞에 합침
+  let systemPromptWithInstructions = dept.systemPrompt;
+  try {
+    const { buildInstructionsBlock } = await import('../instructionsStore.js');
+    const instructionsBlock = buildInstructionsBlock(options.projectId);
+    if (instructionsBlock) {
+      systemPromptWithInstructions = `${instructionsBlock}\n\n=== 부서 시스템 프롬프트 ===\n${dept.systemPrompt}`;
+    }
+  } catch { /* 지침 로드 실패 무시 */ }
+
   const {
     text: rawOutput,
     model: modelUsed,
@@ -508,7 +519,7 @@ export async function runDepartmentAgent(
     modelIdForPricing,
   } = await callPrimaryModel(
     dept,
-    dept.systemPrompt,
+    systemPromptWithInstructions,
     userPrompt,
     onProgress,
     task.deptId

@@ -60,6 +60,31 @@ corvusxDb.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_credit_provider  ON credit_entries(provider);
   CREATE INDEX IF NOT EXISTS idx_credit_timestamp ON credit_entries(timestamp);
+
+  -- 설정 시스템 (2026-04-29 추가) ─────────────────────────────────
+  CREATE TABLE IF NOT EXISTS settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS instructions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope      TEXT NOT NULL,
+    content    TEXT NOT NULL,
+    enabled    INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_instructions_scope ON instructions(scope);
+
+  CREATE TABLE IF NOT EXISTS api_keys_meta (
+    provider    TEXT PRIMARY KEY,
+    masked_key  TEXT NOT NULL,
+    is_valid    INTEGER NOT NULL DEFAULT 0,
+    last_tested INTEGER,
+    updated_at  INTEGER NOT NULL
+  );
 `)
 
 // ── 마이그레이션: 기존 CHECK 제약(charge/usage 만 허용) → set_balance/reset 추가 ──

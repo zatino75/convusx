@@ -15,6 +15,7 @@ import { readJsonBody } from '../http/middleware.js';
 import { runDirector } from '../director/DirectorAgent.js';
 import { logger } from '../observability/logger.js';
 import { registerSseClient } from '../http/sseRegistry.js';
+import { evaluateGuard } from '../creditGuard.js';
 
 // ─── SSE 헬퍼 ─────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,29 @@ function sseWrite(res: ServerResponse, event: string, data: unknown) {
 function sseError(res: ServerResponse, message: string) {
   sseWrite(res, 'error', { message });
   res.end();
+}
+
+/**
+ * 비용 가드가 director 진입을 막을 때 503 + 가드 메시지로 응답.
+ * mode='director' 면 dailyLimit/monthlyLimit/dailyBlock 모두 검사.
+ * @returns 응답을 보냈으면 true (호출자는 즉시 return)
+ */
+function rejectIfGuardBlocks(res: ServerResponse, mode: 'director' | 'any'): boolean {
+  const guard = evaluateGuard(mode);
+  if (guard.level === 'block' || guard.level === 'limit') {
+    logger.warn('[directorStream] 비용 가드 차단', { level: guard.level, daily: guard.dailyTotal, monthly: guard.monthlyTotal });
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'cost_guard_blocked',
+      level: guard.level,
+      reason: guard.reason,
+      dailyTotal: guard.dailyTotal,
+      monthlyTotal: guard.monthlyTotal,
+      threshold: guard.threshold,
+    }));
+    return true;
+  }
+  return false;
 }
 
 function setupSseHeaders(res: ServerResponse) {
@@ -55,6 +79,8 @@ export async function directorStreamGetRoute(req: IncomingMessage, res: ServerRe
     return;
   }
 
+  if (rejectIfGuardBlocks(res, 'director')) return;
+
   await _handleStream(req, res, { directive, sessionId, projectName, connectors });
 }
 
@@ -72,6 +98,8 @@ export async function directorStreamPostRoute(req: IncomingMessage, res: ServerR
     const sessionId = body?.sessionId as string | undefined;
     const projectName = String(body?.projectName ?? '신규 프로젝트');
     const connectors = Array.isArray(body?.connectors) ? body.connectors : [];
+
+    if (rejectIfGuardBlocks(res, 'director')) return;
 
     await _handleStream(req, res, { directive, sessionId, projectName, connectors });
   } catch (err) {
