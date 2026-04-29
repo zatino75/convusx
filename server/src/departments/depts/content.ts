@@ -1,7 +1,6 @@
 /**
  * content.ts — 콘텐츠팀 (Content Strategy & Writing)
- * Primary AI: Claude Sonnet 4.6 (글쓰기 + 기획)
- * Fallback:   GPT-5.4-pro (카피 강화)
+ * Primary / Fallback: DepartmentRegistry 의 content 항목 참조 (런타임 조회, CLAUDE.md #25).
  * Connectors: serper → perplexity (비주얼 도구는 design 팀 소관)
  *
  * 텍스트 콘텐츠 전담. 이미지/영상/인포그래픽 등 시각 자산은 design 팀 담당.

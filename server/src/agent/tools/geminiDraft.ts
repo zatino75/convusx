@@ -1,4 +1,4 @@
-// geminiDraft.ts — Gemini 3.1 Pro Ultra 드래프트 생성 도구
+// geminiDraft.ts — Google Gemini 어댑터 기반 독립 드래프트 도구
 //
 // 2M context 활용 — 장문 / 대용량 PDF / 프로젝트 전체 맥락 주입 시 유일한
 // 선택지. parallelEnsemble 에서 "장문 관점" 으로 자동 편입.
@@ -7,8 +7,8 @@ import { registerTool, type ToolResult } from "../toolRegistry.js"
 import { geminiAdapter, GEMINI_MODEL_ID } from "../../adapters/gemini.js"
 import { logger } from "../../observability/logger.js"
 
-// 주의: 이전에는 "gemini-3.1-pro-ultra"(표시용 레이블) 을 API 모델 ID 로 쓰고 있어
-// 실제 호출이 실패했다. 실제 API 문자열은 GEMINI_MODEL_ID 단일 출처를 사용한다.
+// 모델 ID 는 GEMINI_MODEL_ID 단일 출처 (adapters/gemini.ts) 에서 읽는다.
+// 절대 정적 문자열로 박제하지 말 것 (CLAUDE.md #25).
 const DEFAULT_MODEL = GEMINI_MODEL_ID
 const DEFAULT_MAX_TOKENS = 8000
 const DRAFT_TIMEOUT_MS = 150_000
@@ -28,10 +28,11 @@ function buildMessages(params: {
   const sys =
     safeString(params.system) ||
     [
-      "You are Gemini 3.1 Pro Ultra acting as an independent long-form drafter in CORVUS X.",
-      "Your 2M context lets you absorb the full project memory, prior threads, and attachments.",
-      "Produce a substantive, directly-useful draft — not a summary, not boilerplate.",
-      "Another agent (Claude Opus 4.6) will critique and synthesize. Write as if that review is certain.",
+      "You are an independent long-form drafter inside the CORVUS X workspace.",
+      "Excel at large-context synthesis and structured analysis.",
+      "Absorb the full project memory, prior threads, and attachments to produce a substantive,",
+      "directly-useful draft — not a summary, not boilerplate.",
+      "Another agent will critique and synthesize. Write as if that review is certain.",
       "Use Korean (존댓말) unless the user wrote in another language.",
     ].join(" ")
   msgs.push({ role: "system", content: sys })
@@ -52,10 +53,10 @@ function buildMessages(params: {
 registerTool({
   name: "gemini_draft",
   description:
-    "Gemini 3.1 Pro Ultra 를 호출해 현재 task 에 대한 장문·대용량 맥락 기반 초안(draft) 을 생성한다. " +
+    "Google Gemini 어댑터로 독립 초안을 생성합니다. " +
     "장문 문서 / 대용량 PDF / 프로젝트 전체 스레드 맥락이 필요한 task 에 특히 강하다. " +
-    "병렬 앙상블 경로에서 Claude/GPT 와 함께 3-AI draft 로 편성된다. " +
-    "사용자에게 직접 보여질 최종 답변이 아니라, Claude 가 종합·비평·채택할 재료로 쓰인다. " +
+    "병렬 앙상블 경로에서 다른 프로바이더 draft 와 함께 편성된다. " +
+    "사용자에게 직접 보여질 최종 답변이 아니라, 호출한 에이전트가 종합·비평·채택할 재료로 쓰인다. " +
     "비용·지연이 적지 않으므로 일상 대화에는 호출하지 말 것.",
   input_schema: {
     type: "object",

@@ -1,11 +1,14 @@
 /**
  * EnsembleRunner.ts
- * 3-AI 병렬 앙상블 — Claude Opus 4.6 / GPT-5.4-pro / Gemini 2.5 Pro
+ * 멀티-프로바이더 병렬 앙상블 — Claude / GPT / Gemini 어댑터를 통한 3-way 초안.
  *
  * 고가치 task(legal / finance) 에서 DirectorAgent 가 부서 에이전트 호출 직전에
- * 호출한다. 3개 모델을 동시 호출 → 각각의 draft 를 ensemble_voice 이벤트로
+ * 호출한다. 3개 프로바이더를 동시 호출 → 각각의 draft 를 ensemble_voice 이벤트로
  * 스트리밍 → confidence 산출 → similarity 기반 consensus 판단 → uniqueInsights
  * 추출 → Claude 통합 synthesis → ensemble_done 이벤트.
+ *
+ * 모델 ID 는 wrappers.ts 의 *_MODEL_ID 상수에서 단일 출처로 가져온다 (CLAUDE.md #25).
+ * 정적 라벨 박제 금지.
  *
  * 2026-04-18 품질 고도화:
  *  A) 각 draft confidence (길이/구조/수치/헤지 표현 기반 휴리스틱)
@@ -17,6 +20,7 @@
 import type { DeptId } from "./TaskDecomposer.js";
 import { logger } from "../observability/logger.js";
 import { GEMINI_DISPLAY_LABEL } from "../adapters/gemini.js";
+import { CLAUDE_MODEL_ID, OPENAI_MODEL_ID } from "../adapters/wrappers.js";
 
 export interface DraftQuality {
   confidence: number;        // 0.0 ~ 1.0 — 휴리스틱 점수
@@ -103,11 +107,16 @@ async function callOne(
   }
 }
 
-const MODEL_LABEL: Record<string, string> = {
-  claude: "claude-opus-4-6",
-  gpt: "gpt-5.4-pro",
-  gemini: GEMINI_DISPLAY_LABEL,
-};
+// 2026-04-29: 정적 라벨 박제 → runtime 조회 (CLAUDE.md #25).
+//   wrappers.ts 의 *_MODEL_ID 가 변경되면 UI 라벨도 자동 추적.
+function getModelLabel(provider: string): string {
+  switch (provider) {
+    case "claude": return CLAUDE_MODEL_ID;
+    case "gpt":    return OPENAI_MODEL_ID;
+    case "gemini": return GEMINI_DISPLAY_LABEL;
+    default:       return provider;
+  }
+}
 
 // ─── A) confidence 휴리스틱 ──────────────────────────────────────────────────
 // 길이 / 구조 / 수치 / 헤지(불확실) 표현으로 0~1 점수 산출
@@ -348,7 +357,7 @@ export async function runEnsemble(opts: {
       send({
         type: "ensemble_voice",
         deptId,
-        model: MODEL_LABEL.claude,
+        model: getModelLabel("claude"),
         message: r.error ? `[오류] ${r.error.slice(0, 80)}` : (r.text.slice(0, 120) || "(빈 응답)"),
         draft: r.text,
         durationMs: r.durationMs,
@@ -361,7 +370,7 @@ export async function runEnsemble(opts: {
       send({
         type: "ensemble_voice",
         deptId,
-        model: MODEL_LABEL.gpt,
+        model: getModelLabel("gpt"),
         message: r.error ? `[오류] ${r.error.slice(0, 80)}` : (r.text.slice(0, 120) || "(빈 응답)"),
         draft: r.text,
         durationMs: r.durationMs,
@@ -374,7 +383,7 @@ export async function runEnsemble(opts: {
       send({
         type: "ensemble_voice",
         deptId,
-        model: MODEL_LABEL.gemini,
+        model: getModelLabel("gemini"),
         message: r.error ? `[오류] ${r.error.slice(0, 80)}` : (r.text.slice(0, 120) || "(빈 응답)"),
         draft: r.text,
         durationMs: r.durationMs,
@@ -396,9 +405,9 @@ export async function runEnsemble(opts: {
     send({ type: "ensemble_done", deptId, verdict: "low_confidence", summary });
     return {
       drafts: [
-        { model: MODEL_LABEL.claude, text: "", durationMs: ENSEMBLE_TOTAL_TIMEOUT_MS, error: "total_timeout" },
-        { model: MODEL_LABEL.gpt,    text: "", durationMs: ENSEMBLE_TOTAL_TIMEOUT_MS, error: "total_timeout" },
-        { model: MODEL_LABEL.gemini, text: "", durationMs: ENSEMBLE_TOTAL_TIMEOUT_MS, error: "total_timeout" },
+        { model: getModelLabel("claude"), text: "", durationMs: ENSEMBLE_TOTAL_TIMEOUT_MS, error: "total_timeout" },
+        { model: getModelLabel("gpt"),    text: "", durationMs: ENSEMBLE_TOTAL_TIMEOUT_MS, error: "total_timeout" },
+        { model: getModelLabel("gemini"), text: "", durationMs: ENSEMBLE_TOTAL_TIMEOUT_MS, error: "total_timeout" },
       ],
       synthesis: "",
       verdict: "low_confidence",
@@ -408,9 +417,9 @@ export async function runEnsemble(opts: {
   }
 
   const drafts: EnsembleDraft[] = [
-    { model: MODEL_LABEL.claude, ...claudeRes },
-    { model: MODEL_LABEL.gpt,    ...gptRes },
-    { model: MODEL_LABEL.gemini, ...geminiRes },
+    { model: getModelLabel("claude"), ...claudeRes },
+    { model: getModelLabel("gpt"),    ...gptRes },
+    { model: getModelLabel("gemini"), ...geminiRes },
   ];
 
   const validDrafts = drafts.filter((d) => !d.error && d.text.trim().length > 0);

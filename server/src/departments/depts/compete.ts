@@ -1,6 +1,6 @@
 /**
  * compete.ts — 경쟁분석팀 (Competitive Intelligence)
- * Primary AI: GPT-5.4-pro (심층 reasoning + 구조화 분석)
+ * Primary AI: DepartmentRegistry 의 compete.primaryModel 참조 (런타임 조회, CLAUDE.md #25).
  * Connectors: Tavily, Perplexity, Semantic Search
  */
 

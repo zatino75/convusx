@@ -16,7 +16,7 @@
 import { runAgentLoop, type AgentLoopInput, type AgentLoopResult } from "./agentLoop.js"
 import { logger } from "../observability/logger.js"
 import { decideHighValue, buildDomainHint } from "./triggerDetection.js"
-import { callOpenAI, callGemini } from "../adapters/wrappers.js"
+import { callOpenAI, callGemini, CLAUDE_MODEL_ID, OPENAI_MODEL_ID } from "../adapters/wrappers.js"
 
 // ─── single_agent cross-provider fallback chain ─────────────────────────────
 // 2026-04-24 Session 4 Phase 1 (initial): Opus → Sonnet → GPT-5.4-pro → Gemini 2.5 Pro.
@@ -259,7 +259,7 @@ export async function runAgentLoopRuntimeResult(
       await onEvent({
         type: "provider_start",
         provider: "claude",
-        model: "claude-opus-4-6",
+        model: CLAUDE_MODEL_ID,  // 2026-04-29: 정적 박제 → wrappers.ts 단일 출처 (CLAUDE.md #25).
         task,
       })
     } catch { /* ignore */ }
@@ -386,7 +386,7 @@ export async function runAgentLoopRuntimeResult(
     })
     await emitFallback(
       { provider: "anthropic", model: "claude-sonnet-4-6" },
-      { provider: "openai", model: "gpt-5.4-pro" },
+      { provider: "openai", model: OPENAI_MODEL_ID },
       String(loopResult.stop_reason || loopResult.error || "sonnet_failed"),
     )
     const startedAt = Date.now()
@@ -397,13 +397,13 @@ export async function runAgentLoopRuntimeResult(
         "gpt_fallback",
       )
       loopResult = buildFallbackLoopResult({
-        provider: "openai", model: "gpt-5.4-pro",
+        provider: "openai", model: OPENAI_MODEL_ID,
         text: (text || "").trim(), ok: Boolean((text || "").trim()),
         latencyMs: Date.now() - startedAt,
       })
     } catch (error: any) {
       loopResult = buildFallbackLoopResult({
-        provider: "openai", model: "gpt-5.4-pro",
+        provider: "openai", model: OPENAI_MODEL_ID,
         text: "", ok: false,
         latencyMs: Date.now() - startedAt,
         error: String(error?.message ?? error),
@@ -417,7 +417,7 @@ export async function runAgentLoopRuntimeResult(
       stop_reason: loopResult.stop_reason, error: loopResult.error,
     })
     await emitFallback(
-      { provider: "openai", model: "gpt-5.4-pro" },
+      { provider: "openai", model: OPENAI_MODEL_ID },
       { provider: "gemini", model: "gemini-2.5-pro" },
       String(loopResult.stop_reason || loopResult.error || "gpt_failed"),
     )

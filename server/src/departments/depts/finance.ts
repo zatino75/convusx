@@ -1,6 +1,6 @@
 /**
  * finance.ts — 재무팀 (Financial Analysis)
- * Primary AI: GPT-5.4-pro (재무 모델링 + 수치 계산)
+ * Primary AI: DepartmentRegistry 의 finance 항목 참조 (런타임 조회, CLAUDE.md #25).
  * Connectors: Tavily, Perplexity, Supabase
  */
 

@@ -3793,7 +3793,7 @@
     const depts = s?.departments || {};
     const cls = s?.classifierModel || 'gemini-flash';
     const DEPT_LIST = ['market','compete','legal','finance','marketing','rnd','data','content','sns','design'];
-    const MODEL_OPTIONS = ['claude-sonnet-4-6','claude-haiku-4-5-20251001','gpt-5.4-pro','gemini-2.5-pro','gemini-2.5-flash','deepseek-chat'];
+    const MODEL_OPTIONS = ['claude-sonnet-4-6','claude-haiku-4-5-20251001','gpt-5','gpt-4o','gpt-4o-mini','o3-mini','o3','gpt-5.4-pro','gemini-2.5-pro','gemini-2.5-flash','deepseek-chat'];
     root.innerHTML = `
       <div class="settings-section">
         <h2><span class="icon">🤖</span>모델 설정</h2>
@@ -3913,13 +3913,13 @@
     const depts = s?.departments || {};
     const DEPT_META = [
       ['market','시장조사','Gemini 2.5 Pro'],
-      ['compete','경쟁분석','GPT-5.4-pro'],
+      ['compete','경쟁분석','GPT-5'],
       ['legal','법무','Claude Sonnet 4.6'],
-      ['finance','재무','GPT-5.4-pro'],
+      ['finance','재무','o3-mini'],
       ['marketing','마케팅','Claude Sonnet'],
       ['rnd','R&D','Gemini 2.5 Pro'],
       ['data','데이터','Gemini 2.5 Pro'],
-      ['content','콘텐츠','GPT-5.4-pro'],
+      ['content','콘텐츠','GPT-4o'],
       ['sns','SNS','Gemini 2.5 Pro'],
       ['design','디자인','Claude Sonnet'],
     ];

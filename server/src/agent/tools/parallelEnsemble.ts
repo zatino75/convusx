@@ -14,11 +14,13 @@ import { registerTool, type ToolResult } from "../toolRegistry.js"
 import { openaiAdapter } from "../../adapters/openai.js"
 import { claudeAdapter } from "../../adapters/claude.js"
 import { geminiAdapter, GEMINI_MODEL_ID } from "../../adapters/gemini.js"
+import { CLAUDE_MODEL_ID, OPENAI_MODEL_ID } from "../../adapters/wrappers.js"
 import { logger } from "../../observability/logger.js"
 
+// 2026-04-29: 정적 박제 제거 (CLAUDE.md #20/#25). Opus 호출 가능성 차단 + 단일 출처.
 const MODELS = {
-  openai: "gpt-5.4",
-  claude: "claude-opus-4-6",
+  openai: OPENAI_MODEL_ID,
+  claude: CLAUDE_MODEL_ID,
   gemini: GEMINI_MODEL_ID,
 } as const
 
@@ -36,9 +38,9 @@ function buildMessages(params: {
   provider: "openai" | "claude" | "gemini"
 }) {
   const sys = [
-    `You are ${params.provider === "openai" ? "GPT-5.4" : params.provider === "claude" ? "Claude Opus 4.6" : "Gemini 2.5 Pro"} acting as one of three independent drafters in CORVUS X.`,
-    "Another two models will produce their own drafts in parallel. You do not see theirs.",
-    "A synthesizing agent (Claude Opus 4.6 orchestrator) will then compare all three and pick or merge the best.",
+    "You are one of multiple independent drafters in CORVUS X workspace.",
+    "Other parallel drafters will produce their own drafts in parallel — you do not see theirs.",
+    "A synthesizing agent will then compare all drafts and pick or merge the best.",
     "Write substantive, directly-useful content. Do NOT reference 'the other models' or 'my draft' — just answer the task.",
     "No boilerplate, no hedging, no meta-commentary. Use Korean (존댓말) unless the user wrote in another language.",
   ].join(" ")
@@ -134,10 +136,10 @@ async function runOne(
 registerTool({
   name: "parallel_ensemble",
   description:
-    "GPT-5.4-pro / Claude Opus 4.6 / Gemini 3.1 Pro Ultra 세 모델을 병렬 호출해 동일 task 에 대한 " +
-    "세 가지 독립 초안(draft)을 한 번에 받는다. 고가치 task (답변서·계약서·사업계획·리스크 분석·" +
-    "상품 개발·법규 검토·전략 수립·최종 검토) 에만 사용. 일상 대화·간단 질문에는 호출하지 말 것. " +
-    "반환된 3개 draft 는 호출한 Claude 에이전트가 직접 비교·비평·종합한다. " +
+    "여러 LLM 프로바이더를 병렬 호출하여 독립 초안을 생성하고 종합합니다. " +
+    "고가치 task (답변서·계약서·사업계획·리스크 분석·상품 개발·법규 검토·전략 수립·최종 검토) 에만 사용. " +
+    "일상 대화·간단 질문에는 호출하지 말 것. " +
+    "반환된 draft 들은 호출한 에이전트가 직접 비교·비평·종합한다. " +
     "첨부파일이 있다면 사용자 요약본이 아닌 read_attachment 결과의 원본 텍스트를 그대로 " +
     "attachment_text 에 넣어야 한다 (정보 손실 금지). 비용·지연이 크므로 신중히 사용.",
   input_schema: {

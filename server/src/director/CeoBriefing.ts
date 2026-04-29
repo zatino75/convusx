@@ -1,7 +1,8 @@
 /**
  * CeoBriefing.ts — CORVUS X CEO 브리핑 생성기
  *
- * 10개 부서 보고서 완료 후 Claude Opus 4.6으로 통합 경영 브리핑 생성
+ * 10개 부서 보고서 완료 후 Anthropic Claude (Haiku primary, Sonnet/Gemini fallback) 으로
+ * 통합 경영 브리핑 생성. 모델 ID 는 런타임 조회 (CLAUDE.md #25).
  * 출력: 핵심 기회 3개 / 핵심 리스크 3개 / 즉시 실행 권고 / 통합 신뢰도 점수
  * SQLite ceo_briefings 테이블에 자동 저장
  */

@@ -1,14 +1,16 @@
-// claudeDraftAlt.ts — Claude Opus 4.6 독립 드래프트 도구
+// claudeDraftAlt.ts — Claude (Anthropic) 어댑터 기반 독립 드래프트 도구
 //
-// 주의: 에이전트 루프 자체도 Claude Opus 4.6 이다. 이 도구는 "같은 모델이지만
-// 도구 접근 없이, 별도 시스템 프롬프트 하에서 독립 초안을 생성" 하고 싶을 때 쓴다.
-// 병렬 앙상블에서 Claude 라인을 담당 (GPT / Gemini 와 병렬).
+// 에이전트 루프의 Claude 와는 별도로 "도구 접근 없이, 독립 시스템 프롬프트 하에서
+// 깨끗한 초안" 을 생성. 병렬 앙상블에서 Claude 라인을 담당 (GPT / Gemini 와 병렬).
+// 모델 ID 는 wrappers.CLAUDE_MODEL_ID 단일 출처 (CLAUDE.md #25).
 
 import { registerTool, type ToolResult } from "../toolRegistry.js"
 import { claudeAdapter } from "../../adapters/claude.js"
+import { CLAUDE_MODEL_ID } from "../../adapters/wrappers.js"
 import { logger } from "../../observability/logger.js"
 
-const DEFAULT_MODEL = "claude-opus-4-6"
+// 2026-04-29: Opus 박제 제거 (CLAUDE.md #20). Sonnet 단일 출처 사용.
+const DEFAULT_MODEL = CLAUDE_MODEL_ID
 const DEFAULT_MAX_TOKENS = 8000
 const DRAFT_TIMEOUT_MS = 150_000
 
@@ -27,9 +29,10 @@ function buildMessages(params: {
   const sys =
     safeString(params.system) ||
     [
-      "You are Claude Opus 4.6 acting as an independent drafter inside the CORVUS X workspace.",
-      "You are NOT the orchestrator agent — you are producing a clean, independent draft",
-      "without tool use, to be compared against GPT-5.4-pro and Gemini 3.1 Pro Ultra drafts.",
+      "You are an independent drafter inside the CORVUS X workspace.",
+      "Generate a draft from a fresh angle. Your draft will be compared",
+      "with other parallel drafts for ensemble synthesis.",
+      "You are NOT the orchestrator agent — produce a clean, independent draft without tool use.",
       "Write substantive, directly-useful content. No hedging, no boilerplate, no meta-commentary.",
       "Use Korean (존댓말) unless the user wrote in another language.",
     ].join(" ")
@@ -51,10 +54,10 @@ function buildMessages(params: {
 registerTool({
   name: "claude_draft_alt",
   description:
-    "Claude Opus 4.6 를 별도 컨텍스트(도구 비활성 + 독립 시스템 프롬프트)로 호출해 초안(draft)을 생성한다. " +
+    "Anthropic Claude 어댑터를 별도 컨텍스트(도구 비활성 + 독립 시스템 프롬프트)로 호출해 초안(draft)을 생성합니다. " +
     "에이전트 루프의 Claude 와는 다른 사고 경로를 얻기 위한 것 — 병렬 앙상블에서 Claude 라인을 " +
     "담당한다. 일반 대화에는 쓰지 말 것. 고가치 경로에서만 parallel_ensemble 이 내부적으로 호출하거나, " +
-    "Claude 에이전트가 '다른 Claude 관점이 필요하다' 고 판단할 때 직접 호출.",
+    "에이전트가 '다른 관점이 필요하다' 고 판단할 때 직접 호출.",
   input_schema: {
     type: "object",
     properties: {

@@ -1,6 +1,6 @@
 /**
  * data.ts — 데이터분석팀 (Data & Consumer Insights)
- * Primary AI: GPT-5.4-pro (데이터 해석 + 패턴 분석)
+ * Primary AI: DepartmentRegistry 의 data 항목 참조 (런타임 조회, CLAUDE.md #25).
  * Connectors: PostHog, Supabase, Semantic Search
  */
 

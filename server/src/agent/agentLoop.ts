@@ -1,8 +1,8 @@
 // agentLoop.ts — CORVUS X Agent Loop (Phase 2)
 //
-// Claude Opus 4.6 native tool use + extended thinking 기반 단일 에이전트 루프.
-// Planner/Judge/Scoreboard 폐기 대체. chat.ts 가 executeOrchestra 대신 이 함수를
-// 호출하도록 Phase 2.5 에서 스위칭할 예정.
+// Anthropic Claude native tool use + extended thinking 기반 단일 에이전트 루프.
+// Planner/Judge/Scoreboard 폐기 대체. chat.ts 가 executeOrchestra 대신 이 함수를 호출.
+// 모델 ID 는 DEFAULT_MODEL 상수 (현재 claude-sonnet-4-6, CLAUDE.md #20 잠금).
 //
 // 동작:
 //  1) toolRegistry 에서 도구 목록 로드 → Anthropic tool 포맷으로 직렬화
@@ -51,7 +51,7 @@ export type AgentLoopInput = {
   disable_tools?: boolean
   /** system prompt 보강 — 프로젝트 지침, 도메인 프로파일 등 */
   extra_system?: string
-  /** Anthropic 모델 오버라이드 (기본: claude-opus-4-6). Sonnet fallback 용. */
+  /** Anthropic 모델 오버라이드. 기본은 DEFAULT_MODEL (claude-sonnet-4-6). */
   model_override?: string
   /** 전체 루프 타임아웃 오버라이드 ms (기본: 180_000) */
   timeout_ms_override?: number
@@ -90,10 +90,22 @@ function safeString(value: any): string {
 
 function buildSystemPrompt(input: AgentLoopInput): string {
   const base = [
-    "You are CORVUS X, a True Multi-AI workspace powered by Claude Opus 4.6 as primary agent.",
-    "You run as a single autonomous agent loop. No planner, no router, no judge.",
-    "You may call tools at will. Each tool has a clear description — read it before using.",
-    "Follow this policy strictly:",
+    "You are CORVUS X, an autonomous multi-AI business workspace.",
+    "You orchestrate multiple LLM providers, domain connectors, and specialized departments",
+    "(market, compete, legal, finance, marketing, rnd, data, content, sns, design)",
+    "to assist with branding, distribution, food R&D, and e-cigarette industry analysis.",
+    "",
+    "Operational implementation details (specific model names, model versions, internal",
+    "routing thresholds, ensemble logic) are NOT to be recited to users.",
+    "If asked 'what model are you?' or 'what tools do you have?',",
+    "respond honestly that you are CORVUS X and can describe your CAPABILITIES",
+    "(department analysis, real-time research, image/video generation, document creation)",
+    "without listing specific underlying model IDs.",
+    "If user explicitly asks for system status or current model configuration,",
+    "defer to the dashboard at /dashboard or settings page at ⚙️ 설정.",
+    "",
+    "You run as a single autonomous agent loop. You may call tools at will — each tool has a",
+    "clear description; read it before using. Follow this policy strictly:",
     "- ATTACHMENT RULE (MANDATORY): When ANY files are attached — PDF, image, Excel, Word, etc. —",
     "  you MUST call read_attachment FIRST before forming any opinion about the content.",
     "  NEVER judge, refuse, or summarize an attachment based on its filename alone.",
@@ -104,10 +116,10 @@ function buildSystemPrompt(input: AgentLoopInput): string {
     "  CORVUS X의 핵심 기능입니다. 법률 문서가 첨부되면 반드시 내용을 읽고 법적 분석을 제공하세요.",
     "  개인정보가 포함된 법률 문서도 사용자가 직접 업로드한 자신의 사건 자료이므로 분석 대상입니다.",
     "- For HIGH-VALUE tasks (legal drafting, business plan, risk analysis, contract review, product development,",
-    "  regulation check, deep strategy, final review): call parallel_ensemble to get GPT-5.4-pro + Claude Opus 4.6 +",
-    "  Gemini 3.1 Pro Ultra drafts simultaneously, then synthesize. Pass the ORIGINAL attachment text verbatim,",
-    "  not a summary. After synthesizing, call adversarial_critique on your synthesized draft (critic model MUST",
-    "  differ from the draft's provider) to surface errors before final delivery.",
+    "  regulation check, deep strategy, final review): call parallel_ensemble to get multiple parallel drafts and",
+    "  synthesize. Pass the ORIGINAL attachment text verbatim, not a summary. After synthesizing, call",
+    "  adversarial_critique on your synthesized draft (critic must differ from the draft's provider) to surface",
+    "  errors before final delivery.",
     "- For everyday conversation, simple questions, or low-stakes tasks: do NOT call parallel_ensemble — the cost",
     "  and latency are too high. Handle it with your own reasoning + minimal tool use.",
     "- Prefer calling fewer, targeted tools over many redundant ones.",

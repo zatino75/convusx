@@ -98,7 +98,8 @@ async function callAnthropic(params: {
 
   try {
     // 2026-04-18: name 필드 누락 시 API 가 400 으로 거부함 — 모든 Claude 호출 차단되던 버그
-    const advisorTool = { type: "advisor_20260301", name: "advisor", model: "claude-opus-4-6", max_uses: 5 }
+    // 2026-04-29: advisor 모델도 Sonnet 으로 (CLAUDE.md #20 — 자동 Opus 호출 차단).
+    const advisorTool = { type: "advisor_20260301", name: "advisor", model: "claude-sonnet-4-6", max_uses: 5 }
     const payloadWithAdvisor = {
       ...params.payload,
       tools: [advisorTool, ...(params.payload.tools ?? [])]
@@ -147,7 +148,8 @@ async function streamAnthropic(params: {
 
   try {
     // 2026-04-18: name 필드 누락 시 API 가 400 으로 거부함 — 모든 Claude 호출 차단되던 버그
-    const advisorTool = { type: "advisor_20260301", name: "advisor", model: "claude-opus-4-6", max_uses: 5 }
+    // 2026-04-29: advisor 모델도 Sonnet 으로 (CLAUDE.md #20 — 자동 Opus 호출 차단).
+    const advisorTool = { type: "advisor_20260301", name: "advisor", model: "claude-sonnet-4-6", max_uses: 5 }
     const payloadWithAdvisor = {
       ...params.payload,
       tools: [advisorTool, ...(params.payload.tools ?? [])],
@@ -286,7 +288,8 @@ async function streamAnthropic(params: {
 export const claudeAdapter: ModelAdapter = {
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const apiKey = env("ANTHROPIC_API_KEY")
-    const model = req.model?.trim() || "claude-opus-4-6"  // 최상위 버전 고정 (CLAUDE.md)
+    // 2026-04-29: 기본 fallback 을 Opus → Sonnet (CLAUDE.md #20 — Opus 자동 호출 차단).
+    const model = req.model?.trim() || "claude-sonnet-4-6"
     const attempts: ModelAttempt[] = []
     const { system, conversation } = splitSystemAndMessages(req.messages)
     const onToken = typeof (req as any)?.onToken === "function" ? (req as any).onToken : undefined

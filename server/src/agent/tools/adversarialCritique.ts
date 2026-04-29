@@ -10,9 +10,10 @@ import { claudeAdapter } from "../../adapters/claude.js"
 import { geminiAdapter, GEMINI_MODEL_ID } from "../../adapters/gemini.js"
 import { logger } from "../../observability/logger.js"
 
+// 2026-04-29: Opus 호출 가능성 제거 (CLAUDE.md #20). claude → sonnet, openai → gpt-5.
 const MODEL_BY_PROVIDER = {
-  openai: "gpt-5.4",
-  claude: "claude-opus-4-6",
+  openai: "gpt-5",
+  claude: "claude-sonnet-4-6",
   gemini: GEMINI_MODEL_ID,
 } as const
 
@@ -43,9 +44,9 @@ function buildCritiqueMessages(params: {
   critic: "openai" | "claude" | "gemini"
 }) {
   const criticName =
-    params.critic === "openai" ? "GPT-5.4"
-      : params.critic === "claude" ? "Claude Opus 4.6"
-      : "Gemini 2.5 Pro"
+    params.critic === "openai" ? "GPT (OpenAI)"
+      : params.critic === "claude" ? "Claude (Sonnet)"
+      : "Gemini"
 
   const sys = [
     `You are ${criticName} acting as an ADVERSARIAL CRITIC inside CORVUS X.`,

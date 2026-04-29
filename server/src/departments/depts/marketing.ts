@@ -1,7 +1,6 @@
 /**
  * marketing.ts — 마케팅팀 (Brand & Marketing Strategy)
- * Primary AI: Claude Sonnet 4.6 (브랜드 전략 + 기획)
- * Fallback:   GPT-5.4-pro (전략 분석 강화)
+ * Primary / Fallback: DepartmentRegistry 의 marketing 항목 참조 (런타임 조회, CLAUDE.md #25).
  * Connectors: serper → perplexity (비주얼 도구는 design 팀 소관)
  *
  * 전략·기획 전담. 비주얼 제작은 design 팀이 담당하므로

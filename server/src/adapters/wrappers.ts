@@ -21,6 +21,13 @@ export type DetailedCallResult = {
   model: string;
 };
 
+// 2026-04-29: ensemble UI 라벨 / agentLoopBridge provider_start 이벤트가
+// runtime 에 이 값을 import 해서 사용한다 (CLAUDE.md #25 — 정적 박제 금지).
+// callOpenAI 내부 fallback 으로도 단일 출처로 노출.
+export const CLAUDE_MODEL_ID = 'claude-sonnet-4-6';
+export const OPENAI_MODEL_ID = 'gpt-5.4-pro';
+export const PERPLEXITY_MODEL_ID = 'sonar-pro';
+
 /** Claude Sonnet 4.6 호출 */
 export async function callClaude(
   systemPrompt: string,
@@ -66,7 +73,7 @@ export async function callClaudeHaiku(
   return resp.answer ?? '';
 }
 
-/** GPT-5.4-pro 호출 */
+/** OpenAI 호출 (현재 모델 ID 는 OPENAI_MODEL_ID 상수에서 단일 출처로 관리) */
 export async function callOpenAI(
   systemPrompt: string,
   userPrompt: string,
@@ -74,7 +81,7 @@ export async function callOpenAI(
 ): Promise<string> {
   const resp = await openaiAdapter.generate({
     provider: 'openai',
-    model: 'gpt-5.4-pro',
+    model: OPENAI_MODEL_ID,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: userPrompt },
@@ -124,10 +131,6 @@ export async function callPerplexity(
 // ─── Detailed 변형 — 토큰 사용량·모델 ID 포함 반환 ────────────────────────────
 // DepartmentAgent 가 호출당 비용을 계산하려면 usage 를 알아야 하므로, 기존 문자열
 // 리턴 래퍼를 건드리지 않고 동일 호출을 세부 정보와 함께 돌려받는 variant 를 제공한다.
-
-const CLAUDE_MODEL_ID = 'claude-sonnet-4-6';
-const OPENAI_MODEL_ID = 'gpt-5.4-pro';
-const PERPLEXITY_MODEL_ID = 'sonar-pro';
 
 export async function callClaudeDetailed(
   systemPrompt: string,

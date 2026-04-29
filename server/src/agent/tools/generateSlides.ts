@@ -1,8 +1,10 @@
 // generateSlides.ts — 슬라이드 생성 에이전트 도구
-// Claude Opus 4.6으로 슬라이드 JSON 구조 생성 → 프론트엔드가 /api/slides/generate로 PPTX 다운로드
+// Anthropic Claude 어댑터로 슬라이드 JSON 구조 생성 → 프론트엔드가 /api/slides/generate로 PPTX 다운로드.
+// 2026-04-29: 모델 ID 를 wrappers.CLAUDE_MODEL_ID 단일 출처로 (CLAUDE.md #20/#25).
 
 import { registerTool, type ToolResult } from "../toolRegistry.js"
 import { ANTHROPIC_BASE } from "../../config/defaults.js"
+import { CLAUDE_MODEL_ID } from "../../adapters/wrappers.js"
 import { logger } from "../../observability/logger.js"
 
 const THEMES = ["midnight_executive", "coral_energy", "charcoal_minimal", "teal_trust", "forest_moss", "corvus_dark", "white_clean"] as const
@@ -104,7 +106,7 @@ Rules:
         },
         signal: AbortSignal.timeout(90_000),
         body: JSON.stringify({
-          model: "claude-opus-4-6",
+          model: CLAUDE_MODEL_ID,
           max_tokens: 8000,
           system: systemPrompt,
           messages: [
