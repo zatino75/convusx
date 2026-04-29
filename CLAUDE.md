@@ -1,6 +1,18 @@
 # CORVUS X — CLAUDE.md
-> 최종 업데이트: 2026-04-25 (Session 6 — 비용 차단 / 6 프로바이더 크레딧 / SQLite 영구 저장 / 신규 커넥터)
+> 최종 업데이트: 2026-04-29 (Session 7 후속 — OpenAI 부서 모델 교체 / 가격표 확장 / 미등록 모델 감지)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
+
+## Session 7 후속 (2026-04-29) 핵심 변경
+- **OpenAI 부서 3개 primary 교체**:
+  - `compete`: `gpt-5.4-pro` → `gpt-5` (구조화·표 생성, 60s timeout 안 응답)
+  - `finance`: `gpt-5.4-pro` → `o3-mini` (reasoning 특화, P&L 다단계 추론, 14x 저렴)
+  - `content`: `gpt-5.4-pro` → `gpt-4o` (카피 다양성, 멀티모달, 6x 저렴)
+- **fallbackChain 갱신**: `legal` / `marketing` 의 `gpt-5.4-pro` 제거 → `gpt-5` / `gpt-4o`. compete/finance/content 도 3단계 chain 도입.
+- **이유**: 30일 production journalctl 실측 — gpt-5.4-pro 8회 시도 중 1회 성공 (87.5% timeout abort) → ensemble partial failure 다발 + 50s 사용자 지연. 모델 ID 자체는 정상이지만 60s timeout 정책과 reasoning latency 불일치.
+- **`config/defaults.ts::MODEL_PRICING_USD_PER_1K_TOKENS` 22개 entry 추가**: gpt-5/5-mini/5-nano/5-pro/5.1/5.4/5.4-mini/5.4-nano/5.5/5.5-pro, gpt-4o/4o-mini/4o-search-preview, o1/o1-pro/o3/o3-mini/o3-pro/o3-deep-research/o4-mini/o4-mini-deep-research. cutoff 이후 모델은 추정값(주석 명시) — dashboard 와 대조해 보정 필요.
+- **미등록 모델 감지**: `cost/costCalc.ts::estimateCostUsd` 가 가격표 미등록 모델 첫 호출 시 `console.warn` (모델당 1회). journalctl 에서 즉시 캐치.
+- **`adapters/openai.ts` 기본값**: `req.model || "gpt-5.4"` → `"gpt-5"` (검증된 가격 + latency).
+- **금지패턴 #24 추가**: pricing 미등록 모델 호출 금지.
 
 ## Session 6 (2026-04-25) 핵심 변경
 - **DEFAULT_MODEL**: `claude-opus-4-6` → `claude-sonnet-4-6` (영구). 자동 Opus 호출 차단으로 일일 비용 $25 누수 종결 (Opus 점유율 98.4% → 0%).
@@ -126,17 +138,17 @@ JSON 스키마 강제 폐지 → 마크다운 자유 출력.
 - 파서: `parseMarkdownSections` (헤딩 기반) + `tryParseJson` (confidence regex)
 - `citations` 필드 제거 — 본문 내 링크로 통합
 
-## 부서 구성 (10개)
+## 부서 구성 (10개) — 2026-04-29 OpenAI 부서 3개 모델 교체
 | 부서 | Primary | Fallback | 커넥터 | 도구 |
 |------|---------|----------|--------|------|
 | market | Gemini 2.5 Pro | Claude Sonnet | serper→perplexity | market_analyze |
-| compete | GPT-5.4-pro | Claude Sonnet | serper→perplexity* | competitor_scan |
-| legal | Claude Sonnet 4.6 | GPT-5.4-pro → Gemini 2.5 Pro | serper→perplexity* | regulation_check |
-| finance | GPT-5.4-pro | Gemini 2.5 Pro | supabase→serper | finance_analyze |
-| marketing | Claude Sonnet | GPT-5.4-pro | serper→perplexity | brand_positioning |
+| compete | **GPT-5** | GPT-5.4-pro → Claude Sonnet | serper→perplexity* | competitor_scan |
+| legal | Claude Sonnet 4.6 | **GPT-5** → Gemini 2.5 Pro | serper→perplexity* | regulation_check |
+| finance | **o3-mini** | GPT-5 → Gemini 2.5 Pro | supabase→serper | finance_analyze |
+| marketing | Claude Sonnet | **GPT-4o** | serper→perplexity | brand_positioning |
 | rnd | Gemini 2.5 Pro | Claude Sonnet | pubmed→perplexity→serper | recipe_design |
 | data | Gemini 2.5 Pro | GPT-5.4-pro | posthog→supabase→serper | sentiment_analyze |
-| content | GPT-5.4-pro | Claude Sonnet | serper→perplexity | content_pillar |
+| content | **GPT-4o** | GPT-5 → Claude Sonnet | serper→perplexity | content_pillar |
 | sns | Gemini 2.5 Pro | Claude Sonnet | serper→perplexity* | channel_strategy |
 | design | Claude Sonnet | Gemini 2.5 Pro | fal→nano_banana→canva | design_create |
 
@@ -147,7 +159,7 @@ JSON 스키마 강제 폐지 → 마크다운 자유 출력.
 | CriticReview | DeepSeek V3.2 | Claude Haiku → Gemini Flash | 3단계 폴백 (현재 bypass 중) |
 | CeoBriefing | Claude Haiku | Claude Sonnet → Gemini Pro | 3단계 폴백 |
 
-- 모델 분포 (Primary 기준, 2026-04-24 Session 5): **Opus 0** / Sonnet 4 (single_agent + legal/marketing/design) / Haiku 1 / GPT-5.4 3 / Gemini 4 (Pro) + Flash (Classifier+부서 1단계) / DeepSeek 1(Critic)
+- 모델 분포 (Primary 기준, 2026-04-29 Session 7 후속): **Opus 0** / Sonnet 4 (single_agent + legal/marketing/design) / Haiku 1 / **GPT-5 1 (compete)** / **GPT-4o 1 (content)** / **o3-mini 1 (finance)** / Gemini 4 (Pro) + Flash (Classifier+부서 1단계) / DeepSeek 1(Critic). gpt-5.4-pro 는 fallback only.
 - Anthropic ~30% / Google ~40% (+Flash 보조) / OpenAI ~30%
 - **Opus 완전 제거** — 2026-04-24 검증: 일일 $25 중 $24.78 (98.4%) 가 Opus. Classifier 완성 후 strategic 2단계에만 선택적 복귀 예정.
 - Fallback: Cross-provider (다른 회사 모델)
@@ -163,7 +175,10 @@ JSON 스키마 강제 폐지 → 마크다운 자유 출력.
 | Claude Opus | claude-opus-4-6 | **현재 미사용** (2026-04-24 전 사용처 제거) |
 | Claude Sonnet | claude-sonnet-4-6 | single_agent primary, ExecutiveGate Planner, legal/marketing/design 부서 |
 | Claude Haiku | claude-haiku-4-5-20251001 | Critic, CEO Briefing, Classifier fallback |
-| GPT | gpt-5.4-pro | compete, finance, content |
+| GPT base | gpt-5 | **compete primary** (2026-04-29~), legal/content fallback |
+| GPT 4o | gpt-4o | **content primary** (2026-04-29~), marketing fallback |
+| GPT reasoning | o3-mini | **finance primary** (2026-04-29~), 다단계 추론 |
+| GPT pro | gpt-5.4-pro | fallback only (compete chain). primary 에서 제거됨 (2026-04-29) |
 | Gemini Flash | gemini-2.5-flash | Classifier primary, 부서 1단계 초안, TaskDecomposer, CriticReview fallback |
 | GPT 앙상블 | gpt-5.4 | 3-AI 앙상블 |
 | Gemini | gemini-2.5-pro | data 부서, PDF |
@@ -267,9 +282,10 @@ server/src/
 21. **백그라운드 스케줄러에서 LLM API 직접 호출 금지** — health check / snapshot / cron 류 자동 실행 코드는 anthropic/openai/gemini/perplexity 호출 절대 금지. 헬스 검증은 env key 존재 확인만 (HTTP 200 등가). 진짜 가용성은 실제 채팅 호출 시점에 검증된다. 위반 사례: 2026-04-25 이전 `checkProviderHealth` 가 30분마다 Anthropic/Perplexity POST 호출 → 누적 비용 발생.
 22. **`costStore` / `creditStore` 를 in-memory / JSON 파일 전용으로 회귀 금지** — 2026-04-25 Phase 8 부터 `server/data/corvusx.db` (SQLite) 가 진실 소스. 서버 재시작 시 today/이번 달 통계가 0으로 초기화되는 버그 재발 방지. 두 모듈은 반드시 `db/corvusxDb.ts` 의 `corvusxDb` 인스턴스를 사용해야 한다. 휘발성 캐시(Map/배열)를 module-level state 로 두지 말 것 — prepared statement 만 캐시 허용. 마이그레이션 자동 import (credits.json → SQLite) 는 idempotent (`stmtCount > 0` 가드).
 23. **우측 부서 패널을 `dashboard` / `gallery` 뷰에서 표시 금지** — `aside.panel` 은 채팅 전용 위젯(부서/매출/POS/보고). `state.activeView !== 'chat'` 이면 `display:none` + `.app` grid 우측 컬럼 0. CSS(`.app[data-view="dashboard"] .panel`) 와 JS(`_setRightPanelVisible`) 양쪽 모두 유지 — 한쪽만 두면 사이드바 토글/캐시 케이스에서 드러남. 사이드바 토글 핸들러도 dashboard 뷰에서 inline grid 재적용 필요.
+24. **`config/defaults.ts::MODEL_PRICING_USD_PER_1K_TOKENS` 미등록 모델 호출 금지** — 2026-04-29: pricing entry 가 없으면 `estimateCostUsd` 가 0 반환 → cost_entries / journalctl 비용 추적 누락. 신모델 사용 전 반드시 가격 entry 추가 + 주석에 출처(OpenAI 공식 / 추정) 명시. `costCalc.ts` 가 미등록 모델 첫 호출 시 `console.warn` 으로 즉시 알림 — 운영자는 dashboard 에서 즉시 인지하고 가격 보정 필요.
 
 ## 알려진 이슈
-- GPT-5.4-pro 60s 타임아웃 → fallback 빈번할 수 있음 (의도적 — 느린 GPT 보다 빠른 fallback 선호)
+- ~~GPT-5.4-pro 60s 타임아웃 → fallback 빈번~~ — 2026-04-29 Session 7 후속: 부서 primary 에서 제거. fallback chain 에만 잔존 (compete/legal). 87.5% abort 인시던트 종결.
 - ~~TPH HUD 미션 텍스트~~ — 삭제됨 (dead code 정리)
 - ~~멀티 채팅 SSE: 백엔드 인프라 완성, 프론트(office.html) 미연결~~ — 연결 완료 (2026-04-21)
 - ExecutiveGate 단일에이전트 과분류: "간단히"/"요약" 수식어에 분석 요청도 single_agent로 빠짐 → Gate 프롬프트 개선 필요

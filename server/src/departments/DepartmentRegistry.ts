@@ -74,8 +74,11 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     id: 'compete',
     nameKo: '경쟁분석팀',
     nameEn: 'COMPETITIVE INTEL',
-    primaryModel: 'gpt-5.4-pro',
-    fallbackModel: 'claude-sonnet-4-6',
+    // 2026-04-29: gpt-5.4-pro → gpt-5 (60s timeout 87.5% 실패 → fallback 폭주 차단).
+    // 비교표 생성·구조화 종합은 gpt-5 도 동등 + 응답속도 ~5x 빠름.
+    primaryModel: 'gpt-5',
+    fallbackModel: 'gpt-5.4-pro',
+    fallbackChain: ['gpt-5.4-pro', 'claude-sonnet-4-6'],
     maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 경쟁분석팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 경쟁 정보 수집 및 전략적 포지셔닝 분석을 수행합니다.
@@ -105,9 +108,10 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameEn: 'LEGAL & COMPLIANCE',
     // 2026-04-24: Opus → Sonnet downgrade. 비용 ~5x 절감 (Opus $15/$75 → Sonnet $3/$15 per 1M).
     // 정밀 법규 인용은 Sonnet 4.6 도 동등 수준 유지. fallback 2단계로 SPOF 방지.
+    // 2026-04-29: fallbackChain[0] gpt-5.4-pro → gpt-5 (60s timeout 회피, 정확성 동등).
     primaryModel: 'claude-sonnet-4-6',
-    fallbackModel: 'gpt-5.4-pro',
-    fallbackChain: ['gpt-5.4-pro', 'gemini-2.5-pro'],
+    fallbackModel: 'gpt-5',
+    fallbackChain: ['gpt-5', 'gemini-2.5-pro'],
     maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 법무컴플라이언스팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 법적 리스크 검토, 인허가 요건 분석, 규제 컴플라이언스를 수행합니다.
@@ -139,8 +143,11 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     id: 'finance',
     nameKo: '재무전략팀',
     nameEn: 'FINANCE STRATEGY',
-    primaryModel: 'gpt-5.4-pro',
-    fallbackModel: GEMINI_MODEL_ID,
+    // 2026-04-29: gpt-5.4-pro → o3-mini (reasoning 특화, P&L 다단계 추론에 최적).
+    // gpt-5.4-pro 대비 ~14x 저렴 + 60s timeout 안에 완료. fallbackChain 추가.
+    primaryModel: 'o3-mini',
+    fallbackModel: 'gpt-5',
+    fallbackChain: ['gpt-5', 'gemini-2.5-pro'],
     maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 재무전략팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 재무 모델링, 투자 분석, 수익성 전망을 제공합니다.
@@ -175,8 +182,9 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     id: 'marketing',
     nameKo: '마케팅전략팀',
     nameEn: 'MARKETING & BRAND',
+    // 2026-04-29: fallback gpt-5.4-pro → gpt-4o (멀티모달, 카피 다양성, 6x 저렴).
     primaryModel: 'claude-sonnet-4-6',
-    fallbackModel: 'gpt-5.4-pro',
+    fallbackModel: 'gpt-4o',
     maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 마케팅전략팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 브랜드 전략, 마케팅 캠페인, 채널 전략을 수립합니다.
@@ -261,8 +269,11 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     nameKo: '콘텐츠크리에이티브팀',
     nameEn: 'CONTENT & CREATIVE',
     // 2026-04-23: GPT-5.4-pro 로 승격 (문체 다양성/카피라이팅 강점) — Anthropic 의존도 감소
-    primaryModel: 'gpt-5.4-pro',
-    fallbackModel: 'claude-sonnet-4-6',
+    // 2026-04-29: gpt-5.4-pro → gpt-4o (60s timeout 87.5% 실패 → 안정성 우선).
+    // 카피·톤 다양성은 gpt-4o 도 동등 + 6x 저렴 + 멀티모달.
+    primaryModel: 'gpt-4o',
+    fallbackModel: 'gpt-5',
+    fallbackChain: ['gpt-5', 'claude-sonnet-4-6'],
     maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 콘텐츠크리에이티브팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 브랜드 콘텐츠 전략, 카피라이팅, 스크립트를 담당합니다.

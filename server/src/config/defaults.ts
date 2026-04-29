@@ -68,18 +68,62 @@ export const GEMINI_FLASH_MODEL_ID = "gemini-2.5-flash"
 export const GEMINI_DISPLAY_LABEL = "Gemini 2.5 Pro"
 
 // ── 비용 ──
+// 단위: USD per 1K tokens (1M tokens 기준 가격을 1000 으로 나눈 값).
+//
+// ⚠️ 가격 추정값 — 실제 청구는 OpenAI dashboard / Anthropic console / Google Cloud
+//    billing 과 대조하여 PR/리뷰 시 갱신할 것.
+//    cutoff Jan 2026 이후 출시 모델(gpt-5.4*, gpt-5.5*) 은 출시 시점 공식 가격
+//    안내가 없어 동급 모델로부터 추정. 실호출 시 dashboard 와 비교해 보정.
+//
+// 2026-04-29 확장: gpt-5* (5/5-mini/5-nano/5-pro/5.1/5.4/5.4-mini/5.4-nano/5.5/5.5-pro),
+//    gpt-4o*, o1*/o3*/o4* reasoning 시리즈 추가. 미등록 모델 호출 시 cost_usd=0 기록 +
+//    estimateCostUsd 가 console.warn 으로 즉시 감지(아래 cost/costCalc.ts 참조).
 export const MODEL_PRICING_USD_PER_1K_TOKENS: Record<string, { input: number; output: number }> = {
-  "gpt-5.2":               { input: 0.003,  output: 0.012 },
-  "gpt-5.4-pro":           { input: 0.015,  output: 0.06 },
-  "gpt-5.3-codex":         { input: 0.003,  output: 0.012 },
-  "claude-sonnet-4-6":     { input: 0.003,  output: 0.015 },
-  "claude-opus-4-6":       { input: 0.015,  output: 0.075 },
+  // ── OpenAI gpt-5 시리즈 ──
+  "gpt-5":                 { input: 0.00125, output: 0.01 },     // OpenAI 공식
+  "gpt-5-mini":            { input: 0.00025, output: 0.002 },    // OpenAI 공식
+  "gpt-5-nano":            { input: 0.00005, output: 0.0004 },   // OpenAI 공식
+  "gpt-5-pro":             { input: 0.015,   output: 0.12 },     // OpenAI 공식
+  "gpt-5.1":               { input: 0.00125, output: 0.01 },     // 추정 (gpt-5 동급)
+  "gpt-5.2":               { input: 0.003,   output: 0.012 },    // defaults.ts 기존
+  "gpt-5.3-codex":         { input: 0.003,   output: 0.012 },    // defaults.ts 기존
+  "gpt-5.4":               { input: 0.005,   output: 0.02 },     // 추정 (5.4-pro/3)
+  "gpt-5.4-mini":          { input: 0.0005,  output: 0.004 },    // 추정
+  "gpt-5.4-nano":          { input: 0.00005, output: 0.0004 },   // 추정 (5-nano 동급)
+  "gpt-5.4-pro":           { input: 0.015,   output: 0.06 },     // defaults.ts 기존 (실측 검증됨)
+  "gpt-5.5":               { input: 0.0015,  output: 0.012 },    // 추정 (출시 7일, 추후 보정)
+  "gpt-5.5-pro":           { input: 0.015,   output: 0.06 },     // 추정 (5.4-pro 동급)
+
+  // ── OpenAI gpt-4o 시리즈 ──
+  "gpt-4o":                { input: 0.0025,  output: 0.01 },     // OpenAI 공식
+  "gpt-4o-mini":           { input: 0.00015, output: 0.0006 },   // OpenAI 공식
+  "gpt-4o-search-preview": { input: 0.0025,  output: 0.01 },     // 추정 (gpt-4o 동급)
+
+  // ── OpenAI o1/o3/o4 reasoning 시리즈 ──
+  "o1":                    { input: 0.015,   output: 0.06 },     // OpenAI 공식
+  "o1-pro":                { input: 0.15,    output: 0.6 },      // OpenAI 공식 (10x)
+  "o3":                    { input: 0.002,   output: 0.008 },    // OpenAI 공식
+  "o3-mini":               { input: 0.0011,  output: 0.0044 },   // OpenAI 공식
+  "o3-pro":                { input: 0.02,    output: 0.08 },     // OpenAI 공식
+  "o3-deep-research":      { input: 0.01,    output: 0.04 },     // OpenAI 공식
+  "o4-mini":               { input: 0.0011,  output: 0.0044 },   // OpenAI 공식 (o3-mini 동급)
+  "o4-mini-deep-research": { input: 0.002,   output: 0.008 },    // 추정 (o3 동급)
+
+  // ── Anthropic ──
+  "claude-sonnet-4-6":     { input: 0.003,   output: 0.015 },
+  "claude-opus-4-6":       { input: 0.015,   output: 0.075 },
   "claude-haiku-4-5-20251001": { input: 0.0008, output: 0.004 },
-  [GEMINI_MODEL_ID]:       { input: 0.00125,output: 0.01 },
-  [GEMINI_FLASH_MODEL_ID]: { input: 0.0001, output: 0.0004 },
-  "sonar-pro":             { input: 0.003,  output: 0.015 },
-  "sonar-reasoning-pro":   { input: 0.002,  output: 0.008 },
-  "sonar":                 { input: 0.001,  output: 0.001 },
+
+  // ── Google Gemini ──
+  [GEMINI_MODEL_ID]:       { input: 0.00125, output: 0.01 },
+  [GEMINI_FLASH_MODEL_ID]: { input: 0.0001,  output: 0.0004 },
+
+  // ── Perplexity ──
+  "sonar-pro":             { input: 0.003,   output: 0.015 },
+  "sonar-reasoning-pro":   { input: 0.002,   output: 0.008 },
+  "sonar":                 { input: 0.001,   output: 0.001 },
+
+  // ── DeepSeek ──
   "deepseek-chat":         { input: 0.00027, output: 0.0011 },
 }
 

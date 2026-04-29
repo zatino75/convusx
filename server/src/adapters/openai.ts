@@ -240,7 +240,10 @@ async function callOpenAIStreaming(params: { apiKey: string; model: string; req:
 export const openaiAdapter: ModelAdapter = {
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const apiKey = env("OPENAI_API_KEY")
-    const model = req.model?.trim() || "gpt-5.4"  // 최상위 버전 고정 (CLAUDE.md)
+    // 2026-04-29: 기본값 "gpt-5.4" → "gpt-5".
+    //   gpt-5.4(non-pro)는 cutoff 이후 출시 + 가격 추정값(defaults.ts)이라 안정성·검증 부족.
+    //   gpt-5 는 OpenAI 공식 가격 명확 + 60s timeout 안에 응답 완료 검증됨.
+    const model = req.model?.trim() || "gpt-5"
     const attempts: ModelAttempt[] = []
 
     if (!apiKey) {
