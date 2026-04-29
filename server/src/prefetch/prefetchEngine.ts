@@ -184,6 +184,12 @@ export interface PrefetchResult {
   totalMs: number
 }
 
+// 2026-04-29 Session 8 보강: 컨텍스트 크기 + 소스 수 제한 (입력 토큰 폭증 방지).
+//   기존: 8 소스 × 2000자 = legal 부서 +16k 토큰 → 호출당 +$0.07
+//   변경: 4 소스 × 1000자 = legal 부서 +5k 토큰 (~3x 절감)
+const MAX_SOURCES_PER_DEPT = 4
+const MAX_CHARS_PER_SOURCE = 1000
+
 /**
  * 부서 결정 직후 호출. query 는 Planner 가 만든 부서 task,
  * userMessage 는 사용자 원문 (FDA/EU 같은 해외 키워드 감지용).
@@ -217,11 +223,21 @@ export async function runPrefetch(
 
   await Promise.allSettled(tasks)
 
+  // ── 소스 수 제한 (priority: 캐시 > fresh, 등록 순서 유지) ────────
+  // 캐시 히트는 비용 0 이라 우선. 나머지는 declarative 순서 (소유자가 중요도순으로 등재).
+  const sourceOrder = Object.keys(sources)
+  const usableAll = results.filter((r) => r.content.trim())
+  usableAll.sort((a, b) => {
+    if (a.cached !== b.cached) return a.cached ? -1 : 1
+    return sourceOrder.indexOf(a.key) - sourceOrder.indexOf(b.key)
+  })
+  const usable = usableAll.slice(0, MAX_SOURCES_PER_DEPT)
+  const trimmed = usableAll.slice(MAX_SOURCES_PER_DEPT).map((r) => r.key)
+
   // ── LLM 컨텍스트 포맷 ─────────────────────────────────────────────
   const now = new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })
   let context = ""
 
-  const usable = results.filter((r) => r.content.trim())
   if (usable.length > 0) {
     const lines: string[] = []
     lines.push(`--- 실시간 데이터 (Pre-fetch ${now} KST) ---`)
@@ -231,7 +247,7 @@ export async function runPrefetch(
       lines.push("")
       lines.push(`[${label}${tag}]`)
       if (r.url) lines.push(`출처: ${r.url}`)
-      lines.push(r.content.slice(0, 2000))
+      lines.push(r.content.slice(0, MAX_CHARS_PER_SOURCE))
     }
     lines.push("")
     lines.push("--- 실시간 데이터 끝 ---")
@@ -242,16 +258,23 @@ export async function runPrefetch(
     context += `\n\n⚠️ 조회 실패 소스 (답변에 미포함, 학습 데이터로 추정 금지):\n`
     for (const f of failures) context += `- ${f.source}: ${f.reason}\n`
   }
+  if (trimmed.length > 0) {
+    context += `\n(컨텍스트 크기 제한으로 제외된 추가 소스: ${trimmed.join(", ")})\n`
+  }
 
   const totalMs = Date.now() - t0
+  // 2026-04-29 보강: failures / cacheHits / freshHits / trimmed 모두 소스 키 배열로 출력.
   logger.info("[prefetch] 완료", {
     dept,
     query: query.slice(0, 60),
     sourcesAttempted: Object.keys(sources).length,
     sourcesUsed: usable.length,
-    failures: failures.length,
-    cacheHits: cacheHits.length,
-    freshHits: freshHits.length,
+    sourcesTrimmed: trimmed,
+    failureCount: failures.length,
+    failureSources: failures.map((f) => f.source),
+    failureReasons: failures.slice(0, 6).map((f) => `${f.source}:${f.reason.slice(0, 60)}`),
+    cacheHits,
+    freshHits,
     totalMs,
   })
 

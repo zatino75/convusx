@@ -43,19 +43,19 @@ export interface AgentRunResult {
 
 type DetailedCall = { text: string; usage: ModelUsage; model: string };
 
-async function callClaudeDetailed(systemPrompt: string, userPrompt: string, maxTokens: number, thinkingBudget?: number): Promise<DetailedCall> {
+async function callClaudeDetailed(systemPrompt: string, userPrompt: string, maxTokens: number, thinkingBudget?: number, timeoutMs?: number): Promise<DetailedCall> {
   const { callClaudeDetailed: _call } = await import('../adapters/wrappers.js');
-  return _call(systemPrompt, userPrompt, maxTokens, thinkingBudget);
+  return _call(systemPrompt, userPrompt, maxTokens, thinkingBudget, timeoutMs);
 }
 
-async function callOpenAIDetailed(systemPrompt: string, userPrompt: string, maxTokens: number): Promise<DetailedCall> {
+async function callOpenAIDetailed(systemPrompt: string, userPrompt: string, maxTokens: number, timeoutMs?: number): Promise<DetailedCall> {
   const { callOpenAIDetailed: _call } = await import('../adapters/wrappers.js');
-  return _call(systemPrompt, userPrompt, maxTokens);
+  return _call(systemPrompt, userPrompt, maxTokens, timeoutMs);
 }
 
-async function callGeminiDetailed(systemPrompt: string, userPrompt: string, maxTokens: number): Promise<DetailedCall> {
+async function callGeminiDetailed(systemPrompt: string, userPrompt: string, maxTokens: number, timeoutMs?: number): Promise<DetailedCall> {
   const { callGeminiDetailed: _call } = await import('../adapters/wrappers.js');
-  return _call(systemPrompt, userPrompt, maxTokens);
+  return _call(systemPrompt, userPrompt, maxTokens, timeoutMs);
 }
 
 // 2026-04-24 Session 5 Phase 3: 부서 1단계 초안용 (Gemini 2.5 Flash, ~$0.003/부서).
@@ -324,32 +324,38 @@ async function callPrimaryModel(
 
   if (deptId) onProgress?.(deptId, `${model} 분석 중...`, 50);
 
+  // 2026-04-29 (Session 8 보강): timeoutMs 를 어댑터 내부 AbortController 까지 전달.
+  //   기존엔 withTimeout 만 작동 → 어댑터 fetch 는 ADAPTER_TIMEOUT_MS(180s) 까지 살아있어
+  //   "withTimeout reject 후에도 백그라운드 호출이 완료되어 비용 발생" 인시던트 (133s Sonnet).
+  //   이제 timeoutMs 가 어댑터 controller.abort() 와 동기화 → 진짜 호출 취소.
   const route = async (
     m: string,
-    thinkingBudget?: number
+    timeoutMs: number,
+    thinkingBudget?: number,
   ): Promise<{ text: string; usage: ModelUsage; modelIdForPricing: string }> => {
     if (m.startsWith('claude')) {
-      const r = await callClaudeDetailed(systemPrompt, userPrompt, dept.maxTokens, thinkingBudget);
+      const r = await callClaudeDetailed(systemPrompt, userPrompt, dept.maxTokens, thinkingBudget, timeoutMs);
       return { text: r.text, usage: r.usage, modelIdForPricing: r.model };
     }
     if (m.startsWith('gpt') || m.startsWith('o')) {
-      const r = await callOpenAIDetailed(systemPrompt, userPrompt, dept.maxTokens);
+      const r = await callOpenAIDetailed(systemPrompt, userPrompt, dept.maxTokens, timeoutMs);
       return { text: r.text, usage: r.usage, modelIdForPricing: r.model };
     }
     if (m.startsWith('gemini')) {
-      const r = await callGeminiDetailed(systemPrompt, userPrompt, dept.maxTokens);
+      const r = await callGeminiDetailed(systemPrompt, userPrompt, dept.maxTokens, timeoutMs);
       return { text: r.text, usage: r.usage, modelIdForPricing: r.model };
     }
     // 미지원 prefix → Claude fallback
-    const r = await callClaudeDetailed(systemPrompt, userPrompt, dept.maxTokens);
+    const r = await callClaudeDetailed(systemPrompt, userPrompt, dept.maxTokens, undefined, timeoutMs);
     return { text: r.text, usage: r.usage, modelIdForPricing: r.model };
   };
 
   try {
+    const primaryTimeout = primaryTimeoutMsFor(model);
     const r = await withTimeout(
-      route(model, dept.thinkingBudget),
-      primaryTimeoutMsFor(model),
-      `primary_${model}`
+      route(model, primaryTimeout, dept.thinkingBudget),
+      primaryTimeout,
+      `primary_${model}`,
     );
     return { text: r.text, model, usage: r.usage, modelIdForPricing: r.modelIdForPricing };
   } catch (err) {
@@ -362,7 +368,7 @@ async function callPrimaryModel(
       if (deptId) onProgress?.(deptId, `${fb}로 재시도 중...`, 55);
       try {
         const r = await withTimeout(
-          route(fb),
+          route(fb, FALLBACK_TIMEOUT_MS),
           FALLBACK_TIMEOUT_MS,
           `fallback_${fb}`
         );

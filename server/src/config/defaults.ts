@@ -130,7 +130,7 @@ export const MODEL_PRICING_USD_PER_1K_TOKENS: Record<string, { input: number; ou
 // ── 모델 기본값 ──
 export const DEFAULT_MODELS: Record<string, string> = {
   openai:       "gpt-5.2",
-  openai_pro:   "gpt-5.4-pro",
+  openai_pro:   "gpt-5",  // 2026-04-29: gpt-5.4-pro → gpt-5 (timeout 87.5% 실패로 제거)
   claude:       "claude-sonnet-4-6",
   gemini:       GEMINI_MODEL_ID,
   gemini_flash: GEMINI_FLASH_MODEL_ID,

@@ -77,8 +77,8 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     // 2026-04-29: gpt-5.4-pro → gpt-5 (60s timeout 87.5% 실패 → fallback 폭주 차단).
     // 비교표 생성·구조화 종합은 gpt-5 도 동등 + 응답속도 ~5x 빠름.
     primaryModel: 'gpt-5',
-    fallbackModel: 'gpt-5.4-pro',
-    fallbackChain: ['gpt-5.4-pro', 'claude-sonnet-4-6'],
+    fallbackModel: 'gpt-4o',
+    fallbackChain: ['gpt-4o', 'claude-sonnet-4-6'],
     maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 경쟁분석팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 경쟁 정보 수집 및 전략적 포지셔닝 분석을 수행합니다.
@@ -248,8 +248,9 @@ const DEPT_REGISTRY: Record<string, DeptConfig> = {
     id: 'data',
     nameKo: '데이터인텔리전스팀',
     nameEn: 'DATA INTELLIGENCE',
+    // 2026-04-29: fallback gpt-5.4-pro → gpt-5 (timeout 회피)
     primaryModel: GEMINI_MODEL_ID,
-    fallbackModel: 'gpt-5.4-pro',
+    fallbackModel: 'gpt-5',
     maxTokens: DEPT_MAX_TOKENS,
     systemPrompt: `당신은 CORVUS X 데이터인텔리전스팀 AI 분석가입니다.
 역할: CEO Mr.T의 사업 지시에 대한 소비자 데이터 분석, 검색 트렌드, 감성 분석을 수행합니다.

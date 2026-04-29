@@ -25,7 +25,8 @@ export type DetailedCallResult = {
 // runtime 에 이 값을 import 해서 사용한다 (CLAUDE.md #25 — 정적 박제 금지).
 // callOpenAI 내부 fallback 으로도 단일 출처로 노출.
 export const CLAUDE_MODEL_ID = 'claude-sonnet-4-6';
-export const OPENAI_MODEL_ID = 'gpt-5.4-pro';
+// 2026-04-29: 'gpt-5.4-pro' → 'gpt-5' (60s timeout 87.5% 실패 → primary/fallback 정리, #18~)
+export const OPENAI_MODEL_ID = 'gpt-5';
 export const PERPLEXITY_MODEL_ID = 'sonar-pro';
 
 /** Claude Sonnet 4.6 호출 */
@@ -136,7 +137,10 @@ export async function callClaudeDetailed(
   systemPrompt: string,
   userPrompt: string,
   maxTokens = 4096,
-  thinkingBudget?: number
+  thinkingBudget?: number,
+  /** 어댑터 네트워크 abort 까지 동기화하려면 이 값을 명시적으로 넘긴다.
+   *  미지정 시 ADAPTER_TIMEOUT_MS(180s). DepartmentAgent 는 90~120s 로 dispatch 한다. */
+  timeoutMs?: number,
 ): Promise<DetailedCallResult> {
   const req: any = {
     provider: 'claude',
@@ -150,6 +154,9 @@ export async function callClaudeDetailed(
   if (thinkingBudget && thinkingBudget > 0) {
     req.thinking = { type: 'enabled', budget_tokens: thinkingBudget };
   }
+  if (typeof timeoutMs === 'number' && timeoutMs > 0) {
+    req.timeout_ms = timeoutMs;
+  }
   const resp = await claudeAdapter.generate(req);
   if (resp.error) throw new Error(resp.error.message);
   return { text: resp.answer ?? '', usage: resp.usage ?? {}, model: resp.model ?? CLAUDE_MODEL_ID };
@@ -158,9 +165,10 @@ export async function callClaudeDetailed(
 export async function callOpenAIDetailed(
   systemPrompt: string,
   userPrompt: string,
-  maxTokens = 4096
+  maxTokens = 4096,
+  timeoutMs?: number,
 ): Promise<DetailedCallResult> {
-  const resp = await openaiAdapter.generate({
+  const req: any = {
     provider: 'openai',
     model: OPENAI_MODEL_ID,
     messages: [
@@ -168,7 +176,9 @@ export async function callOpenAIDetailed(
       { role: 'user',   content: userPrompt },
     ],
     max_tokens: maxTokens,
-  } as any);
+  };
+  if (typeof timeoutMs === 'number' && timeoutMs > 0) req.timeout_ms = timeoutMs;
+  const resp = await openaiAdapter.generate(req);
   if (resp.error) throw new Error(resp.error.message);
   return { text: resp.answer ?? '', usage: resp.usage ?? {}, model: resp.model ?? OPENAI_MODEL_ID };
 }
@@ -176,9 +186,10 @@ export async function callOpenAIDetailed(
 export async function callGeminiDetailed(
   systemPrompt: string,
   userPrompt: string,
-  maxTokens = 4096
+  maxTokens = 4096,
+  timeoutMs?: number,
 ): Promise<DetailedCallResult> {
-  const resp = await geminiAdapter.generate({
+  const req: any = {
     provider: 'gemini',
     model: GEMINI_MODEL_ID,
     messages: [
@@ -186,7 +197,9 @@ export async function callGeminiDetailed(
       { role: 'user',   content: userPrompt },
     ],
     max_tokens: maxTokens,
-  } as any);
+  };
+  if (typeof timeoutMs === 'number' && timeoutMs > 0) req.timeout_ms = timeoutMs;
+  const resp = await geminiAdapter.generate(req);
   if (resp.error) throw new Error(resp.error.message);
   return { text: resp.answer ?? '', usage: resp.usage ?? {}, model: resp.model ?? GEMINI_MODEL_ID };
 }
