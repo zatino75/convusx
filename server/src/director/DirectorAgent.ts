@@ -232,6 +232,8 @@ export async function runDirector(
       availableConnectors: connectorSet,
       // 부서 system prompt 에 사용자 지침을 주입할 때 사용 — sessionId 가 곧 프로젝트 식별자
       projectId: options.sessionId ?? session.sessionId,
+      // Pre-fetch 의 condition() 에서 'FDA/EU/수출' 등 해외 키워드 감지용 사용자 원문
+      userMessage: directive,
       onProgress: (deptId, message, percent) => {
         send({ type: 'dept_progress', deptId, message, percent });
       },
@@ -393,6 +395,7 @@ export async function runDirector(
               roundNumber: round.roundNumber,
               availableConnectors: connectorSet,
               projectId: options.sessionId ?? session.sessionId,
+              userMessage: directive,
               onProgress: (dId, message, percent) => {
                 send({ type: 'dept_progress', deptId: dId, message, percent });
               },

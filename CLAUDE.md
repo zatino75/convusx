@@ -1,6 +1,20 @@
 # CORVUS X — CLAUDE.md
-> 최종 업데이트: 2026-04-29 (Session 7 후속 — OpenAI 부서 모델 교체 / 가격표 확장 / 미등록 모델 감지)
+> 최종 업데이트: 2026-04-29 (Session 8 — Pre-fetch 도입 / 부서 외부 데이터 병렬 수집 / SQLite prefetch_cache)
 > 이 파일이 유일한 기술 소스 오브 트루스입니다.
+
+## Session 8 (2026-04-29) 핵심 변경 — Pre-fetch 도입
+- **`server/src/prefetch/`** 신규 모듈:
+  - `prefetchSources.ts` — 부서별 소스 declarative 설정 (legal=7, market=5, compete=3, rnd=4, finance=1, marketing=2, data=1).
+  - `prefetchEngine.ts` — Promise.allSettled 병렬 + SQLite 캐시 + Perplexity/RSS/fetch/naver 라우팅.
+- **DepartmentAgent**: `callPrimaryModel` 직전 `runPrefetch(deptId, taskQuery, userMessage)` 호출 → 결과 텍스트를 system prompt 끝에 주입. LLM Tool Calling 미사용 (토큰 비용 절감).
+- **DirectorAgent**: agentOpts.userMessage = directive 전달 → Pre-fetch condition() 에서 'FDA/EU/수출' 같은 해외 키워드 감지.
+- **SQLite `prefetch_cache`**: cache_key/dept/source_key/content/url/fetched_at/ttl_seconds/expires_at. `idx_prefetch_expires`, `idx_prefetch_dept_src`. 30분마다 scheduler 가 만료 항목 자동 정리.
+- **TTL 정책**: 시세/finance 5분, 뉴스/marketing 30분, 규제/RSS 1시간, 법조문/해외 2시간.
+- **No fallback**: 실패 소스는 ⚠️ 표시로 LLM 에 노출 → 답변에 명시. 학습 데이터로 추정 금지 (#28).
+- **ecig 규제 데이터 소스**: 식약처 RSS 미사용 → 기재부 담배사업법(법제처) + 환경부 + 지자체 조례(자치법규정보시스템) (#29).
+- **타임아웃 +30s 상향**: pre-fetch 12s + LLM 추론 → claude-sonnet 120s 유지, haiku/gpt 60→90s, gemini 45→75s.
+- **agentLoop 시스템 프롬프트**: REAL-TIME DATA RULE 추가. `--- 실시간 데이터 ---` 블록을 우선 참고하고 ⚠️ 실패 소스는 답변에 명시하도록 지시.
+- **금지패턴 #28/#29 추가**.
 
 ## Session 7 후속 (2026-04-29) 핵심 변경
 
@@ -295,6 +309,8 @@ server/src/
 25. **시스템 프롬프트 / 도구 description / UI 라벨에 정적 모델 ID 박제 금지** — 2026-04-29 인시던트: agentLoop / openai 어댑터 / parallelEnsemble / claudeDraftAlt / geminiDraft / EnsembleRunner 의 시스템 프롬프트와 description 에 "Claude Opus 4.6", "GPT-5.4-pro", "Gemini 3.1 Pro Ultra" 등 거짓·구식 모델명이 박제되어 있어 사용자 자기소개 응답에 그대로 출력됨. 모델 ID 는 항상 `wrappers.ts` 의 `CLAUDE_MODEL_ID` / `OPENAI_MODEL_ID`, `gemini.ts` 의 `GEMINI_MODEL_ID`, `DepartmentRegistry`, `settingsStore` 에서 런타임 조회. 자기소개 요청 (예: "당신은 어떤 AI 모델로 동작하나요?") 에 모델명 노출 금지 — capability 만 안내. **예외 (정적 박제 허용)**: 디버그 로그 `logger.info`, 비용 추적 emit, `config/defaults.ts::MODEL_PRICING_USD_PER_1K_TOKENS` 가격표.
 26. **시스템 프롬프트 / 도구 description / 자기소개 응답에 미연결·미구현 도구 박제 금지** — 2026-04-29 인시던트: `generate_image` / `generate_video` description 에 "DALL-E 3 / Midjourney v7 / Imagen 4 / Gemini Flash 네이티브 / Runway Gen4 / Veo 3.1" 브랜드명이 박제. 환경변수가 비어있는 어댑터(`MIDJOURNEY_API_KEY`, `RUNWAY_API_KEY`)도 description 만으로 모델이 "이 기능 가능합니다" 라고 거짓 자기소개 → 호출 시 fail. 도구 노출은 **항상 `agent/availableTools.ts::listAvailableTools()` 를 거쳐** env 키 검증된 항목만 system prompt 에 주입. description 본문은 capability 위주(브랜드명 최소화). 어댑터 success 메시지에서도 브랜드명 제거 → "이미지가 생성됐습니다" 류 중립 표현. **예외**: 가격표, debug logger, 어댑터 내부 모델 ID 변수, 변경 이력 주석.
 27. **고가 멀티 LLM 도구 settings-gate 필수** — 2026-04-29: `parallel_ensemble` (호출당 $0.5~1.5) / `adversarial_critique` (호출당 $0.2~0.5) 는 항상 `settingsStore.AppSettings::ensembleEnabled` / `ensembleCritiqueEnabled` (기본 false) 를 통과해야 한다. `availableTools.isToolAvailable()` 이 settings + env 동시 체크. 사용자가 ⚙️ 설정 → 모델 설정 탭에서 명시적으로 토글하지 않는 한 비활성. CriticReview 의 `if (false)` bypass 와는 별개 — 이건 director 내부 자동화이고, 이 규칙은 agent loop 가 노출하는 도구에 적용. 설정 토글이 OFF 면 system prompt 자체에 도구가 등장하지 않아 모델이 호출 시도조차 못 함.
+28. **Pre-fetch 없이 학습 데이터로 규제·시세·시장 정보 답변 금지** — 2026-04-29 Session 8: `runPrefetch(dept, query, userMessage)` 가 부서 호출 전에 외부 데이터를 병렬 수집해 system prompt 에 주입. 실패 소스는 ⚠️ 로 명시. LLM 은 `--- 실시간 데이터 ---` 블록을 우선 참고해야 하며, **실패 소스나 빈 데이터를 학습 지식으로 추정 보완 금지** (날짜·금액·법조문 환각 방지). agentLoop 시스템 프롬프트의 REAL-TIME DATA RULE 섹션이 이 정책을 강제. fallback 정책 도입 시도 금지 — 실패는 그대로 사용자에게 노출되어야 신뢰도가 유지된다.
+29. **ecig_regulation_check 에서 식약처(MFDS) RSS 사용 금지** — 2026-04-29 Session 8: 전자담배는 식약처 규제 대상 아님. 정확한 데이터 소스 = **기재부 담배사업법(`law.go.kr`)** + **환경부 보도자료** + **지자체 조례(`elis.go.kr`)** + (수출 시) FDA / EU TPD. `prefetchSources.ts::legal.moef_tobacco_law / moe_ecig / elis_local_ordinance / fda_ecig / eu_tpd` 가 그 매핑. mfds_food / mfds_cosmetic 는 condition() 에서 식품·화장품 키워드만 받도록 정규식 분리 — 전자담배 키워드(`전자담배|액상|니코틴|담배사업법`) 매칭 시 트리거되지 않도록 항상 검증.
 
 ## 알려진 이슈
 - ~~GPT-5.4-pro 60s 타임아웃 → fallback 빈번~~ — 2026-04-29 Session 7 후속: 부서 primary 에서 제거. fallback chain 에만 잔존 (compete/legal). 87.5% abort 인시던트 종결.

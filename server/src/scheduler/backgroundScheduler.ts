@@ -189,6 +189,16 @@ export function startScheduler() {
       .catch(() => {})
   }, CREDIT_REFRESH_INTERVAL_MS))
 
+  // 30분마다 prefetch_cache 만료 항목 정리 (Session 8, 2026-04-29)
+  timers.push(setInterval(() => {
+    try {
+      import("../db/corvusxDb.js").then(m => {
+        const r = m.purgeExpiredPrefetchCache()
+        if (r.deleted > 0) logger.info("[scheduler] prefetch_cache 정리", { deleted: r.deleted })
+      }).catch(() => {})
+    } catch { /* ignore */ }
+  }, 30 * 60 * 1000))
+
   // .unref() — 프로세스 종료 방해 안 함
   for (const t of timers) t.unref()
 

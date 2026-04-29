@@ -85,6 +85,21 @@ corvusxDb.exec(`
     last_tested INTEGER,
     updated_at  INTEGER NOT NULL
   );
+
+  -- Pre-fetch 데이터 캐시 (2026-04-29 추가, Session 8) ──────────────
+  -- 부서/소스/쿼리별 외부 데이터 수집 결과 캐시. expires_at 만료 시 정리.
+  CREATE TABLE IF NOT EXISTS prefetch_cache (
+    cache_key   TEXT PRIMARY KEY,
+    dept        TEXT NOT NULL,
+    source_key  TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    url         TEXT,
+    fetched_at  INTEGER NOT NULL,
+    ttl_seconds INTEGER NOT NULL,
+    expires_at  INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_prefetch_expires ON prefetch_cache(expires_at);
+  CREATE INDEX IF NOT EXISTS idx_prefetch_dept_src ON prefetch_cache(dept, source_key);
 `)
 
 // ── 마이그레이션: 기존 CHECK 제약(charge/usage 만 허용) → set_balance/reset 추가 ──
@@ -125,6 +140,13 @@ logger.info("[corvusxDb] opened", { path: DB_PATH })
 /** 디버그/테스트용 — 두 테이블 비우기. */
 export function _wipeAll(): void {
   corvusxDb.exec("DELETE FROM cost_entries; DELETE FROM credit_entries;")
+}
+
+/** 만료된 prefetch_cache 항목 삭제. scheduler 가 주기적으로 호출. */
+export function purgeExpiredPrefetchCache(): { deleted: number } {
+  const now = Math.floor(Date.now() / 1000)
+  const r = corvusxDb.prepare(`DELETE FROM prefetch_cache WHERE expires_at < ?`).run(now)
+  return { deleted: Number(r.changes ?? 0) }
 }
 
 export function getCorvusxDbPath(): string {

@@ -20,6 +20,12 @@ export interface AgentRunOptions {
   availableConnectors?: Set<string>;  // 현재 연결된 커넥터 ID 목록
   /** 사용자 정의 지침 주입용 — 글로벌 + 해당 프로젝트 활성 지침을 system prompt 에 합친다. */
   projectId?: string;
+  /**
+   * 사용자 원문 메시지. Pre-fetch 엔진의 condition() 에서
+   * 'FDA / EU TPD / 수출' 같은 해외 키워드 감지용.
+   * 미지정 시 task.context 로 fallback.
+   */
+  userMessage?: string;
 }
 
 export interface AgentRunResult {
@@ -294,13 +300,15 @@ async function runPreResearch(
 // gemini-2.5-pro: 45초
 // Fallback: 45초 전부 공통
 function primaryTimeoutMsFor(model: string): number {
+  // 2026-04-29 (Session 8): Pre-fetch 도입으로 외부 데이터가 system prompt 에 들어와
+  // 입력 컨텍스트가 커짐 → 모든 모델 타임아웃 +30s 상향. (Pre-fetch 자체 ≤12s + LLM ≤90s + 버퍼)
   const m = model.toLowerCase();
   if (m.startsWith('claude-opus')) return 180000;
   if (m.startsWith('claude-sonnet')) return 120000;
-  if (m.startsWith('claude-haiku') || m.startsWith('claude')) return 60000;
-  if (m.startsWith('gpt') || m.startsWith('o')) return 60000;
-  if (m.startsWith('gemini')) return 45000;
-  return 60000;
+  if (m.startsWith('claude-haiku') || m.startsWith('claude')) return 90000;
+  if (m.startsWith('gpt') || m.startsWith('o')) return 90000;
+  if (m.startsWith('gemini')) return 75000;
+  return 90000;
 }
 const FALLBACK_TIMEOUT_MS = 45000;
 
@@ -511,6 +519,29 @@ export async function runDepartmentAgent(
       systemPromptWithInstructions = `${instructionsBlock}\n\n=== 부서 시스템 프롬프트 ===\n${dept.systemPrompt}`;
     }
   } catch { /* 지침 로드 실패 무시 */ }
+
+  // ④.5 Pre-fetch: 부서별 외부 데이터 병렬 수집 → 시스템 프롬프트 끝에 주입.
+  //   No fallback 정책: 실패 소스는 ⚠️ 표시로 LLM 에 전달, 학습 데이터 추정 금지.
+  //   condition() 에서 query 는 부서 task 컨텍스트, userMessage 는 사용자 원문.
+  try {
+    const { runPrefetch } = await import('../prefetch/prefetchEngine.js');
+    const prefetchQuery = `${task.objective} ${task.context ?? ''}`.trim();
+    const userMsg = options.userMessage ?? task.context ?? task.objective;
+    onProgress?.(task.deptId, '실시간 데이터 수집 중...', 32);
+    const prefetch = await runPrefetch(task.deptId, prefetchQuery, userMsg);
+    if (prefetch.context) {
+      systemPromptWithInstructions = `${systemPromptWithInstructions}\n\n${prefetch.context}`;
+    }
+    logger.info({
+      deptId: task.deptId,
+      prefetchMs: prefetch.totalMs,
+      cacheHits: prefetch.cacheHits.length,
+      freshHits: prefetch.freshHits.length,
+      failures: prefetch.failures.length,
+    }, '[DepartmentAgent] Pre-fetch 적용');
+  } catch (err) {
+    logger.warn({ deptId: task.deptId, error: String((err as any)?.message ?? err) }, '[DepartmentAgent] Pre-fetch 실패 (무시)');
+  }
 
   const {
     text: rawOutput,
