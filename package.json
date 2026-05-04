@@ -26,12 +26,12 @@
     "vitest": "3.1.1"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.79.0",
-    "better-sqlite3": "12.8.0",
-    "dotenv": "17.3.1",
-    "image-size": "1.2.1",
+    "@anthropic-ai/sdk": "0.92.0",
+    "better-sqlite3": "12.9.0",
+    "dotenv": "17.4.2",
+    "image-size": "2.0.2",
     "jszip": "3.10.1",
-    "pdf-parse": "1.1.4",
+    "pdf-parse": "2.4.5",
     "pptxgenjs": "4.0.1"
   }
 }
